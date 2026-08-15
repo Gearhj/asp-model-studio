@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
+  normalizeSelectionCandidateEvidence,
   parseLockedSelectionDecision,
   rankVerifiedSelectionCandidates,
   resolvePromotionReadiness,
+  selectionMetricNamesMatch,
   selectionMetricLabel,
   verifiedSelectionMetric,
 } from "../../src/lib/selectionProvenance";
@@ -118,6 +120,49 @@ test("fold outcome changes can change the selection leaderboard", () => {
     rankVerifiedSelectionCandidates(rows, "pr_auc", false)[0]
       .candidate_id,
   ).toBe("b");
+});
+
+test("sparse leaderboard rows can rank from frozen candidate contract evidence", () => {
+  const sparseDisplayRow = {
+    key: "logistic_regression",
+    name: "Logistic Regression",
+    candidate_contract: {
+      ...candidate("contract-candidate", 0.81),
+      key: "logistic_regression",
+      algorithm_id: "logistic_regression",
+      champion_eligible: true,
+    },
+  };
+
+  const normalized = normalizeSelectionCandidateEvidence(sparseDisplayRow);
+  expect(normalized.candidate_id).toBe("contract-candidate");
+  expect(normalized.training_run_id).toBe("run-contract-candidate");
+  expect(verifiedSelectionMetric(normalized, "pr_auc")).not.toBeNull();
+  expect(
+    rankVerifiedSelectionCandidates([sparseDisplayRow], "pr_auc", false).map(
+      (row) => row.candidate_id,
+    ),
+  ).toEqual(["contract-candidate"]);
+});
+
+test("ROC-AUC metric aliases do not orphan verified supervised candidates", () => {
+  const rows = [
+    candidate("roc", 0.78, {
+      selection_metric: metric({ name: "auc", value: 0.78, mean: 0.78 }),
+    }),
+  ];
+  expect(verifiedSelectionMetric(rows[0], "roc_auc")).not.toBeNull();
+  expect(
+    rankVerifiedSelectionCandidates(rows, "roc_auc", false).map(
+      (row) => row.candidate_id,
+    ),
+  ).toEqual(["roc"]);
+});
+
+test("locked decision metric aliases match the selected candidate evidence", () => {
+  expect(selectionMetricNamesMatch("auc", "roc_auc")).toBe(true);
+  expect(selectionMetricNamesMatch("average_precision", "pr_auc")).toBe(true);
+  expect(selectionMetricNamesMatch("auc", "pr_auc")).toBe(false);
 });
 
 test("missing, final-holdout, and failed integrity evidence cannot rank", () => {

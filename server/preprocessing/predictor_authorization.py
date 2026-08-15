@@ -127,6 +127,13 @@ def verify_durable_predictor_authorization(
         ),
         "source": str(manifest.get("source") or ""),
     }
+    # New manifests bind the durable deterministic-source evidence into the
+    # authorization checksum. Preserve verification compatibility for earlier
+    # manifests that predate the evidence field.
+    if "target_source_fields" in manifest:
+        manifest_base["target_source_fields"] = list(
+            manifest.get("target_source_fields") or []
+        )
     expected_authorization_id = _stable_contract_id(
         "predictor-auth", manifest_base
     )
@@ -141,6 +148,11 @@ def verify_durable_predictor_authorization(
     ):
         raise PredictorAuthorizationIntegrityError(
             "The predictor authorization content checksum is stale."
+        )
+    evidence_ref = str(manifest.get("target_source_evidence_ref") or "").strip()
+    if evidence_ref and evidence_ref != expected_authorization_id:
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization target-source evidence reference is stale."
         )
     expected_artifact_hash = expected_authorization_id.removeprefix(
         "predictor-auth-"
@@ -162,6 +174,16 @@ def _string_set(values: Any) -> set[str]:
     if not isinstance(values, (list, tuple, set)):
         return set()
     return {str(value).strip() for value in values if str(value).strip()}
+
+
+def _evidence_scalar(value: Any) -> Any:
+    if value is None or value is pd.NA:
+        return None
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    return value
 
 
 def explicit_predictor_exclusions(
@@ -223,6 +245,57 @@ def detect_deterministic_target_sources(
     return found
 
 
+def deterministic_target_source_fields(
+    frame: pd.DataFrame,
+    target: str | None,
+    fields: Iterable[str],
+    *,
+    detection_scope: str,
+) -> list[dict[str, Any]]:
+    """Build durable, reviewable evidence for deterministic target sources."""
+
+    if not target or target not in frame.columns:
+        return []
+    records: list[dict[str, Any]] = []
+    for field in sorted({str(value) for value in fields}):
+        if field not in frame.columns or field == target:
+            continue
+        paired = pd.DataFrame(
+            {"source": frame[field], "target": frame[target]}
+        ).dropna()
+        grouped = (
+            paired.groupby(["source", "target"], dropna=False)
+            .size()
+            .reset_index(name="rowCount")
+        )
+        mapping = []
+        for row in grouped.itertuples(index=False):
+            source_value = _evidence_scalar(row.source)
+            target_value = _evidence_scalar(row.target)
+            mapping.append(
+                {
+                    "sourceValue": source_value,
+                    "targetValue": target_value,
+                    "rowCount": int(row.rowCount),
+                }
+            )
+        records.append(
+            {
+                "field": field,
+                "target": str(target),
+                "relationship": "deterministic_target_source",
+                "detection_scope": detection_scope,
+                "registered_rows": int(len(frame)),
+                "compared_rows": int(len(paired)),
+                "coverage_rate": float(len(paired) / max(len(frame), 1)),
+                "source_distinct_count": int(paired["source"].nunique()),
+                "target_distinct_count": int(paired["target"].nunique()),
+                "mapping": mapping,
+            }
+        )
+    return records
+
+
 def governed_predictor_authorization(
     frame: pd.DataFrame,
     target: str | None = None,
@@ -233,12 +306,10 @@ def governed_predictor_authorization(
 ) -> dict[str, Any]:
     """Resolve the one authoritative predictor set used by preparation stages.
 
-    ``detect_target_sources=False`` is the pre-EDA mode used by Data
-    Acquisition.  Deterministic target-source discovery is target-directed and
-    therefore must not inspect the full governed population after a final
-    holdout is reserved.  Data Acquisition can still enforce structural,
-    system-field, and explicit upstream exclusions; target-directed discovery
-    is subsequently performed on the development partition only.
+    Target-source discovery is permitted while Data Acquisition still owns the
+    unpartitioned registered population. The resulting evidence is persisted in
+    the immutable authorization manifest; downstream EDA consumes that lineage
+    and never re-discovers against a sealed holdout target.
     """
 
     resolved_target = str(target or DATASTORE.target or "") or None
@@ -274,6 +345,17 @@ def governed_predictor_authorization(
         if detect_target_sources
         else set()
     )
+    detection_scope = (
+        "registered_population_pre_partition"
+        if detect_target_sources
+        else "not_performed"
+    )
+    target_source_fields = deterministic_target_source_fields(
+        frame,
+        resolved_target,
+        deterministic,
+        detection_scope=detection_scope,
+    )
     excluded: dict[str, str] = {}
     # Record authoritative safety exclusions for the complete source schema,
     # not only the currently selected subset. Feature Engineering rewrites the
@@ -307,11 +389,10 @@ def governed_predictor_authorization(
         "target": resolved_target,
         "authorized_predictors": authorized,
         "excluded_predictors": excluded,
-        "target_source_excluded": sorted(deterministic | (explicit & set(frame.columns))),
+        "target_source_excluded": sorted(deterministic),
+        "target_source_fields": target_source_fields,
         "selected_predictors": selected,
-        "target_source_detection_scope": (
-            "provided_analysis_frame" if detect_target_sources else "deferred_until_development_partition"
-        ),
+        "target_source_detection_scope": detection_scope,
     }
 
 

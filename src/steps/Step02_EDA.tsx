@@ -70,6 +70,7 @@ import {
   getEdaDocumentationState,
   saveEdaDocumentationDraft,
   type EdaDocumentationEvidenceReference,
+  type EdaCompletionContract,
   type EdaDocumentationState,
 } from "../lib/edaDocumentationApi";
 import {
@@ -126,6 +127,48 @@ const DOCUMENTATION_SECTIONS: EDATab[] = [
 type EDATab = EdaWorkspaceTab;
 type Scope = AtlasDataScope;
 
+type EdaPopulationCounts = {
+  registered_population_rows: number;
+  development_population_rows: number | null;
+  sealed_final_holdout_rows: number | null;
+  analysis_population_rows: number | null;
+  fit_population_rows: number | null;
+  application_population_rows: number | null;
+  rendered_sample_rows: number | null;
+  [key: string]: number | boolean | null;
+};
+
+type EdaPopulationContract = {
+  contract_version: string;
+  contract_id: string;
+  contract_hash: string;
+  counts: EdaPopulationCounts;
+  primary: {
+    scope: Scope | "rendered_sample";
+    purpose: string;
+    row_count: number;
+  };
+  scopes: {
+    descriptive_scope: string;
+    analysis_scope: string;
+    target_scope: string;
+    target_directed_scope: string;
+    fit_scope: string;
+    application_scope: string;
+    materialization_scope: string;
+    render_scope: string;
+  };
+  holdout_truth: {
+    final_holdout_target_accessed: boolean;
+    final_holdout_predictors_included_in_structural_profile: boolean;
+    final_holdout_parameter_influence: boolean;
+    final_holdout_used_for_selection: boolean;
+    final_holdout_transformed_or_materialized_prelock: boolean;
+    final_holdout_opened_for_final_reporting: boolean;
+  };
+  duplicates: Record<string, unknown>;
+};
+
 type WorkspaceResponse = {
   ok: boolean;
   project_id: string;
@@ -141,6 +184,9 @@ type WorkspaceResponse = {
   dataset_version: string;
   duration_ms: number;
   cache_status: "hit" | "miss";
+  population_contract: EdaPopulationContract;
+  population_counts: EdaPopulationCounts;
+  completion_contract: EdaCompletionContract;
   [key: string]: any;
 };
 
@@ -360,8 +406,8 @@ const tabs: Array<{ id: EDATab; label: string; icon: LucideIcon }> = [
 ];
 
 const predictorSectionLinks = [
-  { id: "eda-predictors-signal", label: "Signal" },
   { id: "eda-predictors-deep-dive", label: "Deep Dive" },
+  { id: "eda-predictors-signal", label: "Signal" },
   { id: "eda-predictors-shape-gallery", label: "Shape Gallery" },
   { id: "eda-predictors-quality-matrix", label: "Quality Matrix" },
   { id: "eda-predictors-special-values", label: "Special Values" },
@@ -544,7 +590,7 @@ export default function Step02EDA() {
   const [activeTab, setActiveTab] = useState<EDATab>(() =>
     readEdaWorkspaceTab({
       search: typeof window === "undefined" ? "" : window.location.search,
-      storage: typeof localStorage === "undefined" ? null : localStorage,
+      storage: null,
       storageKey: edaTabPreferenceKey,
     }),
   );
@@ -1352,21 +1398,6 @@ export default function Step02EDA() {
           } an eligible governed disposition and rationale before confirming EDA.`,
         );
       }
-      const resolvedOverview = resolvedSections.overview;
-      const duplicateRows = Number(
-        resolvedOverview?.headline?.duplicate_rows ?? 0,
-      );
-      const duplicateResolved =
-        duplicateRows <= 0 ||
-        ((findings.duplicateTreatment === "exclude" ||
-          findings.duplicateTreatment === "keep") &&
-          Boolean(findings.duplicateDecisionSavedAt));
-      if (!duplicateResolved) {
-        throw new Error(
-          "Record and save a substantive duplicate-row treatment decision before confirming EDA.",
-        );
-      }
-
       let evidenceReferences = documentationEvidence;
       const candidate = buildDocumentation(
         resolvedSections,
@@ -1485,12 +1516,6 @@ export default function Step02EDA() {
       unresolvedParentFindingCount,
     ],
   );
-  const duplicateRows = Number(overview?.headline?.duplicate_rows ?? 0);
-  const duplicateDecisionComplete =
-    duplicateRows <= 0 ||
-    ((findings.duplicateTreatment === "exclude" ||
-      findings.duplicateTreatment === "keep") &&
-      Boolean(findings.duplicateDecisionSavedAt));
   const reviewerConclusionComplete = Boolean(
     String(findings.overallConclusion ?? "").trim(),
   );
@@ -1503,8 +1528,7 @@ export default function Step02EDA() {
     overallStatusEligible &&
     unresolvedParentFindingCount === 0 &&
     reviewerConclusionComplete &&
-    reviewerCommentaryComplete &&
-    duplicateDecisionComplete;
+    reviewerCommentaryComplete;
   const confirmationStatus = confirmationPending
     ? "Confirming…"
     : documentationState?.status === "confirmed"
@@ -1534,8 +1558,7 @@ export default function Step02EDA() {
     unresolvedParentFindingCount > 0 ||
     !reviewerConclusionComplete ||
     !reviewerCommentaryComplete ||
-    !overallStatusEligible ||
-    !duplicateDecisionComplete;
+    !overallStatusEligible;
   const completionBlockers = useMemo<EdaCompletionBlocker[]>(() => {
     const blockers: EdaCompletionBlocker[] = [];
     if (!datasetIdentity) {
@@ -1584,13 +1607,6 @@ export default function Step02EDA() {
         destination: "findings",
       });
     }
-    if (!duplicateDecisionComplete) {
-      blockers.push({
-        id: "duplicate-treatment",
-        message: "Save the duplicate-row treatment decision.",
-        destination: "findings",
-      });
-    }
     if (!reviewerConclusionComplete) {
       blockers.push({
         id: "reviewer-conclusion",
@@ -1617,7 +1633,6 @@ export default function Step02EDA() {
     activeTab,
     activeCanonicalHandoff,
     datasetIdentity,
-    duplicateDecisionComplete,
     error,
     loading,
     handoffLoading,
@@ -1634,6 +1649,13 @@ export default function Step02EDA() {
   const nextDisabledReason = nextDisabled
     ? completionSummary.text
     : undefined;
+  const requestEdaWorkflowAdvance = useCallback(() => {
+    const workflowContinue = document.querySelector<HTMLButtonElement>(
+      '[data-testid="eda-workflow-continue-button"]',
+    );
+    if (!workflowContinue || workflowContinue.disabled) return;
+    workflowContinue.click();
+  }, []);
   const documentationImpact = documentationImpactByTab[activeTab];
   const predictorAuthorization = safeObject(overview?.predictor_authorization);
   const rawAuthorizedPredictors =
@@ -1686,6 +1708,8 @@ export default function Step02EDA() {
       : null;
   const activeTabLabel =
     tabs.find((tab) => tab.id === activeTab)?.label ?? titleCase(activeTab);
+  const activeTabIndex = tabs.findIndex((tab) => tab.id === activeTab);
+  const nextEdaTab = activeTabIndex >= 0 ? tabs[activeTabIndex + 1] : undefined;
   const activateEdaTab = useCallback(
     (tab: EDATab, focus = false) => {
       setActiveTab(tab);
@@ -2029,7 +2053,6 @@ export default function Step02EDA() {
     ).length;
     const workflowBlockers =
       findingBlockers +
-      (duplicateDecisionComplete ? 0 : 1) +
       (confirmationState === "stale" ? 1 : 0);
     return [
       {
@@ -2071,7 +2094,6 @@ export default function Step02EDA() {
     confirmationState,
     confirmationStatus,
     documentationEvidence.length,
-    duplicateDecisionComplete,
     findings.status,
     overview,
     pinnedPair,
@@ -2136,6 +2158,7 @@ export default function Step02EDA() {
       nextDisabled={nextDisabled}
       nextDisabledReason={nextDisabledReason}
       nextLabel="Confirm EDA and Continue"
+      nextButtonTestId="eda-workflow-continue-button"
       onNext={completeEDA}
       nextAlwaysVisible
       nextFooterTestId="eda-completion-bar"
@@ -2692,6 +2715,47 @@ export default function Step02EDA() {
               data-testid="eda-duplicate-decision"
             />
           ) : null}
+          <div
+            className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm"
+            data-testid="eda-tab-bottom-navigation"
+            data-active-tab={activeTab}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">
+                  Next EDA step
+                </div>
+                <p className="mt-1 text-sm text-blue-950">
+                  {nextEdaTab
+                    ? `Continue from ${activeTabLabel} to ${nextEdaTab.label}.`
+                    : "Finish the Findings review, save the governed EDA evidence, and continue to Outliers."}
+                </p>
+              </div>
+              {nextEdaTab ? (
+                <button
+                  type="button"
+                  className="atlas-primary-button"
+                  data-testid="eda-next-tab-button"
+                  onClick={() => goToEdaRequirement(nextEdaTab.id)}
+                >
+                  Continue to {nextEdaTab.label}
+                  <ArrowRight size={15} aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="atlas-primary-button"
+                  data-testid="eda-final-continue-button"
+                  disabled={nextDisabled}
+                  title={nextDisabled ? nextDisabledReason : undefined}
+                  onClick={requestEdaWorkflowAdvance}
+                >
+                  Confirm EDA and Continue to Outliers
+                  <ArrowRight size={15} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
       </div>
@@ -3367,7 +3431,7 @@ function OverviewPanel({ data }: { data: WorkspaceResponse }) {
         <div className="divide-y divide-slate-100">
           <OverviewAttentionItem
             label="Duplicate rows"
-            value={duplicateRows ? `${formatNumber(duplicateRows, 0)} require a recorded treatment decision` : "None detected"}
+            value={duplicateRows ? `${formatNumber(duplicateRows, 0)} require an exact-duplicate parent resolution` : "None detected"}
             tone={duplicateRows ? "warning" : "complete"}
           />
           <OverviewAttentionItem
@@ -3534,10 +3598,6 @@ function PredictorsPanel({
     <div className="space-y-4">
       <EdaSectionNavigation label="Predictors" links={predictorSectionLinks} />
 
-      <div id="eda-predictors-signal" className="eda-section-anchor">
-        <PredictorSignalLandscape {...predictorVisualProps} />
-      </div>
-
       <div id="eda-predictors-deep-dive" className="eda-section-anchor">
         <PredictorDistributionExplorer
           projectId={projectId}
@@ -3553,6 +3613,10 @@ function PredictorsPanel({
           canonicalRequest={canonicalRequest}
           canonicalHandoff={canonicalHandoff}
         />
+      </div>
+
+      <div id="eda-predictors-signal" className="eda-section-anchor">
+        <PredictorSignalLandscape {...predictorVisualProps} />
       </div>
 
       <LazyPredictorSecondaryInsights {...predictorVisualProps} />
@@ -3757,6 +3821,17 @@ function RelationshipsPanel(props: {
     }
     assertExactEdaResponseLineage(props.canonicalHandoff, payload);
     const summary = safeObject(payload.summary);
+    const candidateState = safeObject(payload.candidate_state);
+    if (
+      candidateState.status !== "preview_only" ||
+      String(candidateState.candidate_excluded_feature ?? "") !== excludedFeature ||
+      candidateState.committed !== false ||
+      candidateState.mutation_performed !== false
+    ) {
+      throw new Error(
+        "The VIF preview response did not match the selected candidate or non-mutating contract.",
+      );
+    }
     const beforeRows = safeArray<any>(payload.before);
     const rows = safeArray<any>(payload.after);
     const currentMaximumVif = Number(summary.before_max_vif);
@@ -3774,6 +3849,15 @@ function RelationshipsPanel(props: {
       ).length,
       materialReviewCount: rows.filter((row) => Number(row.vif) >= 10).length,
       rows,
+      candidateState: {
+        status: "preview_only",
+        candidateExcludedFeature: excludedFeature,
+        remainingPredictors: safeArray<string>(
+          candidateState.remaining_predictors,
+        ),
+        committed: false,
+        mutationPerformed: false,
+      },
     };
   }, [
     props.data.event_value,
@@ -3946,7 +4030,7 @@ function RelationshipsPanel(props: {
         rows={safeArray<any>(props.data.vif)}
         correlationColumns={columns}
         correlationMatrix={matrix}
-        selectedVariable={selectedVariable}
+        selectedVariable={vifVariable}
         onSelectVariable={handleVifVariable}
         datasetVersion={props.data.dataset_version}
         lineageKey={JSON.stringify(props.canonicalRequest)}

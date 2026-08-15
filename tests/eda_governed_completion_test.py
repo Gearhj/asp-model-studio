@@ -79,6 +79,7 @@ def _parent(**updates):
         ],
         "reviewer_disposition": "rejected",
         "reviewer_rationale": "The recommendation is rejected after expert review.",
+        "resolution_action": "retain_current_population",
         "downstream_destination": None,
         "suggested_transformation": "No transformation",
         "eligible_for_completion": True,

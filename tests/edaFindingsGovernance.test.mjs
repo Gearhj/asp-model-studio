@@ -122,6 +122,9 @@ test("eligible governed dispositions replace universal acceptance", () => {
           rationale: "Evidence reviewed; the recommendation is not adopted.",
           destination: "",
           transformation: "No transformation",
+          ...(parent.family === "exact_duplicate_rows"
+            ? { resolutionAction: "retain_current_population" }
+            : {}),
         },
       ]),
   );

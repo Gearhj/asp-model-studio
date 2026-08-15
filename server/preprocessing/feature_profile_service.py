@@ -140,13 +140,26 @@ def profile_features(
         legacy_dataset_version=legacy_dataset_version,
         user=user,
     )
-    df = DATASTORE.get_raw_active_df()
-    if df is None or df.empty:
-        raise ValueError("No full governed predictor population is loaded.")
     requested_target = target
-    target = target if target in df.columns else DATASTORE.target if DATASTORE.target in df.columns else None
+    source_frame = DATASTORE.raw_df
+    if source_frame is None or source_frame.empty:
+        raise ValueError("No full governed predictor population is loaded.")
+    target = (
+        target
+        if target in source_frame.columns
+        else DATASTORE.target
+        if DATASTORE.target in source_frame.columns
+        else None
+    )
     if not target:
         raise ValueError("Select a valid target before profiling predictors.")
+    # Structural profiling may include registered-population predictor values,
+    # but the target column must not be copied into this post-partition reader.
+    # Target-directed statistics are materialized from Development membership
+    # below, after the exact partition authority has been verified.
+    df = DATASTORE.get_raw_active_df(include_target=False)
+    if df is None or df.empty:
+        raise ValueError("No full governed predictor population is loaded.")
     scoped_store = DATASTORE.current()
     partition_repository = (
         persistence_service_module.get_persistence_service().analysis_partitions

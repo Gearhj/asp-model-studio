@@ -76,18 +76,28 @@ export default function PreparationDocumentationLiveLink({
   const stages = [
     {
       label: "Outliers",
-      status: state.outliers.status,
+      status:
+        state.outliers.status === "current"
+          ? "confirmed"
+          : state.outliers.status.startsWith("stale")
+            ? "stale"
+            : "draft",
       detail: state.outliers.application
         ? `${Number(state.outliers.application.changed_values ?? 0).toLocaleString()} values changed`
         : "Decision not applied",
     },
     {
       label: "Missing Values",
-      status: state.missing_values.status,
+      status:
+        state.missing_values.status === "current"
+          ? "confirmed"
+          : state.missing_values.status.startsWith("stale")
+            ? "stale"
+            : "draft",
       detail: state.missing_values.validation
         ? "Validated, no treatment required"
         : state.missing_values.application
-          ? `${Number(state.missing_values.application.missing_after ?? 0).toLocaleString()} nulls remain`
+          ? `${Number(state.missing_values.application.development_missing_after ?? 0).toLocaleString()} Development nulls remain`
           : "Decision not recorded",
     },
     {

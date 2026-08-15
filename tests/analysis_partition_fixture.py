@@ -123,6 +123,15 @@ class GovernedAnalysisFixture:
         target_contract_id = (
             f"target-contract-{self._hash(target_contract_payload)[:20]}"
         )
+        target_source_fields = [
+            {
+                "field": source,
+                "target": target,
+                "relationship": "governed_upstream_target_source",
+                "mapping": [],
+            }
+            for source in sources
+        ]
         authorization_base = {
             **target_contract_payload,
             "target_contract_id": target_contract_id,
@@ -131,8 +140,11 @@ class GovernedAnalysisFixture:
             "selected_predictors": sorted(predictors),
             "target_source_excluded": sources,
             "target_source_detection_scope": (
-                "deferred_until_development_partition"
+                "registered_population_pre_partition"
+                if sources
+                else "registered_population_pre_partition_no_source_detected"
             ),
+            "target_source_fields": target_source_fields,
             "source": "data_acquisition",
         }
         authorization_id = (
@@ -140,15 +152,6 @@ class GovernedAnalysisFixture:
         )
         authorization_payload = {
             **authorization_base,
-            "target_source_fields": [
-                {
-                    "field": source,
-                    "target": target,
-                    "relationship": "governed_upstream_target_source",
-                    "mapping": [],
-                }
-                for source in sources
-            ],
             "predictor_authorization_id": authorization_id,
             "manifest_version": authorization_id,
             "artifact_hash": authorization_id.removeprefix("predictor-auth-"),

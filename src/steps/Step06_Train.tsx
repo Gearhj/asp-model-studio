@@ -63,8 +63,10 @@ import {
 } from "../lib/modelTrainingInteraction";
 import {
   formatSelectionSource,
+  normalizeSelectionCandidateEvidence,
   parseLockedSelectionDecision,
   rankVerifiedSelectionCandidates,
+  selectionMetricNamesMatch,
   selectionMetricLabel,
   verifiedSelectionMetric,
   type LockedSelectionDecision,
@@ -273,6 +275,8 @@ type RankedResult = {
   selection_metric?: SelectionMetricEvidence | Record<string, unknown> | null;
   selection_integrity_status?: string;
   holdout_isolation_status?: string;
+  governed_preprocessing?: Record<string, unknown>;
+  validation_policy_execution?: Record<string, unknown>;
   runtime_profile?: {
     name?: string;
     sample_count?: number;
@@ -477,6 +481,8 @@ type TrainingJob = {
   estimated_fits?: number;
   dataset_version?: string;
   n_features: number;
+  governed_preprocessing_contract?: Record<string, unknown>;
+  validation_execution_policy?: Record<string, unknown>;
   summary?: {
     ranked?: RankedResult[];
     failed?: Array<{ key: string; name: string; error: string; technical_error?: string; traceback_reference?: string }>;
@@ -1512,12 +1518,15 @@ export default function Step07ModelTraining() {
               adjusted_r2: row.adjusted_r2 ?? undefined,
             }));
             void recordTrainingExperiments({
-              apiBase: API_BASE,
               datasetIdentity,
               trainingJobId: current.job_id,
               ranked: trackingRows,
               selectedModelKeys: current.requested_models,
               trainingSettings: requestPayload,
+              governedPreprocessingContract:
+                current.governed_preprocessing_contract ?? {},
+              validationExecutionPolicy:
+                current.validation_execution_policy ?? {},
               runtimeMs: current.runtime_ms,
               calibrated: calibrate,
             }).catch((cause) => {
@@ -1758,13 +1767,7 @@ export default function Step07ModelTraining() {
       return null;
     }
     const activeIdentity = datasetIdentity;
-    const eligibleCandidates = rankVerifiedSelectionCandidates(
-      [...(job.partial_ranked_results ?? job.summary?.ranked ?? [])].filter(
-        (row) => row.champion_eligible !== false && row.kind !== "anomaly",
-      ),
-      primaryMetric,
-      ["rmse", "mae", "mse"].includes(primaryMetric),
-    );
+    const eligibleCandidates = championEligibleResults;
     const resolvedChampionId =
       championModel &&
       eligibleCandidates.some((row) => row.candidate_id === championModel)
@@ -1933,15 +1936,18 @@ export default function Step07ModelTraining() {
   }
 
   const results = useMemo(() => {
+    const rows = [
+      ...(job?.partial_ranked_results ?? job?.summary?.ranked ?? []),
+    ].map((row) => normalizeSelectionCandidateEvidence(row));
     return rankVerifiedSelectionCandidates(
-      [...(job?.partial_ranked_results ?? job?.summary?.ranked ?? [])],
+      rows,
       primaryMetric,
       ["rmse", "mae", "mse"].includes(primaryMetric),
     );
   }, [job?.partial_ranked_results, job?.summary?.ranked, primaryMetric]);
   const allResultRows = [
     ...(job?.partial_ranked_results ?? job?.summary?.ranked ?? []),
-  ];
+  ].map((row) => normalizeSelectionCandidateEvidence(row));
   const excludedSelectionRows = allResultRows.filter(
     (row) =>
       row.kind !== "anomaly" &&
@@ -1980,7 +1986,7 @@ export default function Step07ModelTraining() {
     selectionDecision.training_job_id === job?.job_id &&
     selectionDecision.status === "locked" &&
     selectionDecision.selected_candidate_id === championModel &&
-    selectionDecision.selection_metric.name === primaryMetric;
+    selectionMetricNamesMatch(selectionDecision.selection_metric.name, primaryMetric);
   const finishedCount = job?.finished_count ?? Object.values(job?.per_model_status ?? {}).filter((state) => ["complete", "failed", "cancelled", "interrupted"].includes(state.status)).length;
   const progress = job?.total_count ? Math.round((finishedCount / job.total_count) * 100) : 0;
   const jobWarnings = Object.entries(job?.per_model_status ?? {}).flatMap(
@@ -2841,8 +2847,62 @@ function CandidateComparisonVisuals({ candidates, primaryMetric }: { candidates:
         {candidates.map((row, index) => <PlotPoint key={row.key} x={Number(row.runtime_ms ?? 0) / maxRuntime} y={score(row)} label={`${index + 1}`} title={`${cleanModelLabel(row.name)} · ${((row.runtime_ms ?? 0) / 1000).toFixed(1)} s`} tone={index === 0 ? "blue" : "amber"} />)}
       </ComparisonPlot>
       <div className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-2">
-        <div className="text-sm font-semibold text-slate-950">Candidate Selection Matrix</div>
-        <div className="mt-3 overflow-auto"><table className="atlas-table min-w-[900px]"><thead><tr><th>Candidate</th><th>Selection metric</th><th>Source</th><th>Fold definition</th><th>Std. dev.</th><th>Interpretability</th><th>Runtime</th><th>Decision signal</th></tr></thead><tbody>{candidates.slice(0, 8).map((row, index) => { const definition = definitions.get(row.key); const metric = verifiedSelectionMetric(row, primaryMetric)!; return <tr key={row.candidate_id}><td className="font-semibold">{cleanModelLabel(row.name)}</td><td>{formatMetric(metric.value)}</td><td>{formatSelectionSource(metric.source)}</td><td>{metric.fold_definition_id || metric.partition_id}</td><td>{formatMetric(metric.standard_deviation)}</td><td>{definition?.interpretability ?? "Review"}</td><td>{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td><td>{index === 0 ? "Verified selection leader" : definition?.interpretability === "High" ? "Governance challenger" : "Performance challenger"}</td></tr>; })}</tbody></table></div>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">Candidate Selection Matrix</div>
+            <div className="mt-1 text-xs text-slate-500">Verified candidate evidence ranked from the non-holdout selection metric. The final holdout is not used here.</div>
+          </div>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Verified evidence</span>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-[1040px] w-full border-collapse text-left text-xs">
+              <thead className="bg-slate-950 text-white">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Rank</th>
+                  <th className="px-3 py-2 font-semibold">Candidate</th>
+                  <th className="px-3 py-2 text-right font-semibold">Selection metric</th>
+                  <th className="px-3 py-2 font-semibold">Source</th>
+                  <th className="px-3 py-2 font-semibold">Fold definition</th>
+                  <th className="px-3 py-2 text-right font-semibold">Std. dev.</th>
+                  <th className="px-3 py-2 font-semibold">Interpretability</th>
+                  <th className="px-3 py-2 text-right font-semibold">Runtime</th>
+                  <th className="px-3 py-2 font-semibold">Decision signal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {candidates.slice(0, 8).map((row, index) => {
+                  const definition = definitions.get(row.key);
+                  const metric = verifiedSelectionMetric(row, primaryMetric)!;
+                  const decisionSignal = index === 0 ? "Verified selection leader" : definition?.interpretability === "High" ? "Governance challenger" : "Performance challenger";
+                  return (
+                    <tr key={row.candidate_id} className={index === 0 ? "bg-blue-50/70" : "hover:bg-slate-50"}>
+                      <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-600">#{index + 1}</td>
+                      <td className="px-3 py-3">
+                        <div className="font-semibold text-slate-950">{cleanModelLabel(row.name)}</div>
+                        <div className="mt-0.5 max-w-[220px] truncate text-[10px] text-slate-500" title={row.candidate_id}>{row.candidate_id}</div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-blue-700">{formatMetric(metric.value)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-700">{formatSelectionSource(metric.source)}</td>
+                      <td className="px-3 py-3">
+                        <div className="max-w-[220px] truncate text-slate-700" title={metric.fold_definition_id || metric.partition_id || "Not recorded"}>{metric.fold_definition_id || metric.partition_id || "Not recorded"}</div>
+                        {typeof metric.fold_count === "number" ? <div className="mt-0.5 text-[10px] text-slate-500">{metric.fold_count} folds</div> : null}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">{formatMetric(metric.standard_deviation)}</td>
+                      <td className="whitespace-nowrap px-3 py-3">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-700">{definition?.interpretability ?? "Review"}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right text-slate-700">{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${index === 0 ? "bg-blue-100 text-blue-700" : definition?.interpretability === "High" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{decisionSignal}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );

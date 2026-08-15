@@ -69,8 +69,27 @@ test("2. first analytical content is measured against the 380px budget", () => {
     assert.match(step, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.ok(
+    step.indexOf("<PredictorDistributionExplorer") <
+      step.indexOf("<PredictorSignalLandscape"),
+    "Predictor Distribution Explorer must be the first Predictors-tab analysis block.",
+  );
+  assert.ok(
     step.indexOf("<PredictorSignalLandscape") <
+      step.indexOf("<LazyPredictorSecondaryInsights"),
+    "Cross-predictor signal must remain above the secondary insight gallery.",
+  );
+  assert.ok(
+    step.indexOf("<LazyPredictorSecondaryInsights") <
+      step.indexOf("Detailed Predictor Profiles"),
+    "Secondary insights must remain above the detailed predictor inventory.",
+  );
+  assert.ok(
+    step.indexOf('id="eda-predictors-deep-dive"') <
       step.indexOf("<PredictorDistributionExplorer"),
+  );
+  assert.ok(
+    step.indexOf("storage: null") > -1,
+    "Direct EDA entry must ignore stale persisted tab state unless the URL names a tab.",
   );
 });
 
@@ -114,6 +133,10 @@ test("6. Predictor Quality Matrix exposes normalized and raw comparable values",
 
 test("7. Event-Rate Shape Gallery is bounded and compares against baseline", () => {
   assert.match(secondary, /testId="event-rate-shape-gallery"/);
+  assert.match(secondary, /data-testid="event-rate-shape-lift-table"/);
+  assert.match(secondary, /Associated lift table/);
+  assert.match(secondary, /Highest-risk band/);
+  assert.match(secondary, /Lift compares/);
   assert.match(secondary, /data-event-shape-line/);
   assert.match(secondary, /strokeDasharray="4 3"/);
   assert.match(secondary, /weightedBaseline/);
@@ -174,8 +197,28 @@ test("13. all three supported viewport layouts are specified", () => {
 test("14. EDA confirmation uses the governed authenticated API", () => {
   assert.match(step, /confirmEdaDocumentation/);
   assert.match(step, /Confirm EDA and Continue/);
+  assert.match(step, /data-testid="eda-tab-bottom-navigation"/);
+  assert.match(step, /data-testid="eda-next-tab-button"/);
+  assert.match(step, /data-testid="eda-final-continue-button"/);
+  assert.match(step, /Continue to \{nextEdaTab\.label\}/);
   assert.match(step, /confirmation_id/);
   assert.match(documentationApi, /credentials: "include"/);
+});
+
+test("14b. Findings Continue delegates to the canonical durable StepShell transition", () => {
+  assert.match(step, /nextPath=\{getNextStepPath\("step02"\)\}/);
+  assert.match(step, /nextButtonTestId="eda-workflow-continue-button"/);
+  assert.match(step, /onNext=\{completeEDA\}/);
+  assert.match(
+    step,
+    /requestEdaWorkflowAdvance[\s\S]*querySelector<HTMLButtonElement>\([\s\S]*eda-workflow-continue-button[\s\S]*workflowContinue\.click\(\)/,
+  );
+  const findingsContinue = step.slice(
+    step.indexOf('data-testid="eda-final-continue-button"'),
+    step.indexOf("</button>", step.indexOf('data-testid="eda-final-continue-button"')),
+  );
+  assert.match(findingsContinue, /onClick=\{requestEdaWorkflowAdvance\}/);
+  assert.doesNotMatch(findingsContinue, /completeEDA/);
 });
 
 test("15. MDD renders the immutable approved EDA state and its lineage", () => {

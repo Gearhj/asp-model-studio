@@ -432,6 +432,23 @@ test("project registry 4: a successful retry clears the prior failure", async ()
   assert.equal(recovered.error, null);
 });
 
+test("predictive projects opened from the registry start at Project Context", async () => {
+  const source = await readFile(
+    new URL("../src/steps/ProjectUtilityPages.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /authorizedProject\.projectType === "predictive-modeling"\s*\?\s*"\/step00"/,
+    "Opening a predictive-modeling project must route to the first workflow page.",
+  );
+  assert.match(
+    source,
+    /projectWorkflowRoute\(selectedProjectId, relativeRoute\)/,
+    "The first workflow page must remain project-scoped.",
+  );
+});
+
 test("project registry 5: an older failure arriving after newer success is ignored", async () => {
   const olderGate = deferred();
   let call = 0;

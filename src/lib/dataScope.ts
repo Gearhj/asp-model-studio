@@ -10,6 +10,10 @@ export const ATLAS_DATA_SCOPE_METADATA = {
   complete_browser_dataset: { label: "Complete Browser Dataset", tone: "info" },
   preview_profile: { label: "Preview Profile", tone: "warning" },
   rendered_sample: { label: "Rendered Sample", tone: "neutral" },
+  registered_structural_population: {
+    label: "Registered Structural Population",
+    tone: "success",
+  },
   training_pipeline: { label: "Training-Only Pipeline", tone: "info" },
   full_governed_population: { label: "Full Governed Population", tone: "success" },
   full_governed_population_structural_only: {

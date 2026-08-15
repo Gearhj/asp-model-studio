@@ -126,6 +126,39 @@ export function buildFinalModelStatusQuery(
 }
 
 /**
+ * Build the exact promoted identity shared by both Step 10 scoring endpoints.
+ * Endpoint-specific fields (population, correction method, and optional priors)
+ * are appended by the caller, but no request may omit any identity dimension.
+ */
+export function buildExactScoringRequestQuery(
+  context: ExactScoringContinuationContext,
+): URLSearchParams {
+  const projectId = exactText(context.projectId);
+  const datasetId = exactText(context.datasetId);
+  const datasetVersionId = exactText(context.datasetVersionId);
+  const target = exactText(context.target);
+  const modelVersionId = exactText(context.modelVersionId);
+  if (
+    !projectId ||
+    !datasetId ||
+    !datasetVersionId ||
+    !target ||
+    !modelVersionId
+  ) {
+    throw new Error(
+      "Scoring requires the exact project, dataset, immutable dataset version, target, and promoted model version.",
+    );
+  }
+  return new URLSearchParams({
+    project_id: projectId,
+    dataset_id: datasetId,
+    dataset_version_id: datasetVersionId,
+    target,
+    model_version_id: modelVersionId,
+  });
+}
+
+/**
  * Resolve the refresh-durable scoring populations that can satisfy Step 10's
  * continuation gate.  The browser never treats project history in general as
  * proof: the run must be completed, active, checksum-backed, and bound to the

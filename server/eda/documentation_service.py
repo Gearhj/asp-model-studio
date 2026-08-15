@@ -35,6 +35,11 @@ from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import active_project_id
 from ..datasets.dataset_identity import active_dataset_identity
 from ..evidence.evidence_identity import has_complete_canonical_dataset_lineage
+from ..core.population_contract import (
+    build_eda_completion_contract,
+    build_population_contract,
+    calculate_duplicate_contract,
+)
 from ..evidence.evidence_store import get_evidence
 from ..evidence.evidence_types import CANONICAL_DATASET_LINEAGE_CONTRACT
 from ..security.security_store import audit_event
@@ -919,14 +924,78 @@ class EDADocumentationService:
                 ],
             )
         )
-        duplicate_rows = 0
+        registered_structural_frame = df.drop(columns=[str(target)], errors="ignore")
+        registered_duplicate_contract = calculate_duplicate_contract(
+            registered_structural_frame,
+            scope="registered_structural_population",
+            target_column=None,
+            target_included=False,
+            writable_authority=False,
+            purpose="eda_registered_structural_description",
+        )
+        development_duplicate_contract = None
         if development_features is not None and development_target is not None:
             development_frame = development_features.copy()
             target_key = "__eda_governed_target__"
             while target_key in development_frame.columns:
                 target_key = f"_{target_key}"
-            development_frame[target_key] = development_target
-            duplicate_rows = int(development_frame.duplicated().sum())
+            development_frame[target_key] = development_target.to_numpy(copy=True)
+            development_duplicate_contract = calculate_duplicate_contract(
+                development_frame,
+                scope="development_population",
+                target_column=target_key,
+                target_included=True,
+                writable_authority=True,
+                purpose="eda_completion_decision",
+            )
+        duplicate_rows = int(
+            (development_duplicate_contract or {}).get(
+                "redundant_duplicate_rows"
+            )
+            or 0
+        )
+        population_contract = build_population_contract(
+            registered_rows=len(df),
+            development_rows=contract["rows_used"],
+            holdout_rows=contract["rows_excluded"],
+            primary_scope="development_population",
+            primary_purpose="eda_governance_completion",
+            project_id=project_id,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+            target=str(target),
+            target_contract_id=contract.get("target_contract_id"),
+            predictor_authorization_id=manifest_id,
+            analysis_partition_id=contract.get("analysis_partition_id"),
+            analysis_partition_revision=contract.get(
+                "analysis_partition_revision"
+            ),
+            analysis_population_id=contract.get("analysis_population_id"),
+            population_policy_id=contract.get("contract_version"),
+            treatment_policy_id="eda_non_mutating_analysis",
+            special_value_policy_id=contract.get("special_value_policy_id"),
+            analysis_rows=contract["rows_used"],
+            fit_rows=contract["rows_used"],
+            application_rows=None,
+            materialization_rows=None,
+            registered_duplicate_contract=registered_duplicate_contract,
+            development_duplicate_contract=development_duplicate_contract,
+            descriptive_scope="registered_structural_population",
+            analysis_scope="development_population",
+            target_scope="development_population",
+            fit_scope="development_population",
+            application_scope="not_applicable_non_mutating_eda",
+            materialization_scope="not_applicable_non_mutating_eda",
+            render_scope="aggregate_or_bounded_development_render",
+            registered_structural_predictors_accessed=True,
+            final_holdout_predictors_included_in_structural_profile=True,
+            final_holdout_parameter_influence=False,
+            final_holdout_target_accessed=False,
+            final_holdout_used_for_selection=False,
+            final_holdout_transformed_or_materialized_prelock=False,
+            final_holdout_opened_for_final_reporting=False,
+        )
+        completion_contract = build_eda_completion_contract(population_contract)
         target_source_exclusions = sorted(
             str(value)
             for value in authorization.get("target_source_excluded", [])
@@ -952,6 +1021,9 @@ class EDADocumentationService:
             "target_source_exclusions": target_source_exclusions,
             "population_rows": int(len(df)),
             "duplicate_rows": duplicate_rows,
+            "population_contract": population_contract,
+            "completion_contract": completion_contract,
+            "duplicate_counts": population_contract["duplicates"],
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
             "governed_analytical_contract_id": contract.get("artifact_id"),
             "governed_analytical_contract_hash": contract.get("artifact_hash"),
@@ -1207,6 +1279,24 @@ class EDADocumentationService:
             value.get("evidence_references", []),
             context,
         )
+        submitted_completion_contract = value.get("completion_contract") or {}
+        current_completion_contract = context.get("completion_contract") or {}
+        submitted_contract_id = str(
+            submitted_completion_contract.get("contract_id") or ""
+        )
+        current_contract_id = str(
+            current_completion_contract.get("contract_id") or ""
+        )
+        if submitted_contract_id and submitted_contract_id != current_contract_id:
+            raise EDADocumentationValidationError(
+                "eda_completion_contract_stale",
+                [
+                    "The EDA completion contract is stale. Reload EDA after the "
+                    "population or Analysis Partition changed."
+                ],
+            )
+        # The browser may echo this contract, but it can never define it.
+        value["completion_contract"] = copy.deepcopy(current_completion_contract)
         # A section-level audit is display/documentation material only. Build
         # it from the typed, extra-forbid top-level actions so arbitrary
         # browser fields such as actor_hint/occurred_at can never survive as
@@ -1217,6 +1307,36 @@ class EDADocumentationService:
         finding_section["bulk_disposition_audit"] = copy.deepcopy(
             value.get("bulk_disposition_actions", [])
         )
+        if value.get("governance_contract_version") == "eda-governance-v2":
+            duplicate_parent = next(
+                (
+                    row
+                    for row in finding_section.get("parent_findings", [])
+                    if isinstance(row, dict)
+                    and row.get("family") == "exact_duplicate_rows"
+                ),
+                None,
+            )
+            resolution_action = str(
+                (duplicate_parent or {}).get("resolution_action") or "unresolved"
+            )
+            duplicate_rows = int(context.get("duplicate_rows") or 0)
+            if duplicate_rows <= 0:
+                value["duplicate_decision"] = (
+                    "Compatibility history: no Development Population duplicate rows were present."
+                )
+            elif resolution_action == "retain_current_population":
+                value["duplicate_decision"] = (
+                    "Compatibility history: the governed duplicate parent records retention of the current population."
+                )
+            elif resolution_action == "exclude_upstream_and_repartition":
+                value["duplicate_decision"] = (
+                    "Compatibility history: upstream exclusion was requested; a new registered population and Analysis Partition are required."
+                )
+            else:
+                value["duplicate_decision"] = (
+                    "Compatibility history only: the governed duplicate parent remains unresolved."
+                )
         encoded = _canonical_json(value).encode("utf-8")
         if len(encoded) > _MAX_CANONICAL_PAYLOAD_BYTES:
             raise EDADocumentationValidationError(
@@ -1307,7 +1427,10 @@ class EDADocumentationService:
                 f"predictor inventory: {', '.join(unsafe)}."
             )
 
-        if int(context.get("duplicate_rows") or 0) > 0:
+        if (
+            canonical.get("governance_contract_version") != "eda-governance-v2"
+            and int(context.get("duplicate_rows") or 0) > 0
+        ):
             decision = str(canonical.get("duplicate_decision") or "").strip()
             if decision.lower() in _UNRESOLVED_DUPLICATE_DECISIONS:
                 blockers.append(
@@ -1316,7 +1439,10 @@ class EDADocumentationService:
                 )
 
         unresolved = canonical.get("unresolved_blocking_findings") or []
-        if unresolved:
+        if (
+            canonical.get("governance_contract_version") != "eda-governance-v2"
+            and unresolved
+        ):
             blockers.append(
                 f"{len(unresolved)} unresolved blocking EDA finding(s) must be "
                 "resolved before confirmation."
@@ -1508,6 +1634,28 @@ class EDADocumentationService:
                 if str(value).strip()
             }
             rationale = str(row.get("reviewer_rationale") or "").strip()
+            duplicate_resolution = None
+            if family == "exact_duplicate_rows":
+                duplicate_resolution = str(
+                    row.get("resolution_action") or "unresolved"
+                ).strip()
+                if duplicate_resolution not in {
+                    "retain_current_population",
+                    "exclude_upstream_and_repartition",
+                }:
+                    blockers.append(
+                        f"Parent finding {parent_id} requires an explicit retain-current-population or exclude-upstream-and-repartition resolution."
+                    )
+                elif duplicate_resolution == "exclude_upstream_and_repartition":
+                    exclusion_contract = (
+                        canonical.get("completion_contract") or {}
+                    ).get("exclude_upstream_and_repartition") or {}
+                    blockers.append(
+                        "Duplicate-row exclusion cannot be recorded against the current population. "
+                        "Create a revised registered population and a new Analysis Partition, then reload EDA. "
+                        f"Current partition {exclusion_contract.get('current_analysis_partition_id') or 'unknown'} "
+                        f"revision {exclusion_contract.get('current_analysis_partition_revision') if exclusion_contract.get('current_analysis_partition_revision') is not None else 'unknown'}."
+                    )
             if row.get("mutation_applied") is not False:
                 blockers.append(
                     f"Parent finding {parent_id} cannot mutate the dataset or feature set."
@@ -1625,6 +1773,8 @@ class EDADocumentationService:
                 "no_action_required",
             }
             if requirement == "blocker" and disposition == "deferred":
+                eligible = False
+            if family == "exact_duplicate_rows" and duplicate_resolution != "retain_current_population":
                 eligible = False
             requires_rationale = (
                 disposition in {"rejected", "deferred"}

@@ -59,11 +59,10 @@ def create_scoring_run(
     """Persists one completed (or failed) scoring execution as a durable
     ScoringRun. Called additively from eval_router.py's /score/upload and
     /score/development-split AFTER the existing score_dataset() call succeeds
-    -- the existing response shape and behavior are unchanged; this only adds
-    a `scoringRunId` field and a durable side effect. Returns None (rather
-    than raising) on any persistence failure, so a durability bug can never
-    break the underlying scoring feature that already worked before this
-    phase (Do-Not #7: "Do not remove existing scoring behavior")."""
+    -- the existing response shape and behavior are unchanged; this adds a
+    `scoringRunId` field and a durable side effect. ``None`` is an explicit
+    persistence-failure signal; public scoring routes must fail closed instead
+    of returning a successful score without its durable exact-version record."""
     if not score_result.get("ok"):
         return None
     try:
@@ -82,8 +81,6 @@ def create_scoring_run(
 
         context = dataset_context or {}
         model_meta = score_result.get("model") or {}
-        model_id = str(model_meta.get("model_key") or model_meta.get("name") or "final")
-        model_version = str(RESULTS.training_timestamp or "unversioned")
         # Durable Model Registry, Phase F: model_meta IS RESULTS.final_model_metadata
         # (that's exactly what _resolve_scoring_model returns for the default
         # model="final"/"final_rfe" scoring path) -- once Save Final Model has run
@@ -92,8 +89,23 @@ def create_scoring_run(
         # synthesized model_id/model_version above when no registry link exists yet
         # (e.g. a project scored before this phase, or scoring a named non-final
         # artifact that was never saved through the registry) -- never invents one.
-        registry_model_id = model_meta.get("modelId")
-        registry_model_version_id = model_meta.get("modelVersionId")
+        registry_model_id = context.get("modelId") or model_meta.get("modelId")
+        registry_model_version_id = (
+            context.get("modelVersionId") or model_meta.get("modelVersionId")
+        )
+        model_id = str(
+            registry_model_id
+            or model_meta.get("model_key")
+            or model_meta.get("name")
+            or "final"
+        )
+        model_version = str(
+            context.get("modelVersion")
+            or model_meta.get("modelVersion")
+            or registry_model_version_id
+            or RESULTS.training_timestamp
+            or "unversioned"
+        )
         training_dataset_id = (
             context.get("datasetId")
             or model_meta.get("training_dataset_id")
@@ -109,14 +121,21 @@ def create_scoring_run(
             or model_meta.get("datasetVersionId")
         )
         scoring_target = (
-            score_result.get("target_column")
+            context.get("target")
+            or score_result.get("target_column")
             or model_meta.get("target_name")
             or model_meta.get("targetName")
             or model_meta.get("target")
         )
+        scoring_diagnostics = score_result.get("scoring_diagnostics") or {}
 
         task = score_result.get("task")
-        problem_type = "regression" if task == "regression" else ("classification" if task else None)
+        problem_type = (
+            context.get("problemType")
+            or model_meta.get("problemType")
+            or model_meta.get("problem_type")
+            or ("regression" if task == "regression" else ("classification" if task else None))
+        )
         prediction_column = "predicted_value" if task == "regression" else "prediction"
         probability_column = None if task == "regression" else "adjusted_score"
         residual_column = "atlas_residual" if task == "regression" else None
@@ -130,11 +149,9 @@ def create_scoring_run(
             "dataset_version_id": training_dataset_version_id,
             "dataset_identity": score_result.get("dataset_identity") or context.get("datasetIdentity"),
             "partition": str(partition or "test").lower(),
-            # model_id keeps its existing display-friendly-algorithm-key semantics
-            # (e.g. "logreg") -- unchanged, so existing filtering/display never breaks.
-            # model_version_id is the REAL identity reference this phase adds; the
-            # durable Model itself is always reachable by resolving model_versions.model_id
-            # from it, never by trusting this text column as a registry key.
+            # Exact registry scoring records both real registry identities. A
+            # legacy internal caller without a registry version may still use
+            # its historical display-friendly algorithm key in model_id.
             "model_id": model_id,
             "model_version": model_version,
             "model_version_id": registry_model_version_id,
@@ -160,16 +177,67 @@ def create_scoring_run(
                 "adjustedScoreSummary": score_result.get("adjusted_score_summary"),
                 "lift": score_result.get("lift"),
             },
-            "diagnostics_json": score_result.get("scoring_diagnostics") or {},
+            "diagnostics_json": scoring_diagnostics,
             "psi_json": score_result.get("psi") or {},
             "vsi_json": {"rows": score_result.get("vsi") or [], "scope": score_result.get("vsi_scope")},
             "evidence_links_json": [],
             "documentation_links_json": [],
             "lineage_json": {
-                "modelSource": "RESULTS.final_model" if model_id in ("final", "final_rfe") else f"artifact:{model_id}",
+                "modelSource": (
+                    "REGISTRY.model_version"
+                    if registry_model_version_id
+                    else (
+                        "RESULTS.final_model"
+                        if model_id in ("final", "final_rfe")
+                        else f"artifact:{model_id}"
+                    )
+                ),
+                "modelId": registry_model_id,
+                "modelVersionId": registry_model_version_id,
+                "projectId": project_id,
+                "datasetId": training_dataset_id,
+                "datasetVersionId": training_dataset_version_id,
+                "target": scoring_target,
+                "problemType": problem_type,
+                "featureManifestVersion": context.get("featureManifestVersion")
+                or model_meta.get("featureManifestVersion")
+                or model_meta.get("feature_manifest_version"),
                 "datasetSource": context.get("source") or "upload",
-                "trainingTimestamp": RESULTS.training_timestamp,
+                "trainingTimestamp": model_meta.get("trainingTimestamp")
+                or (RESULTS.training_timestamp if not registry_model_version_id else None),
                 "correctionMethod": (score_result.get("probability_correction") or {}).get("method"),
+                "preprocessingContractVersion": scoring_diagnostics.get(
+                    "preprocessing_contract_version"
+                ),
+                "preprocessingPolicyId": scoring_diagnostics.get(
+                    "preprocessing_policy_id"
+                ),
+                "preprocessingPolicyRevision": scoring_diagnostics.get(
+                    "preprocessing_policy_revision"
+                ),
+                "preprocessingPolicyHash": scoring_diagnostics.get(
+                    "preprocessing_policy_hash"
+                ),
+                "finalPreprocessingArtifactChecksum": scoring_diagnostics.get(
+                    "final_preprocessing_artifact_checksum"
+                ),
+                "preprocessingFitScope": scoring_diagnostics.get(
+                    "preprocessing_fit_scope"
+                ),
+                "preprocessingFitPopulationId": scoring_diagnostics.get(
+                    "preprocessing_fit_population_id"
+                ),
+                "preprocessingFitPopulationRows": scoring_diagnostics.get(
+                    "preprocessing_fit_population_rows"
+                ),
+                "preprocessingApplicationScope": scoring_diagnostics.get(
+                    "preprocessing_application_scope"
+                ),
+                "preprocessingApplicationPopulationRows": scoring_diagnostics.get(
+                    "preprocessing_application_population_rows"
+                ),
+                "finalHoldoutParameterInfluence": False,
+                "preprocessingRefitDuringApplication": False,
             },
             "retention_policy": "standard",
             "archived_at": None,
@@ -197,14 +265,21 @@ def create_failed_scoring_run(
     durable record existed to inspect later. This persists a minimal ScoringRun
     row (status="failed", no output artifact, honest error_message) so failed
     runs remain inspectable in history, matching "Failed runs remain inspectable
-    with an honest failure reason." Best-effort, like create_scoring_run -- a
-    persistence bug here must never mask or replace the original error response
-    the caller already returns to the user."""
+    with an honest failure reason." ``None`` explicitly signals that even the
+    failure record was not durable; public scoring routes surface that
+    persistence failure as a 503."""
     try:
         authorize_modeling_scope(user, project_id, "edit")
         scoring_run_id = new_scoring_run_id()
         timestamp = now_iso()
         context = dataset_context or {}
+        registry_model_version_id = context.get("modelVersionId")
+        model_version = str(
+            context.get("modelVersion")
+            or registry_model_version_id
+            or RESULTS.training_timestamp
+            or "unversioned"
+        )
         record = {
             "scoring_run_id": scoring_run_id,
             "project_id": project_id,
@@ -213,11 +288,12 @@ def create_failed_scoring_run(
             "dataset_version_id": context.get("datasetVersionId"),
             "dataset_identity": context.get("datasetIdentity"),
             "partition": str(partition or "test").lower(),
-            "model_id": None,
-            "model_version": str(RESULTS.training_timestamp or "unversioned"),
+            "model_id": context.get("modelId"),
+            "model_version": model_version,
+            "model_version_id": registry_model_version_id,
             "feature_manifest_version": context.get("featureManifestVersion"),
-            "problem_type": None,
-            "target": None,
+            "problem_type": context.get("problemType"),
+            "target": context.get("target"),
             "status": "failed",
             "created_at": timestamp,
             "completed_at": timestamp,
@@ -237,7 +313,22 @@ def create_failed_scoring_run(
             "vsi_json": {},
             "evidence_links_json": [],
             "documentation_links_json": [],
-            "lineage_json": {"datasetSource": context.get("source") or "upload"},
+            "lineage_json": {
+                "modelSource": (
+                    "REGISTRY.model_version"
+                    if registry_model_version_id
+                    else "unresolved"
+                ),
+                "modelId": context.get("modelId"),
+                "modelVersionId": registry_model_version_id,
+                "projectId": project_id,
+                "datasetId": context.get("datasetId"),
+                "datasetVersionId": context.get("datasetVersionId"),
+                "target": context.get("target"),
+                "problemType": context.get("problemType"),
+                "featureManifestVersion": context.get("featureManifestVersion"),
+                "datasetSource": context.get("source") or "upload",
+            },
             "retention_policy": "standard",
             "archived_at": None,
             "checksum": None,

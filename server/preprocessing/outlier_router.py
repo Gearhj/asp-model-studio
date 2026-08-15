@@ -13,6 +13,7 @@ from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.pretraining_invalidation import invalidate_downstream_training_state
+from ..core.result_store import RESULTS
 from ..core.session_checkpoint import save_checkpoint
 from ..datasets.dataset_identity import (
     assert_expected_active_identity,
@@ -25,7 +26,22 @@ from .development_scope import (
     scope_http_exception,
 )
 from .outlier_service import outlier_service
-from .predictor_authorization import bureau_special_mask
+from .preprocessing_contract import (
+    PREPROCESSING_CONTRACT_VERSION,
+    FIT_SCOPE_DEVELOPMENT_PREVIEW,
+    apply_outlier_recipe,
+    assert_mutation_expectations,
+    build_preprocessing_policy_record,
+    canonical_hash,
+    capture_preprocessing_mutation_state,
+    classify_preprocessing_record,
+    fit_metadata,
+    fit_outlier_recipe,
+    quarantine_preprocessing_state,
+    resolve_special_value_contract,
+    restore_preprocessing_mutation_state,
+    scope_lineage,
+)
 
 
 router = APIRouter()
@@ -63,6 +79,11 @@ class OutlierApplyRequest(BaseModel):
     dataset_version: str | None = None
     analysis_partition_id: str | None = None
     analysis_partition_revision: int | None = None
+    preprocessing_contract_version: int | None = None
+    expected_predictor_authorization_id: str | None = None
+    expected_special_value_review_id: str | None = None
+    expected_special_value_review_revision: int | None = None
+    analytical_types: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 def _active_identity(request: Any, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,7 +132,7 @@ def _record_matches_identity(
 
 
 def _full_structural_source():
-    df = DATASTORE.get_raw_active_df()
+    df = DATASTORE.get_raw_active_df(include_target=False)
     if df is None or df.empty:
         raise HTTPException(status_code=400, detail="No full registered dataset is loaded.")
     return df
@@ -148,47 +169,40 @@ def _record_matches_scope(
     identity: Dict[str, Any],
     scope: DevelopmentAnalysisScope,
 ) -> bool:
-    return bool(
-        _record_matches_identity(record, identity)
-        and record.get("analysis_partition_id")
-        == scope.partition.get("analysis_partition_id")
-        and int(record.get("analysis_partition_revision") or 0)
-        == int(scope.partition.get("revision") or 0)
+    special_contract = resolve_special_value_contract(
+        identity=identity,
+        scope=scope,
+        store=DATASTORE.current(),
     )
+    status, _ = classify_preprocessing_record(
+        record,
+        lineage=scope_lineage(scope, special_contract),
+    )
+    return status == "current"
 
 
 def _full_dataset_application_metadata(
     scope: DevelopmentAnalysisScope,
 ) -> Dict[str, Any]:
-    """Describe a full-population transform without widening analysis scope.
-
-    Outlier cutoffs and every target-directed comparison are resolved from the
-    sealed development population, but the accepted treatment is materialized
-    over the exact full governed dataset.  Keep both facts explicit so callers
-    cannot mistake the analysis population for the application population.
-    """
+    """Describe Development preview approval without holdout application."""
 
     return {
         **scope.metadata(),
-        "scope": "full_dataset",
-        "application_scope": "full_dataset",
-        "materialization_scope": "full_dataset",
-        "application_source_population": "full_governed_population",
+        "scope": "development_population",
+        "fit_scope": "development_preview",
+        "application_scope": "none_prelock",
+        "materialization_scope": "none",
+        "application_source_population": None,
+        "backend_materialization": False,
+        "processed_frame_materialized": False,
+        "sealed_holdout_transformed": False,
     }
 
 
 def _public_application(record: Any) -> Any:
-    """Normalize an older stored application at the response boundary."""
+    """Return only the artifact as persisted; never relabel legacy state."""
 
-    if not isinstance(record, dict):
-        return record
-    return {
-        **record,
-        "scope": "full_dataset",
-        "application_scope": "full_dataset",
-        "materialization_scope": "full_dataset",
-        "application_source_population": "full_governed_population",
-    }
+    return deepcopy(record) if isinstance(record, dict) else record
 
 
 @router.post("/summary")
@@ -204,6 +218,17 @@ def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depe
         )
         source = _full_structural_source()
         structural = source.drop(columns=[scope.target], errors="ignore")
+        special_contract = resolve_special_value_contract(
+            identity=identity,
+            scope=scope,
+            store=scoped_store,
+        )
+        lineage = scope_lineage(scope, special_contract)
+        prior = scoped_store.meta.get("outlier_application")
+        prior_status, prior_reasons = classify_preprocessing_record(
+            prior,
+            lineage=lineage,
+        )
         try:
             result = outlier_service.summary(
                 structural,
@@ -213,6 +238,7 @@ def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depe
                 predictor_authorization=scope.predictor_authorization,
                 target_analysis_features=scope.development_features,
                 target_analysis_target=scope.development_target,
+                special_value_contract=special_contract,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -221,12 +247,20 @@ def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depe
         )
         result.update(_identity_fields(identity))
         result.update(scope.metadata())
-        prior = scoped_store.meta.get("outlier_application")
+        result["final_holdout_predictors_in_structural_profile"] = True
+        result["final_holdout_predictors_included_in_structural_profile"] = True
         result["application"] = (
             _public_application(deepcopy(prior))
-            if _record_matches_scope(prior, identity, scope)
+            if prior_status == "current"
             else None
         )
+        result["preprocessing_contract_version"] = PREPROCESSING_CONTRACT_VERSION
+        result["preprocessing_lineage"] = lineage
+        result["special_value_contract"] = special_contract
+        result["legacy_artifact_status"] = (
+            prior_status if prior_status.startswith("stale") else None
+        )
+        result["legacy_artifact_reasons"] = prior_reasons
         return json_safe(result)
 
 
@@ -240,10 +274,13 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
             request, identity, scoped_store, actor=user.get("userId")
         )
         input_revision = int(scoped_store.data_revision)
-        target = scope.target
-        selected_columns = scoped_store.get_selected_columns()
-        source = _full_structural_source().copy()
+        registered_row_count = int(len(_full_structural_source()))
         prior = deepcopy(scoped_store.meta.get("outlier_application"))
+        special_contract = resolve_special_value_contract(
+            identity=identity,
+            scope=scope,
+            store=scoped_store,
+        )
     authorization = dict(scope.predictor_authorization)
     authorized = set(authorization["authorized_predictors"])
     normalized_config = {
@@ -255,11 +292,62 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
         for feature in authorization["authorized_predictors"]
         if str(request.rationales.get(feature) or "").strip()
     }
+    lineage = scope_lineage(scope, special_contract)
+    try:
+        assert_mutation_expectations(request, lineage=lineage)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    approved_policy = {
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "approved_outlier_policy",
+        "status": "approved",
+        "global_method": request.global_method,
+        "config": normalized_config,
+        "rationales": normalized_rationales,
+        "analytical_types": dict(request.analytical_types or {}),
+    }
+    approved_policy["outlier_policy_id"] = (
+        f"op-{canonical_hash(approved_policy)[:20]}"
+    )
+    prior_policy = (
+        prior.get("approved_policy")
+        if isinstance(prior, dict)
+        and isinstance(prior.get("approved_policy"), dict)
+        else {}
+    )
+    approved_policy["outlier_policy_revision"] = (
+        int(prior_policy.get("outlier_policy_revision") or 1)
+        if prior_policy.get("outlier_policy_id")
+        == approved_policy["outlier_policy_id"]
+        else int(prior_policy.get("outlier_policy_revision") or 0) + 1
+    )
+    prior_status, prior_reasons = classify_preprocessing_record(
+        prior,
+        lineage=lineage,
+    )
+    if prior_status.startswith("stale"):
+        with scoped_store.state_lock:
+            quarantine_preprocessing_state(
+                scoped_store,
+                keys=(
+                    "outlier_application",
+                    "outlier_policy",
+                    "missing_application",
+                    "missing_policy",
+                    "missing_config",
+                    "missing_validation",
+                    "preprocessing_policy",
+                    "feature_manifest",
+                    "feature_preview",
+                    "materialized_feature_names",
+                ),
+                reason="; ".join(prior_reasons),
+            )
+            input_revision = int(scoped_store.data_revision)
+        prior = None
     if (
-        _record_matches_scope(prior, identity, scope)
-        and prior.get("global_method") == request.global_method
-        and prior.get("config") == normalized_config
-        and (prior.get("rationales") or {}) == normalized_rationales
+        prior_status == "current"
+        and prior.get("approved_policy") == approved_policy
     ):
         with scoped_store.state_lock:
             if int(scoped_store.data_revision) != input_revision:
@@ -279,29 +367,44 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
             "idempotent": True,
         })
     try:
-        work, applied = outlier_service.apply(
-            source,
-            config=normalized_config,
-            global_method=request.global_method,
-            target=target,
-            selected_columns=selected_columns,
-            predictor_authorization=authorization,
+        preview_fit = fit_outlier_recipe(
+            scope.development_features,
+            policy=approved_policy,
+            fit=fit_metadata(
+                fit_scope=FIT_SCOPE_DEVELOPMENT_PREVIEW,
+                population_id=str(scope.partition.get("development_partition_id")),
+                population_count=len(scope.development_features),
+                lineage=lineage,
+                actor=str(user.get("userId") or "atlas-user"),
+                application_scope="development_population_preview",
+                application_population_id=str(
+                    scope.partition.get("development_partition_id")
+                ),
+                application_population_rows=len(scope.development_features),
+                evidence_references=[],
+            ),
+            special_value_contract=special_contract,
+        )
+        _, projection = apply_outlier_recipe(
+            scope.development_features,
+            recipe=preview_fit,
+            target=None,
+            special_value_contract=special_contract,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     high_impact: list[dict[str, Any]] = []
-    for treatment in applied:
+    for treatment in projection["treatments"]:
         feature = str(treatment.get("feature") or "")
         if feature not in authorized:
             continue
-        numeric = pd.to_numeric(source[feature], errors="coerce")
-        ordinary_count = int((numeric.notna() & ~bureau_special_mask(numeric)).sum())
-        rate = int(treatment.get("changed_values") or 0) / max(ordinary_count, 1)
-        if rate >= 0.10 and int(treatment.get("changed_values") or 0) > 0:
+        rate = float(treatment.get("flagged_cell_rate") or 0)
+        changed = int(treatment.get("flagged_cell_count") or 0)
+        if rate >= 0.10 and changed > 0:
             high_impact.append({
                 "feature": feature,
-                "changed_values": int(treatment.get("changed_values") or 0),
+                "changed_values": changed,
                 "changed_rate": rate,
             })
     if high_impact and not request.acknowledged_high_impact:
@@ -319,18 +422,42 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
         "applied_at": applied_at,
         **_identity_fields(identity),
         **_full_dataset_application_metadata(scope),
-        "row_count": int(len(work)),
+        **lineage,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "outlier_policy_approval",
+        "row_count": int(len(scope.development_features)),
+        "registered_population_row_count": registered_row_count,
         "global_method": request.global_method,
         "config": normalized_config,
         "rationales": normalized_rationales,
-        "treatments": applied,
-        "changed_values": int(sum(int(row.get("changed_values") or 0) for row in applied)),
+        "approved_policy": approved_policy,
+        "development_preview_fit": preview_fit,
+        "development_preview": projection,
+        "counts": projection["counts"],
+        "changed_values": int(projection["counts"]["flagged_cell_count"]),
         "high_impact_features": high_impact,
         "high_impact_acknowledged": bool(high_impact and request.acknowledged_high_impact),
         "row_removal_applied": False,
-        "state": "applied",
+        "state": "approved",
         "predictor_authorization": authorization,
+        "special_value_contract": special_contract,
+        "fold_fitted_artifact_status": "required_during_training",
+        "final_fitted_artifact_status": "required_during_training",
+        "backend_materialization": False,
+        "processed_frame_materialized": False,
+        "sealed_holdout_transformed": False,
     }
+    combined_policy = build_preprocessing_policy_record(
+        lineage=lineage,
+        special_value_contract=special_contract,
+        actor=str(user.get("userId") or "atlas-user"),
+        outlier_policy=approved_policy,
+        missing_policy=None,
+        outlier_development_preview_fit=preview_fit,
+        missing_development_preview_fit=None,
+        previous=scoped_store.meta.get("preprocessing_policy"),
+        approved_at=applied_at,
+    )
     with scoped_store.state_lock:
         # Revalidate under the same lock used by activation and training
         # persistence so a calculation for an old version can never commit.
@@ -350,20 +477,53 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
                     "apply the plan again."
                 ),
             )
-        scoped_store.set_processed(work)
-        scoped_store.meta["processed_stage"] = "outliers"
+        result_store = RESULTS.current()
+        rollback_snapshot = capture_preprocessing_mutation_state(
+            scoped_store, result_store
+        )
+        quarantine_preprocessing_state(
+            scoped_store,
+            keys=(
+                "missing_application",
+                "missing_policy",
+                "missing_config",
+                "missing_validation",
+                "preprocessing_policy",
+                "feature_manifest",
+                "feature_preview",
+                "materialized_feature_names",
+                "processed_stage",
+            ),
+            reason="A new governed outlier policy superseded dependent state.",
+        )
+        scoped_store.processed_df = None
+        scoped_store.meta.pop("processed_stage", None)
+        scoped_store.meta["outlier_policy"] = approved_policy
         scoped_store.meta["outlier_application"] = application
+        scoped_store.meta["preprocessing_policy"] = combined_policy
         scoped_store.meta.pop("missing_application", None)
+        scoped_store.meta.pop("missing_policy", None)
         scoped_store.meta.pop("missing_config", None)
         scoped_store.meta.pop("missing_validation", None)
+        scoped_store.meta.pop("feature_manifest", None)
+        scoped_store.meta.pop("feature_preview", None)
+        scoped_store.meta.pop("materialized_feature_names", None)
         invalidate_downstream_training_state(
             "The governed outlier treatment changed.",
             store=scoped_store,
             split_status="stale",
         )
-
-    if not save_checkpoint():
-        raise HTTPException(status_code=500, detail="Outlier treatments were calculated, but ATLAS could not persist the workflow checkpoint.")
+        if not save_checkpoint():
+            restore_preprocessing_mutation_state(
+                scoped_store, result_store, rollback_snapshot
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Outlier policy approval could not be persisted; the "
+                    "in-memory workflow state was rolled back."
+                ),
+            )
     return json_safe({
         "ok": True,
         **_identity_fields(identity),

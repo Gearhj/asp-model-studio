@@ -315,6 +315,9 @@ test("24c -- lineage is ordered source, class mappings, then modeled target", ()
   assert.match(lineage, /"Bad"/);
   assert.match(lineage, /"Good"/);
   assert.match(lineage, /Source excluded/);
+  assert.match(workspace, /known_deterministic_sources_excluded_upstream/);
+  assert.match(workspace, /Known deterministic target source excluded upstream/);
+  assert.match(workspace, /No additional deterministic or suspected leakage candidates/);
 });
 
 test("24d -- preview click loads the existing full explorer without one request per preview card", () => {
@@ -367,6 +370,37 @@ test("26 -- predictor analysis is on-demand and never runs on page load", () => 
   assert.ok(predictorPanel.includes("target-include-missing"));
   // Idle state names itself rather than showing an empty chart.
   assert.match(predictorPanel, /idle: "No analysis has been run for this predictor\."/);
+});
+
+test("26a -- target-by-predictor visualization is large enough to interpret", () => {
+  assert.match(predictorPanel, /height=\{480\}/);
+  assert.match(predictorPanel, /left: 72/);
+  assert.match(predictorPanel, /right: 96/);
+  assert.match(predictorPanel, /bottom: 118/);
+  assert.match(predictorPanel, /overflow: "truncate"/);
+});
+
+test("26b -- completed analysis results do not overwrite a manual predictor selection", () => {
+  assert.match(
+    predictorPanel,
+    /!predictor\s*\?\s*result\?\.predictor \?\? ""\s*:\s*""/,
+    "The last analysis result may initialize an empty selector, but it must not reset a non-empty manual selection."
+  );
+  assert.match(
+    predictorPanel,
+    /appliedRequestedPredictorRef = useRef\(""\)/,
+    "Preview-initiated predictor requests must be consumed once instead of remaining a permanent selector override."
+  );
+  assert.match(
+    predictorPanel,
+    /requestedPredictor && requestedPredictor !== appliedRequestedPredictorRef\.current/,
+    "Only a new preview request may override the current selector."
+  );
+  assert.doesNotMatch(
+    predictorPanel,
+    /const requested = requestedPredictor \|\| result\?\.predictor \|\| "";/,
+    "A stale completed result must not be treated as the live selector authority."
+  );
 });
 
 test("27 -- a new predictor selection issues a new query and rejects the stale one", async () => {

@@ -26,7 +26,7 @@ test("every predictive StepShell continuation waits for durable workflow complet
     /nextRequireDurableWorkflowSave \|\| snapshot\.projectType === "predictive-modeling"/,
   );
   const snapshotIndex = handleNext.indexOf("workflowCompletionSnapshot(");
-  const durableSaveIndex = handleNext.indexOf("await saveWorkflowStateToDatabase(completedSnapshot)");
+  const durableSaveIndex = handleNext.indexOf("await saveWorkflowStateToDatabase(completedSnapshot, currentStep)");
   const durableFailureIndex = handleNext.indexOf("if (!persisted)");
   const localCompletionIndex = handleNext.indexOf("markComplete(");
   const compatibilitySaveIndex = handleNext.indexOf("saveActiveProjectBeforeNavigation(");
@@ -51,7 +51,7 @@ test("every predictive StepShell continuation waits for durable workflow complet
 
 test("Documentation Review uses the same fail-closed durable continuation", () => {
   const snapshotIndex = step11Continue.indexOf("workflowCompletionSnapshot(");
-  const durableSaveIndex = step11Continue.indexOf("await saveWorkflowStateToDatabase(completedSnapshot)");
+  const durableSaveIndex = step11Continue.indexOf('await saveWorkflowStateToDatabase(completedSnapshot, "step11")');
   const durableFailureIndex = step11Continue.indexOf("if (!persisted)");
   const localCompletionIndex = step11Continue.indexOf('markComplete("step11")');
   const compatibilitySaveIndex = step11Continue.indexOf("upsertProjectSnapshot(completedSnapshot");
@@ -78,5 +78,5 @@ test("the durable error is generic and the delayed project mirror remains compat
     /saveActiveProjectBeforeNavigation\([\s\S]*snapshotOverride\?: WorkflowProjectSnapshot[\s\S]*const snapshot = snapshotOverride \?\? createSnapshotFromState\(state\)[\s\S]*upsertProjectSnapshot\(snapshot, "browser"\)/,
   );
   assert.match(serverPersistence, /setTimeout\([\s\S]*void saveProjectToDatabase\(queued\)/);
-  assert.match(handleNext, /await saveWorkflowStateToDatabase\(completedSnapshot\)/);
+  assert.match(handleNext, /await saveWorkflowStateToDatabase\(completedSnapshot, currentStep\)/);
 });

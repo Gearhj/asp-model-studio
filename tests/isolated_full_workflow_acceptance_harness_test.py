@@ -155,6 +155,7 @@ def test_network_policy_allows_only_the_two_exact_origins_and_redacts_query() ->
             "http://127.0.0.1:19281/socket", upgrade="websocket"
         ),
         "connect": policy.decide("example.test:443", method="CONNECT"),
+        "live_connect": policy.decide("127.0.0.1:8001", method="CONNECT"),
     }
     assert cases["live"].reason == "live_port"
     assert cases["unexpected"].reason == "unexpected_origin"
@@ -162,7 +163,27 @@ def test_network_policy_allows_only_the_two_exact_origins_and_redacts_query() ->
     assert cases["backend_non_api"].reason == "backend_non_api"
     assert cases["websocket"].reason == "websocket"
     assert cases["connect"].reason == "connect_tunnel"
+    assert cases["live_connect"].reason == "live_port"
     assert all(not decision.allowed for decision in cases.values())
+
+
+def test_blocked_connect_tunnels_are_contained_evidence_not_successful_contacts() -> None:
+    contained = {
+        "blocked": 17,
+        "connect_tunnel": 17,
+        "live_port": 0,
+        "unexpected_origin": 0,
+        "unexpected_scheme": 0,
+        "frontend_api": 0,
+        "backend_non_api": 0,
+        "websocket": 0,
+        "invalid_url": 0,
+        "upstream_error": 0,
+    }
+    assert harness.network_summary_has_violation(contained) is False
+
+    live_attempt = dict(contained, blocked=18, live_port=1)
+    assert harness.network_summary_has_violation(live_attempt) is True
 
 
 def test_listener_ownership_accepts_only_the_spawned_process_tree() -> None:

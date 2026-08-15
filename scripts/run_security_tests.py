@@ -131,6 +131,12 @@ def isolated_environment(runtime_root: Path) -> dict[str, str]:
             "ATLAS_TEST_MODE": "1",
             "ATLAS_ENV": "testing",
             "ATLAS_PROCESS_ROLE": "test",
+            # Security suites that create their own nested fixtures must stay
+            # inside this exact per-suite authority.  Without this binding,
+            # older suites fall back to ROOT/.tmp, which correctly trips the
+            # Dataset Library repository-overlap guard before their security
+            # assertions can execute.
+            "ATLAS_HERMETIC_ROOT": str(runtime_root),
             "ATLAS_HERMETIC_GUARD_PASSED": "0",
             "ATLAS_SESSION_SECRET": uuid.uuid4().hex + uuid.uuid4().hex,
             "ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP": "0",

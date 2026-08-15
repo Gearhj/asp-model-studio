@@ -89,7 +89,7 @@ test("Outlier global treatment immediately drives every inheriting table row", (
   assert.match(changeGlobal, /summary table and cutoff histograms have been updated/i);
   assert.match(
     outliers,
-    /configured === "USE_GLOBAL"[\s\S]{0,120}\? globalMethod/,
+    /configured === "USE_GLOBAL"[\s\S]{0,180}safeDefaultMethod === "NONE"[\s\S]{0,120}globalMethod/,
   );
   assert.match(
     outliers,
@@ -122,7 +122,7 @@ test("Outlier table leads with predictor and treatment-dependent count", () => {
   assert.match(table, /data-effective-method=\{method\?\.method/);
   assert.match(
     table,
-    /row\.methods\?\.\[[\s\S]{0,120}effectiveMethod\(configured, globalMethod\)/,
+    /row\.methods\?\.\[[\s\S]{0,160}effectiveMethod\(configured, globalMethod, row\.safe_default_method\)/,
   );
 });
 
@@ -172,7 +172,7 @@ test("Outlier histograms default to the top 10 by IV and expose active low/high 
   assert.match(outliers, /High cutoff/);
   assert.match(
     outliers,
-    /effectiveMethod\(config\[row\.feature\], globalMethod\)/,
+    /effectiveMethod\(config\[row\.feature\], globalMethod, row\.safe_default_method\)/,
   );
   assert.match(outliers, /method\??\.lower_threshold|method\.lower_threshold/);
   assert.match(outliers, /method\??\.upper_threshold|method\.upper_threshold/);
@@ -294,7 +294,8 @@ test("Missingness impact map uses IV-ranked expansion and live imputation values
     /data-testid=\{`missing-impact-\$\{column\.name\}`\}/,
   );
   assert.match(missing, /Missing burden/);
-  assert.match(missing, /Imputed value/);
+  assert.match(missing, /Treatment \/ reference value/);
+  assert.match(missing, /Inactive planning value/);
   assert.match(missing, /function projectedImputationValue\(/);
   assert.match(missing, /strategy === "Mean"/);
   assert.match(missing, /strategy === "Median"/);
@@ -309,7 +310,11 @@ test("Missingness impact map uses IV-ranked expansion and live imputation values
 test("MDD captures the active global policies, inheritance, and explicit overrides", () => {
   assert.match(
     modelDevelopmentDocument,
-    /loadCanonicalPreparationBrowserState/,
+    /backend_governed_training_execution/,
+  );
+  assert.match(
+    modelDevelopmentDocument,
+    /Number\(executedSteps\.preprocessingContractVersion \?\? 0\) !== 2/,
   );
   assert.match(
     modelDevelopmentDocument,

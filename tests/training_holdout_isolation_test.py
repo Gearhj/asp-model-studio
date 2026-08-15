@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import StratifiedKFold
 
@@ -14,6 +15,13 @@ from sklearn.model_selection import StratifiedKFold
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.training import trainer  # noqa: E402
+from server.analysis_partition.service import AnalysisPartitionService  # noqa: E402
+from server.analysis_partition.types import AnalysisPartitionError  # noqa: E402
+from server.preprocessing.execution_contract import (  # noqa: E402
+    default_no_treatment_contract,
+    extract_final_preprocessing_artifact,
+    validate_final_preprocessing_artifact,
+)
 from server.training.candidate_contract import (  # noqa: E402
     assert_candidate_contract_intact,
     build_candidate_contract,
@@ -24,6 +32,19 @@ from server.training.training_job_service import TrainingJobService  # noqa: E40
 
 
 FIXED_TIME = "2026-07-31T12:00:00+00:00"
+
+
+def _preprocessing_policy() -> dict[str, object]:
+    return default_no_treatment_contract(
+        identity={
+            "project_id": "project-1",
+            "dataset_id": "dataset-1",
+            "dataset_version_id": "version-1",
+            "analysis_partition_id": "partition-1",
+            "analysis_partition_revision": 1,
+        },
+        feature_names=["first", "second"],
+    )
 
 
 def _development_population() -> tuple[pd.DataFrame, pd.Series, list[tuple[list[int], list[int]]]]:
@@ -60,6 +81,7 @@ def _train(**overrides):
         "fold_definition_id": "fold-definition-1",
         "selection_created_at": FIXED_TIME,
         "balancing_status": "not_applied",
+        "preprocessing_recipe": _preprocessing_policy(),
     }
     kwargs.update(overrides)
     return trainer.train_models(**kwargs)
@@ -78,14 +100,18 @@ def _training_contract():
             "feature_manifest_version": "feature-hash-1",
             "selected_original_features": ["first", "second"],
             "selected_engineered_features": [],
-            "preprocessing_pipeline": [],
+            "preprocessing_policy": _preprocessing_policy(),
+            "analysis_partition_id": "partition-1",
+            "analysis_partition_revision": 1,
             "split_id": "split-1",
             "validation_design_id": "design-1",
             "validation_design_version": "design-version-1",
             "training_population_id": "population-train-1",
+            "training_population_rows": 72,
             "selection_partition_id": "population-train-1",
             "holdout_population_id": "population-holdout-1",
             "final_holdout_partition_id": "population-holdout-1",
+            "final_holdout_population_rows": 18,
             "fold_definition_id": "fold-definition-1",
             "final_holdout_status": "sealed",
             "holdout_isolation_status": "verified",
@@ -98,7 +124,7 @@ def _training_contract():
             "manifest_id": "feature-manifest-1",
             "manifest_hash": "feature-hash-1",
         },
-        store_meta={},
+        store_meta={"preprocessing_policy": _preprocessing_policy()},
         training_job_id="train-job-1",
         training_run_id="train-run-1",
         created_by="user-1",
@@ -143,21 +169,162 @@ def test_preprocessing_is_fitted_inside_each_governed_fold() -> None:
     fit_indices: list[tuple[int, ...]] = []
 
     class RecordingTransformer(BaseEstimator, TransformerMixin):
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
         def fit(self, X, y=None):
             fit_indices.append(tuple(int(value) for value in X.index))
+            self.preprocessing_artifact_ = {
+                "artifact_checksum": f"mock-{len(fit_indices)}"
+            }
             return self
 
         def transform(self, X):
             return np.asarray(X, dtype=float)
 
+        def fitted_artifact(self, **kwargs):
+            return {**self.preprocessing_artifact_, **kwargs}
+
     frame, target, folds = _development_population()
-    with patch.object(trainer, "_make_preprocessor", return_value=RecordingTransformer()):
+    with patch.object(
+        trainer,
+        "_make_preprocessor",
+        side_effect=lambda *_args, **kwargs: RecordingTransformer(**kwargs),
+    ):
         result = _train(X_train=frame, y_train=target, cv_splits=folds)
     assert result["ok"]
+    # Governed CV owns one fit per fold.  The extra whole-Development fit is a
+    # pre-lock diagnostic candidate, never the final reporting artifact.
     assert len(fit_indices) == len(folds) + 1
     for observed, (train_positions, _) in zip(fit_indices[:-1], folds):
         assert observed == tuple(int(value) for value in frame.iloc[train_positions].index)
     assert fit_indices[-1] == tuple(int(value) for value in frame.index)
+
+
+def test_locked_candidate_gets_distinct_final_development_fit_and_fixed_holdout_application() -> None:
+    frame, target, _folds = _development_population()
+    trained = _train()
+    assert trained["ok"] is True
+    row = trained["summary"]["ranked"][0]
+    contract = build_candidate_contract(
+        _training_contract(),
+        algorithm_id="logreg",
+        candidate_metrics=row,
+        artifact=trained["summary"]["_artifacts"]["logreg"],
+        created_at="2026-07-31T12:05:00+00:00",
+    )
+    row = {
+        **row,
+        "candidate_id": contract["candidate_id"],
+        "training_job_id": contract["training_job_id"],
+        "training_run_id": contract["training_run_id"],
+        "candidate_contract": contract,
+    }
+    holdout = pd.DataFrame(
+        {"first": [10_000.0, -10_000.0], "second": [3.0, -3.0]}
+    )
+    final_model, final_record = trainer.fit_final_development_candidate(
+        candidate_artifact=trained["summary"]["_artifacts"]["logreg"],
+        candidate_row=row,
+        X_development=frame,
+        y_development=target,
+        preprocessing_recipe=_preprocessing_policy(),
+        fit_population_id="population-train-1",
+        application_population_id="population-holdout-1",
+        application_population_rows=18,
+        actor="user-1",
+        candidate_decision_id="decision-1",
+    )
+    validated = validate_final_preprocessing_artifact(
+        final_record,
+        contract,
+        candidate_decision_id="decision-1",
+    )
+    assert validated["fit_scope"] == "final_development"
+    assert validated["fit_population_rows"] == len(frame)
+    assert validated["application_population_rows"] == 18
+    assert validated["final_holdout_parameter_influence"] is False
+    embedded = extract_final_preprocessing_artifact(final_model)
+    assert embedded == validated
+
+    checksum = validated["final_artifact_checksum"]
+    preprocessor = final_model.named_steps["preprocess"]
+    _ = preprocessor.transform(holdout)
+    assert preprocessor.preprocessing_artifact_["final_artifact_checksum"] == checksum
+    assert preprocessor.last_application_["refit_during_application"] is False
+
+    holdout_population = pd.DataFrame(
+        {
+            "first": np.linspace(-50_000.0, 50_000.0, 18),
+            "second": np.linspace(8_000.0, -8_000.0, 18),
+            "event": [0, 1] * 9,
+        },
+        index=np.arange(2000, 2018),
+    )
+    governed_full = pd.concat(
+        [frame.assign(event=target), holdout_population], axis=0
+    )
+    record = {
+        "analysis_partition_id": "partition-1",
+        "revision": 1,
+        "project_id": "project-1",
+        "dataset_id": "dataset-1",
+        "dataset_version_id": "version-1",
+        "target": "event",
+        "row_assignments_json": {
+            "holdout_positions": list(range(len(frame), len(governed_full))),
+            "holdout_target_fingerprint": "sealed-target-membership",
+        },
+    }
+    boundary = AnalysisPartitionService()
+    with (
+        patch.object(
+            boundary,
+            "target_authority_compatibility",
+            return_value={"lineage_contract": "analysis_partition_v2"},
+        ),
+        patch.object(
+            boundary,
+            "_validate_frame_structure",
+            return_value=(governed_full, "event"),
+        ),
+        patch(
+            "server.analysis_partition.service._authorized_predictors",
+            return_value=["first", "second"],
+        ),
+        patch(
+            "server.analysis_partition.service._target_membership_fingerprint",
+            return_value="sealed-target-membership",
+        ),
+    ):
+        with pytest.raises(AnalysisPartitionError):
+            boundary.materialize_final_holdout(
+                object(),
+                record,
+                ["first", "second"],
+                candidate_decision_id="",
+                final_preprocessing_artifact=validated,
+            )
+        opened_X, opened_y = boundary.materialize_final_holdout(
+            object(),
+            record,
+            ["first", "second"],
+            candidate_decision_id="decision-1",
+            final_preprocessing_artifact=validated,
+        )
+
+    assert len(opened_X) == 18
+    assert len(opened_y) == 18
+    before_parameters = preprocessor.preprocessing_artifact_[
+        "encoding_scaling_parameters"
+    ]
+    _ = preprocessor.transform(opened_X)
+    assert (
+        preprocessor.preprocessing_artifact_["encoding_scaling_parameters"]
+        == before_parameters
+    )
+    assert preprocessor.last_application_["refit_during_application"] is False
+    assert validated["final_holdout_parameter_influence"] is False
 
 
 def test_candidate_contract_hashes_selection_and_encoding_provenance() -> None:

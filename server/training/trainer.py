@@ -68,10 +68,8 @@ try:
     from sklearn.naive_bayes import BernoulliNB, GaussianNB
     from sklearn.neural_network import MLPClassifier
     from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
-    from sklearn.compose import ColumnTransformer
-    from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+    from sklearn.preprocessing import LabelEncoder
     from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
     from sklearn.metrics import (
         accuracy_score,
@@ -116,12 +114,8 @@ except Exception:  # pragma: no cover
     ClassifierMixin = None
     RegressorMixin = None
     clone = None
-    ColumnTransformer = None
-    SimpleImputer = None
     Pipeline = None
     LabelEncoder = None
-    OneHotEncoder = None
-    StandardScaler = None
     GridSearchCV = None
     KFold = None
     StratifiedKFold = None
@@ -134,6 +128,20 @@ except Exception:  # pragma: no cover
     mean_absolute_error = None
     mean_squared_error = None
     r2_score = None
+
+from ..preprocessing.execution_contract import (
+    GovernedPreprocessor,
+    canonical_preprocessing_hash,
+    default_no_treatment_contract,
+    extract_fitted_preprocessing_artifacts,
+    validate_final_preprocessing_artifact,
+    validate_preprocessing_contract,
+)
+from ..preprocessing.preprocessing_contract import (
+    FIT_SCOPE_CANDIDATE_DEVELOPMENT,
+    FIT_SCOPE_FINAL_DEVELOPMENT,
+    FIT_SCOPE_FOLD_TRAINING,
+)
 
 # -----------------------------------------------------------------------------
 # Gradient boosting imports
@@ -983,62 +991,35 @@ def _compute_regression_metrics(
 # -----------------------------------------------------------------------------
 # Model training helpers
 # -----------------------------------------------------------------------------
-def _make_preprocessor(X: pd.DataFrame):
-    """
-    Build a sklearn preprocessing pipeline for mixed tabular data.
+def _make_preprocessor(
+    X: pd.DataFrame,
+    *,
+    preprocessing_recipe: Optional[Dict[str, Any]] = None,
+    fit_scope: str = FIT_SCOPE_FOLD_TRAINING,
+    fit_population_id: str = "direct-training-population",
+    actor: str = "backend_training_engine",
+    application_scope: str = "cv_validation_fold",
+    application_population_id: str = "unbound-validation-fold",
+    application_population_rows: int = 0,
+    encode_and_scale: bool = True,
+):
+    """Build the governed recipe executor; never add an implicit imputer."""
 
-    Numeric columns are median-imputed and scaled. Categorical/object columns are
-    filled with a missing token and one-hot encoded so tree, linear, boosting,
-    and distance-based estimators can all consume the same matrix.
-    """
-    if ColumnTransformer is None or SimpleImputer is None or OneHotEncoder is None:
-        raise ImportError("scikit-learn preprocessing components are required for training.")
-
-    numeric_cols = [
-        col for col in X.columns if pd.api.types.is_numeric_dtype(X[col])
-    ]
-    categorical_cols = [col for col in X.columns if col not in numeric_cols]
-
-    transformers = []
-    if numeric_cols:
-        transformers.append(
-            (
-                "num",
-                Pipeline(
-                    steps=[
-                        ("imputer", SimpleImputer(strategy="median")),
-                        ("scaler", StandardScaler()),
-                    ]
-                ),
-                numeric_cols,
-            )
-        )
-
-    if categorical_cols:
-        transformers.append(
-            (
-                "cat",
-                Pipeline(
-                    steps=[
-                        ("imputer", SimpleImputer(strategy="most_frequent")),
-                        (
-                            "onehot",
-                            OneHotEncoder(
-                                handle_unknown="ignore",
-                                sparse_output=False,
-                                max_categories=50,
-                            ),
-                        ),
-                    ]
-                ),
-                categorical_cols,
-            )
-        )
-
-    if not transformers:
-        raise ValueError("No usable feature columns are available for model training.")
-
-    return ColumnTransformer(transformers=transformers, remainder="drop")
+    recipe = (
+        validate_preprocessing_contract(preprocessing_recipe)
+        if preprocessing_recipe is not None
+        else default_no_treatment_contract(feature_names=list(X.columns))
+    )
+    return GovernedPreprocessor(
+        recipe,
+        encode_and_scale=encode_and_scale,
+        fit_scope=fit_scope,
+        fit_population_id=fit_population_id,
+        actor=actor,
+        application_scope=application_scope,
+        application_population_id=application_population_id,
+        application_population_rows=application_population_rows,
+    )
 
 
 VALID_FOLD_LOCAL_PREPROCESSING_POLICIES = {
@@ -1336,17 +1317,31 @@ class _FoldLocalPolicyClassifier(_FoldPolicyClassifierBase):
         self,
         model: Any,
         preprocessing_policy: str = "fit_transform_per_fold",
+        preprocessing_recipe: Optional[Dict[str, Any]] = None,
         balancing_method: str = "none",
         minority_share: float = 0.5,
         random_seed: int = 42,
         class_weight_policy: str = "none",
+        fit_scope: str = FIT_SCOPE_FOLD_TRAINING,
+        fit_population_id: str = "unbound-training-fold",
+        actor: str = "backend_training_engine",
+        application_scope: str = "cv_validation_fold",
+        application_population_id: str = "unbound-validation-fold",
+        application_population_rows: int = 0,
     ) -> None:
         self.model = model
         self.preprocessing_policy = preprocessing_policy
+        self.preprocessing_recipe = preprocessing_recipe
         self.balancing_method = balancing_method
         self.minority_share = minority_share
         self.random_seed = random_seed
         self.class_weight_policy = class_weight_policy
+        self.fit_scope = fit_scope
+        self.fit_population_id = fit_population_id
+        self.actor = actor
+        self.application_scope = application_scope
+        self.application_population_id = application_population_id
+        self.application_population_rows = application_population_rows
 
     def __getattribute__(self, name: str) -> Any:
         # sklearn chooses the first response method that appears to exist.
@@ -1365,13 +1360,32 @@ class _FoldLocalPolicyClassifier(_FoldPolicyClassifierBase):
     def fit(self, X: Any, y: Any):
         frame = X.copy() if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
         if self.preprocessing_policy == "fit_transform_per_fold":
-            self.preprocess_ = _make_preprocessor(frame)
+            self.preprocess_ = _make_preprocessor(
+                frame,
+                preprocessing_recipe=self.preprocessing_recipe,
+                fit_scope=self.fit_scope,
+                fit_population_id=self.fit_population_id,
+                actor=self.actor,
+                application_scope=self.application_scope,
+                application_population_id=self.application_population_id,
+                application_population_rows=self.application_population_rows,
+            )
             prepared = self.preprocess_.fit_transform(frame)
-            preprocessing_execution = "fit_transform_on_training_rows"
+            preprocessing_execution = "governed_recipe_fit_on_training_rows"
         elif self.preprocessing_policy == "model_native_per_fold":
-            self.preprocess_ = None
-            prepared = frame
-            preprocessing_execution = "model_native_training_rows"
+            self.preprocess_ = _make_preprocessor(
+                frame,
+                preprocessing_recipe=self.preprocessing_recipe,
+                fit_scope=self.fit_scope,
+                fit_population_id=self.fit_population_id,
+                actor=self.actor,
+                application_scope=self.application_scope,
+                application_population_id=self.application_population_id,
+                application_population_rows=self.application_population_rows,
+                encode_and_scale=False,
+            )
+            prepared = self.preprocess_.fit_transform(frame)
+            preprocessing_execution = "governed_recipe_model_native_matrix"
         else:
             raise ValueError("Unsupported fold-local preprocessing policy.")
 
@@ -1394,7 +1408,19 @@ class _FoldLocalPolicyClassifier(_FoldPolicyClassifierBase):
             "preprocessing_execution": preprocessing_execution,
             "resampling": resampling_audit,
             "class_weights": weight_audit,
-            "final_holdout_access": "none",
+            "fitted_preprocessing_artifacts": [
+                self.preprocess_.fitted_artifact(
+                    application_scope=self.application_scope,
+                    application_population_id=self.application_population_id,
+                    application_population_rows=self.application_population_rows,
+                )
+            ],
+            "final_holdout_target_accessed": False,
+            "final_holdout_predictors_included_in_structural_profile": False,
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": False,
         }
         return self
 
@@ -1653,6 +1679,174 @@ def _encode_binary_training_target(
     }
 
 
+def fit_final_development_candidate(
+    *,
+    candidate_artifact: Any,
+    candidate_row: Dict[str, Any],
+    X_development: pd.DataFrame,
+    y_development: pd.Series,
+    preprocessing_recipe: Dict[str, Any],
+    fit_population_id: str,
+    application_population_id: str,
+    application_population_rows: int,
+    actor: str,
+    candidate_decision_id: str,
+) -> tuple[Any, Dict[str, Any]]:
+    """Refit the locked candidate with one full-Development transformer.
+
+    Candidate artifacts are diagnostics fitted before lock.  This boundary
+    creates a distinct executable model whose preprocessing parameters are
+    estimated exactly once from the complete Development Population.  Model
+    calibration may use transformed Development rows, but it cannot refit the
+    governed preprocessing transformer.
+    """
+
+    if clone is None or Pipeline is None:
+        raise ImportError("scikit-learn is required for final candidate fitting.")
+    if candidate_artifact is None:
+        raise ValueError(
+            "The selected candidate executable artifact is unavailable; retrain before locking a final candidate."
+        )
+    recipe = validate_preprocessing_contract(preprocessing_recipe)
+    frame = X_development.copy()
+    preprocessor = GovernedPreprocessor(
+        recipe,
+        encode_and_scale=True,
+        fit_scope=FIT_SCOPE_FINAL_DEVELOPMENT,
+        fit_population_id=str(fit_population_id),
+        actor=str(actor),
+        application_scope="final_holdout_fixed_application",
+        application_population_id=str(application_population_id),
+        application_population_rows=int(application_population_rows),
+    )
+    preprocessor.fit(frame)
+    transformed = preprocessor.transform(frame)
+    # The transform above materializes only the fitting population.  Keep the
+    # final-holdout application audit empty until Evaluation actually opens it.
+    preprocessor.last_application_ = {}
+
+    task = str(candidate_row.get("task") or "").casefold()
+    kind = str(candidate_row.get("kind") or "supervised").casefold()
+    if kind == "anomaly":
+        source_model = (
+            candidate_artifact.named_steps.get("model")
+            if hasattr(candidate_artifact, "named_steps")
+            else candidate_artifact
+        )
+        fitted_model = clone(source_model)
+        fitted_model.fit(transformed)
+    elif task == "classification":
+        encoded_y, _ = _encode_binary_training_target(
+            y_development,
+            (candidate_row.get("candidate_contract") or {}).get(
+                "positive_class"
+            ),
+        )
+        outer_calibrated = bool(
+            hasattr(candidate_artifact, "calibrated_classifiers_")
+            and hasattr(candidate_artifact, "estimator")
+            and hasattr(candidate_artifact.estimator, "model")
+        )
+        wrapper = (
+            candidate_artifact.estimator
+            if outer_calibrated
+            else candidate_artifact
+        )
+        source_model = getattr(wrapper, "model_", None)
+        if source_model is None:
+            source_model = getattr(wrapper, "model", None)
+        if source_model is None:
+            raise ValueError(
+                "The selected classification candidate has no reusable estimator template."
+            )
+        fitted_model = clone(source_model)
+        balancing_method = str(getattr(wrapper, "balancing_method", "none"))
+        minority_share = float(getattr(wrapper, "minority_share", 0.5))
+        random_seed = int(getattr(wrapper, "random_seed", 42))
+        class_weight_policy = str(
+            getattr(wrapper, "class_weight_policy", "none")
+        )
+        fit_X, fit_y, _ = _resample_fold_training_rows(
+            transformed,
+            encoded_y,
+            method=balancing_method,
+            minority_share=minority_share,
+            random_seed=random_seed,
+        )
+        fitted_model, fit_kwargs, _ = _configure_class_weight_execution(
+            fitted_model,
+            fit_y,
+            class_weight_policy,
+        )
+        if outer_calibrated:
+            counts = np.bincount(np.asarray(fit_y, dtype=int), minlength=2)
+            calibration_folds = max(2, min(5, int(np.min(counts))))
+            fitted_model = CalibratedClassifierCV(
+                fitted_model,
+                method=str(getattr(candidate_artifact, "method", "sigmoid")),
+                cv=calibration_folds,
+            )
+            fit_kwargs = {}
+        fitted_model.fit(fit_X, fit_y, **fit_kwargs)
+    elif task == "regression":
+        source_model = (
+            candidate_artifact.named_steps.get("model")
+            if hasattr(candidate_artifact, "named_steps")
+            else candidate_artifact
+        )
+        fitted_model = clone(source_model)
+        numeric_y = pd.to_numeric(y_development, errors="coerce")
+        if numeric_y.isna().any():
+            raise ValueError(
+                "The Development Population contains a non-numeric regression target."
+            )
+        fitted_model.fit(transformed, numeric_y.to_numpy(dtype=float))
+    else:
+        raise ValueError("The selected candidate has an unsupported task.")
+
+    final_estimator = Pipeline(
+        steps=[("preprocess", preprocessor), ("model", fitted_model)]
+    )
+    final_artifact = preprocessor.fitted_artifact(
+        application_scope="final_holdout_fixed_application",
+        application_population_id=str(application_population_id),
+        application_population_rows=int(application_population_rows),
+    )
+    final_artifact.update(
+        {
+            "artifact_kind": "final_development_fitted_preprocessing",
+            "candidate_decision_id": str(candidate_decision_id),
+            "candidate_id": str(candidate_row.get("candidate_id") or ""),
+            "training_job_id": str(candidate_row.get("training_job_id") or ""),
+            "training_run_id": str(candidate_row.get("training_run_id") or ""),
+            "model_linkage_status": "locked_candidate_pre_registry",
+            "final_holdout_target_accessed": False,
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": False,
+            "refit_during_application": False,
+        }
+    )
+    final_artifact["final_artifact_checksum"] = canonical_preprocessing_hash(
+        {
+            key: value
+            for key, value in final_artifact.items()
+            if key not in {"fitted_at", "final_artifact_checksum"}
+        }
+    )
+    # Bind the exact final-fit record into the executable object itself.  A
+    # registry/scoring restart can therefore verify fit scope and checksum
+    # without consulting mutable workspace preparation state.
+    preprocessor.preprocessing_artifact_ = deepcopy(final_artifact)
+    validate_final_preprocessing_artifact(
+        final_artifact,
+        candidate_row.get("candidate_contract") or {},
+        candidate_decision_id=candidate_decision_id,
+    )
+    return final_estimator, final_artifact
+
+
 def _predict_classification_scores(estimator: Any, X: pd.DataFrame) -> np.ndarray:
     if hasattr(estimator, "predict_proba"):
         probabilities = np.asarray(estimator.predict_proba(X), dtype=float)
@@ -1753,6 +1947,8 @@ def _train_classification_model(
     fold_definition_id: str = "",
     selection_created_at: str = "",
     validation_policy: Optional[Dict[str, Any]] = None,
+    preprocessing_recipe: Optional[Dict[str, Any]] = None,
+    preprocessing_actor: str = "backend_training_engine",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1787,10 +1983,17 @@ def _train_classification_model(
     estimator_template = _FoldLocalPolicyClassifier(
         model=model,
         preprocessing_policy=execution_policy["fold_local_preprocessing"],
+        preprocessing_recipe=preprocessing_recipe,
         balancing_method=execution_policy["balancing_method"],
         minority_share=execution_policy["minority_share"],
         random_seed=execution_policy["random_seed"],
         class_weight_policy=execution_policy["class_weight_policy"],
+        fit_scope=FIT_SCOPE_FOLD_TRAINING,
+        fit_population_id=f"{selection_partition_id}:candidate-training-subset",
+        actor=preprocessing_actor,
+        application_scope="cv_validation_fold",
+        application_population_id=f"{fold_definition_id}:validation-subset",
+        application_population_rows=0,
     )
 
     best_params = None
@@ -1877,8 +2080,22 @@ def _train_classification_model(
     def fitted_for_partition(
         X_partition: pd.DataFrame,
         y_partition: np.ndarray,
+        *,
+        fit_scope: str,
+        fit_population_id: str,
+        application_scope: str,
+        application_population_id: str,
+        application_population_rows: int,
     ) -> tuple[Any, str]:
         partition_estimator = clone(estimator_template)
+        partition_estimator.set_params(
+            fit_scope=fit_scope,
+            fit_population_id=fit_population_id,
+            actor=preprocessing_actor,
+            application_scope=application_scope,
+            application_population_id=application_population_id,
+            application_population_rows=application_population_rows,
+        )
         if calibration_requested:
             counts = np.bincount(y_partition, minlength=2)
             inner_folds = max(2, min(int(cv_folds), int(np.min(counts))))
@@ -1907,6 +2124,15 @@ def _train_classification_model(
         fold_estimator, fold_calibration_source = fitted_for_partition(
             X_train.iloc[train_positions],
             y_train_arr[train_positions],
+            fit_scope=FIT_SCOPE_FOLD_TRAINING,
+            fit_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:training"
+            ),
+            application_scope="cv_validation_fold",
+            application_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:validation"
+            ),
+            application_population_rows=int(len(validation_positions)),
         )
         fold_scores = _predict_classification_scores(
             fold_estimator,
@@ -1929,6 +2155,11 @@ def _train_classification_model(
                 **execution_policy,
                 "execution": "inside_fold_local_calibration",
             }
+        fitted_artifacts = extract_fitted_preprocessing_artifacts(
+            fold_estimator
+        )
+        if fitted_artifacts:
+            policy_audit["fitted_preprocessing_artifacts"] = fitted_artifacts
         fold_policy_execution.append(
             {
                 "fold": fold_number,
@@ -1949,6 +2180,13 @@ def _train_classification_model(
     final_estimator, final_calibration_source = fitted_for_partition(
         X_train,
         y_train_arr,
+        fit_scope=FIT_SCOPE_CANDIDATE_DEVELOPMENT,
+        fit_population_id=(
+            f"{selection_partition_id}:candidate-development-diagnostic"
+        ),
+        application_scope="candidate_artifact_no_holdout_application",
+        application_population_id="candidate-lock-pending",
+        application_population_rows=0,
     )
     calibration_sources.add(final_calibration_source)
     calibration_source = (
@@ -2005,6 +2243,14 @@ def _train_classification_model(
             },
             "governed_fold_count": len(governed_splits),
             "final_holdout_access": "none",
+            "fold_fitted_artifacts": [
+                artifact
+                for fold in fold_policy_execution
+                for artifact in fold.get("fitted_preprocessing_artifacts", [])
+            ],
+            "candidate_development_fit_role": (
+                "ephemeral_diagnostic_not_final_reporting_artifact"
+            ),
         },
         "model": final_estimator,
     }
@@ -2022,6 +2268,8 @@ def _train_anomaly_model(
     fold_definition_id: str = "",
     selection_created_at: str = "",
     validation_policy: Optional[Dict[str, Any]] = None,
+    preprocessing_recipe: Optional[Dict[str, Any]] = None,
+    preprocessing_actor: str = "backend_training_engine",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -2041,15 +2289,32 @@ def _train_anomaly_model(
         validation_policy,
         problem_type="classification",
     )
-    if execution_policy["fold_local_preprocessing"] == "fit_transform_per_fold":
-        estimator_template = Pipeline(
-            steps=[
-                ("preprocess", _make_preprocessor(X_train)),
-                ("model", model),
-            ]
-        )
-    else:
-        estimator_template = model
+    estimator_template = Pipeline(
+        steps=[
+            (
+                "preprocess",
+                _make_preprocessor(
+                    X_train,
+                    preprocessing_recipe=preprocessing_recipe,
+                    fit_scope=FIT_SCOPE_FOLD_TRAINING,
+                    fit_population_id=(
+                        f"{selection_partition_id}:anomaly-training-subset"
+                    ),
+                    actor=preprocessing_actor,
+                    application_scope="cv_validation_fold",
+                    application_population_id=(
+                        f"{fold_definition_id}:anomaly-validation-subset"
+                    ),
+                    application_population_rows=0,
+                    encode_and_scale=(
+                        execution_policy["fold_local_preprocessing"]
+                        == "fit_transform_per_fold"
+                    ),
+                ),
+            ),
+            ("model", model),
+        ]
+    )
 
     def anomaly_scores(estimator: Any, X: pd.DataFrame) -> np.ndarray:
         if hasattr(estimator, "named_steps"):
@@ -2077,8 +2342,20 @@ def _train_anomaly_model(
     ):
         fold_estimator = clone(estimator_template)
         fold_frame = X_train.iloc[train_positions]
-        if len(fold_frame) > 10_000:
-            fold_frame = fold_frame.sample(n=10_000, random_state=42)
+        fold_estimator.set_params(
+            preprocess__fit_scope=FIT_SCOPE_FOLD_TRAINING,
+            preprocess__fit_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:training"
+            ),
+            preprocess__actor=preprocessing_actor,
+            preprocess__application_scope="cv_validation_fold",
+            preprocess__application_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:validation"
+            ),
+            preprocess__application_population_rows=int(
+                len(validation_positions)
+            ),
+        )
         fold_estimator.fit(fold_frame)
         fold_scores = anomaly_scores(
             fold_estimator,
@@ -2110,6 +2387,9 @@ def _train_anomaly_model(
                 "validation_rows": int(len(validation_positions)),
                 "validation_rows_resampled": False,
                 "final_holdout_access": "none",
+                "fitted_preprocessing_artifacts": (
+                    extract_fitted_preprocessing_artifacts(fold_estimator)
+                ),
             }
         )
 
@@ -2119,12 +2399,20 @@ def _train_anomaly_model(
     oof_scores = score_sums[covered] / score_counts[covered]
     oof_y_true = y_train_arr[covered]
     metrics = _compute_classification_metrics(oof_y_true, oof_scores)
-    fit_frame = (
-        X_train.sample(n=10_000, random_state=42)
-        if len(X_train) > 10_000
-        else X_train
-    )
+    fit_frame = X_train
     final_estimator = clone(estimator_template)
+    final_estimator.set_params(
+        preprocess__fit_scope=FIT_SCOPE_CANDIDATE_DEVELOPMENT,
+        preprocess__fit_population_id=(
+            f"{selection_partition_id}:candidate-development-diagnostic"
+        ),
+        preprocess__actor=preprocessing_actor,
+        preprocess__application_scope=(
+            "candidate_artifact_no_holdout_application"
+        ),
+        preprocess__application_population_id="candidate-lock-pending",
+        preprocess__application_population_rows=0,
+    )
     final_estimator.fit(fit_frame)
     selection_metric = _selection_metric_record(
         key=key,
@@ -2164,6 +2452,14 @@ def _train_anomaly_model(
             "balancing_execution": "not_applicable_target_independent_model",
             "class_weight_execution": "not_applicable_target_independent_model",
             "final_holdout_access": "none",
+            "fold_fitted_artifacts": [
+                artifact
+                for fold in fold_policy_execution
+                for artifact in fold.get("fitted_preprocessing_artifacts", [])
+            ],
+            "candidate_development_fit_role": (
+                "ephemeral_diagnostic_not_final_reporting_artifact"
+            ),
         },
         "model": final_estimator,
     }
@@ -2183,6 +2479,8 @@ def _train_regression_model(
     fold_definition_id: str = "",
     selection_created_at: str = "",
     validation_policy: Optional[Dict[str, Any]] = None,
+    preprocessing_recipe: Optional[Dict[str, Any]] = None,
+    preprocessing_actor: str = "backend_training_engine",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -2203,26 +2501,38 @@ def _train_regression_model(
         problem_type="regression",
     )
 
-    if execution_policy["fold_local_preprocessing"] == "fit_transform_per_fold":
-        estimator_template = Pipeline(
-            steps=[
-                ("preprocess", _make_preprocessor(X_train)),
-                ("model", model),
-            ]
-        )
-    else:
-        estimator_template = model
+    estimator_template = Pipeline(
+        steps=[
+            (
+                "preprocess",
+                _make_preprocessor(
+                    X_train,
+                    preprocessing_recipe=preprocessing_recipe,
+                    fit_scope=FIT_SCOPE_FOLD_TRAINING,
+                    fit_population_id=(
+                        f"{selection_partition_id}:tuning-training-subset"
+                    ),
+                    actor=preprocessing_actor,
+                    application_scope="cv_validation_fold",
+                    application_population_id=(
+                        f"{fold_definition_id}:tuning-validation-subset"
+                    ),
+                    application_population_rows=0,
+                    encode_and_scale=(
+                        execution_policy["fold_local_preprocessing"]
+                        == "fit_transform_per_fold"
+                    ),
+                ),
+            ),
+            ("model", model),
+        ]
+    )
 
     best_params = None
     best_score = None
     search_runtime_ms = 0
     applied_param_grid: Dict[str, Any] = {}
     param_grid = spec.get("param_grid") or {}
-    if execution_policy["fold_local_preprocessing"] == "model_native_per_fold":
-        param_grid = {
-            str(name).removeprefix("model__"): values
-            for name, values in param_grid.items()
-        }
     can_search = bool(grid_search and param_grid and GridSearchCV is not None)
     if can_search:
         grid_limit = {"quick": 4, "balanced": 8, "thorough": 12}.get(
@@ -2264,6 +2574,21 @@ def _train_regression_model(
         start=1,
     ):
         fold_estimator = clone(estimator_template)
+        fold_estimator.set_params(
+            preprocess__preprocessing_recipe=preprocessing_recipe,
+            preprocess__fit_scope=FIT_SCOPE_FOLD_TRAINING,
+            preprocess__fit_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:training"
+            ),
+            preprocess__actor=preprocessing_actor,
+            preprocess__application_scope="cv_validation_fold",
+            preprocess__application_population_id=(
+                f"{fold_definition_id}:fold-{fold_number}:validation"
+            ),
+            preprocess__application_population_rows=int(
+                len(validation_positions)
+            ),
+        )
         fold_estimator.fit(
             X_train.iloc[train_positions],
             y_train_arr[train_positions],
@@ -2297,6 +2622,9 @@ def _train_regression_model(
                 "validation_rows": int(len(validation_positions)),
                 "validation_rows_resampled": False,
                 "final_holdout_access": "none",
+                "fitted_preprocessing_artifacts": (
+                    extract_fitted_preprocessing_artifacts(fold_estimator)
+                ),
             }
         )
     covered = prediction_counts > 0
@@ -2310,6 +2638,19 @@ def _train_regression_model(
         n_features=len(X_train.columns),
     )
     final_estimator = clone(estimator_template)
+    final_estimator.set_params(
+        preprocess__preprocessing_recipe=preprocessing_recipe,
+        preprocess__fit_scope=FIT_SCOPE_CANDIDATE_DEVELOPMENT,
+        preprocess__fit_population_id=(
+            f"{selection_partition_id}:candidate-development-diagnostic"
+        ),
+        preprocess__actor=preprocessing_actor,
+        preprocess__application_scope=(
+            "candidate_artifact_no_holdout_application"
+        ),
+        preprocess__application_population_id="candidate-lock-pending",
+        preprocess__application_population_rows=0,
+    )
     final_estimator.fit(X_train, y_train_arr)
     selection_metric = _selection_metric_record(
         key=key,
@@ -2360,6 +2701,14 @@ def _train_regression_model(
             },
             "governed_fold_count": len(governed_splits),
             "final_holdout_access": "none",
+            "fold_fitted_artifacts": [
+                artifact
+                for fold in fold_policy_execution
+                for artifact in fold.get("fitted_preprocessing_artifacts", [])
+            ],
+            "candidate_development_fit_role": (
+                "ephemeral_diagnostic_not_final_reporting_artifact"
+            ),
         },
         "model": final_estimator,
     }
@@ -2385,6 +2734,8 @@ def train_models(
     selection_created_at: str = "",
     balancing_status: str = "not_applied",
     validation_policy: Optional[Dict[str, Any]] = None,
+    preprocessing_recipe: Optional[Dict[str, Any]] = None,
+    preprocessing_actor: str = "backend_training_engine",
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -2392,6 +2743,11 @@ def train_models(
       • Step08 evaluation (classification models only)
     """
     X_train = _coerce_feature_frame(X_train)
+    governed_recipe = (
+        validate_preprocessing_contract(preprocessing_recipe)
+        if preprocessing_recipe is not None
+        else default_no_treatment_contract(feature_names=list(X_train.columns))
+    )
 
     # Infer problem type
     problem_type = infer_problem_type(y_train)
@@ -2448,6 +2804,8 @@ def train_models(
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
                     validation_policy=execution_policy,
+                    preprocessing_recipe=governed_recipe,
+                    preprocessing_actor=preprocessing_actor,
                 )
             elif spec["task"] == "classification":
                 details = _train_classification_model(
@@ -2467,6 +2825,8 @@ def train_models(
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
                     validation_policy=execution_policy,
+                    preprocessing_recipe=governed_recipe,
+                    preprocessing_actor=preprocessing_actor,
                 )
             else:
                 details = _train_regression_model(
@@ -2483,6 +2843,8 @@ def train_models(
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
                     validation_policy=execution_policy,
+                    preprocessing_recipe=governed_recipe,
+                    preprocessing_actor=preprocessing_actor,
                 )
         except Exception as exc:
             failed_rows.append(
@@ -2545,6 +2907,26 @@ def train_models(
                 "validation_policy_execution": details.get(
                     "validation_policy_execution"
                 ),
+                "governed_preprocessing": {
+                    "preprocessing_contract_version": governed_recipe.get(
+                        "preprocessing_contract_version"
+                    ),
+                    "preprocessing_policy_id": governed_recipe.get(
+                        "preprocessing_policy_id"
+                    ),
+                    "preprocessing_policy_revision": governed_recipe.get(
+                        "preprocessing_policy_revision"
+                    ),
+                    "preprocessing_policy_hash": governed_recipe.get(
+                        "preprocessing_policy_hash"
+                    ),
+                    "fold_fitted_artifacts": (
+                        details.get("validation_policy_execution") or {}
+                    ).get("fold_fitted_artifacts", []),
+                    "candidate_development_fit_role": (
+                        details.get("validation_policy_execution") or {}
+                    ).get("candidate_development_fit_role"),
+                },
                 "mae": m.get("mae"),
                 "mse": m.get("mse"),
                 "rmse": m.get("rmse"),
@@ -2588,6 +2970,25 @@ def train_models(
             **execution_policy,
             "model_count": len(ranked_rows),
             "final_holdout_access": "none",
+        },
+        "governed_preprocessing_contract": {
+            "preprocessing_contract_version": governed_recipe.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": governed_recipe.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": governed_recipe.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": governed_recipe.get(
+                "preprocessing_policy_hash"
+            ),
+            "fold_fitted_artifact_status": "complete",
+            "final_fitted_artifact_status": "pending_candidate_lock",
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
         },
         "ranked": ranked_rows,
         "raw": trained_rows,

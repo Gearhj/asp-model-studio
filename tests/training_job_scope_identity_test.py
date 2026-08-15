@@ -12,6 +12,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.core.dataset_store import DatasetStore  # noqa: E402
+from server.preprocessing.execution_contract import (  # noqa: E402
+    default_no_treatment_contract,
+)
 from server.training.training_job_service import (  # noqa: E402
     TrainingJobService,
     _governed_validation_execution_policy,
@@ -50,6 +53,14 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
             dataset_version_id=self.identity["dataset_version_id"],
             target="bad_flag",
             authorized_predictors=["feature_a"],
+        )
+        # Candidate training keeps only the Development Population resident;
+        # the sealed holdout is opened later at the final-reporting boundary.
+        self.store.set_splits(
+            self.store.X_train,
+            None,
+            self.store.y_train,
+            None,
         )
         partition = installed["record"]
         validation_design = {
@@ -93,6 +104,17 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
                 "selection_resampling_status": "not_applied",
             },
         }
+        preprocessing_policy = default_no_treatment_contract(
+            identity={
+                **self.identity,
+                "analysis_partition_id": partition[
+                    "analysis_partition_id"
+                ],
+                "analysis_partition_revision": partition["revision"],
+            },
+            feature_names=["feature_a"],
+            source="training_job_scope_identity_fixture",
+        )
         self.store.meta.update(
             {
                 "split_status": "current",
@@ -102,6 +124,7 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
                     "manifest_hash": "manifest-1",
                 },
                 "split_record": split_record,
+                "preprocessing_policy": preprocessing_policy,
             }
         )
         self.target_authority = _governed_training_target_semantics(
@@ -149,6 +172,19 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
                 "analysis_partition_revision"
             ],
             "validation_execution_policy": self.validation_execution_policy,
+            "governed_preprocessing_contract": preprocessing_policy,
+            "preprocessing_contract_version": preprocessing_policy[
+                "preprocessing_contract_version"
+            ],
+            "preprocessing_policy_id": preprocessing_policy[
+                "preprocessing_policy_id"
+            ],
+            "preprocessing_policy_revision": preprocessing_policy[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": preprocessing_policy[
+                "preprocessing_policy_hash"
+            ],
             "_dataset_store": self.store,
             "overall_status": "running",
             "completed_at": None,

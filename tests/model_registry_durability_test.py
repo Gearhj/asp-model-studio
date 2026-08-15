@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from server.model_registry import model_artifacts  # noqa: E402
 from server.model_registry import model_registry_service as registry  # noqa: E402
+from server.evaluation import eval_router  # noqa: E402
 from server.persistence.db import (  # noqa: E402
     Database,
     MIGRATIONS_PATH,
@@ -32,7 +33,19 @@ from server.persistence.db import (  # noqa: E402
     now_iso,
 )
 from server.persistence.service import PersistenceService  # noqa: E402
+from server.preprocessing.execution_contract import (  # noqa: E402
+    canonical_preprocessing_hash,
+    default_no_treatment_contract,
+)
 from server.training.candidate_contract import canonical_contract_hash  # noqa: E402
+
+
+class RegistryFixtureEstimator(dict):
+    """Serializable no-op executable carrying exact final-fit lineage."""
+
+    def __init__(self, payload: dict, preprocessing_artifact: dict):
+        super().__init__(payload)
+        self.preprocessing_artifact_ = deepcopy(preprocessing_artifact)
 
 
 class ModelRegistryDurabilityTests(unittest.TestCase):
@@ -106,6 +119,18 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
         threshold_policy["threshold_policy_hash"] = canonical_contract_hash(
             threshold_policy
         )
+        analysis_partition_id = f"analysis-partition-{suffix}"
+        preprocessing_policy = default_no_treatment_contract(
+            identity={
+                "project_id": project_id,
+                "dataset_id": "dataset-heloc",
+                "dataset_version_id": "dv-registered-001",
+                "analysis_partition_id": analysis_partition_id,
+                "analysis_partition_revision": 1,
+            },
+            feature_names=["feature_a", "feature_b"],
+            source="model_registry_durability_fixture",
+        )
         contract = {
             "project_id": project_id,
             "dataset_id": "dataset-heloc",
@@ -118,6 +143,19 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
                 "negative_class": None if is_regression else 0,
             },
             "target_contract_id": "target-contract-001",
+            "analysis_partition_id": analysis_partition_id,
+            "analysis_partition_revision": 1,
+            "preprocessing_contract_version": 2,
+            "preprocessing_policy_id": preprocessing_policy[
+                "preprocessing_policy_id"
+            ],
+            "preprocessing_policy_revision": preprocessing_policy[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": preprocessing_policy[
+                "preprocessing_policy_hash"
+            ],
+            "preprocessing_policy": preprocessing_policy,
             "positive_class": None if is_regression else 1,
             "predictor_manifest_id": "predictors-001",
             "predictor_manifest_hash": "predictors-hash-001",
@@ -173,7 +211,9 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
                 }
             ),
             "training_population_id": f"training-population-{suffix}",
+            "training_population_rows": 80,
             "final_holdout_partition_id": f"split-001:test:{suffix}",
+            "final_holdout_population_rows": 20,
             "fold_definition_id": f"fold-definition-{suffix}",
             "created_by": self.user["userId"],
             "created_at": "2026-07-31T12:00:00+00:00",
@@ -189,6 +229,69 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
         contract["contract_hash"] = canonical_contract_hash(contract)
         return contract
 
+    def _final_preprocessing_artifact(
+        self,
+        contract: dict,
+        candidate_decision_id: str,
+    ) -> dict:
+        artifact = {
+            "preprocessing_contract_version": 2,
+            "artifact_kind": "final_development_fitted_preprocessing",
+            "artifact_checksum": f"fixture-final-fit-{contract['candidate_id']}",
+            "project_id": contract["project_id"],
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "preprocessing_policy_id": contract[
+                "preprocessing_policy_id"
+            ],
+            "preprocessing_policy_revision": contract[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": contract[
+                "preprocessing_policy_hash"
+            ],
+            "candidate_decision_id": candidate_decision_id,
+            "candidate_id": contract["candidate_id"],
+            "fit_scope": "final_development",
+            "fit_population_id": contract["training_population_id"],
+            "fit_population_count": contract["training_population_rows"],
+            "fit_population_rows": contract["training_population_rows"],
+            "fit_excluded_true_null_cells": 0,
+            "fit_excluded_special_value_cells": 0,
+            "application_scope": "final_holdout_fixed_application",
+            "application_population_id": contract[
+                "final_holdout_partition_id"
+            ],
+            "application_population_rows": contract[
+                "final_holdout_population_rows"
+            ],
+            "outlier_fitted_recipe": {"features": {}},
+            "missing_fitted_recipe": {"features": {}},
+            "encoding_scaling_parameters": {"status": "not_requested"},
+            "encoding_scaling_fitted": False,
+            "feature_names": ["feature_a", "feature_b"],
+            "policy_scope": "governed_recipe",
+            "final_holdout_target_accessed": False,
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": False,
+            "validation_fold_parameter_influence": False,
+            "refit_during_application": False,
+        }
+        artifact["final_artifact_checksum"] = canonical_preprocessing_hash(
+            {
+                key: value
+                for key, value in artifact.items()
+                if key not in {"fitted_at", "final_artifact_checksum"}
+            }
+        )
+        return artifact
+
     def _seed_governance(
         self,
         contract: dict,
@@ -198,6 +301,10 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
     ) -> str:
         decision_id = f"decision-{suffix}"
         exposure_id = f"exposure-{suffix}"
+        final_preprocessing_artifact = self._final_preprocessing_artifact(
+            contract,
+            decision_id,
+        )
         source_metric = contract["selection_metric"]
         metric = {
             "name": source_metric.get("name")
@@ -323,6 +430,23 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
                 "treatment_manifest_hash": contract[
                     "treatment_manifest_hash"
                 ],
+                "preprocessing_contract_version": contract[
+                    "preprocessing_contract_version"
+                ],
+                "preprocessing_policy_id": contract[
+                    "preprocessing_policy_id"
+                ],
+                "preprocessing_policy_revision": contract[
+                    "preprocessing_policy_revision"
+                ],
+                "preprocessing_policy_hash": contract[
+                    "preprocessing_policy_hash"
+                ],
+                "final_preprocessing_artifact_checksum": (
+                    final_preprocessing_artifact[
+                        "final_artifact_checksum"
+                    ]
+                ),
                 "materialization_id": contract["materialization_id"],
                 "selection_locked_at": lock_time,
                 "exposure_contract_hash": f"exposure-contract-{suffix}",
@@ -357,6 +481,41 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
             "final_holdout_partition_id": contract[
                 "final_holdout_partition_id"
             ],
+            "preprocessing_contract_version": contract[
+                "preprocessing_contract_version"
+            ],
+            "preprocessing_policy_id": contract[
+                "preprocessing_policy_id"
+            ],
+            "preprocessing_policy_revision": contract[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": contract[
+                "preprocessing_policy_hash"
+            ],
+            "final_preprocessing_artifact_checksum": (
+                final_preprocessing_artifact["final_artifact_checksum"]
+            ),
+            "fit_scope": final_preprocessing_artifact["fit_scope"],
+            "fit_population_id": final_preprocessing_artifact[
+                "fit_population_id"
+            ],
+            "fit_population_rows": final_preprocessing_artifact[
+                "fit_population_rows"
+            ],
+            "application_scope": final_preprocessing_artifact[
+                "application_scope"
+            ],
+            "application_population_id": final_preprocessing_artifact[
+                "application_population_id"
+            ],
+            "application_population_rows": final_preprocessing_artifact[
+                "application_population_rows"
+            ],
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": True,
         }
         package_payload = {
             "evaluation_package_id": evaluation_package_id,
@@ -471,6 +630,7 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
         suffix: str = "one",
         project_id: str = "project-one",
         model_name: str = "HELOC champion",
+        candidate_model_name: str | None = None,
         fitted_object: object | None = None,
         idempotency_key: str | None = None,
         contract: dict | None = None,
@@ -491,6 +651,10 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
             suffix=suffix,
             evaluation_package_id=evaluation_package_id,
         )
+        final_preprocessing_artifact = self._final_preprocessing_artifact(
+            contract,
+            candidate_decision_id,
+        )
         if before_promotion is not None:
             before_promotion(
                 candidate_decision_id,
@@ -506,18 +670,32 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
             "value",
             contract["selection_metric"].get("selection_metric_value"),
         )
+        executable_payload = (
+            fitted_object
+            if fitted_object is not None
+            else {
+                "coefficient": 1.25,
+                "candidate": contract["candidate_id"],
+            }
+        )
+        if isinstance(executable_payload, dict):
+            executable_payload = RegistryFixtureEstimator(
+                executable_payload,
+                final_preprocessing_artifact,
+            )
+        else:
+            executable_payload.preprocessing_artifact_ = deepcopy(
+                final_preprocessing_artifact
+            )
         return registry.create_model_version(
             self.user,
             project_id,
             model_name=model_name,
+            candidate_model_name=candidate_model_name,
             problem_type=problem_type,
             algorithm=contract["algorithm_id"],
             algorithm_version=contract.get("algorithm_version"),
-            fitted_object=(
-                fitted_object
-                if fitted_object is not None
-                else {"coefficient": 1.25, "candidate": contract["candidate_id"]}
-            ),
+            fitted_object=executable_payload,
             hyperparameters=contract["hyperparameter_manifest"],
             training_parameters={"random_seed": 42},
             metrics_summary={metric_name: metric_value},
@@ -639,6 +817,50 @@ class ModelRegistryDurabilityTests(unittest.TestCase):
             version["modelContract"]["artifactChecksum"], version["checksum"]
         )
         self.assertTrue(self._artifact_path(result).is_file())
+
+    def test_candidate_model_name_survives_restart_and_final_status(self) -> None:
+        result = self._publish(
+            model_name="ATLAS::dataset-heloc::dv-registered-001::bad_flag",
+            candidate_model_name="Decision Tree",
+            idempotency_key="human-candidate-name",
+        )
+        version = result["modelVersion"]
+        self.assertEqual(
+            version["modelContract"]["candidateModelName"],
+            "Decision Tree",
+        )
+        self.assertEqual(version["modelContract"]["modelName"], "Decision Tree")
+
+        # A new PersistenceService represents process-restart recovery: no
+        # RESULTS/browser state is available, so the status name must come
+        # from the durable immutable model-version contract.
+        restarted_service = PersistenceService(Database(self.database_path))
+        self.persistence_mock.return_value = restarted_service
+        with mock.patch.object(
+            eval_router,
+            "authorize_modeling_scope",
+            side_effect=lambda user, project_id, permission: project_id,
+        ):
+            status = eval_router.get_final_model_status(
+                project_id="project-one",
+                dataset_id="dataset-heloc",
+                dataset_version_id="dv-registered-001",
+                target="bad_flag",
+                user=self.user,
+            )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual(status["model_version_id"], version["modelVersionId"])
+        self.assertEqual(status["recovery"]["modelName"], "Decision Tree")
+        self.assertEqual(status["metadata"]["name"], "Decision Tree")
+        self.assertEqual(status["metadata"]["model_name"], "Decision Tree")
+        self.assertEqual(status["metadata"]["modelName"], "Decision Tree")
+        self.assertEqual(status["metadata"]["candidate_id"], "candidate-one")
+        self.assertEqual(status["metadata"]["dataset_id"], "dataset-heloc")
+        self.assertEqual(
+            status["metadata"]["dataset_version_id"],
+            "dv-registered-001",
+        )
 
     def test_snake_case_candidate_selection_metric_matches_durable_columns(self) -> None:
         contract = self._candidate_contract(suffix="snake")

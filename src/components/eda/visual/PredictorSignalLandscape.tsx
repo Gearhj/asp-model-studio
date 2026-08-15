@@ -83,6 +83,8 @@ export default function PredictorSignalLandscape(
     useState<PredictorLandscapeMetric>("eventRateSpread");
   const [rankMetric, setRankMetric] =
     useState<PredictorLandscapeMetric>("signal");
+  const rankMetricLabel =
+    METRICS.find((metric) => metric.key === rankMetric)?.label ?? "selected ranking metric";
   const visibleLimitStorageKey = useMemo(
     () =>
       predictorVisibleLimitStorageKey(
@@ -322,6 +324,10 @@ export default function PredictorSignalLandscape(
               </option>
             ))}
           </select>
+          <span className="text-[11px] font-normal leading-4 text-slate-500">
+            Top means highest-ranked by the current ranking criterion:{" "}
+            <strong>{rankMetricLabel}</strong>.
+          </span>
         </label>
       </div>
 

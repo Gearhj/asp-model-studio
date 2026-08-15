@@ -21,6 +21,7 @@ import {
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 import { useExactPromotedModelIdentity } from "../lib/useExactPromotedModelIdentity";
+import { persistPredictiveWorkflowCompletionEvidence } from "../lib/predictiveWorkflowCompletionEvidence";
 
 export default function Step11ModelDevelopmentDocument() {
   const [navigationError, setNavigationError] = useState("");
@@ -121,19 +122,40 @@ export default function Step11ModelDevelopmentDocument() {
   async function handleContinue() {
     try {
       setNavigationError("");
-      if (!canContinue || !promotedModel.identity) {
+      if (!canContinue || !promotedModel.identity || !datasetIdentity || !document) {
         throw new Error(
           documentResult.error
             || promotedModel.error
             || "Documentation cannot continue until the exact backend-verified champion and durable model version match this project.",
         );
       }
+      await persistPredictiveWorkflowCompletionEvidence({
+        datasetIdentity,
+        projectName,
+        stepId: "step11",
+        evidenceType: "documentation",
+        artifactType: "model_development_document",
+        artifactId: document.fileBaseName,
+        documentIds: [document.fileBaseName],
+        title: "Model Documentation Readiness Completion",
+        summary: `${requiredSections} governed documentation sections were assembled for the exact promoted model; ${missingEvidenceCount} section${missingEvidenceCount === 1 ? "" : "s"} contain readiness language requiring reviewer attention.`,
+        supportsSections: ["Model Development Document", "Documentation Review", "Governance"],
+        tags: ["documentation", "mdd", "readiness_checkpoint"],
+        model: promotedModel.identity,
+        payload: {
+          documentTitle: document.title,
+          documentMode: document.mode,
+          requiredSections,
+          missingEvidenceCount,
+          generatedAt: document.generatedAt,
+        },
+      });
       const completedSnapshot = workflowCompletionSnapshot(
         createSnapshotFromState(useWorkflowStore.getState()),
         "step11",
         "step12",
       );
-      const persisted = await saveWorkflowStateToDatabase(completedSnapshot);
+      const persisted = await saveWorkflowStateToDatabase(completedSnapshot, "step11");
       if (!persisted) throw new Error(DURABLE_WORKFLOW_COMPLETION_ERROR);
       markComplete("step11");
       upsertProjectSnapshot(completedSnapshot, "browser");
@@ -243,7 +265,7 @@ export default function Step11ModelDevelopmentDocument() {
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <ChecklistItem ready={Boolean(projectName)} label="Project context available" />
-            <ChecklistItem ready={Boolean(dataset?.target)} label="Target or response selected" />
+            <ChecklistItem ready={Boolean(target)} label="Target or response selected" />
             <ChecklistItem ready={Boolean(promotedModel.identity && document)} label="Champion model selected" />
             <ChecklistItem ready={missingEvidenceCount < requiredSections} label="Evidence available for document sections" />
           </div>

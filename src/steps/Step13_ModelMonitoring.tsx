@@ -23,6 +23,7 @@ import {
 import { migrateStoredContext } from "../lib/projectContextPersistence";
 import { useProjectContextAutosave } from "../lib/useProjectContextAutosave";
 import { useExactPromotedModelIdentity } from "../lib/useExactPromotedModelIdentity";
+import { persistPredictiveWorkflowCompletionEvidence } from "../lib/predictiveWorkflowCompletionEvidence";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
@@ -42,6 +43,9 @@ export default function Step13ModelMonitoring() {
   } = usePredictiveIdentity();
   const projectId = projectReadiness.status === "ready"
     ? projectReadiness.project.projectId
+    : "";
+  const projectName = projectReadiness.status === "ready"
+    ? projectReadiness.project.projectName
     : "";
   const datasetIdentity = identityReadiness.status === "ready"
     && identityReadiness.projectId === projectId
@@ -146,7 +150,7 @@ export default function Step13ModelMonitoring() {
             ? promotedModel.error || "A verified promoted model is required before monitoring can be completed."
             : "Return to Model Implementation and save the handoff for this exact promoted model version."}
       onNext={async () => {
-        if (!promotedModel.identity || !exactIdentityCarriedForward || !projectId || !authenticatedUserId) return false;
+        if (!promotedModel.identity || !datasetIdentity || !exactIdentityCarriedForward || !projectId || !authenticatedUserId) return false;
         const previous = context;
         const next = bindPromotedModelIdentity(context, promotedModel.identity);
         setContext(next);
@@ -157,6 +161,25 @@ export default function Step13ModelMonitoring() {
               || "ATLAS could not durably save the monitoring plan. The page remains open so the plan can be retried.",
           );
         }
+        await persistPredictiveWorkflowCompletionEvidence({
+          datasetIdentity,
+          projectName,
+          stepId: "step13",
+          evidenceType: "governance",
+          artifactType: "monitoring_plan",
+          title: "Model Monitoring Plan Completion",
+          summary: "The exact promoted model is bound to a durably saved monitoring and escalation plan.",
+          supportsSections: ["Model Monitoring", "Performance Monitoring", "Governance"],
+          tags: ["monitoring", "production_controls", "promoted_model"],
+          model: promotedModel.identity,
+          payload: {
+            monitoringCadence: next.monitoringCadence,
+            monitoringCadenceCustom: next.monitoringCadenceCustom,
+            monitoringMetrics: next.monitoringMetrics,
+            monitoringNotesPresent: Boolean(next.monitoringNotes.trim()),
+            escalationCount: escalations.length,
+          },
+        });
         logDecision({
           workflowStep: "Model Monitoring",
           actionType: "workflow_setting_changed",

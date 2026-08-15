@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .trainer_service import TRAINER
+from .trainer import fit_final_development_candidate
 from .training_job_service import TRAINING_JOBS
 from .training_job_types import TrainingJobRequest, TrainingPortfolioRequest
 from .training_preflight_service import TrainingTargetSemanticsError
@@ -138,6 +139,14 @@ def _ui_decision_from_durable(record: dict[str, Any]) -> dict[str, Any]:
         "feature_manifest_hash": record.get("feature_manifest_hash"),
         "treatment_manifest_id": record.get("treatment_manifest_id"),
         "treatment_manifest_hash": record.get("treatment_manifest_hash"),
+        "preprocessing_contract_version": record.get(
+            "preprocessing_contract_version"
+        ),
+        "preprocessing_policy_id": record.get("preprocessing_policy_id"),
+        "preprocessing_policy_revision": record.get(
+            "preprocessing_policy_revision"
+        ),
+        "preprocessing_policy_hash": record.get("preprocessing_policy_hash"),
         "materialization_id": record.get("materialization_id"),
         "final_holdout_partition_id": record.get(
             "final_holdout_partition_id"
@@ -695,6 +704,18 @@ def save_model_selection_decision(
             if isinstance(scoped_store.meta.get("validation_design"), dict)
             else {}
         )
+        split_record = deepcopy(
+            scoped_store.meta.get("split_record")
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        preprocessing_policy = deepcopy(
+            scoped_store.meta.get("preprocessing_policy")
+            if isinstance(
+                scoped_store.meta.get("preprocessing_policy"), dict
+            )
+            else {}
+        )
     if request.status != "proposed":
         requested_action = (
             "approve" if request.status == "approved" else "reject"
@@ -900,6 +921,32 @@ def save_model_selection_decision(
         )
     selected_row = candidate_rows[request.champion_model]
     selected_contract = selected_row["candidate_contract"]
+    if str(selected_contract.get("preprocessing_policy_hash") or "") != str(
+        preprocessing_policy.get("preprocessing_policy_hash") or ""
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The governed preprocessing policy changed after training. "
+                "Rebuild Validation Design and retrain before locking a candidate."
+            ),
+        )
+    candidate_artifact = scoped_results.get_model_artifact(
+        request.champion_model
+    )
+    candidate_artifact_metadata = scoped_results.get_model_artifact_metadata(
+        request.champion_model
+    )
+    if candidate_artifact is None or str(
+        candidate_artifact_metadata.get("candidate_id") or ""
+    ) != str(selected_contract.get("candidate_id") or ""):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The exact selected executable candidate is unavailable or "
+                "does not match its frozen contract. Retrain before locking it."
+            ),
+        )
     selection_metric = selected_contract["selection_metric"]
     threshold_configuration = selected_contract["threshold_configuration"]
     decision_identity = {
@@ -974,6 +1021,18 @@ def save_model_selection_decision(
         ),
         "treatment_manifest_hash": selected_contract.get(
             "treatment_manifest_hash"
+        ),
+        "preprocessing_contract_version": selected_contract.get(
+            "preprocessing_contract_version"
+        ),
+        "preprocessing_policy_id": selected_contract.get(
+            "preprocessing_policy_id"
+        ),
+        "preprocessing_policy_revision": selected_contract.get(
+            "preprocessing_policy_revision"
+        ),
+        "preprocessing_policy_hash": selected_contract.get(
+            "preprocessing_policy_hash"
         ),
         "materialization_id": selected_contract.get("materialization_id"),
         "selected_candidate_contract_hash": selected_contract.get(
@@ -1154,6 +1213,161 @@ def save_model_selection_decision(
         # The durable insert/read is authoritative. This browser-session copy
         # is only a checkpointable cache for exact-key recovery.
         scoped_store.meta["model_selection_decision"] = decision
+    with scoped_store.state_lock:
+        if scoped_store.X_train is None or scoped_store.y_train is None:
+            raise HTTPException(
+                status_code=409,
+                detail="The Development Population is unavailable for the final post-lock fit.",
+            )
+        if scoped_store.X_test is not None or scoped_store.y_test is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The final holdout was materialized before the final Development fit. "
+                    "Rebuild Validation Design before continuing."
+                ),
+            )
+        final_X = scoped_store.X_train.copy(deep=True)
+        final_y = scoped_store.y_train.copy(deep=True)
+        current_final_artifact = (
+            scoped_store.meta.get("final_preprocessing_artifact")
+            if isinstance(
+                scoped_store.meta.get("final_preprocessing_artifact"), dict
+            )
+            else {}
+        )
+        current_final_metadata = scoped_results.get_final_model_metadata() or {}
+        reuse_final_fit = bool(
+            current_final_artifact
+            and str(current_final_artifact.get("candidate_decision_id") or "")
+            == candidate_decision_id
+            and str(current_final_artifact.get("preprocessing_policy_hash") or "")
+            == str(selected_contract.get("preprocessing_policy_hash") or "")
+            and scoped_results.get_final_model() is not None
+            and str(current_final_metadata.get("candidate_decision_id") or "")
+            == candidate_decision_id
+        )
+    if not reuse_final_fit:
+        try:
+            final_estimator, final_preprocessing_artifact = (
+                fit_final_development_candidate(
+                    candidate_artifact=candidate_artifact,
+                    candidate_row=selected_row,
+                    X_development=final_X,
+                    y_development=final_y,
+                    preprocessing_recipe=preprocessing_policy,
+                    fit_population_id=str(
+                        selected_contract.get("training_population_id")
+                        or selected_contract.get("selection_partition_id")
+                        or ""
+                    ),
+                    application_population_id=str(
+                        selected_contract.get("final_holdout_partition_id")
+                        or ""
+                    ),
+                    application_population_rows=int(
+                        split_record.get("n_test")
+                        or split_record.get("holdout_count")
+                        or 0
+                    ),
+                    actor=actor_id,
+                    candidate_decision_id=candidate_decision_id,
+                )
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The candidate was locked, but its final Development Population "
+                    f"fit could not be created: {exc}"
+                ),
+            ) from exc
+        final_model_metadata = {
+            **deepcopy(candidate_artifact_metadata),
+            "artifact_role": "locked_final_development_fit",
+            "candidate_decision_id": candidate_decision_id,
+            "candidate_id": selected_contract.get("candidate_id"),
+            "selected_candidate_contract_hash": selected_contract.get(
+                "contract_hash"
+            ),
+            "preprocessing_contract_version": selected_contract.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": selected_contract.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": selected_contract.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": selected_contract.get(
+                "preprocessing_policy_hash"
+            ),
+            "final_preprocessing_artifact_checksum": (
+                final_preprocessing_artifact.get("final_artifact_checksum")
+            ),
+            "fit_scope": final_preprocessing_artifact.get("fit_scope"),
+            "fit_population_rows": int(len(final_y)),
+            "application_scope": "final_holdout_fixed_application",
+            "application_population_rows": int(
+                split_record.get("n_test")
+                or split_record.get("holdout_count")
+                or 0
+            ),
+            "final_holdout_parameter_influence": False,
+            "final_holdout_opened_for_final_reporting": False,
+            "fitted_at": final_preprocessing_artifact.get("fitted_at"),
+        }
+        with scoped_store.state_lock:
+            assert_expected_active_identity(
+                request.project_id,
+                expected_dataset_id=active_identity["dataset_id"],
+                expected_dataset_version_id=active_identity[
+                    "dataset_version_id"
+                ],
+                require_expected=True,
+                user=user,
+                store=scoped_store,
+            )
+            current_policy = (
+                scoped_store.meta.get("preprocessing_policy")
+                if isinstance(
+                    scoped_store.meta.get("preprocessing_policy"), dict
+                )
+                else {}
+            )
+            if (
+                int(scoped_store.data_revision) != input_revision
+                or str(current_policy.get("preprocessing_policy_hash") or "")
+                != str(selected_contract.get("preprocessing_policy_hash") or "")
+                or scoped_store.X_test is not None
+                or scoped_store.y_test is not None
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The governed preparation, Development Population, or "
+                        "holdout-isolation state changed during final fitting."
+                    ),
+                )
+            scoped_results.set_final_model(
+                final_estimator,
+                final_model_metadata,
+            )
+            scoped_store.meta["final_preprocessing_artifact"] = deepcopy(
+                final_preprocessing_artifact
+            )
+            updated_policy = deepcopy(current_policy)
+            updated_policy["final_fitted_artifact_status"] = "complete"
+            updated_policy["final_fitted_artifact"] = deepcopy(
+                final_preprocessing_artifact
+            )
+            scoped_store.meta["preprocessing_policy"] = updated_policy
+    decision["final_preprocessing_artifact"] = deepcopy(
+        scoped_store.meta.get("final_preprocessing_artifact") or {}
+    )
+    decision["final_fitted_artifact_status"] = "complete"
+    with scoped_store.state_lock:
+        scoped_store.meta["model_selection_decision"] = deepcopy(decision)
     audit_event(
         "modeling.model_selection.decision",
         "project",

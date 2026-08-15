@@ -668,12 +668,10 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     await expect(distributionSvg.locator("path.density-line")).toHaveCount(1);
     await expect(distributionSvg.locator("path.event-rate-line")).toHaveCount(1);
     await distributionExplorer
-      .getByRole("checkbox", { name: "Target classes", exact: true })
-      .check();
-    await distributionExplorer
       .getByRole("checkbox", { name: "Outlier bounds", exact: true })
       .check();
-    await expect(distributionSvg.locator("path.target-class-line")).toHaveCount(2);
+    await expect(distributionExplorer.getByText("Target classes")).toHaveCount(0);
+    await expect(distributionSvg.locator("text.event-rate-bin-label").first()).toBeVisible();
     expect(await distributionSvg.locator("g.stat-marker").count()).toBeGreaterThanOrEqual(6);
     await expect(page.getByTestId("eda-predictor-metric-grid")).toContainText(
       /Selected rows.*Population share.*Selected mean.*Selected median/s,
@@ -700,25 +698,30 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
       name: "Load secondary predictor insights now",
       exact: true,
     });
+    const secondaryInsights = page.getByTestId("predictor-secondary-insights");
     if (await explicitSecondaryInsightsLoad.isVisible().catch(() => false)) {
-      await explicitSecondaryInsightsLoad.click();
+      await explicitSecondaryInsightsLoad.click({ timeout: 5_000 }).catch(async (error) => {
+        if (!(await secondaryInsights.isVisible().catch(() => false))) {
+          throw error;
+        }
+      });
     }
-    await expect(page.getByTestId("predictor-secondary-insights")).toBeVisible({
+    await expect(secondaryInsights).toBeVisible({
       timeout: 90_000,
     });
     const predictorBoxPlot = page.getByTestId("eda-predictor-box-plot");
     await expect(predictorBoxPlot).toBeVisible();
     await expect(predictorBoxPlot).toHaveAttribute(
       "aria-label",
-      /annual_income box plot.*Q1.*median.*Q3.*outliers/i,
+      /annual_income by target class.*Q1.*median.*Q3.*outliers/i,
     );
     await expect(predictorBoxPlot.getByRole("img")).toBeVisible();
     await expect(
       predictorBoxPlot.locator('circle[aria-label^="Observed minimum"]'),
-    ).toHaveCount(1);
+    ).toHaveCount(2);
     await expect(
       predictorBoxPlot.locator('circle[aria-label^="Observed maximum"]'),
-    ).toHaveCount(1);
+    ).toHaveCount(2);
 
     await edaTabRail.getByRole("tab", { name: /^Relationships\b/ }).click();
     const correlationExplorer = page.getByTestId("correlation-explorer");
@@ -976,7 +979,19 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
       timeout: 120_000,
     });
     await shot(page, testInfo, "step02-all-tabs-and-findings-accepted");
-    await strictContinue(page, projectId, "step03", 180_000);
+    const findingsContinue = page.getByTestId("eda-final-continue-button");
+    await expect(findingsContinue).toHaveCount(1);
+    await expect(findingsContinue).toBeEnabled({ timeout: 120_000 });
+    const durableEdaCompletion = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname ===
+          `/api/projects/${projectId}/workflow-state`,
+      { timeout: 180_000 },
+    );
+    await findingsContinue.click();
+    expect((await durableEdaCompletion).ok()).toBe(true);
+    await expectExactStep(page, projectId, "step03");
 
     // Step 03 — outlier treatment recomputes the table and renders before/after charts.
     await expectExactStep(page, projectId, "step03");
@@ -1454,8 +1469,8 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     await expectExactStep(page, projectId, "step06");
     await page.unroute("**/features/materialize");
 
-    // Step 06 — all formerly-collapsed validation controls remain visible and
-    // interactive, then one exact design is persisted.
+    // Step 06 — exercise the currently supported classification validation
+    // approaches, then persist one exact development-only design.
     await expectExactStep(page, projectId, "step06");
     const immutablePartition = page.getByTestId("immutable-analysis-partition");
     await expect(immutablePartition).toBeVisible({
@@ -1469,29 +1484,11 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     const validationDesignSummary = page.getByTestId("validation-design-summary");
     await expect(validationDesignSummary).toBeVisible();
     const cvControls = page.getByTestId("holdout-cv-controls");
-    const foldMethod = cvControls.getByLabel("Fold method");
-    await cvControls.getByLabel("Fold method").selectOption("k_fold");
-    await expect(foldMethod).toHaveValue("k_fold");
-    await foldMethod.selectOption("repeated_stratified_k_fold");
-    await cvControls.getByLabel("Number of repeats").selectOption("3");
-    await expect(cvControls.getByLabel("Number of repeats")).toHaveValue("3");
-    await foldMethod.selectOption("nested_cv");
-    await cvControls.getByLabel("Inner tuning folds").selectOption("3");
-    await expect(cvControls.getByLabel("Inner tuning folds")).toHaveValue("3");
-    await foldMethod.selectOption("group_k_fold");
-    await cvControls
-      .getByLabel("Governed group field")
-      .selectOption("employment_type");
-    await expect(cvControls.getByLabel("Governed group field")).toHaveValue(
-      "employment_type",
-    );
-    await foldMethod.selectOption("time_series");
-    await cvControls.getByLabel("Governed time field").selectOption(fixture.dateColumn);
-    await expect(cvControls.getByLabel("Governed time field")).toHaveValue(
-      fixture.dateColumn,
-    );
-    await expect(cvControls.getByLabel("Shuffle before folding")).toBeDisabled();
-    await foldMethod.selectOption("stratified_k_fold");
+    const validationApproach = cvControls.getByLabel("Validation approach");
+    await expect(validationApproach).toHaveValue("stratified_k_fold");
+    await validationApproach.selectOption("none");
+    await expect(validationApproach).toHaveValue("none");
+    await validationApproach.selectOption("stratified_k_fold");
     await expect(cvControls.getByLabel("Shuffle before folding")).toBeEnabled();
     await cvControls.getByLabel("Number of folds").selectOption("4");
     await cvControls.getByLabel("Number of folds").selectOption("5");
@@ -1521,7 +1518,7 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     );
     const foldArchitecture = page.getByTestId("fold-architecture-visual");
     await expect(foldArchitecture).toContainText("stratified k fold");
-    await expect(foldArchitecture.getByText(/^Fold \d+$/)).toHaveCount(5);
+    await expect(foldArchitecture.getByText(/^Round \d+$/)).toHaveCount(5);
     const classBalanceVisual = page.getByTestId("class-balance-preservation");
     await expect(classBalanceVisual).toContainText(/Development.*960.*480.*480.*50\.0+%/s);
     await expect(classBalanceVisual.getByText(/^Fold \d+$/)).toHaveCount(5);
@@ -1571,7 +1568,7 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     const readinessChecklist = page.getByTestId("validation-readiness-checklist");
     await expect(readinessChecklist.locator(":scope > div")).toHaveCount(8);
     await expect(readinessChecklist).toContainText(
-      /Canonical dataset identity.*Feature manifest current.*Cross-validation selected.*Balancing policy recorded/s,
+      /Canonical dataset identity.*Feature manifest current.*K-fold cross-validation selected.*Balancing policy recorded/s,
     );
     await expect(page.getByTestId("validation-readiness-blocker")).toContainText(
       "Ready for the final action",
@@ -1983,9 +1980,20 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     await shot(page, testInfo, "step07-terminal-training-and-candidate-lock");
 
     const evaluationCommandResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "GET" &&
-        response.url().includes("/eval/command_center"),
+      (response) => {
+        if (
+          response.request().method() !== "GET" ||
+          !response.url().includes("/eval/command_center")
+        ) {
+          return false;
+        }
+        const query = new URL(response.url()).searchParams;
+        return (
+          query.get("candidate_id") === candidateId &&
+          query.get("candidate_decision_id") === decisionId &&
+          query.get("evidence_scope") !== "selection_review"
+        );
+      },
       { timeout: 180_000 },
     );
     await strictContinue(page, projectId, "step08", 180_000);
@@ -2013,17 +2021,19 @@ test.describe("Strict isolated predictive modeling Stage A", () => {
     await expect(page.getByTestId("evaluation-command-center")).toBeVisible({
       timeout: 180_000,
     });
-    await expect(page.getByTestId("selection-evidence")).toContainText(candidateId);
-    await expect(page.getByTestId("selection-evidence")).toContainText(decisionId);
-    const holdoutEvidence = page.getByTestId("final-holdout-evidence");
-    await expect(holdoutEvidence).toBeVisible();
+    const performanceSummary = page.getByTestId("atlas-performance-summary");
+    await expect(performanceSummary).toBeVisible();
+    await expect(performanceSummary).toContainText(decisionId);
+    await expect(performanceSummary).toContainText("Reporting package verified");
     const resolvedEvaluationPackageId = String(
       evaluationPackage?.evaluation_package_id ??
         evaluationCommand?.evaluation_package_id ??
         "",
     );
     expect(resolvedEvaluationPackageId).not.toBe("");
-    await expect(holdoutEvidence).toContainText(resolvedEvaluationPackageId);
+    const visibleReviewScope = page.getByTestId("selection-review-scope");
+    await expect(visibleReviewScope).toBeVisible();
+    await expect(visibleReviewScope).toContainText(resolvedEvaluationPackageId);
     const evaluationPackageId: string | null = resolvedEvaluationPackageId;
     checkpoint.evaluation_package_id = evaluationPackageId;
     writeCheckpoint(testInfo, checkpoint);

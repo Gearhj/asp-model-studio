@@ -1,7 +1,7 @@
 export type OutlierPreviewMethod =
   | "None"
   | "1.5 IQR capping"
-  | "Winsorization 0.5 / 99.5"
+  | "Winsorization 1 / 99"
   | "Percentile capping 5 / 95"
   | "Log1p"
   | "Robust scaling"
@@ -95,12 +95,12 @@ export function buildOutlierMethodComparisons(
 ) {
   const original = finiteValues(values);
   if (!original.length) return [] as OutlierMethodComparison[];
-  const q005 = quantile(original, 0.005) ?? original[0];
+  const q01 = quantile(original, 0.01) ?? original[0];
   const q05 = quantile(original, 0.05) ?? original[0];
   const q25 = quantile(original, 0.25) ?? original[0];
   const q75 = quantile(original, 0.75) ?? original.at(-1)!;
   const q95 = quantile(original, 0.95) ?? original.at(-1)!;
-  const q995 = quantile(original, 0.995) ?? original.at(-1)!;
+  const q99 = quantile(original, 0.99) ?? original.at(-1)!;
   const spread = q75 - q25;
   const iqrLower = q25 - 1.5 * spread;
   const iqrUpper = q75 + 1.5 * spread;
@@ -132,9 +132,9 @@ export function buildOutlierMethodComparisons(
       "ties introduced",
     ),
     comparison(
-      "Winsorization 0.5 / 99.5",
+      "Winsorization 1 / 99",
       original,
-      cap(original, q005, q995),
+      cap(original, q01, q99),
       true,
       "Only the rendered extreme tails change.",
       "ties introduced",

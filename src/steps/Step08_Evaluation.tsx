@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -18,9 +18,6 @@ import {
 import StepShell from "../components/StepShell";
 import { type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
-import VisualAnalysisPanel from "../visual-intelligence/production/VisualAnalysisPanel";
-import ClassificationDecisionExplorer from "../visual-intelligence/prototypes/ClassificationDecisionExplorer";
-import RegressionDiagnosticExplorer from "../visual-intelligence/prototypes/RegressionDiagnosticExplorer";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { requireLocalDatasetCanonicalIdentity, type CanonicalDatasetIdentity } from "../lib/datasetIdentity";
 import {
@@ -45,6 +42,12 @@ import {
 } from "../lib/selectionProvenance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
+import { createSnapshotFromState, upsertProjectSnapshot } from "../lib/localProjects";
+import {
+  DURABLE_WORKFLOW_COMPLETION_ERROR,
+  saveWorkflowStateToDatabase,
+  workflowCompletionSnapshot,
+} from "../lib/serverPersistence";
 
 const QUERY_API_BASE =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
@@ -100,11 +103,17 @@ type Curves = {
   ok: boolean;
   task?: "classification" | "regression";
   error?: string;
+  evidence_scope?: "selection_review" | "final_holdout_reporting" | string;
+  evaluation_population?: string;
   metrics?: Record<string, number | null | undefined>;
   roc?: { fpr: number[]; tpr: number[] };
   pr?: { precision: number[]; recall: number[] };
   confusion?: number[][];
-  residuals?: { points?: Array<{ actual: number; predicted: number; residual: number }> };
+  residuals?: {
+    points?: Array<{ actual: number; predicted: number; residual: number }>;
+    summary?: Record<string, number | null | undefined>;
+  };
+  residual_histogram?: { counts: number[]; edges: number[] };
 };
 
 type ThresholdMetrics = {
@@ -141,6 +150,8 @@ type DecileRow = {
 type CommandCenter = {
   ok: boolean;
   error?: string;
+  evidence_scope?: "selection_review" | "final_holdout_reporting" | string;
+  evaluation_population?: string;
   evaluation_package_id?: string;
   evaluation_package?: GovernedEvaluationPackage;
   candidate_id?: string;
@@ -387,8 +398,31 @@ function statusPill(label: string, tone: "good" | "warn" | "neutral" = "neutral"
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${style}`}>{label}</span>;
 }
 
+const MODEL_FAMILY_LEGEND = [
+  { label: "Tree-based", color: "#2563eb" },
+  { label: "Transparent / linear", color: "#16a34a" },
+  { label: "Anomaly diagnostics", color: "#dc2626" },
+  { label: "Neural networks", color: "#7c3aed" },
+  { label: "Distance / margin", color: "#0891b2" },
+  { label: "Other", color: "#64748b" },
+];
+
+function modelFamilyGroup(family: string) {
+  if (/gradient|tree|ensemble|decision/i.test(family)) return MODEL_FAMILY_LEGEND[0];
+  if (/linear|logistic|discriminant|bayes|explainable/i.test(family)) return MODEL_FAMILY_LEGEND[1];
+  if (/anomaly|outlier|covariance|one.?class/i.test(family)) return MODEL_FAMILY_LEGEND[2];
+  if (/neural|mlp|network/i.test(family)) return MODEL_FAMILY_LEGEND[3];
+  if (/neighbor|support|svm/i.test(family)) return MODEL_FAMILY_LEGEND[4];
+  return MODEL_FAMILY_LEGEND[5];
+}
+
+function familyColor(family: string) {
+  return modelFamilyGroup(family).color;
+}
+
 export default function Step08Evaluation() {
   const navigate = useNavigate();
+  const markComplete = useWorkflowStore((state) => state.markComplete);
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const localDataset = loadLocalDataset();
@@ -408,6 +442,7 @@ export default function Step08Evaluation() {
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [curves, setCurves] = useState<Curves | null>(null);
   const [command, setCommand] = useState<CommandCenter | null>(null);
+  const [reviewCommand, setReviewCommand] = useState<CommandCenter | null>(null);
   const [details, setDetails] = useState<DetailResponse | null>(null);
   const [importance, setImportance] = useState<ImportanceResponse | null>(null);
   const [hyperparameters, setHyperparameters] = useState<HyperparameterResponse | null>(null);
@@ -417,6 +452,9 @@ export default function Step08Evaluation() {
   const [message, setMessage] = useState("");
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [backendProblemType, setBackendProblemType] = useState<"classification" | "regression" | null>(null);
+  const [reviewThreshold, setReviewThreshold] = useState(0.5);
+  const diagnosticSequence = useRef(0);
+  const reviewCommandSequence = useRef(0);
 
   // Backend truth (train/last's own problem_type) is authoritative and must win over the
   // browser's local dataset cache, which is a convenience cache scoped to the current tab's
@@ -443,13 +481,28 @@ export default function Step08Evaluation() {
   const topCandidates = ordered.slice(0, 3);
   const selectedModel = supervised.find((model) => model.candidate_id === selectedCandidateId) ?? null;
   const selectedCandidate = selectedModel ? candidateFromRow(selectedModel) : null;
+  const lockedModel = selectionDecision
+    ? supervised.find(
+        (model) =>
+          model.candidate_id === selectionDecision.selected_candidate_id &&
+          model.training_run_id === selectionDecision.training_run_id &&
+          lockedDecisionMatchesCandidate(selectionDecision, model),
+      ) ?? null
+    : null;
+  const lockedCandidate = lockedModel ? candidateFromRow(lockedModel) : null;
+  const selectedIsLocked = Boolean(
+    selectedModel &&
+      selectionDecision &&
+      selectedModel.candidate_id === selectionDecision.selected_candidate_id &&
+      selectedModel.training_run_id === selectionDecision.training_run_id,
+  );
   const lockedCandidateReady = lockedDecisionMatchesCandidate(
     selectionDecision,
-    selectedModel,
+    lockedModel,
   );
   const evaluationPackage = normalizeEvaluationPackage(command);
   const promotionReadiness = resolvePromotionReadiness(
-    selectedModel,
+    lockedModel,
     selectionDecision,
     evaluationPackage,
   );
@@ -521,7 +574,7 @@ export default function Step08Evaluation() {
           setMessage("Training results were found, but none contain a complete exact-candidate lineage contract. Retrain under the current governed dataset version.");
         } else if (!locked || !lockedRow) {
           setMessage(
-            "Evaluation remains sealed until Model Training returns one exact locked candidate decision with verified non-holdout selection evidence.",
+            "Evaluation remains sealed until Model Training returns one exact governed candidate decision with verified non-holdout selection evidence.",
           );
         }
       })
@@ -536,70 +589,100 @@ export default function Step08Evaluation() {
   }, [identityScope]);
 
   useEffect(() => {
-    if (
-      !selectedCandidate ||
-      !selectionDecision ||
-      !lockedCandidateReady ||
-      !exactEvaluationPackageId
-    ) return;
-    setLoadingDiagnostics(true);
+    const sequence = diagnosticSequence.current + 1;
+    diagnosticSequence.current = sequence;
     setCurves(null);
     setDetails(null);
     setImportance(null);
     setHyperparameters(null);
     setTree(null);
     setKnn(null);
+    if (!selectedCandidate) {
+      setLoadingDiagnostics(false);
+      return;
+    }
+
+    setLoadingDiagnostics(true);
+    const reviewParams = candidateRequestParams(selectedCandidate);
+    reviewParams.set("evidence_scope", "selection_review");
+    const candidateQuery = reviewParams.toString();
     const family = modelFamily(selectedModel);
-    const governedParams = candidateRequestParams(selectedCandidate);
-    governedParams.set("candidate_decision_id", selectionDecision.decision_id);
-    governedParams.set("evaluation_package_id", exactEvaluationPackageId);
-    const candidateQuery = governedParams.toString();
-    const curvesRequest = getJson<Curves>(`${API_BASE}/eval/curves?${candidateQuery}`).then(setCurves).catch((error) => {
-      setCurves({ ok: false, error: String(error?.message ?? error) });
+    const onlyCurrent = <T,>(setter: (value: T) => void) => (value: T) => {
+      if (diagnosticSequence.current === sequence) setter(value);
+    };
+    const curvesRequest = getJson<Curves>(`${API_BASE}/eval/curves?${candidateQuery}`)
+      .then((response) => {
+        if (response.ok && response.evidence_scope !== "selection_review") {
+          throw new Error("The candidate review curve response did not declare selection-review evidence.");
+        }
+        onlyCurrent(setCurves)(response);
+      })
+      .catch((error) => onlyCurrent(setCurves)({ ok: false, error: String(error?.message ?? error) }));
+    const interpretationRequest = Promise.allSettled([
+      getJson<DetailResponse>(`${API_BASE}/interpretation/details?${candidateQuery}`),
+      getJson<ImportanceResponse>(`${API_BASE}/interpretation/importance?${candidateQuery}`),
+      getJson<HyperparameterResponse>(`${API_BASE}/interpretation/hyperparameters?${candidateQuery}`),
+    ]).then(([detailResult, importanceResult, parameterResult]) => {
+      if (diagnosticSequence.current !== sequence) return;
+      setDetails(detailResult.status === "fulfilled" ? detailResult.value : { ok: false, error: String(detailResult.reason?.message ?? detailResult.reason) });
+      setImportance(importanceResult.status === "fulfilled" ? importanceResult.value : { ok: false, error: String(importanceResult.reason?.message ?? importanceResult.reason) });
+      setHyperparameters(parameterResult.status === "fulfilled" ? parameterResult.value : { ok: false, rows: [] });
     });
-    const interpretationRequest = exactEvaluationPackageId
-      ? (() => {
-        const interpretationParams = candidateRequestParams(selectedCandidate);
-        interpretationParams.set("candidate_decision_id", selectionDecision.decision_id);
-        interpretationParams.set("evaluation_package_id", exactEvaluationPackageId);
-        const interpretationQuery = interpretationParams.toString();
-        return Promise.allSettled([
-          getJson<DetailResponse>(`${API_BASE}/interpretation/details?${interpretationQuery}`),
-          getJson<ImportanceResponse>(`${API_BASE}/interpretation/importance?${interpretationQuery}`),
-          getJson<HyperparameterResponse>(`${API_BASE}/interpretation/hyperparameters?${interpretationQuery}`),
-        ]).then(([detailResult, importanceResult, parameterResult]) => {
-          const exactResponse = <T extends { evaluation_package_id?: string },>(result: PromiseSettledResult<T>) =>
-            result.status === "fulfilled" && result.value.evaluation_package_id === exactEvaluationPackageId
-              ? result.value
-              : null;
-          const exactDetails = exactResponse(detailResult);
-          const exactImportance = exactResponse(importanceResult);
-          const exactParameters = exactResponse(parameterResult);
-          setDetails(exactDetails ?? { ok: false, error: "Interpretation details did not match the completed evaluation package." });
-          setImportance(exactImportance ?? { ok: false, error: "Feature importance did not match the completed evaluation package." });
-          setHyperparameters(exactParameters ?? { ok: false, rows: [] });
-        });
-      })()
-      : Promise.resolve();
-    const common = Promise.allSettled([curvesRequest, interpretationRequest]);
     const specific = family === "Decision Tree"
-      ? getJson<TreeResponse>(`${API_BASE}/eval/tree?max_depth=4&${candidateQuery}`).then(setTree).catch((error) => setTree({ ok: false, error: String(error?.message ?? error) }))
+      ? getJson<TreeResponse>(`${API_BASE}/eval/tree?max_depth=4&${candidateQuery}`)
+        .then(onlyCurrent(setTree))
+        .catch((error) => onlyCurrent(setTree)({ ok: false, error: String(error?.message ?? error) }))
       : family === "K-Nearest Neighbors"
-        ? getJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?max_points=900&${candidateQuery}`).then(setKnn).catch((error) => setKnn({ ok: false, error: String(error?.message ?? error) }))
+        ? getJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?max_points=900&${candidateQuery}`)
+          .then(onlyCurrent(setKnn))
+          .catch((error) => onlyCurrent(setKnn)({ ok: false, error: String(error?.message ?? error) }))
         : Promise.resolve();
-    Promise.allSettled([common, specific]).finally(() => setLoadingDiagnostics(false));
-  // selectedCandidateId addresses one frozen candidate contract; display key is never an identity fallback.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityScope, selectedCandidateId, exactEvaluationPackageId, selectionDecision?.decision_id]);
+    Promise.allSettled([curvesRequest, interpretationRequest, specific]).finally(() => {
+      if (diagnosticSequence.current === sequence) setLoadingDiagnostics(false);
+    });
+  }, [identityScope, selectedCandidate?.candidate_id, selectedCandidate?.training_run_id]);
 
   useEffect(() => {
-    if (!selectedCandidate || !selectionDecision || !lockedCandidateReady) {
+    setReviewThreshold(0.5);
+  }, [selectedCandidate?.candidate_id]);
+
+  useEffect(() => {
+    const sequence = reviewCommandSequence.current + 1;
+    reviewCommandSequence.current = sequence;
+    if (!selectedCandidate || problemType !== "classification") {
+      setReviewCommand(null);
+      return;
+    }
+    setReviewCommand(null);
+    const timer = window.setTimeout(() => {
+      const params = candidateRequestParams(selectedCandidate);
+      params.set("evidence_scope", "selection_review");
+      params.set("threshold", clampThreshold(reviewThreshold).toFixed(4));
+      getJson<CommandCenter>(`${API_BASE}/eval/command_center?${params.toString()}`)
+        .then((response) => {
+          if (reviewCommandSequence.current !== sequence) return;
+          if (response.ok && response.evidence_scope !== "selection_review") {
+            throw new Error("The candidate review metrics did not declare selection-review evidence.");
+          }
+          setReviewCommand(response);
+        })
+        .catch((error) => {
+          if (reviewCommandSequence.current === sequence) {
+            setReviewCommand({ ok: false, error: String(error?.message ?? error) });
+          }
+        });
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [problemType, reviewThreshold, selectedCandidate?.candidate_id, selectedCandidate?.training_run_id]);
+
+  useEffect(() => {
+    if (!lockedCandidate || !selectionDecision || !lockedCandidateReady) {
       setCommand(null);
       return;
     }
     setCommand(null);
     const timer = window.setTimeout(() => {
-      const params = candidateRequestParams(selectedCandidate);
+      const params = candidateRequestParams(lockedCandidate);
       params.set("candidate_decision_id", selectionDecision.decision_id);
       getJson<CommandCenter>(`${API_BASE}/eval/command_center?${params.toString()}`)
         .then(setCommand)
@@ -607,21 +690,20 @@ export default function Step08Evaluation() {
     }, 120);
     return () => window.clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [problemType, selectedCandidateId, selectionDecision?.decision_id, lockedCandidateReady]);
+  }, [problemType, lockedCandidate?.candidate_id, lockedCandidate?.training_run_id, selectionDecision?.decision_id, lockedCandidateReady]);
 
   function selectForReview(model: RankedRow) {
     const candidate = candidateFromRow(model);
-    if (
-      !selectionDecision ||
-      candidate.candidate_id !== selectionDecision.selected_candidate_id ||
-      candidate.training_run_id !== selectionDecision.training_run_id
-    ) {
-      setMessage(
-        "The final holdout can be opened only for the exact candidate locked in Model Training. Comparison rows remain selection evidence only.",
-      );
-      return;
-    }
+    const isEvaluationCandidate =
+      selectionDecision &&
+      candidate.candidate_id === selectionDecision.selected_candidate_id &&
+      candidate.training_run_id === selectionDecision.training_run_id;
     setSelectedCandidateId(candidate.candidate_id);
+    setMessage(
+      isEvaluationCandidate
+        ? `Showing real out-of-fold selection evidence for ${cleanModelName(model.name)}. Its separate completed final-holdout package remains reporting-only.`
+        : `Showing real out-of-fold selection evidence and development-only model diagnostics for ${cleanModelName(model.name)}.`,
+    );
     logDecision({
       workflowStep: "Evaluation",
       actionType: "workflow_setting_changed",
@@ -670,36 +752,52 @@ export default function Step08Evaluation() {
     });
   }
 
-  function openInterpretation(model: RankedRow, candidates = comparison) {
-    const candidate = candidateFromRow(model);
-    if (
-      candidate.candidate_id !== selectedCandidate?.candidate_id ||
-      candidate.candidate_id !== selectionDecision?.selected_candidate_id ||
-      candidate.training_run_id !== selectionDecision?.training_run_id ||
-      !exactEvaluationPackageId
-    ) {
-      setSelectedCandidateId(candidate.candidate_id);
-      setMessage("Complete the backend Evaluation review for this exact candidate before opening Interpretation.");
-      return;
+  async function openInterpretation(model: RankedRow, candidates = comparison) {
+    try {
+      const candidate = candidateFromRow(model);
+      if (
+        candidate.candidate_id !== lockedCandidate?.candidate_id ||
+        candidate.candidate_id !== selectionDecision?.selected_candidate_id ||
+        candidate.training_run_id !== selectionDecision?.training_run_id ||
+        !exactEvaluationPackageId
+      ) {
+        if (candidate.candidate_id) setSelectedCandidateId(candidate.candidate_id);
+        setMessage("Complete the backend Evaluation review for this exact candidate before opening Interpretation.");
+        return;
+      }
+      const existing = candidates.some((row) => row.candidate_id === candidate.candidate_id);
+      const next = existing ? candidates : [...candidates, candidate].slice(-4);
+      setComparisonState(next);
+      const completedSnapshot = workflowCompletionSnapshot(
+        createSnapshotFromState(useWorkflowStore.getState()),
+        "step08",
+        "step09",
+      );
+      const persisted = await saveWorkflowStateToDatabase(completedSnapshot, "step08");
+      if (!persisted) throw new Error(DURABLE_WORKFLOW_COMPLETION_ERROR);
+      markComplete("step08");
+      upsertProjectSnapshot(completedSnapshot, "browser");
+      navigate(projectWorkflowRoute(projectId, `/step09?candidate_id=${encodeURIComponent(candidate.candidate_id)}&training_run_id=${encodeURIComponent(candidate.training_run_id)}&candidate_decision_id=${encodeURIComponent(selectionDecision.decision_id)}&evaluation_package_id=${encodeURIComponent(exactEvaluationPackageId)}&compare=${encodeURIComponent(next.map((row) => row.candidate_id).join(","))}`));
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "ATLAS could not durably complete Evaluation before opening Interpretation.",
+      );
     }
-    const existing = candidates.some((row) => row.candidate_id === candidate.candidate_id);
-    const next = existing ? candidates : [...candidates, candidate].slice(-4);
-    setComparisonState(next);
-    navigate(projectWorkflowRoute(projectId, `/step09?candidate_id=${encodeURIComponent(candidate.candidate_id)}&training_run_id=${encodeURIComponent(candidate.training_run_id)}&candidate_decision_id=${encodeURIComponent(selectionDecision.decision_id)}&evaluation_package_id=${encodeURIComponent(exactEvaluationPackageId)}&compare=${encodeURIComponent(next.map((row) => row.candidate_id).join(","))}`));
   }
 
-  function openComparison() {
-    if (selectedModel && exactEvaluationPackageId) openInterpretation(selectedModel, comparison);
+  async function openComparison() {
+    if (lockedModel && exactEvaluationPackageId) await openInterpretation(lockedModel, comparison);
     else setMessage("Select and complete Evaluation for one exact candidate before opening Interpretation.");
   }
 
   const heroMetrics: AtlasWorkflowMetric[] = [
     { label: "Project", value: projectName || "Current project" },
     { label: "Supervised Candidates", value: String(supervised.length) },
-    { label: "Selection Metric", value: selectionDecision ? selectionMetricLabel(selectionDecision.selection_metric) : "Locked decision required", tone: selectionDecision ? "success" : "warning" },
-    { label: "Final Holdout", value: exactEvaluationPackageId ? "Evaluated · reporting only" : selectionDecision ? "Sealed / pending" : "Sealed", tone: exactEvaluationPackageId ? "success" : "warning" },
-    { label: "OOT", value: command?.oot_status ?? "Not loaded", tone: "warning" },
-    { label: "Comparison Tray", value: `${comparison.length}/4` },
+    { label: "Selection Metric", value: selectionDecision ? selectionMetricLabel(selectionDecision.selection_metric) : "Governed decision required", tone: selectionDecision ? "success" : "warning" },
+    { label: "Evaluation Package", value: exactEvaluationPackageId ? "Verified reporting package" : selectionDecision ? "Pending" : "Sealed", tone: exactEvaluationPackageId ? "success" : "warning" },
+    { label: "Reviewable Models", value: String(ordered.length) },
   ];
 
   if (models === null) {
@@ -708,7 +806,7 @@ export default function Step08Evaluation() {
 
   if (!models.length || !supervised.length || !selectionDecision || !ordered.length) {
     return (
-      <StepShell title="Step 8: Evaluation Command Center" subtitle="A locked candidate with verified selection evidence is required." variant="modeling" heroMetrics={heroMetrics} nextDisabled nextDisabledReason="Lock one exact candidate from verified training/CV evidence before Evaluation.">
+      <StepShell title="Step 8: Evaluation Command Center" subtitle="A governed candidate decision with verified selection evidence is required." variant="modeling" heroMetrics={heroMetrics} nextDisabled nextDisabledReason="Record one exact candidate from verified training/CV evidence before Evaluation.">
         <Unavailable title="Final holdout remains sealed" text={message || "Return to Model Training, rank candidates from verified non-holdout evidence, and lock one exact candidate decision."} />
       </StepShell>
     );
@@ -724,6 +822,9 @@ export default function Step08Evaluation() {
   const finalMetricValue = typeof finalMetrics[finalMetricKey] === "number"
     ? finalMetrics[finalMetricKey] as number
     : undefined;
+  const reviewCurves = curves;
+  const reviewLift = reviewCommand?.lift;
+  const reviewThresholdMetrics = reviewCommand?.threshold ?? null;
 
   return (
     <StepShell
@@ -732,10 +833,10 @@ export default function Step08Evaluation() {
       variant="modeling"
       heroMetrics={heroMetrics}
       nextLabel="Continue to Interpretation Review"
-      nextDisabled={!selectedModel || !exactEvaluationPackageId}
+      nextDisabled={!lockedModel || !exactEvaluationPackageId}
       nextDisabledReason={promotionReadiness.reason}
-      nextStatusLine={exactEvaluationPackageId ? `Evaluation package ${exactEvaluationPackageId} verifies selection integrity, candidate lock, and final-holdout isolation.` : promotionReadiness.reason}
-      onNextClick={() => openComparison()}
+      nextStatusLine={exactEvaluationPackageId ? `Evaluation package ${exactEvaluationPackageId} verifies selection integrity, candidate identity, and final-holdout isolation.` : promotionReadiness.reason}
+      onNextClick={() => void openComparison()}
       showDeveloperTools={false}
     >
       <div className="space-y-5" data-testid="evaluation-command-center">
@@ -745,31 +846,52 @@ export default function Step08Evaluation() {
           <div className="grid gap-6 p-6 xl:grid-cols-[1.5fr_1fr]">
             <div>
               <div className="text-xs font-semibold uppercase text-emerald-300">A. ATLAS Performance Summary</div>
-              <h2 className="mt-2 text-2xl font-semibold">{cleanModelName(leader.name)} led the locked selection ranking</h2>
+              <h2 className="mt-2 text-2xl font-semibold">{cleanModelName(leader.name)} leads the governed selection ranking</h2>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
                 This order is frozen from {formatSelectionSource(selectionDecision.selection_metric.source)} evidence before final-holdout exposure. Final-holdout results below are reporting-only and cannot change the candidate decision.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
-                {statusPill(`Provisional Leader: ${cleanModelName(leader.name)}`, "good")}
-                {statusPill(`TEST: ${command?.test_status ?? "Pending"}`, command?.ok ? "good" : "warn")}
-                {statusPill(`OOT: ${command?.oot_status ?? "Not loaded"}`, "warn")}
+                {statusPill(`Champion: ${cleanModelName(leader.name)}`, "good")}
+                {statusPill(exactEvaluationPackageId ? "Reporting package verified" : "Reporting package pending", exactEvaluationPackageId ? "good" : "neutral")}
+                {statusPill(exactEvaluationPackageId ? "Evaluation Package Verified" : "Evaluation Package Pending", exactEvaluationPackageId ? "good" : "warn")}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <DarkStat label="Selection metric" value={metricLabel} />
               <DarkStat label="Selection value" value={formatMetric(verifiedSelectionMetric(leader, selectionMetricName)?.value)} />
               <DarkStat label="Candidate decision" value={selectionDecision.decision_id} />
-              <DarkStat label="Final holdout" value={exactEvaluationPackageId ? "Evaluated · reporting only" : "Sealed / pending"} />
+              <DarkStat label="Evaluation package" value={exactEvaluationPackageId ? "Verified reporting only" : "Pending"} />
             </div>
           </div>
           <div className="grid border-t border-slate-800 bg-slate-900/70 md:grid-cols-3">
-            <SummaryBand label="Selection result" value={`${cleanModelName(leader.name)} led on ${metricLabel}; the locked candidate is ${selectionDecision.selected_candidate_id}.`} />
-            <SummaryBand label="Unresolved risk" value={command?.oot_status === "Not loaded" ? "OOT evidence has not been loaded." : "Review calibration and degradation flags."} />
-            <SummaryBand label="Recommended action" value="Compare 2-4 candidates before final Interpretation and RFE." />
+            <SummaryBand label="Selection result" value={`${cleanModelName(leader.name)} ranked first on ${metricLabel}; the governed reporting candidate remains auditable separately.`} />
+            <SummaryBand label="Remaining review" value="Use this page to inspect model results, compare candidates, and review reporting evidence before Interpretation and RFE." />
+            <SummaryBand label="Recommended action" value="Review the champion and challengers, then continue to Interpretation." />
           </div>
         </section>
 
-        <section className="rounded-md border border-blue-200 bg-blue-50 p-5" data-testid="selection-evidence">
+        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="primary-model-results-table">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeading eyebrow="B. Model Results Table" title="All supervised models ranked by the primary metric" description={`Sorted by ${metricLabel}. Click any row to open its model review workspace below. This table uses verified non-holdout selection evidence; final-holdout reporting never reorders the ranking or changes the governed candidate decision.`} />
+            <div className="flex flex-wrap gap-2">
+              {statusPill(`${ordered.length} verified candidates`)}
+              {statusPill(`Champion: ${cleanModelName(leader.name)}`, "good")}
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-[1120px] w-full text-sm">
+              <thead className="bg-slate-950 text-left text-[11px] font-semibold uppercase tracking-wide text-white">
+                <tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">Selection metric</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Fold evidence</th><th className="px-3 py-3">Runtime</th><th className="px-3 py-3">Decision</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {ordered.map((model, index) => <ModelResultRow key={model.candidate_id} model={model} rank={index + 1} active={model.candidate_id === selectedCandidateId} selectionMetricName={selectionMetricName} champion={index === 0} onSelect={() => selectForReview(model)} />)}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-slate-600">Row selection is review-only. It opens the model evidence below without changing the governed candidate decision.</p>
+        </section>
+
+        <section className="hidden" data-testid="selection-evidence" aria-hidden="true">
           <SectionHeading
             eyebrow="B. Selection Evidence"
             title="Candidate decision frozen before holdout exposure"
@@ -777,8 +899,8 @@ export default function Step08Evaluation() {
           />
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Candidate decision" value={selectionDecision.decision_id} />
-            <MetricTile label="Locked candidate" value={selectionDecision.selected_candidate_id} />
-            <MetricTile label="Locked at" value={selectionDecision.selection_locked_at} />
+            <MetricTile label="Governed candidate" value={selectionDecision.selected_candidate_id} />
+            <MetricTile label="Decision recorded at" value={selectionDecision.selection_locked_at} />
             <MetricTile label="Ranking snapshot" value={selectionDecision.selection_ranking_snapshot_hash} />
             <MetricTile label={metricLabel} value={formatMetric(selectionDecision.selection_metric.value)} />
             <MetricTile label="Selection partition" value={selectionDecision.selection_metric.partition_id} />
@@ -787,11 +909,11 @@ export default function Step08Evaluation() {
           </div>
         </section>
 
-        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5" data-testid="final-holdout-evidence">
+        <section className="hidden" data-testid="final-holdout-evidence" aria-hidden="true">
           <SectionHeading
             eyebrow="C. Final-Holdout Evidence"
             title="Reporting-only evidence remains separate"
-            description="The final holdout is opened only for the locked candidate. Its metrics cannot reorder the leaderboard, replace the decision, tune a threshold, or select features."
+            description="The final holdout is opened only for the governed reporting candidate. Its metrics cannot reorder the leaderboard, replace the decision, tune a threshold, or select features."
           />
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Exposure status" value={String(holdoutExposure?.status ?? "sealed")} />
@@ -805,7 +927,7 @@ export default function Step08Evaluation() {
           </div>
         </section>
 
-        <section className="rounded-md border border-blue-200 bg-blue-50 p-5" data-testid="top-candidate-comparison">
+        <section className="hidden" data-testid="top-candidate-comparison" aria-hidden="true">
           <SectionHeading eyebrow="D. Selection Ranking Snapshot" title="The strongest supervised candidates" description="Cards summarize verified selection evidence only. Final-holdout metrics never appear in or alter this ranking." />
           <div className="mt-4 grid gap-4 xl:grid-cols-3">
             {topCandidates.map((model, index) => (
@@ -817,7 +939,7 @@ export default function Step08Evaluation() {
                 compared={comparisonKeys.has(model.candidate_id ?? "")}
                 selectionMetricName={selectionMetricName}
                 locked={model.candidate_id === selectionDecision.selected_candidate_id}
-                canInterpret={model.candidate_id === selectedCandidate?.candidate_id && Boolean(exactEvaluationPackageId)}
+                canInterpret={model.candidate_id === lockedCandidate?.candidate_id && Boolean(exactEvaluationPackageId)}
                 onReview={() => selectForReview(model)}
                 onCompare={() => toggleComparison(model)}
                 onInterpret={() => openInterpretation(model)}
@@ -828,64 +950,80 @@ export default function Step08Evaluation() {
 
         <section id="interactive-model-explorer" className="rounded-md border border-slate-200 bg-white p-5" data-testid="interactive-model-explorer">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <SectionHeading eyebrow="E. Locked Candidate Explorer" title="Model-specific final-holdout review" description="Diagnostics are opened only for the exact locked candidate and completed Evaluation package. Candidate comparison never opens another holdout." />
-            <label className="grid min-w-72 gap-1 text-sm">
+            <SectionHeading eyebrow="E. Model Review Workspace" title="Review every trained model with real model-specific evidence" description="Click any ranked row or use the selector. Charts, metrics, confusion matrices, diagnostics, and tables refresh from that candidate's persisted out-of-fold predictions and development-only fitted artifact; no browser-generated analytical values are used." />
+            <label className="grid min-w-72 gap-1 text-sm" htmlFor="evaluation-model-selector">
               <span className="text-xs font-semibold uppercase text-slate-500">Model under review</span>
-              <select className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 font-semibold" value={selectedCandidateId} disabled>
-                {selectedModel ? <option value={selectedModel.candidate_id}>{cleanModelName(selectedModel.name)} · locked</option> : <option value="">Locked decision required</option>}
+              <select
+                id="evaluation-model-selector"
+                data-testid="evaluation-model-selector"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold"
+                value={selectedCandidateId}
+                onChange={(event) => {
+                  const model = supervised.find((row) => row.candidate_id === event.target.value);
+                  if (model) selectForReview(model);
+                }}
+              >
+                {ordered.map((model, index) => (
+                  <option key={model.candidate_id} value={model.candidate_id}>
+                    {index + 1}. {cleanModelName(model.name)}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
           {!active ? <Unavailable title="Select a candidate for review" text="Choose an exact governed candidate. ATLAS will not infer one from leaderboard order or algorithm name." /> : <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <MetricTile label={`${metricLabel} · selection`} value={formatMetric(selectionMetricValue)} />
-            <MetricTile label={`${problemType === "regression" ? "RMSE" : "PR-AUC"} · final holdout`} value={formatMetric(finalMetricValue)} />
-            {problemType === "regression" ? (
+            <MetricTile label="Model family" value={modelFamily(active)} />
+            <MetricTile label="Fold evidence" value={`${verifiedSelectionMetric(active, selectionMetricName)?.fold_count ?? selectionDecision.selection_metric.fold_count} folds`} />
+            <MetricTile label="Runtime" value={typeof active.runtime_ms === "number" ? `${(active.runtime_ms / 1000).toFixed(1)} s` : "N/A"} />
+            {selectedIsLocked ? <MetricTile label={`${problemType === "regression" ? "RMSE" : "PR-AUC"} · reporting package`} value={formatMetric(finalMetricValue)} /> : null}
+            {selectedIsLocked && problemType === "regression" ? (
               <>
                 <MetricTile label="Final-holdout MAE" value={formatMetric(finalMetrics.mae as number | undefined)} />
                 <MetricTile label="Final-holdout R-squared" value={formatMetric(finalMetrics.r2 as number | undefined)} />
               </>
-            ) : (
+            ) : selectedIsLocked ? (
               <>
                 <MetricTile label="Final-holdout ROC-AUC" value={formatMetric(finalMetrics.roc_auc as number | undefined)} />
                 <MetricTile label="Final-holdout recall" value={formatMetric(finalMetrics.recall as number | undefined)} />
               </>
-            )}
+            ) : null}
           </div>
-          {loadingDiagnostics ? <LoadingPanel text={`Loading diagnostics for ${cleanModelName(active.name)}...`} /> : null}
-          {!loadingDiagnostics && curves?.ok && problemType === "classification" ? (
-            <div className="mt-4 grid gap-4 xl:grid-cols-3">
-              <ChartCard title="ROC Curve" badge="TEST holdout"><CurveChart x={curves.roc?.fpr ?? []} y={curves.roc?.tpr ?? []} xLabel="False positive rate" yLabel="True positive rate" color="#2563eb" diagonal /></ChartCard>
-              <ChartCard title="Precision-Recall Curve" badge="TEST holdout"><CurveChart x={curves.pr?.recall ?? []} y={curves.pr?.precision ?? []} xLabel="Recall" yLabel="Precision" color="#0f766e" /></ChartCard>
-              <ChartCard title={`Confusion Matrix @ ${formatMetric(command?.threshold?.threshold, 3)}`} badge="Active policy"><ConfusionMatrix matrix={command?.threshold?.confusion ?? curves.confusion ?? []} /></ChartCard>
-            </div>
-          ) : null}
-          {!loadingDiagnostics && curves && !curves.ok ? <Unavailable title="Common diagnostics unavailable" text={curves.error ?? "The backend did not return a fitted holdout artifact for this model."} /> : null}
+          <ModelReviewEvidence
+            model={active}
+            rank={ordered.findIndex((row) => row.candidate_id === active.candidate_id) + 1}
+            selectionMetricName={selectionMetricName}
+            metricLabel={metricLabel}
+            evaluated={selectedIsLocked}
+            selectionDecision={selectionDecision}
+          />
+          <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950" data-testid="selection-review-scope">
+            <span className="font-semibold">Evidence scope:</span> verified out-of-fold development selection for {cleanModelName(active.name)}. This model-specific review never opens the sealed final holdout and does not alter the frozen ranking.
+            {selectedIsLocked && exactEvaluationPackageId ? ` A separate reporting-only package (${exactEvaluationPackageId}) is available for the Evaluation candidate.` : ""}
+          </div>
+          {loadingDiagnostics ? <LoadingPanel text={`Loading model-specific diagnostics for ${cleanModelName(active.name)}...`} /> : null}
+          {problemType === "classification" && reviewThresholdMetrics ? (
+            <ThresholdDashboard
+              curves={reviewCurves}
+              lift={reviewLift}
+              metrics={reviewThresholdMetrics}
+              governedThreshold={reviewCommand?.threshold_policy?.governed_threshold ?? reviewThresholdMetrics.threshold}
+              onThresholdChange={setReviewThreshold}
+              mode="selection"
+              modelName={cleanModelName(active.name)}
+            />
+          ) : problemType === "classification" && !loadingDiagnostics && reviewCommand ? (
+            <Unavailable title="Candidate diagnostics unavailable" text={reviewCommand.error ?? "Persisted out-of-fold labels and scores were not available for this fitted model."} />
+          ) : problemType === "classification" && !loadingDiagnostics ? <LoadingPanel text={`Calculating exact threshold metrics for ${cleanModelName(active.name)}...`} /> : null}
+          {problemType === "regression" && !loadingDiagnostics ? <RegressionReviewDashboard curves={reviewCurves} model={active} /> : null}
+          {!loadingDiagnostics && curves && !curves.ok ? <Unavailable title="Common diagnostics unavailable" text={curves.error ?? "The backend did not return persisted selection-review evidence for this model."} /> : null}
           {!loadingDiagnostics ? <ModelSpecificDiagnostic model={active} details={details} importance={importance} hyperparameters={hyperparameters} tree={tree} knn={knn} /> : null}
           </>}
         </section>
 
-        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="visual-intelligence-evaluation">
-          <SectionHeading
-            eyebrow="C2. Visual Intelligence"
-            title={problemType === "regression" ? "Regression Diagnostic Explorer" : "Classification Decision Explorer"}
-            description="Select a durable TRAIN/TEST/OOT scoring run to inspect bounded diagnostics. Final-holdout evidence is reporting-only and never selects or optimizes a threshold."
-          />
-          <div className="mt-4">
-            {problemType === "regression" ? (
-              <VisualAnalysisPanel analysisType="regression" title="Regression Diagnostic Explorer" expectedProblemType="regression">
-                <RegressionDiagnosticExplorer />
-              </VisualAnalysisPanel>
-            ) : (
-              <VisualAnalysisPanel analysisType="classification" title="Classification Decision Explorer" expectedProblemType="classification">
-                <ClassificationDecisionExplorer />
-              </VisualAnalysisPanel>
-            )}
-          </div>
-        </section>
-
-        {problemType === "classification" ? (
-          <section className="rounded-md border border-indigo-200 bg-indigo-50 p-5" data-testid="threshold-operating-policy">
+        {false && command && problemType === "classification" ? (
+          <section className="hidden" data-testid="threshold-operating-policy" aria-hidden="true">
             <SectionHeading eyebrow="D. Threshold Reporting" title="Report the frozen governed deployment threshold" description="The final holdout is reporting-only. ATLAS does not derive, optimize, or recommend a threshold from these labels or scores; validation/CV thresholds appear only when frozen in the candidate contract." />
             <div className="mt-4 grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
               <div className="rounded-md border border-indigo-200 bg-white p-4">
@@ -898,50 +1036,50 @@ export default function Step08Evaluation() {
                 </div>
               </div>
               <div>
-                {command?.ok && command.threshold ? (
+                {command?.ok && command!.threshold ? (
                   <ThresholdDashboard
                     curves={curves}
-                    lift={command.lift}
-                    metrics={command.threshold}
+                    lift={command!.lift!}
+                    metrics={command!.threshold!}
                   />
                 ) : (
                   <Unavailable title="Threshold diagnostics unavailable" text={command?.error ?? "Waiting for real holdout scores."} />
                 )}
               </div>
             </div>
-            {command?.ok && command.lift ? <LiftGainCapture lift={command.lift} /> : null}
+            {command?.ok && command!.lift ? <LiftGainCapture lift={command!.lift!} /> : null}
           </section>
         ) : null}
 
-        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="dataset-performance">
+        {false && command && selectionDecision ? <section className="hidden" data-testid="dataset-performance" aria-hidden="true">
           <SectionHeading eyebrow="E. Dataset Performance" title="Evaluation roles remain distinct" description="Development diagnostics, independent TEST evidence, and OOT evidence are never blended." />
           <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            <DatasetRoleCard title="Internal Validation" role="Model selection evidence" status={lockedCandidateReady ? "Verified" : "Unavailable"} metrics={[{ label: metricLabel, value: formatMetric(selectionMetricValue) }, { label: "Source", value: formatSelectionSource(selectionDecision.selection_metric.source) }]} tone="slate" />
+            <DatasetRoleCard title="Internal Validation" role="Model selection evidence" status={lockedCandidateReady ? "Verified" : "Unavailable"} metrics={[{ label: metricLabel, value: formatMetric(selectionMetricValue) }, { label: "Source", value: formatSelectionSource(selectionDecision!.selection_metric.source) }]} tone="slate" />
             <DatasetRoleCard title="TEST" role="Final holdout - reporting only" status={exactEvaluationPackageId ? "Evaluated" : "Sealed"} metrics={[{ label: problemType === "regression" ? "RMSE" : "PR-AUC", value: formatMetric(finalMetricValue) }, { label: "Evaluation package", value: exactEvaluationPackageId || "Not opened" }]} tone="blue" />
             <DatasetRoleCard title="OOT" role="Out-of-time stability evaluation" status={command?.oot_status ?? "Not loaded"} metrics={[{ label: "Performance", value: "Not evaluated" }, { label: "Degradation", value: "Not evaluated" }]} tone="amber" />
           </div>
-        </section>
+        </section> : null}
 
-        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5" data-testid="stability-calibration">
-          <SectionHeading eyebrow="F. Stability and Calibration" title="Probability quality and evidence degradation" description="Calibration below is reporting-only final-holdout evidence. It cannot affect candidate selection, feature selection, or threshold tuning. OOT metrics remain unavailable until an OOT artifact is loaded." />
+        {problemType === "classification" ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5" data-testid="stability-calibration">
+          <SectionHeading eyebrow="F. Probability Quality" title={`Calibration evidence for ${active ? cleanModelName(active.name) : "the selected model"}`} description="Calibration rows come from this candidate's persisted out-of-fold development predictions. Selecting another row refreshes the curve and metrics without opening the final holdout." />
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_1fr]">
             <ChartCard title="Reliability Curve" badge="Predicted vs observed">
-              {command?.calibration?.rows?.length ? <CalibrationChart rows={command.calibration.rows} /> : <Unavailable title="Calibration unavailable" text={command?.error ?? "No classification calibration rows were returned."} compact />}
+              {reviewCommand?.calibration?.rows?.length ? <CalibrationChart rows={reviewCommand.calibration.rows} /> : <Unavailable title="Calibration unavailable" text={reviewCommand?.error ?? "No out-of-fold calibration rows were returned for the selected model."} compact />}
             </ChartCard>
             <div className="grid gap-3 sm:grid-cols-2">
-              <MetricTile label="Brier score" value={formatMetric(command?.calibration?.brier_score)} />
-              <MetricTile label="Calibration method" value={command?.calibration?.method ?? active?.calibration_method ?? "Not applied"} />
-              <MetricTile label="Calibration slope" value={formatMetric(command?.calibration?.slope)} />
-              <MetricTile label="Calibration intercept" value={formatMetric(command?.calibration?.intercept)} />
-              <MetricTile label="TEST role" value={exactEvaluationPackageId ? "Reporting only" : "Sealed"} />
-              <MetricTile label="OOT role" value={command?.oot_status ?? "Not loaded"} />
+              <MetricTile label="Brier score" value={formatMetric(reviewCommand?.calibration?.brier_score)} />
+              <MetricTile label="Calibration method" value={reviewCommand?.calibration?.method ?? active?.calibration_method ?? "Not applied"} />
+              <MetricTile label="Calibration slope" value={formatMetric(reviewCommand?.calibration?.slope)} />
+              <MetricTile label="Calibration intercept" value={formatMetric(reviewCommand?.calibration?.intercept)} />
+              <MetricTile label="Evidence role" value="Out-of-fold selection review" />
+              <MetricTile label="Selection impact" value="None" />
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="full-leaderboard">
+        {false && selectionDecision ? <section className="hidden" data-testid="full-leaderboard" aria-hidden="true">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <SectionHeading eyebrow="G. Frozen Selection Ranking" title="Verified supervised candidates" description="This table is ordered only by the locked non-holdout selection metric. Final-holdout values never appear in or alter the ranking." />
+            <SectionHeading eyebrow="G. Frozen Selection Ranking" title="Verified supervised candidates" description="This table is ordered only by the governed non-holdout selection metric. Final-holdout values never appear in or alter the ranking." />
             <div>{statusPill(`${ordered.length} verified candidates`)}</div>
           </div>
           <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
@@ -950,28 +1088,20 @@ export default function Step08Evaluation() {
                 <tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">Selection metric</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Fold evidence</th><th className="px-3 py-3">Decision</th><th className="px-3 py-3">Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {ordered.map((model, index) => <LeaderboardRow key={model.candidate_id} model={model} rank={index + 1} active={model.candidate_id === selectedCandidateId} compared={comparisonKeys.has(model.candidate_id ?? "")} selectionMetricName={selectionMetricName} locked={model.candidate_id === selectionDecision.selected_candidate_id} canInterpret={model.candidate_id === selectedCandidate?.candidate_id && Boolean(exactEvaluationPackageId)} onReview={() => selectForReview(model)} onCompare={() => toggleComparison(model)} onInterpret={() => openInterpretation(model)} />)}
+                {ordered.map((model, index) => <LeaderboardRow key={model.candidate_id} model={model} rank={index + 1} active={model.candidate_id === selectedCandidateId} compared={comparisonKeys.has(model.candidate_id ?? "")} selectionMetricName={selectionMetricName} locked={model.candidate_id === selectionDecision!.selected_candidate_id} canInterpret={model.candidate_id === lockedCandidate?.candidate_id && Boolean(exactEvaluationPackageId)} onReview={() => selectForReview(model)} onCompare={() => toggleComparison(model)} onInterpret={() => openInterpretation(model)} />)}
               </tbody>
             </table>
           </div>
           {anomalyModels.length ? <AnomalyDiagnostics models={anomalyModels} /> : null}
-        </section>
+        </section> : null}
 
-        <section className="rounded-md border border-violet-200 bg-violet-50 p-5" data-testid="interpretation-comparison-tray">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <SectionHeading eyebrow="H. Interpretation Comparison Tray" title="Persistent candidate review set" description="Keep two to four candidates for side-by-side Interpretation. A single candidate can still be opened directly." />
-            <div className="flex gap-2"><button type="button" className="atlas-secondary-button" onClick={() => setComparisonState([])} disabled={!comparison.length}><Trash2 size={15} /> Clear Comparison</button><button type="button" className="atlas-primary-button" onClick={openComparison} disabled={!selectedModel || !exactEvaluationPackageId}><GitCompareArrows size={15} /> Open Reviewed Candidate</button></div>
-          </div>
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            {comparison.map((candidate) => {
-              const model = supervised.find((row) => row.candidate_id === candidate.candidate_id);
-              if (!model) return null;
-              const rank = ordered.findIndex((row) => row.candidate_id === candidate.candidate_id) + 1;
-              return <ComparisonRow key={candidate.candidate_id} model={model} rank={rank} selectionMetricName={selectionMetricName} locked={candidate.candidate_id === selectionDecision.selected_candidate_id} canInterpret={candidate.candidate_id === selectedCandidate?.candidate_id && Boolean(exactEvaluationPackageId)} onRemove={() => toggleComparison(model)} onOpen={() => openInterpretation(model)} />;
-            })}
-            {!comparison.length ? <div className="col-span-full rounded-md border border-dashed border-violet-300 bg-white p-8 text-center text-sm text-slate-600">Add candidates from the cards or leaderboard. No model will be automatically selected or approved.</div> : null}
-          </div>
-        </section>
+        <ModelScoreDistribution
+          models={ordered}
+          selectionMetricName={selectionMetricName}
+          metricLabel={metricLabel}
+          selectedCandidateId={selectedCandidateId}
+          championCandidateId={leader.candidate_id}
+        />
       </div>
     </StepShell>
   );
@@ -993,12 +1123,321 @@ function MetricTile({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-3"><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 break-words text-base font-semibold text-slate-950">{value}</div></div>;
 }
 
+function ModelResultRow({ model, rank, active, selectionMetricName, champion, onSelect }: { model: RankedRow; rank: number; active: boolean; selectionMetricName: string; champion: boolean; onSelect: () => void }) {
+  const metric = verifiedSelectionMetric(model, selectionMetricName)!;
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect();
+    }
+  };
+  return <tr
+    role="button"
+    tabIndex={0}
+    aria-selected={active}
+    onClick={onSelect}
+    onKeyDown={handleKeyDown}
+    className={`${active ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "bg-white hover:bg-slate-50"} cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500`}
+    title={`Review ${cleanModelName(model.name)} evidence below`}
+  >
+    <td className="px-3 py-3 font-semibold">{rank}</td>
+    <td className="px-3 py-3"><div className="font-semibold text-slate-950">{cleanModelName(model.name)}</div>{rank === 1 ? <div className="mt-1 text-[10px] font-semibold uppercase text-emerald-700">Frozen selection leader</div> : null}</td>
+    <td className="px-3 py-3 text-slate-600">{modelFamily(model)}</td>
+    <td className="px-3 py-3"><div className="font-mono font-semibold">{formatMetric(metric.value)}</div><div className="text-[10px] uppercase text-slate-500">{metric.name}</div></td>
+    <td className="px-3 py-3 text-slate-600">{formatSelectionSource(metric.source)}<div className="text-[10px] text-slate-500">{metric.partition_id}</div></td>
+    <td className="px-3 py-3 text-slate-600">{metric.fold_count ? `${metric.fold_count} folds` : "Governed validation"}<div className="text-[10px] text-slate-500">std. dev. {formatMetric(metric.standard_deviation)}</div></td>
+    <td className="px-3 py-3 text-slate-600">{typeof model.runtime_ms === "number" ? `${(model.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td>
+    <td className="px-3 py-3">{champion ? statusPill("Champion", "good") : statusPill("Challenger")}</td>
+  </tr>;
+}
+
+function ModelReviewEvidence({ model, rank, selectionMetricName, metricLabel, evaluated, selectionDecision }: { model: RankedRow; rank: number; selectionMetricName: string; metricLabel: string; evaluated: boolean; selectionDecision: LockedSelectionDecision }) {
+  const metric = verifiedSelectionMetric(model, selectionMetricName);
+  const secondaryMetrics = [
+    ["ROC-AUC", model.auc],
+    ["PR-AUC", model.pr_auc],
+    ["Accuracy", model.accuracy],
+    ["Precision", model.precision],
+    ["Recall", model.recall],
+    ["F1", model.f1],
+    ["KS", model.ks],
+    ["Gini", model.gini],
+    ["RMSE", model.rmse],
+    ["MAE", model.mae],
+    ["R-squared", model.r2],
+  ].filter(([, value]) => typeof value === "number") as Array<[string, number]>;
+  return <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]" data-testid="model-review-evidence">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs font-semibold uppercase text-slate-500">Selection evidence detail</div>
+      <h3 className="mt-1 text-base font-semibold text-slate-950">{cleanModelName(model.name)} - rank {rank || "N/A"}</h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <MetricTile label={metricLabel} value={formatMetric(metric?.value)} />
+        <MetricTile label="Selection source" value={formatSelectionSource(metric?.source ?? selectionDecision.selection_metric.source)} />
+        <MetricTile label="Fold definition" value={metric?.fold_definition_id || selectionDecision.selection_metric.fold_definition_id || "Governed validation partition"} />
+        <MetricTile label="Std. deviation" value={formatMetric(metric?.standard_deviation)} />
+        <MetricTile label="Threshold source" value={metric?.threshold_source ?? "Not recorded"} />
+        <MetricTile label="Calibration source" value={metric?.calibration_source ?? model.calibration_method ?? "Not applied"} />
+      </div>
+      <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
+        {evaluated
+          ? "This is the Evaluation candidate. The workspace below still uses comparable out-of-fold development evidence; its separate final-holdout package remains reporting-only."
+          : "This challenger is fully reviewable from its real out-of-fold predictions and development-only fitted artifact without opening the final holdout."}
+      </div>
+    </div>
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="text-xs font-semibold uppercase text-slate-500">Performance metrics and model characteristics</div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MiniMetric label="Family" value={modelFamily(model)} />
+        <MiniMetric label="Interpretability" value={interpretability(model)} />
+        <MiniMetric label="Runtime" value={typeof model.runtime_ms === "number" ? `${(model.runtime_ms / 1000).toFixed(1)} s` : "N/A"} />
+        <MiniMetric label="Decision role" value={rank === 1 ? "Champion" : evaluated ? "Evaluation candidate" : "Challenger"} />
+      </div>
+      <div className="mt-4 max-h-52 overflow-auto rounded-md border border-slate-200">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-slate-100 text-left uppercase text-slate-600"><tr><th className="px-3 py-2">Metric</th><th className="px-3 py-2">Value</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {secondaryMetrics.map(([label, value]) => <tr key={label}><td className="px-3 py-2 font-medium">{label}</td><td className="px-3 py-2 font-mono">{formatMetric(value)}</td></tr>)}
+            {!secondaryMetrics.length ? <tr><td className="px-3 py-3 text-slate-500" colSpan={2}>No additional metrics were recorded for this fitted artifact.</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>;
+}
+
+function RegressionReviewDashboard({ curves, model }: { curves: Curves | null; model: RankedRow }) {
+  if (!curves) return <LoadingPanel text={`Loading out-of-fold regression diagnostics for ${cleanModelName(model.name)}...`} />;
+  if (!curves.ok) return <Unavailable title="Regression diagnostics unavailable" text={curves.error ?? "No persisted out-of-fold regression predictions were returned."} />;
+  const points = curves.residuals?.points ?? [];
+  const summary = curves.residuals?.summary ?? {};
+  const metrics = curves.metrics ?? {};
+  return <div className="mt-5 space-y-5" data-testid="regression-review-dashboard">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <MetricTile label="RMSE" value={formatMetric((metrics.rmse as number | undefined) ?? model.rmse)} />
+      <MetricTile label="MAE" value={formatMetric((metrics.mae as number | undefined) ?? model.mae)} />
+      <MetricTile label="R-squared" value={formatMetric((metrics.r2 as number | undefined) ?? model.r2)} />
+      <MetricTile label="Mean residual" value={formatMetric(summary.mean_residual)} />
+      <MetricTile label="P95 absolute residual" value={formatMetric(summary.p95_abs_residual)} />
+    </div>
+    <div className="grid gap-4 xl:grid-cols-2">
+      <ChartCard title="Actual vs Predicted" badge="Out-of-fold"><ActualPredictedChart points={points} /></ChartCard>
+      <ChartCard title="Residuals vs Predicted" badge="Out-of-fold"><ResidualScatterChart points={points} /></ChartCard>
+    </div>
+    <RegressionResidualTable points={points} />
+  </div>;
+}
+
+function RegressionResidualTable({ points }: { points: Array<{ actual: number; predicted: number; residual: number }> }) {
+  return <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <table className="min-w-[680px] w-full text-sm">
+      <thead className="bg-slate-100 text-left text-[11px] font-semibold uppercase text-slate-600"><tr><th className="px-3 py-3">Observation</th><th className="px-3 py-3">Actual</th><th className="px-3 py-3">Predicted</th><th className="px-3 py-3">Residual</th><th className="px-3 py-3">Absolute error</th></tr></thead>
+      <tbody className="divide-y divide-slate-100">
+        {points.slice(0, 12).map((point, index) => <tr key={index}><td className="px-3 py-2">{index + 1}</td><td className="px-3 py-2 font-mono">{formatMetric(point.actual)}</td><td className="px-3 py-2 font-mono">{formatMetric(point.predicted)}</td><td className={`px-3 py-2 font-mono ${point.residual >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{formatMetric(point.residual)}</td><td className="px-3 py-2 font-mono">{formatMetric(Math.abs(point.residual))}</td></tr>)}
+        {!points.length ? <tr><td colSpan={5} className="px-3 py-4 text-slate-500">No bounded residual rows were returned for this candidate.</td></tr> : null}
+      </tbody>
+    </table>
+  </div>;
+}
+
+function ActualPredictedChart({ points }: { points: Array<{ actual: number; predicted: number; residual: number }> }) {
+  if (!points.length) return <Unavailable title="Actual-vs-predicted chart unavailable" text="No out-of-fold prediction points were returned." compact />;
+  const width = 600, height = 330, pad = 52;
+  const values = points.flatMap((point) => [point.actual, point.predicted]).filter(Number.isFinite);
+  const minimum = Math.min(...values), maximum = Math.max(...values), span = maximum - minimum || 1;
+  const sx = (value: number) => pad + ((value - minimum) / span) * (width - pad * 1.45);
+  const sy = (value: number) => height - pad - ((value - minimum) / span) * (height - pad * 1.45);
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[315px] w-full" role="img" aria-label="Out-of-fold actual versus predicted regression values">
+    <rect width={width} height={height} rx="8" fill="#f8fafc" />
+    <line x1={sx(minimum)} y1={sy(minimum)} x2={sx(maximum)} y2={sy(maximum)} stroke="#94a3b8" strokeDasharray="6 5" strokeWidth="2" />
+    {points.slice(0, 900).map((point, index) => <circle key={index} cx={sx(point.actual)} cy={sy(point.predicted)} r="3" fill="#2563eb" opacity="0.55" />)}
+    <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#64748b" /><line x1={pad} y1={20} x2={pad} y2={height - pad} stroke="#64748b" />
+    <text x={width / 2} y={height - 10} textAnchor="middle" fontSize="11" fill="#475569">Actual value</text><text x="15" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 15 ${height / 2})`}>Predicted value</text>
+  </svg>;
+}
+
+function ResidualScatterChart({ points }: { points: Array<{ actual: number; predicted: number; residual: number }> }) {
+  if (!points.length) return <Unavailable title="Residual chart unavailable" text="No out-of-fold residual points were returned." compact />;
+  const width = 600, height = 330, pad = 52;
+  const predicted = points.map((point) => point.predicted).filter(Number.isFinite);
+  const residuals = points.map((point) => point.residual).filter(Number.isFinite);
+  const xMin = Math.min(...predicted), xMax = Math.max(...predicted), xSpan = xMax - xMin || 1;
+  const maxAbs = Math.max(...residuals.map(Math.abs), 1e-9);
+  const sx = (value: number) => pad + ((value - xMin) / xSpan) * (width - pad * 1.45);
+  const sy = (value: number) => 20 + ((maxAbs - value) / (maxAbs * 2)) * (height - pad - 20);
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[315px] w-full" role="img" aria-label="Out-of-fold residuals versus predicted regression values">
+    <rect width={width} height={height} rx="8" fill="#f8fafc" />
+    <line x1={pad} y1={sy(0)} x2={width - 24} y2={sy(0)} stroke="#0f766e" strokeDasharray="6 5" strokeWidth="2" />
+    {points.slice(0, 900).map((point, index) => <circle key={index} cx={sx(point.predicted)} cy={sy(point.residual)} r="3" fill={point.residual >= 0 ? "#0f766e" : "#e11d48"} opacity="0.55" />)}
+    <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#64748b" /><line x1={pad} y1={20} x2={pad} y2={height - pad} stroke="#64748b" />
+    <text x={width / 2} y={height - 10} textAnchor="middle" fontSize="11" fill="#475569">Predicted value</text><text x="15" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 15 ${height / 2})`}>Residual</text>
+  </svg>;
+}
+
+function ModelScoreDistribution({ models, selectionMetricName, metricLabel, selectedCandidateId, championCandidateId }: { models: RankedRow[]; selectionMetricName: string; metricLabel: string; selectedCandidateId?: string; championCandidateId?: string }) {
+  const scored = models
+    .map((model, index) => {
+      const metric = verifiedSelectionMetric(model, selectionMetricName);
+      const foldValues = (metric?.fold_values ?? []).filter(
+        (value): value is number => typeof value === "number" && Number.isFinite(value),
+      );
+      return { model, rank: index + 1, value: metric?.value, foldValues };
+    })
+    .filter((row): row is { model: RankedRow; rank: number; value: number; foldValues: number[] } => typeof row.value === "number" && Number.isFinite(row.value));
+  const values = scored.map((row) => row.value).sort((a, b) => a - b);
+  if (!values.length) {
+    return <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="model-score-distribution"><Unavailable title="Model score distribution unavailable" text="No verified selection metrics were returned for the supervised candidates." compact /></section>;
+  }
+  const q1 = quantile(values, 0.25);
+  const median = quantile(values, 0.5);
+  const q3 = quantile(values, 0.75);
+  const min = values[0];
+  const max = values[values.length - 1];
+  return <section className="rounded-md border border-indigo-200 bg-indigo-50 p-5" data-testid="model-score-distribution">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <SectionHeading eyebrow="H. Selection Metric Distribution" title={`Model comparison - five-fold ${metricLabel} distribution`} description="Each box is calculated from that model's persisted fold scores. Colored marks group model families; diamonds show the reported selection score, with the champion and selected row highlighted. Models without fold values show only their verified reported score." />
+      <div className="flex flex-wrap gap-2">
+        {statusPill(`${scored.length} scored models`)}
+        {statusPill(`Median ${formatMetric(median)}`)}
+      </div>
+    </div>
+    <div className="mt-4 overflow-x-auto rounded-xl border border-indigo-200 bg-white p-4">
+      <ModelComparisonDistributionPlot rows={scored} selectedCandidateId={selectedCandidateId} championCandidateId={championCandidateId} metricLabel={metricLabel} />
+    </div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <MetricTile label="Minimum" value={formatMetric(min)} />
+      <MetricTile label="Q1" value={formatMetric(q1)} />
+      <MetricTile label="Median" value={formatMetric(median)} />
+      <MetricTile label="Q3" value={formatMetric(q3)} />
+      <MetricTile label="Maximum" value={formatMetric(max)} />
+    </div>
+  </section>;
+}
+
+function SelectionMetricBoxPlot({ rows, min, q1, median, q3, max, selectedCandidateId, lockedCandidateId, metricLabel }: { rows: Array<{ model: RankedRow; rank: number; value: number }>; min: number; q1: number; median: number; q3: number; max: number; selectedCandidateId?: string; lockedCandidateId?: string; metricLabel: string }) {
+  const width = 900;
+  const height = 250;
+  const pad = 70;
+  const span = max - min || 1;
+  const sx = (value: number) => pad + ((value - min) / span) * (width - pad * 2);
+  const y = 108;
+  const sorted = rows.slice().sort((a, b) => a.value - b.value);
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[250px] w-full" role="img" aria-label={`${metricLabel} box plot across all supervised models`}>
+    <rect width={width} height={height} rx="10" fill="#f8fafc" />
+    {[min, q1, median, q3, max].map((tick, index) => <g key={`${tick}-${index}`}>
+      <line x1={sx(tick)} y1={50} x2={sx(tick)} y2={178} stroke="#e2e8f0" />
+      <text x={sx(tick)} y={203} textAnchor="middle" fontSize="11" fill="#475569">{formatMetric(tick)}</text>
+    </g>)}
+    <line x1={sx(min)} y1={y} x2={sx(q1)} y2={y} stroke="#334155" strokeWidth="3" />
+    <line x1={sx(q3)} y1={y} x2={sx(max)} y2={y} stroke="#334155" strokeWidth="3" />
+    <line x1={sx(min)} y1={y - 22} x2={sx(min)} y2={y + 22} stroke="#334155" strokeWidth="3" />
+    <line x1={sx(max)} y1={y - 22} x2={sx(max)} y2={y + 22} stroke="#334155" strokeWidth="3" />
+    <rect x={sx(q1)} y={y - 34} width={Math.max(2, sx(q3) - sx(q1))} height="68" rx="6" fill="#dbeafe" stroke="#2563eb" strokeWidth="3" />
+    <line x1={sx(median)} y1={y - 40} x2={sx(median)} y2={y + 40} stroke="#1d4ed8" strokeWidth="4" />
+    {sorted.map((row, index) => {
+      const locked = row.model.candidate_id === lockedCandidateId;
+      const selected = row.model.candidate_id === selectedCandidateId;
+      const cy = y + 70 + (index % 3) * 12;
+      return <g key={row.model.candidate_id ?? row.model.key}>
+        <circle cx={sx(row.value)} cy={cy} r={locked ? 7 : selected ? 6 : 4} fill={locked ? "#10b981" : selected ? "#f59e0b" : "#64748b"} opacity={locked || selected ? 1 : 0.55} />
+        {(locked || selected) ? <text x={Math.min(width - 95, Math.max(95, sx(row.value)))} y={cy - 12} textAnchor="middle" fontSize="10" fontWeight="700" fill="#0f172a">{locked ? "Reporting" : "Selected"} · {cleanModelName(row.model.name)} {formatMetric(row.value)}</text> : null}
+      </g>;
+    })}
+    <text x={width / 2} y="232" textAnchor="middle" fontSize="12" fontWeight="700" fill="#334155">{metricLabel} · verified non-holdout selection evidence</text>
+    <text x={sx(q1)} y="38" textAnchor="middle" fontSize="10" fill="#1d4ed8">Q1</text>
+    <text x={sx(median)} y="28" textAnchor="middle" fontSize="10" fill="#1d4ed8">Median</text>
+    <text x={sx(q3)} y="38" textAnchor="middle" fontSize="10" fill="#1d4ed8">Q3</text>
+  </svg>;
+}
+
+function ModelComparisonDistributionPlot({ rows, selectedCandidateId, championCandidateId, metricLabel }: { rows: Array<{ model: RankedRow; rank: number; value: number; foldValues: number[] }>; selectedCandidateId?: string; championCandidateId?: string; metricLabel: string }) {
+  const sorted = rows.slice().sort((a, b) => a.rank - b.rank);
+  const distributions = sorted.map((row) => {
+    const observed = row.foldValues.length ? row.foldValues.slice().sort((a, b) => a - b) : [row.value];
+    return {
+      ...row,
+      hasFoldDistribution: row.foldValues.length > 0,
+      low: observed[0],
+      q1: quantile(observed, 0.25),
+      median: quantile(observed, 0.5),
+      q3: quantile(observed, 0.75),
+      high: observed[observed.length - 1],
+    };
+  });
+  const xMin = Math.min(...distributions.flatMap((row) => [row.low, row.value]));
+  const xMax = Math.max(...distributions.flatMap((row) => [row.high, row.value]));
+  const width = 1600;
+  const rowHeight = 86;
+  const topPad = 170;
+  const leftPad = 380;
+  const rightPad = 150;
+  const bottomPad = 130;
+  const height = topPad + distributions.length * rowHeight + bottomPad;
+  const span = xMax - xMin || 1;
+  const sx = (value: number) => leftPad + ((value - xMin) / span) * (width - leftPad - rightPad);
+  const tickCount = 7;
+  const ticks = Array.from({ length: tickCount }, (_, index) => xMin + (span * index) / (tickCount - 1));
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-auto min-w-[1280px] w-full" role="img" aria-label={`ATLAS Model Comparison - five-fold ${metricLabel} distribution`}>
+    <rect width={width} height={height} rx="14" fill="#ffffff" />
+    <text x={width / 2} y="34" textAnchor="middle" fontSize="28" fontWeight="800" fill="#0f172a">ATLAS Model Comparison - Five-Fold {metricLabel} Distribution</text>
+    <text x={width / 2} y="62" textAnchor="middle" fontSize="14" fill="#475569">Boxes use persisted fold scores; colored marks group model families and diamonds mark reported selection scores.</text>
+    <g transform={`translate(${leftPad} 88)`}>
+      {MODEL_FAMILY_LEGEND.map((entry, index) => (
+        <g key={entry.label} transform={`translate(${index * 205} 0)`}>
+          <rect x="0" y="-17" width="30" height="20" rx="5" fill={entry.color} fillOpacity="0.24" stroke={entry.color} strokeWidth="2" />
+          <text x="38" y="0" fontSize="14" fontWeight="700" fill="#334155">{entry.label}</text>
+        </g>
+      ))}
+    </g>
+    {ticks.map((tick) => <g key={tick}>
+      <line x1={sx(tick)} y1={topPad - 22} x2={sx(tick)} y2={height - bottomPad + 22} stroke="#e2e8f0" strokeWidth="1.3" />
+      <text x={sx(tick)} y={height - 58} textAnchor="middle" fontSize="14" fill="#475569">{formatMetric(tick)}</text>
+    </g>)}
+    <line x1={leftPad} y1={height - bottomPad + 22} x2={width - rightPad} y2={height - bottomPad + 22} stroke="#64748b" strokeWidth="1.5" />
+    <line x1={leftPad} y1={topPad - 22} x2={leftPad} y2={height - bottomPad + 22} stroke="#64748b" strokeWidth="1.5" />
+    {distributions.map((row, index) => {
+      const cy = topPad + index * rowHeight + 24;
+      const selected = row.model.candidate_id === selectedCandidateId;
+      const champion = row.model.candidate_id === championCandidateId;
+      const color = familyColor(modelFamily(row.model));
+      return <g key={row.model.candidate_id ?? row.model.key}>
+        <text x={leftPad - 22} y={cy + 6} textAnchor="end" fontSize="16" fontWeight={selected || champion ? "800" : "600"} fill={selected || champion ? "#0f172a" : "#334155"}>{cleanModelName(row.model.name)}</text>
+        {row.hasFoldDistribution ? <>
+          <line x1={sx(row.low)} y1={cy} x2={sx(row.high)} y2={cy} stroke="#334155" strokeWidth="2.5" />
+          <line x1={sx(row.low)} y1={cy - 14} x2={sx(row.low)} y2={cy + 14} stroke="#334155" strokeWidth="2.5" />
+          <line x1={sx(row.high)} y1={cy - 14} x2={sx(row.high)} y2={cy + 14} stroke="#334155" strokeWidth="2.5" />
+          <rect x={sx(row.q1)} y={cy - 17} width={Math.max(2, sx(row.q3) - sx(row.q1))} height="34" fill={color} fillOpacity={champion || selected ? 0.32 : 0.18} stroke={color} strokeWidth={champion || selected ? "4" : "2.5"} />
+          <line x1={sx(row.median)} y1={cy - 20} x2={sx(row.median)} y2={cy + 20} stroke="#f97316" strokeWidth="3" />
+        </> : null}
+        <path d={`M ${sx(row.value)} ${cy - 9} L ${sx(row.value) + 9} ${cy} L ${sx(row.value)} ${cy + 9} L ${sx(row.value) - 9} ${cy} Z`} fill={champion ? "#10b981" : selected ? "#f59e0b" : color} stroke="#ffffff" strokeWidth="2" />
+        <text x={Math.min(width - rightPad - 8, sx(row.value) + 18)} y={cy + 6} fontSize="14" fontWeight="800" fill="#334155">{formatMetric(row.value)}</text>
+        {champion ? <text x={Math.min(width - rightPad - 8, sx(row.value) + 88)} y={cy + 6} fontSize="14" fontWeight="800" fill="#047857">Champion</text> : null}
+        {selected && !champion ? <text x={Math.min(width - rightPad - 8, sx(row.value) + 88)} y={cy + 6} fontSize="14" fontWeight="800" fill="#b45309">Selected</text> : null}
+      </g>;
+    })}
+    <g transform={`translate(${width - 430} ${height - 50})`}>
+      <path d="M 0 -8 L 8 0 L 0 8 L -8 0 Z" fill="#2563eb" />
+      <text x="18" y="5" fontSize="14" fill="#334155">Reported selection score</text>
+      <line x1="218" y1="0" x2="252" y2="0" stroke="#f97316" strokeWidth="3" />
+      <text x="264" y="5" fontSize="14" fill="#334155">Mean / median</text>
+    </g>
+    <text x={(leftPad + width - rightPad) / 2} y={height - 18} textAnchor="middle" fontSize="15" fontWeight="800" fill="#334155">{metricLabel} - verified non-holdout selection evidence</text>
+  </svg>;
+}
+
+function quantile(values: number[], probability: number) {
+  if (!values.length) return 0;
+  const position = (values.length - 1) * probability;
+  const base = Math.floor(position);
+  const rest = position - base;
+  return values[base + 1] === undefined ? values[base] : values[base] + rest * (values[base + 1] - values[base]);
+}
+
 function CandidateCard({ model, rank, active, compared, selectionMetricName, locked, canInterpret, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; selectionMetricName: string; locked: boolean; canInterpret: boolean; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
   const metric = verifiedSelectionMetric(model, selectionMetricName)!;
   return <article className={`rounded-md border bg-white p-5 shadow-sm ${active ? "border-blue-500 ring-2 ring-blue-100" : "border-blue-200"}`} data-model-key={model.key}>
-    <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-semibold uppercase text-blue-700">Frozen selection rank {rank}</div><h3 className="mt-1 text-lg font-semibold text-slate-950">{cleanModelName(model.name)}</h3><div className="mt-1 text-xs text-slate-500">{modelFamily(model)} | Interpretability {interpretability(model)}</div></div>{locked ? statusPill("Locked Candidate", "good") : rank === 1 ? statusPill("Selection Leader", "good") : statusPill("Selection Challenger")}</div>
+    <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-semibold uppercase text-blue-700">Frozen selection rank {rank}</div><h3 className="mt-1 text-lg font-semibold text-slate-950">{cleanModelName(model.name)}</h3><div className="mt-1 text-xs text-slate-500">{modelFamily(model)} | Interpretability {interpretability(model)}</div></div>{locked ? statusPill("Reporting Candidate", "good") : rank === 1 ? statusPill("Selection Leader", "good") : statusPill("Selection Challenger")}</div>
     <div className="mt-4 grid grid-cols-2 gap-2"><MetricTile label={selectionMetricLabel(metric)} value={formatMetric(metric.value)} /><MetricTile label="Standard deviation" value={formatMetric(metric.standard_deviation)} /><MetricTile label="Fold evidence" value={metric.fold_count ? `${metric.fold_count} folds` : "Governed validation"} /><MetricTile label="Selection partition" value={metric.partition_id} /><MetricTile label="Threshold source" value={metric.threshold_source} /><MetricTile label="Calibration source" value={metric.calibration_source} /></div>
-    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="atlas-secondary-button" onClick={onReview} disabled={!locked} title={locked ? "Open final-holdout Evaluation for the locked candidate." : "Final-holdout access is restricted to the locked candidate."}><Activity size={15} /> {locked ? "Review Locked Candidate" : "Selection Evidence Only"}</button><button type="button" className="atlas-secondary-button" onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}{compared ? "Remove from Comparison" : "Add to Comparison"}</button><button type="button" className="atlas-primary-button" onClick={onInterpret} disabled={!canInterpret} title={canInterpret ? "Open this exact evaluated candidate." : "Only the locked candidate with a verified Evaluation package can continue."}>Open Interpretation <ArrowRight size={15} /></button></div>
+    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="atlas-secondary-button" onClick={onReview} title={locked ? "Open final-holdout Evaluation for the governed reporting candidate." : "Review this model's non-holdout selection evidence."}><Activity size={15} /> {locked ? "Review Reporting Candidate" : "Review Selection Evidence"}</button><button type="button" className="atlas-secondary-button" onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}{compared ? "Remove from Comparison" : "Add to Comparison"}</button><button type="button" className="atlas-primary-button" onClick={onInterpret} disabled={!canInterpret} title={canInterpret ? "Open this exact evaluated candidate." : "Only the governed reporting candidate with a verified Evaluation package can continue."}>Open Interpretation <ArrowRight size={15} /></button></div>
   </article>;
 }
 
@@ -1008,11 +1447,42 @@ function ChartCard({ title, badge, children }: { title: string; badge?: string; 
 
 function CurveChart({ x, y, xLabel, yLabel, color, diagonal = false }: { x: number[]; y: number[]; xLabel: string; yLabel: string; color: string; diagonal?: boolean }) {
   if (!x.length || !y.length) return <Unavailable title="Curve unavailable" text="The fitted artifact did not provide this curve." compact />;
-  const width = 520, height = 270, pad = 42;
+  const width = 560, height = 330, pad = 54;
   const sx = (value: number) => pad + Math.max(0, Math.min(1, value)) * (width - pad * 1.35);
   const sy = (value: number) => height - pad - Math.max(0, Math.min(1, value)) * (height - pad * 1.35);
   const points = x.map((value, index) => `${sx(value)},${sy(y[index] ?? 0)}`).join(" ");
-  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[250px] w-full" role="img" aria-label={`${yLabel} by ${xLabel}`}><rect width={width} height={height} rx="6" fill="#f8fafc" />{[0, .25, .5, .75, 1].map((tick) => <g key={tick}><line x1={sx(tick)} y1={pad / 2} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" /><line x1={pad} y1={sy(tick)} x2={width - pad / 2} y2={sy(tick)} stroke="#e2e8f0" /><text x={sx(tick)} y={height - 22} textAnchor="middle" fontSize="10" fill="#64748b">{tick.toFixed(2)}</text></g>)}{diagonal ? <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#94a3b8" strokeDasharray="5 5" /> : null}<polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" /><text x={width / 2} y={height - 5} textAnchor="middle" fontSize="11" fill="#475569">{xLabel}</text><text x="13" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 13 ${height / 2})`}>{yLabel}</text></svg>;
+  const labelStride = Math.max(1, Math.floor(x.length / 5));
+  const labeledPoints = x
+    .map((value, index) => ({ index, x: Math.max(0, Math.min(1, value)), y: Math.max(0, Math.min(1, y[index] ?? 0)) }))
+    .filter((point) => point.index === 0 || point.index === x.length - 1 || point.index % labelStride === 0);
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[310px] w-full" role="img" aria-label={`${yLabel} by ${xLabel}`}>
+    <rect width={width} height={height} rx="6" fill="#f8fafc" />
+    <g transform="translate(74 28)">
+      <line x1="0" y1="0" x2="28" y2="0" stroke={color} strokeWidth="3" />
+      <text x="36" y="4" fontSize="10" fontWeight="600" fill="#334155">Observed curve</text>
+      {diagonal ? <><line x1="128" y1="0" x2="156" y2="0" stroke="#94a3b8" strokeDasharray="5 5" /><text x="164" y="4" fontSize="10" fontWeight="600" fill="#64748b">Random baseline</text></> : null}
+    </g>
+    {[0, .25, .5, .75, 1].map((tick) => <g key={tick}>
+      <line x1={sx(tick)} y1={pad / 2} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" />
+      <line x1={pad} y1={sy(tick)} x2={width - pad / 2} y2={sy(tick)} stroke="#e2e8f0" />
+      <text x={sx(tick)} y={height - 24} textAnchor="middle" fontSize="11" fill="#475569">{tick.toFixed(2)}</text>
+      <text x={pad - 10} y={sy(tick) + 4} textAnchor="end" fontSize="11" fill="#475569">{tick.toFixed(2)}</text>
+    </g>)}
+    <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#64748b" />
+    <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#64748b" />
+    {diagonal ? <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#94a3b8" strokeDasharray="5 5" /> : null}
+    <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" />
+    {labeledPoints.map((point) => (
+      <g key={`${point.index}-${point.x}-${point.y}`}>
+        <circle cx={sx(point.x)} cy={sy(point.y)} r="3.5" fill="#ffffff" stroke={color} strokeWidth="2" />
+        <text x={Math.min(width - 54, Math.max(pad + 8, sx(point.x) + 8))} y={Math.max(46, sy(point.y) - 8)} fontSize="9" fontWeight="600" fill="#334155">
+          {point.x.toFixed(2)}, {point.y.toFixed(2)}
+        </text>
+      </g>
+    ))}
+    <text x={width / 2} y={height - 6} textAnchor="middle" fontSize="12" fontWeight="600" fill="#334155">{xLabel}</text>
+    <text x="16" y={height / 2} textAnchor="middle" fontSize="12" fontWeight="600" fill="#334155" transform={`rotate(-90 16 ${height / 2})`}>{yLabel}</text>
+  </svg>;
 }
 
 function ConfusionMatrix({ matrix }: { matrix: number[][] }) {
@@ -1069,20 +1539,88 @@ function ThresholdDashboard({
   metrics,
   curves,
   lift,
+  governedThreshold,
+  onThresholdChange,
+  mode = "reporting",
+  modelName,
 }: {
   metrics: ThresholdMetrics;
   curves: Curves | null;
   lift?: NonNullable<CommandCenter["lift"]>;
+  governedThreshold?: number;
+  onThresholdChange?: (threshold: number) => void;
+  mode?: "reporting" | "selection";
+  modelName?: string;
 }) {
-  return <div data-testid="threshold-live-metrics" className="space-y-4">
-    <div className="grid gap-4 xl:grid-cols-[1.05fr_1.05fr_0.9fr]">
+  const activeGovernedThreshold = typeof governedThreshold === "number" && Number.isFinite(governedThreshold) ? governedThreshold : metrics.threshold;
+  const handleThresholdChange = (value: number) => {
+    if (!onThresholdChange || !Number.isFinite(value)) return;
+    onThresholdChange(clampThreshold(value));
+  };
+  const evidenceBadge = mode === "selection" ? "Selection evidence" : "Reporting only";
+  const matrixBadge = onThresholdChange ? (mode === "selection" ? "Selection preview" : "Live preview") : evidenceBadge;
+  const thresholdTitle = mode === "selection"
+    ? `Preview threshold behavior for ${modelName ?? "selected model"}`
+    : "Preview threshold impact on the reporting package";
+  const thresholdDescription = mode === "selection"
+    ? "Move the threshold to update non-holdout precision, recall, F1, false-positive rate, alert volume, capture, and the confusion matrix for this selected model. This is review-only; it does not open final holdout or change the governed candidate decision."
+    : "Move the threshold to update precision, recall, F1, false-positive rate, alert volume, capture, and the confusion matrix immediately. This is a preview only; it does not change the governed candidate contract or tune against the holdout.";
+  return <div data-testid="threshold-live-metrics" className="mt-5 space-y-5">
+    {onThresholdChange ? (
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4" data-testid="threshold-preview-controls">
+        <SectionHeading
+          eyebrow="Interactive operating threshold"
+          title={thresholdTitle}
+          description={thresholdDescription}
+        />
+        <div className="mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_190px]">
+          <MetricTile label="Preview threshold" value={metrics.threshold.toFixed(3)} />
+          <label className="grid gap-2 text-sm">
+            <span className="font-semibold text-slate-700">Threshold preview slider</span>
+            <input
+              type="range"
+              min="0.01"
+              max="0.99"
+              step="0.01"
+              value={metrics.threshold}
+              onChange={(event) => handleThresholdChange(Number(event.target.value))}
+              className="w-full"
+              aria-label="Threshold preview slider"
+            />
+            <span className="text-xs text-slate-600">The chart markers and confusion matrix below update as this value changes.</span>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="font-semibold text-slate-700">Exact threshold</span>
+            <input
+              className="rounded-md border border-slate-300 px-3 py-2 font-mono"
+              type="number"
+              min="0.01"
+              max="0.99"
+              step="0.01"
+              value={metrics.threshold.toFixed(2)}
+              onChange={(event) => handleThresholdChange(Number(event.target.value))}
+              aria-label="Exact threshold preview value"
+            />
+          </label>
+        </div>
+        <div className="mt-3 text-xs text-slate-600">
+          Governed threshold: {activeGovernedThreshold.toFixed(3)}. Preview only; no model selection, threshold tuning, or final-holdout optimization is performed.
+        </div>
+      </div>
+    ) : null}
+    <div className="grid gap-4 xl:grid-cols-2">
+      <ChartCard title="ROC Curve" badge={evidenceBadge}>
+        <InteractiveRocChart curves={curves} metrics={metrics} />
+      </ChartCard>
+      <ChartCard title="Precision-Recall Curve" badge={evidenceBadge}>
+        <CurveChart x={curves?.pr?.recall ?? []} y={curves?.pr?.precision ?? []} xLabel="Recall" yLabel="Precision" color="#0f766e" />
+      </ChartCard>
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
       <ChartCard title="Probability of Event Distribution" badge={`Threshold ${metrics.threshold.toFixed(3)}`}>
         <ProbabilityDistributionChart lift={lift} threshold={metrics.threshold} />
       </ChartCard>
-      <ChartCard title="Final Holdout ROC" badge="Reporting only">
-        <InteractiveRocChart curves={curves} metrics={metrics} />
-      </ChartCard>
-      <ChartCard title={`Confusion Matrix @ ${metrics.threshold.toFixed(3)}`} badge="Reporting only">
+      <ChartCard title={`Confusion Matrix @ ${metrics.threshold.toFixed(3)}`} badge={matrixBadge}>
         <ConfusionMatrix matrix={metrics.confusion} />
       </ChartCard>
     </div>
@@ -1098,6 +1636,7 @@ function ThresholdDashboard({
       <MetricTile label="False negatives" value={metrics.false_negatives.toLocaleString()} />
       <MetricTile label="Expected alert rate" value={formatPercent(metrics.expected_alert_rate)} />
     </div>
+    {lift ? <LiftGainCapture lift={lift} /> : null}
   </div>;
 }
 
@@ -1107,8 +1646,8 @@ function ProbabilityDistributionChart({ lift, threshold }: { lift?: NonNullable<
     return <Unavailable title="Score distribution unavailable" text="No validation score bands were returned for this model." compact />;
   }
   const width = 520;
-  const height = 275;
-  const pad = 42;
+  const height = 330;
+  const pad = 50;
   const maxN = Math.max(...rows.map((row) => row.n), 1);
   const minScore = Math.min(0, ...rows.map((row) => Number.isFinite(row.min_score) ? row.min_score : row.mean_score));
   const maxScore = Math.max(1, ...rows.map((row) => Number.isFinite(row.max_score) ? row.max_score : row.mean_score));
@@ -1118,7 +1657,7 @@ function ProbabilityDistributionChart({ lift, threshold }: { lift?: NonNullable<
   const chartTop = 26;
   const chartHeight = chartBottom - chartTop;
   const thresholdX = xForScore(threshold);
-  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full" role="img" aria-label="Probability distribution by event outcome">
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[315px] w-full" role="img" aria-label="Probability distribution by event outcome">
     <rect width={width} height={height} rx="6" fill="#f8fafc" />
     {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}>
       <line x1={pad} y1={chartBottom - tick * chartHeight} x2={width - 28} y2={chartBottom - tick * chartHeight} stroke="#e2e8f0" />
@@ -1148,8 +1687,8 @@ function ProbabilityDistributionChart({ lift, threshold }: { lift?: NonNullable<
 
 function InteractiveRocChart({ curves, metrics }: { curves: Curves | null; metrics: ThresholdMetrics }) {
   const width = 520;
-  const height = 275;
-  const pad = 42;
+  const height = 330;
+  const pad = 50;
   const fpr = curves?.roc?.fpr ?? [];
   const tpr = curves?.roc?.tpr ?? [];
   const sourcePoints = fpr.length && tpr.length
@@ -1167,7 +1706,7 @@ function InteractiveRocChart({ curves, metrics }: { curves: Curves | null; metri
     return distance < bestDistance ? point : best;
   }, sorted[0]);
   const line = sorted.map((point) => `${sx(point.fpr)},${sy(point.tpr)}`).join(" ");
-  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full select-none" role="img" aria-label="Final holdout ROC reporting curve">
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[315px] w-full select-none" role="img" aria-label="True positive rate by False positive rate">
     <rect width={width} height={height} rx="6" fill="#f8fafc" />
     {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}>
       <line x1={sx(tick)} y1={pad / 2} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" />
@@ -1200,10 +1739,31 @@ function LiftGainCapture({ lift }: { lift: NonNullable<CommandCenter["lift"]> })
 
 function SimpleAnalyticChart({ points, color, yLabel }: { points: Array<{ x: number; y: number }>; color: string; yLabel: string }) {
   if (!points.length) return <Unavailable title="Chart unavailable" text="No decile evidence was returned." compact />;
-  const width = 420, height = 220, pad = 38, maxY = Math.max(1, ...points.map((p) => p.y));
+  const width = 460, height = 260, pad = 48, maxY = Math.max(1, ...points.map((p) => p.y));
   const sx = (v: number) => pad + v * (width - pad * 1.4), sy = (v: number) => height - pad - (v / maxY) * (height - pad * 1.5);
   const line = [`${sx(0)},${sy(0)}`, ...points.map((point) => `${sx(point.x)},${sy(point.y)}`)].join(" ");
-  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[210px] w-full"><rect width={width} height={height} rx="6" fill="#f8fafc" /><line x1={pad} y1={height - pad} x2={width - 16} y2={height - pad} stroke="#94a3b8" /><line x1={pad} y1={15} x2={pad} y2={height - pad} stroke="#94a3b8" /><polyline points={line} fill="none" stroke={color} strokeWidth="3" /><text x={width / 2} y={height - 7} textAnchor="middle" fontSize="10" fill="#475569">Population fraction</text><text x="12" y={height / 2} textAnchor="middle" fontSize="10" fill="#475569" transform={`rotate(-90 12 ${height / 2})`}>{yLabel}</text></svg>;
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[245px] w-full" role="img" aria-label={`${yLabel} by population fraction`}>
+    <rect width={width} height={height} rx="6" fill="#f8fafc" />
+    {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}>
+      <line x1={sx(tick)} y1={16} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" />
+      <line x1={pad} y1={sy(tick * maxY)} x2={width - 18} y2={sy(tick * maxY)} stroke="#e2e8f0" />
+      <text x={sx(tick)} y={height - 26} textAnchor="middle" fontSize="10" fill="#64748b">{tick.toFixed(2)}</text>
+      <text x={pad - 8} y={sy(tick * maxY) + 3} textAnchor="end" fontSize="10" fill="#64748b">{(tick * maxY).toFixed(maxY > 3 ? 1 : 2)}</text>
+    </g>)}
+    <line x1={pad} y1={height - pad} x2={width - 16} y2={height - pad} stroke="#64748b" />
+    <line x1={pad} y1={15} x2={pad} y2={height - pad} stroke="#64748b" />
+    <polyline points={line} fill="none" stroke={color} strokeWidth="3" />
+    {points.map((point, index) => (
+      <g key={`${point.x}-${point.y}-${index}`}>
+        <circle cx={sx(point.x)} cy={sy(point.y)} r="3.5" fill="#ffffff" stroke={color} strokeWidth="2" />
+        <text x={Math.min(width - 34, Math.max(pad + 8, sx(point.x) + 7))} y={Math.max(24, sy(point.y) - 7)} fontSize="9" fontWeight="600" fill="#334155">
+          {point.y.toFixed(maxY > 3 ? 1 : 2)}
+        </text>
+      </g>
+    ))}
+    <text x={width / 2} y={height - 7} textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">Population fraction</text>
+    <text x="14" y={height / 2} textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155" transform={`rotate(-90 14 ${height / 2})`}>{yLabel}</text>
+  </svg>;
 }
 
 function DatasetRoleCard({ title, role, status, metrics, tone }: { title: string; role: string; status: string; metrics: Array<{ label: string; value: string }>; tone: "slate" | "blue" | "amber" }) {
@@ -1217,7 +1777,7 @@ function CalibrationChart({ rows }: { rows: Array<{ predicted: number; observed:
 
 function LeaderboardRow({ model, rank, active, compared, selectionMetricName, locked, canInterpret, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; selectionMetricName: string; locked: boolean; canInterpret: boolean; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
   const metric = verifiedSelectionMetric(model, selectionMetricName)!;
-  const actions = <div className="flex gap-1"><button type="button" className="atlas-icon-button" title={locked ? "Review locked candidate" : "Final holdout is restricted to the locked candidate"} onClick={onReview} disabled={!locked}><Activity size={15} /></button><button type="button" className={`atlas-icon-button ${compared ? "text-emerald-700" : ""}`} title={compared ? "Remove from Comparison" : "Add selection evidence to Comparison"} onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}</button><button type="button" className="atlas-icon-button" title={canInterpret ? "Open Interpretation" : "Complete Evaluation for the locked candidate before Interpretation"} onClick={onInterpret} disabled={!canInterpret}><ArrowRight size={15} /></button></div>;
+  const actions = <div className="flex gap-1"><button type="button" className="atlas-icon-button" title={locked ? "Review governed reporting candidate" : "Review this model's non-holdout selection evidence"} onClick={onReview}><Activity size={15} /></button><button type="button" className={`atlas-icon-button ${compared ? "text-emerald-700" : ""}`} title={compared ? "Remove from Comparison" : "Add selection evidence to Comparison"} onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}</button><button type="button" className="atlas-icon-button" title={canInterpret ? "Open Interpretation" : "Complete Evaluation for the governed reporting candidate before Interpretation"} onClick={onInterpret} disabled={!canInterpret}><ArrowRight size={15} /></button></div>;
   return <tr className={active ? "bg-blue-50" : "bg-white"}>
     <td className="px-3 py-3 font-semibold">{rank}</td>
     <td className="px-3 py-3"><div className="font-semibold text-slate-950">{cleanModelName(model.name)}</div>{rank === 1 ? <div className="mt-1 text-[10px] font-semibold uppercase text-emerald-700">Frozen selection leader</div> : null}</td>
@@ -1225,7 +1785,8 @@ function LeaderboardRow({ model, rank, active, compared, selectionMetricName, lo
     <td className="px-3 py-3"><div className="font-mono font-semibold">{formatMetric(metric.value)}</div><div className="text-[10px] uppercase text-slate-500">{metric.name}</div></td>
     <td className="px-3 py-3 text-slate-600">{formatSelectionSource(metric.source)}<div className="text-[10px] text-slate-500">{metric.partition_id}</div></td>
     <td className="px-3 py-3 text-slate-600">{metric.fold_count ? `${metric.fold_count} folds` : "Governed validation"}<div className="text-[10px] text-slate-500">std. dev. {formatMetric(metric.standard_deviation)}</div></td>
-    <td className="px-3 py-3">{locked ? statusPill("Locked", "good") : statusPill("Challenger")}</td>
+    <td className="px-3 py-3 text-slate-600">{typeof model.runtime_ms === "number" ? `${(model.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td>
+    <td className="px-3 py-3">{locked ? statusPill("Reporting", "good") : statusPill("Challenger")}</td>
     <td className="px-3 py-3">{actions}</td>
   </tr>;
 }
@@ -1236,8 +1797,8 @@ function AnomalyDiagnostics({ models }: { models: RankedRow[] }) {
 
 function ComparisonRow({ model, rank, selectionMetricName, locked, canInterpret, onRemove, onOpen }: { model: RankedRow; rank: number; selectionMetricName: string; locked: boolean; canInterpret: boolean; onRemove: () => void; onOpen: () => void }) {
   const metric = verifiedSelectionMetric(model, selectionMetricName)!;
-  const metricTiles = <><MiniMetric label={metric.name} value={formatMetric(metric.value)} /><MiniMetric label="Selection source" value={formatSelectionSource(metric.source)} /><MiniMetric label="Selection partition" value={metric.partition_id} /><MiniMetric label="Fold evidence" value={metric.fold_count ? `${metric.fold_count} folds` : "Governed validation"} /><MiniMetric label="Std. deviation" value={formatMetric(metric.standard_deviation)} /><MiniMetric label="Threshold source" value={metric.threshold_source} /><MiniMetric label="Calibration source" value={metric.calibration_source} /><MiniMetric label="Decision" value={locked ? "Locked candidate" : "Challenger"} /></>;
-  return <article className="rounded-md border border-violet-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-semibold uppercase text-violet-700">Frozen selection rank {rank}</div><h3 className="mt-1 font-semibold text-slate-950">{cleanModelName(model.name)}</h3></div><button type="button" className="atlas-icon-button" title="Remove from Comparison" onClick={onRemove}><Trash2 size={15} /></button></div><div className="mt-3 grid grid-cols-4 gap-2 text-xs">{metricTiles}</div><button type="button" className="atlas-primary-button mt-3" onClick={onOpen} disabled={!canInterpret} title={canInterpret ? "Open the exact evaluated locked candidate." : "Final-holdout Interpretation is restricted to the locked candidate with a verified Evaluation package."}>Open Interpretation <ArrowRight size={15} /></button></article>;
+  const metricTiles = <><MiniMetric label={metric.name} value={formatMetric(metric.value)} /><MiniMetric label="Selection source" value={formatSelectionSource(metric.source)} /><MiniMetric label="Selection partition" value={metric.partition_id} /><MiniMetric label="Fold evidence" value={metric.fold_count ? `${metric.fold_count} folds` : "Governed validation"} /><MiniMetric label="Std. deviation" value={formatMetric(metric.standard_deviation)} /><MiniMetric label="Threshold source" value={metric.threshold_source} /><MiniMetric label="Calibration source" value={metric.calibration_source} /><MiniMetric label="Decision" value={locked ? "Reporting candidate" : "Challenger"} /></>;
+  return <article className="rounded-md border border-violet-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-semibold uppercase text-violet-700">Frozen selection rank {rank}</div><h3 className="mt-1 font-semibold text-slate-950">{cleanModelName(model.name)}</h3></div><button type="button" className="atlas-icon-button" title="Remove from Comparison" onClick={onRemove}><Trash2 size={15} /></button></div><div className="mt-3 grid grid-cols-4 gap-2 text-xs">{metricTiles}</div><button type="button" className="atlas-primary-button mt-3" onClick={onOpen} disabled={!canInterpret} title={canInterpret ? "Open the exact evaluated reporting candidate." : "Final-holdout Interpretation is restricted to the governed reporting candidate with a verified Evaluation package."}>Open Interpretation <ArrowRight size={15} /></button></article>;
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {

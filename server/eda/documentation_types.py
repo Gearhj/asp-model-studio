@@ -195,6 +195,7 @@ class EDADocumentationPayload(BaseModel):
         max_length=500,
     )
     performance_metadata: Dict[str, Any] = Field(default_factory=dict)
+    completion_contract: Dict[str, Any] = Field(default_factory=dict)
     duplicate_decision: Optional[str] = Field(default=None, max_length=1000)
     target_source_exclusions: List[str] = Field(default_factory=list)
     unresolved_blocking_findings: List[str] = Field(

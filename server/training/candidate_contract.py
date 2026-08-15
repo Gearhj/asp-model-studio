@@ -10,6 +10,11 @@ import platform
 import re
 from typing import Any, Mapping
 
+from ..preprocessing.execution_contract import (
+    PreprocessingContractError,
+    validate_preprocessing_contract,
+)
+
 
 class CandidateContractError(ValueError):
     """Raised when a completed candidate's frozen lineage is invalid."""
@@ -183,16 +188,40 @@ def complete_training_contract(
         "pm", predictor_payload
     )
 
+    policy_snapshot = (
+        contract.get("preprocessing_policy")
+        if isinstance(contract.get("preprocessing_policy"), Mapping)
+        else store_meta.get("preprocessing_policy")
+    )
+    try:
+        governed_policy = validate_preprocessing_contract(
+            policy_snapshot,
+            {
+                "project_id": contract.get("project_id"),
+                "dataset_id": contract.get("dataset_id"),
+                "dataset_version_id": contract.get("dataset_version_id"),
+                "analysis_partition_id": contract.get(
+                    "analysis_partition_id"
+                ),
+                "analysis_partition_revision": contract.get(
+                    "analysis_partition_revision"
+                ),
+            },
+        )
+    except PreprocessingContractError as exc:
+        raise CandidateContractError(str(exc)) from exc
+    persisted_policy = store_meta.get("preprocessing_policy")
+    if isinstance(persisted_policy, Mapping) and str(
+        persisted_policy.get("preprocessing_policy_hash") or ""
+    ) != str(governed_policy.get("preprocessing_policy_hash") or ""):
+        raise CandidateContractError(
+            "The governed preprocessing policy changed during training submission."
+        )
     treatment_payload = {
         "project_id": contract.get("project_id"),
         "dataset_id": contract.get("dataset_id"),
         "dataset_version_id": contract.get("dataset_version_id"),
-        "outlier_application": deepcopy(store_meta.get("outlier_application")),
-        "missing_application": deepcopy(store_meta.get("missing_application")),
-        "missing_validation": deepcopy(store_meta.get("missing_validation")),
-        "preprocessing_pipeline": deepcopy(
-            contract.get("preprocessing_pipeline") or []
-        ),
+        "preprocessing_policy": deepcopy(governed_policy),
     }
     treatment_manifest_id, treatment_manifest_hash = _manifest_identity(
         "tm", treatment_payload
@@ -262,6 +291,19 @@ def complete_training_contract(
             "predictor_manifest_hash": predictor_manifest_hash,
             "treatment_manifest_id": treatment_manifest_id,
             "treatment_manifest_hash": treatment_manifest_hash,
+            "preprocessing_contract_version": governed_policy.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": governed_policy.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": governed_policy.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": governed_policy.get(
+                "preprocessing_policy_hash"
+            ),
+            "preprocessing_policy": deepcopy(governed_policy),
             "feature_manifest_id": feature_manifest_id,
             "feature_manifest_hash": feature_manifest_hash,
             "materialization_id": materialization_id,
@@ -364,6 +406,11 @@ def build_candidate_contract(
             "predictor_manifest_hash",
             "treatment_manifest_id",
             "treatment_manifest_hash",
+            "preprocessing_contract_version",
+            "preprocessing_policy_id",
+            "preprocessing_policy_revision",
+            "preprocessing_policy_hash",
+            "preprocessing_policy",
             "feature_manifest_id",
             "feature_manifest_hash",
             "feature_manifest_version",
@@ -410,6 +457,9 @@ def build_candidate_contract(
             ),
             "validation_policy_execution": deepcopy(
                 candidate_metrics.get("validation_policy_execution") or {}
+            ),
+            "governed_preprocessing": deepcopy(
+                candidate_metrics.get("governed_preprocessing") or {}
             ),
             "threshold_configuration": threshold_configuration,
             "candidate_state": "complete",
@@ -463,6 +513,33 @@ def assert_training_contract_intact(contract: Mapping[str, Any]) -> None:
         raise CandidateContractError(
             "The frozen training contract contains prohibited selection resampling."
         )
+    try:
+        policy = validate_preprocessing_contract(
+            contract.get("preprocessing_policy"),
+            {
+                "project_id": contract.get("project_id"),
+                "dataset_id": contract.get("dataset_id"),
+                "dataset_version_id": contract.get("dataset_version_id"),
+                "analysis_partition_id": contract.get(
+                    "analysis_partition_id"
+                ),
+                "analysis_partition_revision": contract.get(
+                    "analysis_partition_revision"
+                ),
+            },
+        )
+    except PreprocessingContractError as exc:
+        raise CandidateContractError(str(exc)) from exc
+    for field in (
+        "preprocessing_contract_version",
+        "preprocessing_policy_id",
+        "preprocessing_policy_revision",
+        "preprocessing_policy_hash",
+    ):
+        if str(contract.get(field) or "") != str(policy.get(field) or ""):
+            raise CandidateContractError(
+                f"The frozen training contract has conflicting {field}."
+            )
 
 
 def classify_selection_integrity(record: Mapping[str, Any] | None) -> str:
@@ -513,6 +590,10 @@ def assert_candidate_contract_intact(contract: Mapping[str, Any]) -> None:
         "predictor_manifest_hash",
         "treatment_manifest_id",
         "treatment_manifest_hash",
+        "preprocessing_contract_version",
+        "preprocessing_policy_id",
+        "preprocessing_policy_revision",
+        "preprocessing_policy_hash",
         "feature_manifest_id",
         "feature_manifest_hash",
         "feature_manifest_version",
@@ -547,6 +628,35 @@ def assert_candidate_contract_intact(contract: Mapping[str, Any]) -> None:
         raise CandidateContractError(
             "The frozen model-candidate contract is incomplete: "
             + ", ".join(missing)
+        )
+    try:
+        policy = validate_preprocessing_contract(
+            contract.get("preprocessing_policy"),
+            {
+                "project_id": contract.get("project_id"),
+                "dataset_id": contract.get("dataset_id"),
+                "dataset_version_id": contract.get("dataset_version_id"),
+                "analysis_partition_id": contract.get(
+                    "analysis_partition_id"
+                ),
+                "analysis_partition_revision": contract.get(
+                    "analysis_partition_revision"
+                ),
+            },
+        )
+    except PreprocessingContractError as exc:
+        raise CandidateContractError(str(exc)) from exc
+    if any(
+        str(contract.get(field) or "") != str(policy.get(field) or "")
+        for field in (
+            "preprocessing_contract_version",
+            "preprocessing_policy_id",
+            "preprocessing_policy_revision",
+            "preprocessing_policy_hash",
+        )
+    ):
+        raise CandidateContractError(
+            "The frozen candidate preprocessing identity is contradictory."
         )
 
     problem_type = str(contract.get("problem_type") or "").strip().casefold()

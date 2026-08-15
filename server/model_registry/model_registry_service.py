@@ -33,6 +33,11 @@ from ..persistence.repositories.model_registry_repository import (
     ModelRegistryConflictError,
 )
 from ..persistence.service import get_persistence_service
+from ..preprocessing.execution_contract import (
+    PreprocessingContractError,
+    extract_final_preprocessing_artifact,
+    validate_final_preprocessing_artifact,
+)
 from . import model_artifacts
 
 TERMINAL_APPROVAL_STATUSES = {"approved", "rejected"}
@@ -1394,6 +1399,7 @@ def create_model_version(
     project_id: str,
     *,
     model_name: str,
+    candidate_model_name: Optional[str] = None,
     problem_type: Optional[str],
     algorithm: str,
     algorithm_version: Optional[str],
@@ -1422,6 +1428,10 @@ def create_model_version(
     project_id = _required_text(project_id, "project_id")
     authorize_modeling_scope(user, project_id, "edit")
     model_name = _required_text(model_name, "model name")
+    candidate_model_name = _required_text(
+        candidate_model_name or model_name,
+        "candidate model name",
+    )
     algorithm = _required_text(algorithm, "algorithm")
     problem_type = _required_text(problem_type, "problem_type").lower()
     if problem_type not in {"classification", "regression"}:
@@ -1452,6 +1462,25 @@ def create_model_version(
         evaluation_package_id=evaluation_package_id,
     )
     frozen_candidate = canonical_lineage["candidateContract"]
+    try:
+        final_preprocessing_artifact = extract_final_preprocessing_artifact(
+            fitted_object
+        )
+        final_preprocessing_artifact = validate_final_preprocessing_artifact(
+            final_preprocessing_artifact,
+            frozen_candidate,
+            candidate_decision_id=canonical_lineage[
+                "candidateDecisionId"
+            ],
+        )
+    except PreprocessingContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Final-model promotion requires an executable fitted on the "
+                f"complete Development Population with verified preprocessing lineage: {exc}"
+            ),
+        ) from exc
     frozen_training_timestamp = str(
         frozen_candidate.get("created_at") or ""
     ).strip()
@@ -1514,6 +1543,18 @@ def create_model_version(
     durable_decision, durable_exposure, durable_package = (
         _durable_promotion_governance(service, canonical_lineage)
     )
+    package_lineage = durable_package.get("canonical_lineage_json")
+    package_lineage = package_lineage if isinstance(package_lineage, dict) else {}
+    if str(
+        package_lineage.get("final_preprocessing_artifact_checksum") or ""
+    ) != str(final_preprocessing_artifact["final_artifact_checksum"]):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The Evaluation package does not bind the exact final "
+                "Development-fitted preprocessing artifact."
+            ),
+        )
     # Never persist caller/browser Evaluation fields.  Reconstruct the summary
     # from the exact immutable package and exposure rows that unlocked
     # promotion, making retries stable and tamper independent.
@@ -1567,6 +1608,40 @@ def create_model_version(
                 "package_integrity_status"
             ],
             "promotionReadinessStatus": "verified",
+            "preprocessingContractVersion": final_preprocessing_artifact[
+                "preprocessing_contract_version"
+            ],
+            "preprocessingPolicyId": final_preprocessing_artifact[
+                "preprocessing_policy_id"
+            ],
+            "preprocessingPolicyRevision": final_preprocessing_artifact[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessingPolicyHash": final_preprocessing_artifact[
+                "preprocessing_policy_hash"
+            ],
+            "finalPreprocessingArtifactChecksum": final_preprocessing_artifact[
+                "final_artifact_checksum"
+            ],
+            "preprocessingFitScope": final_preprocessing_artifact["fit_scope"],
+            "preprocessingFitPopulationId": final_preprocessing_artifact[
+                "fit_population_id"
+            ],
+            "preprocessingFitPopulationRows": final_preprocessing_artifact[
+                "fit_population_rows"
+            ],
+            "preprocessingApplicationScope": final_preprocessing_artifact[
+                "application_scope"
+            ],
+            "preprocessingApplicationPopulationId": final_preprocessing_artifact[
+                "application_population_id"
+            ],
+            "preprocessingApplicationPopulationRows": final_preprocessing_artifact[
+                "application_population_rows"
+            ],
+            "finalHoldoutParameterInfluence": False,
+            "finalHoldoutUsedForSelection": False,
+            "finalHoldoutTransformedOrMaterializedPrelock": False,
         }
     )
     # Reconcile only artifacts old enough that they cannot belong to another
@@ -1590,6 +1665,7 @@ def create_model_version(
             {
                 "projectId": project_id,
                 "modelName": model_name,
+                "candidateModelName": candidate_model_name,
                 "problemType": problem_type,
                 "algorithm": algorithm,
                 "algorithmVersion": algorithm_version,
@@ -1669,6 +1745,12 @@ def create_model_version(
         model_version_contract = {
             "contractType": "immutable_model_version_v1",
             "modelVersionId": model_version_id,
+            # The parent registry name is a stable project/context identity.
+            # Preserve the server-resolved human candidate label separately in
+            # the immutable version contract so restart recovery never has to
+            # display an opaque model_id or infer a label from an algorithm id.
+            "modelName": candidate_model_name,
+            "candidateModelName": candidate_model_name,
             "projectId": project_id,
             "trainingDatasetId": dataset_id,
             "trainingDatasetVersionId": dataset_version_id,
@@ -1692,6 +1774,43 @@ def create_model_version(
             "predictorManifestHash": canonical_lineage["predictorManifestHash"],
             "treatmentManifestId": canonical_lineage["treatmentManifestId"],
             "treatmentManifestHash": canonical_lineage["treatmentManifestHash"],
+            "preprocessingContractVersion": final_preprocessing_artifact[
+                "preprocessing_contract_version"
+            ],
+            "preprocessingPolicyId": final_preprocessing_artifact[
+                "preprocessing_policy_id"
+            ],
+            "preprocessingPolicyRevision": final_preprocessing_artifact[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessingPolicyHash": final_preprocessing_artifact[
+                "preprocessing_policy_hash"
+            ],
+            "finalPreprocessingArtifactChecksum": final_preprocessing_artifact[
+                "final_artifact_checksum"
+            ],
+            "finalPreprocessingArtifact": final_preprocessing_artifact,
+            "preprocessingFitScope": final_preprocessing_artifact["fit_scope"],
+            "preprocessingFitPopulationId": final_preprocessing_artifact[
+                "fit_population_id"
+            ],
+            "preprocessingFitPopulationRows": final_preprocessing_artifact[
+                "fit_population_rows"
+            ],
+            "preprocessingApplicationScope": final_preprocessing_artifact[
+                "application_scope"
+            ],
+            "preprocessingApplicationPopulationId": final_preprocessing_artifact[
+                "application_population_id"
+            ],
+            "preprocessingApplicationPopulationRows": final_preprocessing_artifact[
+                "application_population_rows"
+            ],
+            "finalHoldoutTargetAccessed": True,
+            "finalHoldoutParameterInfluence": False,
+            "finalHoldoutUsedForSelection": False,
+            "finalHoldoutTransformedOrMaterializedPrelock": False,
+            "finalHoldoutOpenedForFinalReporting": True,
             "featureManifestId": canonical_lineage["featureManifestId"],
             "featureManifestHash": canonical_lineage["featureManifestHash"],
             "validationDesignId": canonical_lineage["validationDesignId"],
@@ -1987,7 +2106,48 @@ def load_version_artifact(
         row,
         deserialize=True,
     )
-    return verification["object"]
+    executable = verification["object"]
+    model_contract = row.get("model_contract_json")
+    model_contract = model_contract if isinstance(model_contract, dict) else {}
+    candidate_contract = model_contract.get("candidateContract")
+    embedded_record = model_contract.get("finalPreprocessingArtifact")
+    if not isinstance(candidate_contract, dict) or not isinstance(
+        embedded_record, dict
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This model version predates verified final preprocessing "
+                "lineage and cannot be executed. Recompute and republish it."
+            ),
+        )
+    try:
+        executable_record = extract_final_preprocessing_artifact(executable)
+        executable_record = validate_final_preprocessing_artifact(
+            executable_record,
+            candidate_contract,
+            candidate_decision_id=str(
+                model_contract.get("candidateDecisionId") or ""
+            )
+            or None,
+        )
+    except PreprocessingContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The registered executable has unverifiable final preprocessing "
+                f"lineage: {exc}"
+            ),
+        ) from exc
+    if executable_record != embedded_record:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The model-version contract conflicts with the final "
+                "preprocessing artifact embedded in its executable."
+            ),
+        )
+    return executable
 
 
 def get_recovery_status(
@@ -2080,10 +2240,19 @@ def resolve_current_version_by_exact_context(
             status_code=409,
             detail="The exact-context champion pointer is not internally consistent.",
         )
+    model_contract = row.get("model_contract_json")
+    model_contract = model_contract if isinstance(model_contract, dict) else {}
+    model_name = str(
+        model_contract.get("candidateModelName")
+        or model_contract.get("modelName")
+        or parent.get("name")
+        or ""
+    ).strip()
     return {
         "status": "ready",
         **context,
         "modelId": row["model_id"],
+        "modelName": model_name,
         "modelVersionId": row["model_version_id"],
         "publicationStatus": row["publication_status"],
         "lineageStatus": row["lineage_status"],

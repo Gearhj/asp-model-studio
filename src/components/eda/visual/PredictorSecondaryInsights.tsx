@@ -118,8 +118,14 @@ export function EventRateShapeGallery({
         .slice(0, Math.min(limit, PREDICTOR_GALLERY_MAX)),
     [limit, rows]
   );
+  const selectedGalleryRow =
+    galleryRows.find((row) => row.feature === selectedVariable) ??
+    rows.find((row) => row.feature === selectedVariable) ??
+    galleryRows[0] ??
+    null;
+  const liftTableRows = selectedGalleryRow ? [selectedGalleryRow] : [];
   const baseline =
-    weightedBaseline(galleryRows[0]) ??
+    weightedBaseline(selectedGalleryRow ?? galleryRows[0]) ??
     (galleryRows.length ? null : finite(populationEventRate));
   const maximumRate = Math.max(
     0.01,
@@ -353,9 +359,195 @@ export function EventRateShapeGallery({
             quantile aggregates already returned in the single Predictor
             response; no per-predictor chart request is issued.
           </p>
+          <div
+            className="mt-4 overflow-hidden rounded-xl border border-blue-200 bg-blue-50/30"
+            data-testid="eda-iv-by-bin"
+            data-primary-analysis="true"
+            data-visible-by-default="true"
+          >
+            <button
+              type="button"
+              className="flex w-full items-center justify-between bg-blue-50/70 px-4 py-3 text-left"
+              data-testid="eda-iv-by-bin-toggle"
+            >
+              <span>
+                <span className="text-sm font-semibold text-slate-950">
+                  IV by bin · Development Population
+                </span>
+                <span className="ml-2 text-xs text-slate-500">
+                  {selectedGalleryRow
+                    ? `${selectedGalleryRow.feature} lift detail; sealed final holdout excluded`
+                    : "Associated event-rate lift detail; sealed final holdout excluded"}
+                </span>
+              </span>
+              <span className="text-xs font-semibold text-blue-700">
+                Visible
+              </span>
+            </button>
+            <EventRateLiftTable
+              rows={liftTableRows}
+              fallbackBaseline={populationEventRate}
+            />
+          </div>
         </>
       )}
     </InsightSection>
+  );
+}
+
+function EventRateLiftTable({
+  rows,
+  fallbackBaseline,
+}: {
+  rows: PredictorVisualDatum[];
+  fallbackBaseline: number | null;
+}) {
+  const selectedRow = rows[0] ?? null;
+  if (selectedRow) {
+    const baseline = weightedBaseline(selectedRow) ?? finite(fallbackBaseline);
+    const usableBins = selectedRow.eventRateBins.filter(
+      (bin) => bin.eventRate !== null && bin.count > 0,
+    );
+    const highest = usableBins.reduce<(typeof usableBins)[number] | null>(
+      (best, bin) =>
+        best === null || (bin.eventRate ?? -Infinity) > (best.eventRate ?? -Infinity)
+          ? bin
+          : best,
+      null,
+    );
+    return (
+      <div className="mt-0 overflow-x-auto rounded-b-xl border-t border-slate-200 bg-white">
+        <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+          <h4 className="text-sm font-semibold text-slate-950">
+            Associated lift table · {selectedRow.feature}
+          </h4>
+          <p className="mt-1 text-xs text-slate-600">
+            Highest-risk band: {highest?.label ?? "Not available"}. Lift compares each
+            development-population band against this predictor&apos;s weighted baseline.
+            The sealed final holdout is excluded.
+          </p>
+        </div>
+        <table className="min-w-full text-sm" data-testid="event-rate-shape-lift-table">
+          <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-white">
+            <tr>
+              <th className="px-3 py-2">Band</th>
+              <th className="px-3 py-2 text-right">Development rows</th>
+              <th className="px-3 py-2 text-right">Event rate</th>
+              <th className="px-3 py-2 text-right">Baseline</th>
+              <th className="px-3 py-2 text-right">Lift</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {selectedRow.eventRateBins.map((bin) => {
+              const lift =
+                baseline && baseline > 0 && bin.eventRate !== null
+                  ? bin.eventRate / baseline
+                  : null;
+              return (
+                <tr key={`${selectedRow.feature}-${bin.label}`}>
+                  <td className="px-3 py-2 font-semibold text-slate-950">
+                    {bin.label}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {bin.count.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatPredictorMetric(bin.eventRate, "rate")}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatPredictorMetric(baseline, "rate")}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-blue-700">
+                    {lift === null ? "Not available" : `${lift.toFixed(2)}x`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  const liftRows = rows.map((row) => {
+    const baseline = weightedBaseline(row) ?? finite(fallbackBaseline);
+    const usableBins = row.eventRateBins.filter(
+      (bin) => bin.eventRate !== null && bin.count > 0,
+    );
+    const highest = usableBins.reduce<(typeof usableBins)[number] | null>(
+      (best, bin) =>
+        best === null || (bin.eventRate ?? -Infinity) > (best.eventRate ?? -Infinity)
+          ? bin
+          : best,
+      null,
+    );
+    const lowest = usableBins.reduce<(typeof usableBins)[number] | null>(
+      (best, bin) =>
+        best === null || (bin.eventRate ?? Infinity) < (best.eventRate ?? Infinity)
+          ? bin
+          : best,
+      null,
+    );
+    return { row, baseline, highest, lowest };
+  });
+
+  return (
+    <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <h4 className="text-sm font-semibold text-slate-950">
+          Associated lift table
+        </h4>
+        <p className="mt-1 text-xs text-slate-600">
+          Lift compares each predictor&apos;s highest development-population band
+          against its weighted development baseline. The sealed final holdout is excluded.
+        </p>
+      </div>
+      <table className="min-w-full text-sm" data-testid="event-rate-shape-lift-table">
+        <thead className="bg-slate-950 text-left text-[11px] uppercase tracking-wide text-white">
+          <tr>
+            <th className="px-3 py-2">Predictor</th>
+            <th className="px-3 py-2 text-right">Baseline</th>
+            <th className="px-3 py-2">Highest-risk band</th>
+            <th className="px-3 py-2 text-right">Highest rate</th>
+            <th className="px-3 py-2 text-right">Lift</th>
+            <th className="px-3 py-2">Lowest-risk band</th>
+            <th className="px-3 py-2 text-right">Spread</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {liftRows.map(({ row, baseline, highest, lowest }) => {
+            const lift =
+              baseline && baseline > 0 && highest?.eventRate !== null && highest?.eventRate !== undefined
+                ? highest.eventRate / baseline
+                : null;
+            return (
+              <tr key={row.feature} className="align-top">
+                <td className="px-3 py-2 font-semibold text-slate-950">
+                  {row.feature}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {formatPredictorMetric(baseline, "rate")}
+                </td>
+                <td className="px-3 py-2">
+                  {highest?.label ?? "Not available"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {formatPredictorMetric(highest?.eventRate ?? null, "rate")}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-blue-700">
+                  {lift === null ? "Not available" : `${lift.toFixed(2)}x`}
+                </td>
+                <td className="px-3 py-2">
+                  {lowest?.label ?? "Not available"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {formatPredictorMetric(row.eventRateSpread, "rate")}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -702,8 +894,16 @@ export function PredictorQualityMatrix({
                   const label = `${row.feature}, ${metric.label}: ${metric.format(
                     value
                   )}`;
+                  const formattedValue = metric.format(value);
+                  const showInlineValue =
+                    value !== null &&
+                    (normalized >= 0.52 ||
+                      isSelected ||
+                      (activeCell?.feature === row.feature &&
+                        activeCell.metric === metric.key));
                   return (
-                    <rect
+                    <g key={`${row.feature}-${metric.key}`}>
+                      <rect
                       key={`${row.feature}-${metric.key}`}
                       data-quality-cell
                       data-width={cellWidth - 6}
@@ -763,7 +963,20 @@ export function PredictorQualityMatrix({
                       }}
                     >
                       <title>{label}</title>
-                    </rect>
+                      </rect>
+                      {showInlineValue ? (
+                        <text
+                          x={x + (cellWidth - 6) / 2}
+                          y={y + (rowHeight - 8) / 2 + 4}
+                          textAnchor="middle"
+                          className={`pointer-events-none text-[9px] font-bold ${
+                            normalized >= 0.72 ? "fill-white" : "fill-slate-700"
+                          }`}
+                        >
+                          {formattedValue}
+                        </text>
+                      ) : null}
+                    </g>
                   );
                 })}
               </g>

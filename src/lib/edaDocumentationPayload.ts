@@ -200,6 +200,15 @@ export function hydrateEdaFindingsFromDocumentation(
         EDA_TRANSFORMATION_OPTIONS,
         "No transformation",
       ),
+      resolutionAction: oneOf(
+        row.resolution_action,
+        [
+          "unresolved",
+          "retain_current_population",
+          "exclude_upstream_and_repartition",
+        ] as const,
+        "unresolved",
+      ),
       updatedAt: String(source.updated_at ?? source.confirmed_at ?? "") || undefined,
     };
   }
@@ -305,19 +314,18 @@ function concisePredictor(row: Record<string, any>) {
 
 function duplicateDecision(
   duplicateRows: number,
-  findings: EdaDocumentationFindingsInput,
+  resolutionAction: unknown,
 ) {
   if (duplicateRows <= 0) {
     return "No duplicate rows detected; no duplicate treatment is required.";
   }
   if (
-    !findings.duplicateDecisionSavedAt ||
-    findings.duplicateTreatment === "review" ||
-    !findings.duplicateTreatment
+    resolutionAction !== "retain_current_population" &&
+    resolutionAction !== "exclude_upstream_and_repartition"
   ) {
     return "pending";
   }
-  return findings.duplicateTreatment === "exclude"
+  return resolutionAction === "exclude_upstream_and_repartition"
     ? "Exclude duplicate rows through governed preprocessing before modeling."
     : "Keep duplicate rows as documented repeated observations.";
 }
@@ -409,6 +417,9 @@ function buildSections(
     input.findings,
   );
   const governedParentRows = findingsGovernance.parent_findings;
+  const duplicateParent = governedParentRows.find(
+    (row) => row.family === "exact_duplicate_rows",
+  );
   const acceptedFindings = documentedFindings.filter(
     (row) => row.reviewer_disposition === "accepted",
   );
@@ -605,7 +616,7 @@ function buildSections(
       analysis_status: input.sections.findings ? "analyzed" : "not_loaded",
       duplicate_treatment: duplicateDecision(
         Number(headline.duplicate_rows ?? 0),
-        input.findings,
+        duplicateParent?.resolution_action,
       ),
       reviewer_commentary: input.findings.commentary,
       overall_conclusion: input.findings.overallConclusion ?? "",
@@ -723,20 +734,23 @@ export function buildEdaDocumentationPayload(
     (section) => !input.sections[section],
   );
   const duplicateRows = Number(overview.headline?.duplicate_rows ?? 0);
-  const duplicateTreatment = duplicateDecision(duplicateRows, input.findings);
   const parentFindings = generateEdaParentFindings(input.sections);
   const findingsEligibility = evaluateFindingsCompletionEligibility(
     parentFindings,
     input.findings,
+  );
+  const duplicateParent = findingsEligibility.governance.parent_findings.find(
+    (row) => row.family === "exact_duplicate_rows",
+  );
+  const duplicateTreatment = duplicateDecision(
+    duplicateRows,
+    duplicateParent?.resolution_action,
   );
   const blockers = missingSections.map(
     (section) =>
       `${section.replace(/_/g, " ")} analysis has not been loaded and reviewed.`,
   );
   blockers.push(...findingsEligibility.blockers);
-  if (duplicateRows > 0 && duplicateTreatment === "pending") {
-    blockers.push("Duplicate-row treatment remains unresolved.");
-  }
   const contentIdentity = {
     project_id: input.projectId,
     dataset_id: input.datasetId,
@@ -752,8 +766,6 @@ export function buildEdaDocumentationPayload(
       commentary: input.findings.commentary,
       overallConclusion: input.findings.overallConclusion ?? "",
       status: input.findings.status,
-      duplicateTreatment: input.findings.duplicateTreatment,
-      duplicateDecisionSavedAt: input.findings.duplicateDecisionSavedAt,
       findingDecisions: Object.fromEntries(
         Object.entries(input.findings.findingDecisions ?? {})
           .sort(([left], [right]) => left.localeCompare(right))
@@ -764,6 +776,7 @@ export function buildEdaDocumentationPayload(
               rationale: decision.rationale,
               destination: decision.destination,
               transformation: decision.transformation,
+              resolutionAction: decision.resolutionAction,
             },
           ]),
       ),
@@ -821,18 +834,6 @@ export function buildEdaDocumentationPayload(
   )}`;
   const evidenceReferences = input.evidenceReferences ?? [];
   const decisions: EdaDocumentationDecision[] = [];
-  if (duplicateRows > 0 && duplicateTreatment !== "pending") {
-    decisions.push({
-      decision_id: `${analysisVersion}-duplicates`,
-      category: "duplicate_rows",
-      decision: duplicateTreatment,
-      rationale:
-        input.findings.duplicateTreatment === "exclude"
-          ? "Reviewer selected governed exclusion before downstream modeling."
-          : "Reviewer documented duplicate rows as valid repeated observations.",
-      status: "approved",
-    });
-  }
   if (input.findings.status !== "draft") {
     decisions.push({
       decision_id: `${analysisVersion}-review`,
@@ -930,6 +931,10 @@ export function buildEdaDocumentationPayload(
       ),
       rendered_sample_limit: 5000,
     },
+    completion_contract:
+      overview.completion_contract ??
+      input.sections.findings?.completion_contract ??
+      {},
     duplicate_decision: duplicateTreatment,
     target_source_exclusions: targetSourceExclusions,
     unresolved_blocking_findings: blockers,

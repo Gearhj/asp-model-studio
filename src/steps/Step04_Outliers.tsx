@@ -49,6 +49,7 @@ import {
   saveCarryForwardDisposition,
   type CarryForwardDisposition,
   type PreparationCarryForwardItem,
+  type PreparationDocumentationStatus,
   type PreparationDocumentationState,
 } from "../lib/preparationGovernance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -95,6 +96,12 @@ type OutlierFeature = {
   rendered_sample: number[];
   rendered_sample_count: number;
   quantiles: Record<string, number | null>;
+  analytical_type: string;
+  outlier_eligible: boolean;
+  safe_default_method: MethodKey;
+  eligibility_reason: string;
+  classification_source: string;
+  classification_requires_review: boolean;
 };
 
 type OutlierApplication = {
@@ -104,18 +111,31 @@ type OutlierApplication = {
   dataset_version_id: string;
   dataset_version: string;
   row_count: number;
+  rows: number;
+  registered_population_rows: number;
+  registered_structural_row_count: number;
   global_method: MethodKey;
   config: Record<string, FeatureMethodKey>;
   rationales?: Record<string, string>;
-  treatments: Array<{
-    feature: string;
-    configured_method: FeatureMethodKey;
-    applied_method: MethodKey;
-    changed_values: number;
-    lower_threshold: number;
-    upper_threshold: number;
-    special_values_preserved?: number;
-  }>;
+  development_preview: {
+    counts: {
+      flagged_cell_count: number;
+      affected_row_count: number;
+      affected_row_rate: number;
+      affected_predictor_count: number;
+      mean_flagged_features_per_affected_row: number;
+      maximum_flagged_features_on_one_row: number;
+    };
+    treatments: Array<{
+      feature: string;
+      configured_method: FeatureMethodKey;
+      applied_method: MethodKey;
+      flagged_cell_count: number;
+      lower_threshold: number;
+      upper_threshold: number;
+      special_values_preserved?: unknown[];
+    }>;
+  };
   changed_values: number;
   high_impact_features?: Array<{
     feature: string;
@@ -124,7 +144,10 @@ type OutlierApplication = {
   }>;
   high_impact_acknowledged?: boolean;
   row_removal_applied?: false;
-  state?: "applied";
+  state?: "approved";
+  backend_materialization: false;
+  processed_frame_materialized: false;
+  sealed_holdout_transformed: false;
 };
 
 type PredictorAuthorization = {
@@ -135,7 +158,7 @@ type PredictorAuthorization = {
 
 type OutlierSummary = {
   ok: boolean;
-  scope: "full_dataset";
+  scope: "development_population";
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
@@ -149,6 +172,14 @@ type OutlierSummary = {
   predictor_authorization: PredictorAuthorization;
   features: OutlierFeature[];
   application?: OutlierApplication | null;
+  preprocessing_contract_version: 2;
+  analysis_partition_id: string;
+  analysis_partition_revision: number;
+  predictor_authorization_id: string;
+  special_value_contract: {
+    special_value_review_id: string | null;
+    revision: number;
+  };
 };
 
 const API_BASE =
@@ -199,8 +230,8 @@ const METHOD_OPTIONS: Array<{
   },
   {
     key: "PCT_01_99",
-    label: "Winsorize 0.5% / 99.5%",
-    shortLabel: "P0.5–P99.5",
+    label: "Winsorize 1% / 99%",
+    shortLabel: "P1–P99",
     guidance: "Caps only the most extreme ordinary tails.",
   },
   {
@@ -233,8 +264,13 @@ function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 function effectiveMethod(
   configured: FeatureMethodKey | undefined,
   globalMethod: MethodKey,
+  safeDefaultMethod?: MethodKey,
 ): MethodKey {
-  return !configured || configured === "USE_GLOBAL" ? globalMethod : configured;
+  return !configured || configured === "USE_GLOBAL"
+    ? safeDefaultMethod === "NONE"
+      ? "NONE"
+      : globalMethod
+    : configured;
 }
 
 function normalizedConfig(
@@ -244,7 +280,7 @@ function normalizedConfig(
   return Object.fromEntries(
     safeArray<OutlierFeature>(features).map((row) => [
       row.feature,
-      config[row.feature] ?? "USE_GLOBAL",
+      row.outlier_eligible ? config[row.feature] ?? "USE_GLOBAL" : "NONE",
     ]),
   );
 }
@@ -257,7 +293,11 @@ function effectiveConfig(
   return Object.fromEntries(
     safeArray<OutlierFeature>(features).map((row) => [
       row.feature,
-      effectiveMethod(config[row.feature], globalMethod),
+      effectiveMethod(
+        config[row.feature],
+        globalMethod,
+        row.safe_default_method,
+      ),
     ]),
   );
 }
@@ -443,6 +483,17 @@ export default function Step04Outliers() {
             string,
             number | null
           >,
+          analytical_type:
+            feature.analytical_type ?? "unknown_review_required",
+          outlier_eligible: feature.outlier_eligible ?? false,
+          safe_default_method: feature.safe_default_method ?? "NONE",
+          eligibility_reason:
+            feature.eligibility_reason ??
+            "Analytical semantics require governed review.",
+          classification_source:
+            feature.classification_source ?? "safe_unclassified_default",
+          classification_requires_review:
+            feature.classification_requires_review ?? true,
         }),
       );
       const safePayload = {
@@ -505,7 +556,7 @@ export default function Step04Outliers() {
       setError(
         cause instanceof Error
           ? cause.message
-          : "Full-data outlier analysis is unavailable.",
+          : "Development Population outlier analysis is unavailable.",
       );
     } finally {
       setSettingsHydrated(true);
@@ -575,17 +626,22 @@ export default function Step04Outliers() {
   const changedValues = allRows.reduce(
     (sum, row) =>
       sum +
-      (row.methods?.[effectiveMethod(config[row.feature], globalMethod)]
+      (row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)]
         ?.outlier_count ?? 0),
     0,
   );
+  const approvedPreviewCounts =
+    summary?.application?.development_preview?.counts;
+  const flaggedCellCount =
+    approvedPreviewCounts?.flagged_cell_count ?? changedValues;
+  const affectedRowCount = approvedPreviewCounts?.affected_row_count;
   const totalOrdinary = allRows.reduce(
     (sum, row) => sum + (row.ordinary_nonmissing_count ?? 0),
     0,
   );
   const highImpactRows = allRows.filter(
     (row) =>
-      (row.methods?.[effectiveMethod(config[row.feature], globalMethod)]
+      (row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)]
         ?.outlier_rate ?? 0) >= 0.1,
   );
   const rows = useMemo(() => {
@@ -593,7 +649,7 @@ export default function Step04Outliers() {
     const filtered = allRows.filter((row) => {
       if (!row.feature.toLowerCase().includes(query)) return false;
       const method =
-        row.methods?.[effectiveMethod(config[row.feature], globalMethod)];
+        row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)];
       if (burdenFilter === "flagged") return (method?.outlier_count ?? 0) > 0;
       if (burdenFilter === "specials") return row.special_value_count > 0;
       return true;
@@ -602,9 +658,9 @@ export default function Step04Outliers() {
       if (sortBy === "name") return a.feature.localeCompare(b.feature);
       if (sortBy === "outliers") {
         return (
-          (b.methods?.[effectiveMethod(config[b.feature], globalMethod)]
+          (b.methods?.[effectiveMethod(config[b.feature], globalMethod, b.safe_default_method)]
             ?.outlier_rate ?? 0) -
-          (a.methods?.[effectiveMethod(config[a.feature], globalMethod)]
+          (a.methods?.[effectiveMethod(config[a.feature], globalMethod, a.safe_default_method)]
             ?.outlier_rate ?? 0)
         );
       }
@@ -616,6 +672,9 @@ export default function Step04Outliers() {
   const overrideCount = allRows.filter(
     (row) =>
       !!config[row.feature] && config[row.feature] !== "USE_GLOBAL",
+  ).length;
+  const analyticalReviewCount = allRows.filter(
+    (row) => row.classification_requires_review,
   ).length;
   const signalRankedRows = useMemo(
     () =>
@@ -634,33 +693,36 @@ export default function Step04Outliers() {
   const selected =
     allRows.find((row) => row.feature === selectedFeature) ?? allRows[0];
   const selectedMethod = selected
-    ? selected.methods?.[effectiveMethod(config[selected.feature], globalMethod)]
+    ? selected.methods?.[effectiveMethod(config[selected.feature], globalMethod, selected.safe_default_method)]
     : null;
   const highestBurden = [...allRows].sort((a, b) => {
     const left =
-      a.methods?.[effectiveMethod(config[a.feature], globalMethod)]
+      a.methods?.[effectiveMethod(config[a.feature], globalMethod, a.safe_default_method)]
         ?.outlier_rate ?? 0;
     const right =
-      b.methods?.[effectiveMethod(config[b.feature], globalMethod)]
+      b.methods?.[effectiveMethod(config[b.feature], globalMethod, b.safe_default_method)]
         ?.outlier_rate ?? 0;
     return right - left;
   })[0];
   const maxRate = highestBurden
     ? highestBurden.methods?.[
-        effectiveMethod(config[highestBurden.feature], globalMethod)
+        effectiveMethod(config[highestBurden.feature], globalMethod, highestBurden.safe_default_method)
       ]?.outlier_rate ?? 0
     : 0;
-  const documentationStatus = applied
+  const persistedOutlierStatus = preparationDocs?.outliers.status ?? "absent";
+  const documentationStatus: PreparationDocumentationStatus = applied
     ? "confirmed"
     : summary?.application
       ? "stale"
-      : (preparationDocs?.outliers.status ?? "draft");
+      : persistedOutlierStatus.startsWith("stale")
+        ? "stale"
+        : "draft";
   const selectionState = applying
-    ? "Applying"
+    ? "Approving"
     : applyFailed
       ? "Failed"
       : applied
-        ? "Applied"
+        ? "Policy approved"
         : summary?.application
           ? "Stale"
           : changedValues
@@ -765,7 +827,7 @@ export default function Step04Outliers() {
     }
     if (!summary) {
       setError(
-        "Full-data outlier analysis must load before treatments can be applied.",
+        "Development Population outlier analysis must load before a policy can be approved.",
       );
       return null;
     }
@@ -773,6 +835,7 @@ export default function Step04Outliers() {
       (row) =>
         config[row.feature] &&
         config[row.feature] !== "USE_GLOBAL" &&
+        config[row.feature] !== "NONE" &&
         !String(rationales[row.feature] ?? "").trim(),
     );
     if (overrideWithoutRationale) {
@@ -786,9 +849,29 @@ export default function Step04Outliers() {
     setApplyFailed(false);
     setError("");
     try {
+      const analyticalTypes = Object.fromEntries(
+        summary.features
+          .filter(
+            (row) =>
+              config[row.feature] &&
+              config[row.feature] !== "USE_GLOBAL" &&
+              config[row.feature] !== "NONE" &&
+              String(rationales[row.feature] ?? "").trim(),
+          )
+          .map((row) => [
+            row.feature,
+            {
+              analytical_type: "numeric_continuous",
+              source: "analyst_override",
+              authoritative_support:
+                "analyst_confirmed_continuous_semantics",
+              reason: String(rationales[row.feature] ?? "").trim(),
+            },
+          ]),
+      );
       const payload = await requestJson<{
         ok: true;
-        scope: "full_dataset";
+        scope: "development_population";
         project_id: string;
         dataset_id: string;
         dataset_version_id: string;
@@ -808,6 +891,16 @@ export default function Step04Outliers() {
           event_value: summary.event_value,
           problem_type: summary.problem_type,
           rationales,
+          analytical_types: analyticalTypes,
+          preprocessing_contract_version: 2,
+          analysis_partition_id: summary.analysis_partition_id,
+          analysis_partition_revision: summary.analysis_partition_revision,
+          expected_predictor_authorization_id:
+            summary.predictor_authorization_id,
+          expected_special_value_review_id:
+            summary.special_value_contract.special_value_review_id,
+          expected_special_value_review_revision:
+            summary.special_value_contract.revision,
           acknowledged_high_impact: highImpactRows.length > 0,
         }),
       });
@@ -828,18 +921,19 @@ export default function Step04Outliers() {
         current
           ? {
               ...current,
-              status: "confirmed",
               outliers: {
-                status: "confirmed",
+                status: "current",
                 application: payload.application,
+                stale_reasons: [],
+                preprocessing_contract_version: 2,
               },
             }
           : current,
       );
       setMessage(
         payload.idempotent
-          ? "The current configuration was already applied; no duplicate materialization occurred."
-          : `${payload.application.changed_values.toLocaleString()} ordinary values were capped across ${payload.application.treatments.length.toLocaleString()} numeric predictors. Bureau special values were preserved and no rows were removed.`,
+          ? "The current policy is already approved; its Development preview was reused."
+          : `${payload.application.changed_values.toLocaleString()} Development ordinary values were preview-capped across ${payload.application.development_preview.treatments.length.toLocaleString()} predictors. Training will re-fit thresholds within each fold and on final Development; no full-population frame was materialized.`,
       );
       return payload.application;
     } catch (cause) {
@@ -868,14 +962,14 @@ export default function Step04Outliers() {
     await createEvidence({
       ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
         rowCount: application.row_count,
-        scope: "full_dataset",
+        scope: "development_preview",
         targetSourceExclusions:
           summary?.predictor_authorization.target_source_excluded ?? [],
       }),
       projectName,
       evidenceType: "outliers",
       title: "Governed Outlier Treatment and Special-Value Separation",
-      summary: `${application.changed_values.toLocaleString()} ordinary values were treated across ${application.treatments.length.toLocaleString()} predictors; bureau special values were preserved and no rows were removed.`,
+      summary: `${application.development_preview.counts.flagged_cell_count.toLocaleString()} Development ordinary predictor cells across ${application.development_preview.counts.affected_row_count.toLocaleString()} affected rows were flagged. The approved policy is re-fit fold-locally; bureau special values remain protected and no global frame is materialized.`,
       sourcePage: "Outlier Analysis",
       sourceRoute: "/step03",
       modelIds: [],
@@ -890,7 +984,7 @@ export default function Step04Outliers() {
         "predictive_modeling",
         "outliers",
         "special_values",
-        "full_dataset",
+        "development_population",
       ],
       status: "ready",
       importance: "high",
@@ -928,8 +1022,8 @@ export default function Step04Outliers() {
       nextLabel="Confirm Outliers & Continue"
       nextStatusLine={
         applied
-          ? "The current full-data treatment is confirmed and ready for Missing Values."
-          : "Confirmation applies the selected ordinary-value treatment once; special values and rows remain intact."
+          ? "The current Development preview policy is approved and ready for Missing Values."
+          : "Confirmation approves the Development preview policy; training re-fits it inside each fold, while special values and rows remain intact."
       }
       showEmbeddedNext
       nextAlwaysVisible
@@ -939,7 +1033,7 @@ export default function Step04Outliers() {
         <PreparationPageIdentity
           step="Step 3 of 13"
           title="Outliers"
-          description="Separate ordinary tail behavior from governed bureau special values, compare treatment impact, and materialize only an explicitly confirmed policy."
+          description="Separate ordinary tail behavior from governed bureau special values, approve a Development preview, and re-fit thresholds inside training folds."
           datasetName={datasetName}
           datasetVersion={
             datasetIdentity?.dataset_version_id || ""
@@ -959,10 +1053,27 @@ export default function Step04Outliers() {
               tone: "info",
             },
             {
-              label: "Total flagged",
-              value: changedValues.toLocaleString(),
-              detail: "ordinary values",
-              tone: changedValues ? "warning" : "success",
+              label: "Flagged cells",
+              value: flaggedCellCount.toLocaleString(),
+              detail: "Development ordinary predictor cells",
+              tone: flaggedCellCount ? "warning" : "success",
+            },
+            {
+              label: "Affected rows",
+              value:
+                affectedRowCount == null
+                  ? "Pending approval"
+                  : affectedRowCount.toLocaleString(),
+              detail:
+                affectedRowCount == null
+                  ? "Calculated exactly when the policy is approved"
+                  : `${pct(approvedPreviewCounts?.affected_row_rate)} of Development rows`,
+              tone:
+                affectedRowCount == null
+                  ? "neutral"
+                  : affectedRowCount
+                    ? "warning"
+                    : "success",
             },
             {
               label: "Above 10%",
@@ -982,7 +1093,7 @@ export default function Step04Outliers() {
               label: "Apply state",
               value: selectionState,
               tone:
-                selectionState === "Applied"
+              selectionState === "Policy approved"
                   ? "success"
                   : selectionState === "Failed"
                     ? "danger"
@@ -1124,6 +1235,8 @@ export default function Step04Outliers() {
               </AtlasAttentionPanel>
             ) : null}
 
+            <OutlierTreatmentGuide />
+
             <AtlasWorkflowSection
               eyebrow="Primary treatment workspace"
               title="All-Feature Outlier Summary and Treatment Table"
@@ -1131,7 +1244,7 @@ export default function Step04Outliers() {
               tone="info"
               action={
                 <AtlasDataScopeBadge
-                  scope="full_dataset"
+                  scope="development_population"
                   rows={summary.row_count}
                 />
               }
@@ -1289,7 +1402,7 @@ export default function Step04Outliers() {
                     </strong>
                     {config[selected.feature] &&
                     config[selected.feature] !== "USE_GLOBAL"
-                      ? `${methodLabel(effectiveMethod(config[selected.feature], globalMethod))} is an explicit override. Document why its tail behavior needs a different policy.`
+                      ? `${methodLabel(effectiveMethod(config[selected.feature], globalMethod, selected.safe_default_method))} is an explicit override. Document why its tail behavior needs a different policy.`
                       : `${selected.feature} inherits ${methodLabel(globalMethod)}. Choose an override in its table row only when this feature needs a distinct policy.`}
                   </div>
                   <label>
@@ -1374,7 +1487,7 @@ export default function Step04Outliers() {
               tone="info"
               action={
                 <AtlasDataScopeBadge
-                  scope="full_dataset"
+                  scope="development_population"
                   rows={summary.row_count}
                 />
               }
@@ -1441,7 +1554,7 @@ export default function Step04Outliers() {
               <AtlasWorkflowSection
                 eyebrow="Selected predictor"
                 title={`Treatment Impact Preview · ${selected.feature}`}
-                description="Coordinated before/after distributions use one bounded rendered sample and common axes. Full-data counts and thresholds remain backend authoritative."
+                description="Coordinated before/after distributions use one bounded rendered sample and common axes. Development Population counts and thresholds remain backend authoritative."
                 tone="neutral"
                 action={
                   <AtlasDataScopeBadge
@@ -1579,7 +1692,10 @@ export default function Step04Outliers() {
                   <strong className="text-slate-900">Precedence:</strong>{" "}
                   feature override → global default. Bureau values -7, -8, and
                   -9 remain governed special values and are never ordinary
-                  outliers. Row removal is not part of this policy.
+                  outliers. Row removal is not part of this policy. {" "}
+                  {analyticalReviewCount.toLocaleString()} predictor
+                  {analyticalReviewCount === 1 ? "" : "s"} default to NONE
+                  until continuous semantics are explicitly supported.
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
@@ -1595,11 +1711,11 @@ export default function Step04Outliers() {
                   }
                   label={
                     applying
-                      ? "Applying"
+                      ? "Approving"
                       : applyFailed
                         ? "Failed"
                         : applied
-                          ? "Applied"
+                          ? "Policy approved"
                           : summary.application
                             ? "Stale"
                             : changedValues
@@ -1609,13 +1725,14 @@ export default function Step04Outliers() {
                   detail={
                     summary.application?.applied_at
                       ? `Last backend success ${new Date(summary.application.applied_at).toLocaleString()}`
-                      : "No treatment is applied until explicit confirmation succeeds."
+                      : "No policy is executable until explicit confirmation succeeds; this step never materializes a full-population frame."
                   }
                 />
                 <span className="text-xs text-slate-500">
                   {changedValues.toLocaleString()} of{" "}
                   {totalOrdinary.toLocaleString()} ordinary predictor values
-                  currently flagged.
+                  currently flagged in the Development Population. These are
+                  predictor cells, not unique rows.
                 </span>
               </div>
             </AtlasWorkflowSection>
@@ -1633,7 +1750,7 @@ export default function Step04Outliers() {
                     Detailed Predictor Treatment Inventory
                   </span>
                   <span className="mt-1 block text-xs text-slate-600">
-                    Searchable, sortable, paginated full-data counts and
+                    Searchable, sortable, paginated Development counts and
                     explicit per-feature controls.
                   </span>
                 </span>
@@ -1660,7 +1777,7 @@ export default function Step04Outliers() {
                     {pagedRows.map((row) => {
                       const method =
                         row.methods?.[
-                          effectiveMethod(config[row.feature], globalMethod)
+                          effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)
                         ];
                       return (
                         <tr
@@ -1729,31 +1846,36 @@ export default function Step04Outliers() {
               />
             </details>
 
-            <details className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
-              <summary className="cursor-pointer font-semibold text-slate-950">
-                Treatment guide, scope, and interpretation
-              </summary>
-              <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
-                {METHOD_OPTIONS.map((option) => (
-                  <div key={option.key}>
-                    <strong>{option.label}</strong>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                      {option.guidance}
-                    </p>
-                  </div>
-                ))}
-                <div className="md:col-span-2 rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-950">
-                  Full-data counts, thresholds, and application are backend
-                  authoritative. Histograms and method comparisons use a
-                  bounded sample only for rendering. Special bureau values and
-                  nulls are separate from ordinary outlier calculations.
-                </div>
-              </div>
-            </details>
           </>
         ) : null}
       </div>
     </StepShell>
+  );
+}
+
+function OutlierTreatmentGuide() {
+  return (
+    <details className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+      <summary className="cursor-pointer font-semibold text-slate-950">
+        Treatment guide, scope, and interpretation
+      </summary>
+      <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
+        {METHOD_OPTIONS.map((option) => (
+          <div key={option.key}>
+            <strong>{option.label}</strong>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              {option.guidance}
+            </p>
+          </div>
+        ))}
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-950 md:col-span-2">
+          Development Population counts, preview thresholds, and policy
+          approval are backend authoritative. Histograms and method comparisons
+          use a bounded sample only for rendering. Special bureau values and
+          nulls are separate from ordinary outlier calculations.
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -1836,7 +1958,7 @@ function OutlierFeatureTable({
             const configured = config[row.feature] ?? "USE_GLOBAL";
             const override = configured !== "USE_GLOBAL";
             const method =
-              row.methods?.[effectiveMethod(configured, globalMethod)];
+              row.methods?.[effectiveMethod(configured, globalMethod, row.safe_default_method)];
             const projection = projectedRange(row, method);
             return (
               <tr
@@ -2004,7 +2126,7 @@ function CutoffHistogramGallery({
       {rows.map((row, index) => {
         const configured = config[row.feature] ?? "USE_GLOBAL";
         const method =
-          row.methods?.[effectiveMethod(configured, globalMethod)];
+          row.methods?.[effectiveMethod(configured, globalMethod, row.safe_default_method)];
         const sample = safeArray<number>(row.rendered_sample);
         const treatedSample = method
           ? applyOutlierPreviewTreatment(sample, method)
@@ -2103,9 +2225,9 @@ function CutoffHistogramGallery({
                   </div>
                 </div>
                 <p className="mt-2 text-[11px] text-slate-500">
-                  {method.outlier_count.toLocaleString()} full-data ordinary
-                  values flagged ({pct(method.outlier_rate)}). Governed special
-                  values are excluded from these thresholds.
+                  {method.outlier_count.toLocaleString()} Development ordinary
+                  predictor cells flagged ({pct(method.outlier_rate)}).
+                  Governed special values are excluded from these thresholds.
                 </p>
               </>
             ) : (
@@ -2138,7 +2260,7 @@ function BurdenLandscape({
     0.001,
     ...visible.map(
       (row) =>
-        row.methods?.[effectiveMethod(config[row.feature], globalMethod)]
+        row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)]
           ?.outlier_rate ?? 0,
     ),
   );
@@ -2157,7 +2279,7 @@ function BurdenLandscape({
       <div className="mt-1 max-h-[430px] overflow-auto">
         {visible.map((row) => {
           const method =
-            row.methods?.[effectiveMethod(config[row.feature], globalMethod)];
+            row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)];
           const rate = method?.outlier_rate ?? 0;
           const tone = outlierBurdenTone(rate);
           return (
@@ -2275,7 +2397,7 @@ function TreatmentImpactPreview({
           value={`${fmt(afterStats.median)} / ${fmt(afterStats.iqr)}`}
         />
         <ImpactMetric
-          label="Full-data flagged"
+          label="Development cells flagged"
           value={method.outlier_count.toLocaleString()}
         />
         <ImpactMetric
@@ -2504,7 +2626,7 @@ function PatternMap({
         <tbody>
           {rows.slice(0, 16).map((row) => {
             const method =
-              row.methods?.[effectiveMethod(config[row.feature], globalMethod)];
+              row.methods?.[effectiveMethod(config[row.feature], globalMethod, row.safe_default_method)];
             return (
               <tr
                 key={row.feature}

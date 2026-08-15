@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 import numpy as np
@@ -165,13 +166,14 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
         )
         self.assertFalse(missing_payload["final_holdout_accessed"])
 
-    def test_full_dataset_application_scope_preserves_development_analysis_lineage(self):
+    def test_development_preview_is_not_full_population_materialization(self):
         user = {"userId": "governed-analysis-test"}
         expected_scope = {
-            "scope": "full_dataset",
-            "application_scope": "full_dataset",
-            "materialization_scope": "full_dataset",
-            "application_source_population": "full_governed_population",
+            "scope": "development_population",
+            "fit_scope": "development_preview",
+            "application_scope": "none_prelock",
+            "materialization_scope": "none",
+            "application_source_population": None,
             "analysis_scope": "development_population",
             "analytical_scope": "development_population",
             "target_directed_scope": "development_population",
@@ -179,6 +181,9 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
             "holdout_excluded": True,
             "final_holdout_accessed": False,
             "final_holdout_used_for_selection": False,
+            "final_holdout_used_for_fit": False,
+            "final_holdout_parameter_influence": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
         }
 
         def assert_application_contract(payload: dict) -> None:
@@ -194,6 +199,9 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
                 payload["development_rows"],
                 self.installation["record"]["development_count"],
             )
+            self.assertFalse(payload["application"]["backend_materialization"])
+            self.assertFalse(payload["application"]["processed_frame_materialized"])
+            self.assertFalse(payload["application"]["sealed_holdout_transformed"])
 
         with (
             patch.object(
@@ -225,6 +233,12 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
                 expected_dataset_version_id=VERSION_ID,
                 global_method="NONE",
                 config={feature: "USE_GLOBAL" for feature in PREDICTORS},
+                preprocessing_contract_version=2,
+                analysis_partition_id=self.installation["canonical_request"]["analysis_partition_id"],
+                analysis_partition_revision=self.installation["canonical_request"]["analysis_partition_revision"],
+                expected_predictor_authorization_id=self.installation["canonical_request"]["predictor_authorization_id"],
+                expected_special_value_review_id=self.installation["canonical_request"]["special_value_review_id"],
+                expected_special_value_review_revision=self.installation["canonical_request"]["special_value_review_revision"],
             )
             first_outlier = outlier_router.apply_outlier_treatments(
                 outlier_request,
@@ -232,26 +246,45 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
             )
             assert_application_contract(first_outlier)
             self.assertNotIn("idempotent", first_outlier)
+            self.assertIsNone(self.store.processed_df)
+            self.assertEqual(
+                first_outlier["application"]["row_count"],
+                self.installation["record"]["development_count"],
+            )
+            self.assertEqual(
+                first_outlier["application"]["registered_population_row_count"],
+                len(self.frame),
+            )
+            self.assertEqual(
+                self.store.meta["preprocessing_policy"]["status"],
+                "incomplete_missing_policy",
+            )
 
-            # A pre-repair durable record used the analytical population as
-            # its generic scope. Idempotent replay must not leak that stale
-            # label back through either response layer.
-            self.store.meta["outlier_application"]["scope"] = (
-                "development_population"
-            )
-            self.store.meta["outlier_application"].pop(
-                "application_scope", None
-            )
-            self.store.meta["outlier_application"].pop(
-                "materialization_scope", None
-            )
-
-            second_outlier = outlier_router.apply_outlier_treatments(
-                outlier_request,
+            # A legacy record is classified as stale on a view, not relabeled
+            # or quarantined by a read-authorized endpoint.
+            current_outlier = dict(self.store.meta["outlier_application"])
+            legacy_outlier = dict(current_outlier)
+            legacy_outlier["preprocessing_contract_version"] = 1
+            self.store.meta["outlier_application"] = legacy_outlier
+            revision_before_summary = self.store.data_revision
+            legacy_summary = outlier_router.outliers_summary(
+                outlier_router.OutlierSummaryRequest(
+                    project_id=PROJECT_ID,
+                    expected_dataset_id=DATASET_ID,
+                    expected_dataset_version_id=VERSION_ID,
+                ),
                 user=user,
             )
-            assert_application_contract(second_outlier)
-            self.assertTrue(second_outlier["idempotent"])
+            self.assertIsNone(legacy_summary["application"])
+            self.assertEqual(
+                legacy_summary["legacy_artifact_status"],
+                "stale_legacy_unverified",
+            )
+            self.assertEqual(self.store.data_revision, revision_before_summary)
+            self.assertEqual(
+                self.store.meta["outlier_application"], legacy_outlier
+            )
+            self.store.meta["outlier_application"] = current_outlier
 
             missing_request = missing_router.MissingApplyRequest(
                 project_id=PROJECT_ID,
@@ -262,6 +295,12 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
                         strategy="Median"
                     )
                 },
+                preprocessing_contract_version=2,
+                analysis_partition_id=self.installation["canonical_request"]["analysis_partition_id"],
+                analysis_partition_revision=self.installation["canonical_request"]["analysis_partition_revision"],
+                expected_predictor_authorization_id=self.installation["canonical_request"]["predictor_authorization_id"],
+                expected_special_value_review_id=self.installation["canonical_request"]["special_value_review_id"],
+                expected_special_value_review_revision=self.installation["canonical_request"]["special_value_review_revision"],
             )
             first_missing = missing_router.apply_missing_values(
                 missing_request,
@@ -269,16 +308,15 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
             )
             assert_application_contract(first_missing)
             self.assertNotIn("idempotent", first_missing)
-            self.assertEqual(first_missing["application"]["missing_after"], 0)
-
-            self.store.meta["missing_application"]["scope"] = (
-                "development_population"
+            self.assertEqual(
+                first_missing["application"]["development_missing_after"], 0
             )
-            self.store.meta["missing_application"].pop(
-                "application_scope", None
+            self.assertIsNone(self.store.processed_df)
+            self.assertTrue(
+                first_missing["preprocessing_policy"]["executable"]
             )
-            self.store.meta["missing_application"].pop(
-                "materialization_scope", None
+            self.assertEqual(
+                first_missing["preprocessing_policy"]["status"], "approved"
             )
 
             second_missing = missing_router.apply_missing_values(
@@ -287,6 +325,43 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
             )
             assert_application_contract(second_missing)
             self.assertTrue(second_missing["idempotent"])
+
+    def test_outlier_checkpoint_failure_rolls_back_in_memory_state(self):
+        user = {"userId": "governed-analysis-test"}
+        before_meta = deepcopy(self.store.meta)
+        before_revision = int(self.store.data_revision)
+        request = outlier_router.OutlierApplyRequest(
+            project_id=PROJECT_ID,
+            expected_dataset_id=DATASET_ID,
+            expected_dataset_version_id=VERSION_ID,
+            global_method="NONE",
+            config={feature: "USE_GLOBAL" for feature in PREDICTORS},
+            preprocessing_contract_version=2,
+            analysis_partition_id=self.installation["canonical_request"]["analysis_partition_id"],
+            analysis_partition_revision=self.installation["canonical_request"]["analysis_partition_revision"],
+            expected_predictor_authorization_id=self.installation["canonical_request"]["predictor_authorization_id"],
+            expected_special_value_review_id=self.installation["canonical_request"]["special_value_review_id"],
+            expected_special_value_review_revision=self.installation["canonical_request"]["special_value_review_revision"],
+        )
+        with (
+            patch.object(
+                outlier_router,
+                "authorize_modeling_scope",
+                return_value=PROJECT_ID,
+            ),
+            patch.object(
+                outlier_router,
+                "assert_expected_active_identity",
+                return_value=dict(IDENTITY),
+            ),
+            patch.object(outlier_router, "save_checkpoint", return_value=False),
+        ):
+            with self.assertRaises(Exception) as raised:
+                outlier_router.apply_outlier_treatments(request, user=user)
+        self.assertEqual(getattr(raised.exception, "status_code", None), 500)
+        self.assertEqual(self.store.meta, before_meta)
+        self.assertEqual(self.store.data_revision, before_revision)
+        self.assertIsNone(self.store.processed_df)
 
     def test_holdout_target_changes_cannot_change_preprocessing_evidence(self):
         scope = self._scope()

@@ -96,10 +96,10 @@ class DevelopmentAnalysisScope:
     def materialize_aligned_features(self, frame: pd.DataFrame) -> pd.DataFrame:
         """Select development predictors from one row-aligned structural frame.
 
-        This is used after an unsupervised full-population transform (for
-        example, outlier capping).  Only development positions are selected;
-        the sealed holdout is neither selected nor inspected.  Index equality
-        is checked before positional selection so duplicate labels are safe.
+        This is used to select the Development rows from an immutable,
+        predictor-only structural source. Transform recipes are never applied
+        to that full source before this selection. Index equality is checked
+        before positional selection so duplicate labels are safe.
         """
 
         if frame is None or frame.empty:
@@ -151,6 +151,12 @@ class DevelopmentAnalysisScope:
         partition_id = _text(self.partition.get("analysis_partition_id"))
         partition_revision = int(self.partition.get("revision") or 0)
         population_count = int(len(self.development_target))
+        current_authorization_id = _text(
+            self.predictor_authorization.get("predictor_authorization_id")
+        )
+        partition_authorization_id = _text(
+            self.partition.get("predictor_authorization_id")
+        )
         return {
             "scope": "development_population",
             "analysis_scope": "development_population",
@@ -169,8 +175,23 @@ class DevelopmentAnalysisScope:
             "target_contract_id": _text(
                 self.partition.get("target_contract_id")
             ),
-            "predictor_authorization_id": _text(
-                self.partition.get("predictor_authorization_id")
+            # The partition keeps its creation-time authorization for row-
+            # membership provenance. Preprocessing artifacts bind to the
+            # current exact authorization because predictor membership may be
+            # reconciled without redrawing the sealed row partition.
+            "predictor_authorization_id": current_authorization_id,
+            "partition_predictor_authorization_id": (
+                partition_authorization_id
+            ),
+            "predictor_authorization_lineage_status": _text(
+                self.partition.get("predictor_authorization_lineage_status")
+            )
+            or (
+                "changed_partition_preserved"
+                if current_authorization_id
+                and partition_authorization_id
+                and current_authorization_id != partition_authorization_id
+                else "current"
             ),
             "analysis_partition_id": _text(
                 self.partition.get("analysis_partition_id")
@@ -187,10 +208,20 @@ class DevelopmentAnalysisScope:
             "full_governed_population_rows": int(
                 self.partition.get("population_count") or 0
             ),
+            "registered_population_rows": int(
+                self.partition.get("population_count") or 0
+            ),
             "development_rows": int(
                 self.partition.get("development_count") or 0
             ),
+            "development_population_rows": int(
+                self.partition.get("development_count") or 0
+            ),
+            "analysis_population_rows": population_count,
             "sealed_holdout_rows": int(
+                self.partition.get("holdout_count") or 0
+            ),
+            "sealed_final_holdout_rows": int(
                 self.partition.get("holdout_count") or 0
             ),
             "final_holdout_status": _text(
@@ -200,8 +231,21 @@ class DevelopmentAnalysisScope:
             "holdout_isolation_status": _text(
                 self.partition.get("holdout_isolation_status")
             ),
-            "final_holdout_accessed": False,
+            "final_holdout_target_accessed": False,
+            "final_holdout_predictors_in_structural_profile": False,
+            "final_holdout_predictors_included_in_structural_profile": False,
+            "final_holdout_used_for_fit": False,
+            "final_holdout_used_for_parameter_influence": False,
+            "final_holdout_parameter_influence": False,
             "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_prelock": False,
+            "final_holdout_materialized_prelock": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": False,
+            # Compatibility key. V2 callers should use the precise target/fit
+            # fields above instead of interpreting structural full-population
+            # reporting as a fitted holdout access.
+            "final_holdout_accessed": False,
             "raw_dataset_target_fallback_used": False,
             "browser_target_semantics_used": False,
             # Canonical audit keys consumed by every target-directed response

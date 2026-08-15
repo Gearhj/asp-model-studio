@@ -563,6 +563,15 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             )
         )
         self.assertTrue(result["non_mutating"])
+        self.assertEqual(result["candidate_state"]["status"], "preview_only")
+        self.assertEqual(
+            result["candidate_state"]["candidate_excluded_feature"], "balance"
+        )
+        self.assertFalse(result["candidate_state"]["committed"])
+        self.assertFalse(result["candidate_state"]["mutation_performed"])
+        self.assertNotIn(
+            "balance", result["candidate_state"]["remaining_predictors"]
+        )
         self.assertEqual(result["vif_scope"]["required_feature"], "balance")
         self.assertLessEqual(
             result["vif_scope"]["rows_used"],
@@ -688,6 +697,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 "excluded_predictors",
                 "target_source_excluded",
                 "target_source_detection_scope",
+                "target_source_fields",
                 "source",
             )
         }
@@ -742,7 +752,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             service.authorized_dataset(self._request())
         )
         self.assertEqual(target, TARGET)
-        self.assertEqual(list(frame.columns), [TARGET])
+        self.assertEqual(list(frame.columns), [])
         self.assertEqual(authorization["authorized_predictors"], [])
         self.assertEqual(
             authorization["source"],
@@ -757,14 +767,14 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         self.assertIn("no model-eligible predictors", str(raised.exception))
 
     def test_distribution_range_is_full_population_and_authorized(self) -> None:
-        """Brush-range aggregation must not fall back to the rendered sample."""
+        """Brush-range aggregation uses exact Development rows, not a render sample."""
 
         model_fields = getattr(EDAWorkspaceRequest, "model_fields", {})
         required_fields = {"feature", "selection_min", "selection_max"}
         self.assertTrue(
             required_fields.issubset(model_fields),
             "EDAWorkspaceRequest must carry feature/selection_min/selection_max "
-            "for the on-demand full-population distribution section.",
+            "for the on-demand Development Population distribution section.",
         )
 
         payload = eda_workspace_service.section(
@@ -776,9 +786,6 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             ),
         )
         population = _frame()
-        numeric = pd.to_numeric(population["balance"], errors="coerce")
-        mask = numeric.between(20.0, 40.0, inclusive="both")
-        selected_values = numeric[mask]
         development = population.loc[DATASTORE.y_train.index]
         development_numeric = pd.to_numeric(
             development["balance"], errors="coerce"
@@ -786,19 +793,20 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         development_mask = development_numeric.between(
             20.0, 40.0, inclusive="both"
         )
+        selected_values = development_numeric[development_mask]
         selected_target = development.loc[development_mask, TARGET]
         metrics = _selection_metrics(payload)
 
         self.assertEqual(payload["scope"], "development_population")
-        self.assertEqual(payload["descriptive_scope"], "full_governed_population")
-        self.assertEqual(payload["row_count"], len(population))
+        self.assertEqual(payload["descriptive_scope"], "development_population")
+        self.assertEqual(payload["row_count"], len(development))
         self.assertEqual(
             int(_metric(metrics, "row_count", "selected_row_count", "count")),
-            int(mask.sum()),
+            int(development_mask.sum()),
         )
         self.assertAlmostEqual(
             float(_metric(metrics, "population_share", "share")),
-            float(mask.sum() / len(population)),
+            float(development_mask.sum() / len(development)),
             places=12,
         )
         self.assertAlmostEqual(
@@ -817,7 +825,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             places=12,
         )
         self.assertEqual(metrics["target_rate_scope"], "development_population")
-        self.assertEqual(metrics["descriptive_scope"], "full_governed_population")
+        self.assertEqual(metrics["descriptive_scope"], "development_population")
 
         bins = payload.get("bins") or payload.get("histogram") or []
         missing = payload.get("missing_bucket") or payload.get("missingBucket")
@@ -838,9 +846,9 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(
             binned_count + missing_count,
-            len(population),
+            len(development),
             "Histogram bins plus the explicit missing bucket must reconcile to "
-            "the full population.",
+            "the Development Population.",
         )
         self.assertSetEqual(_target_source_excluded(payload), TARGET_SOURCES)
 

@@ -61,7 +61,6 @@ test("completion failures identify the exact stage and stop before navigation", 
     "Materializing included deterministic features",
     "Confirming the exact saved and materialized feature contract",
     "Recording durable Feature Engineering evidence",
-    "Updating the exact Model Development Document draft",
     "Verifying the live preparation and MDD contract",
   ]) {
     assert.match(finalizer, new RegExp(stage));
@@ -82,6 +81,33 @@ test("completion failures identify the exact stage and stop before navigation", 
   assert.ok(completionIndex >= 0);
   assert.ok(rejectionGateIndex > completionIndex);
   assert.ok(navigationIndex > rejectionGateIndex);
+});
+
+test("MDD draft attachment failure is deferred after durable Feature Engineering evidence", () => {
+  assert.match(
+    finalizer,
+    /let mddSyncWarning = "";/,
+    "Feature Engineering must explicitly track a deferred MDD attachment warning",
+  );
+  assert.match(
+    finalizer,
+    /try \{[\s\S]*Updating the exact Model Development Document draft[\s\S]*syncFeatureEngineeringMdd\([\s\S]*\} catch \(cause\) \{/,
+    "MDD attachment must be attempted, but handled independently from the navigation gate",
+  );
+  assert.match(
+    finalizer,
+    /mddSyncWarning\s*=\s*[\s\S]*ATLAS could not attach the Feature Engineering evidence to the MDD draft/,
+  );
+  assert.match(
+    finalizer,
+    /const documentation = await runStage\([\s\S]*Verifying the live preparation and MDD contract/,
+    "preparation documentation readback remains a required gate after deferred MDD attachment",
+  );
+  assert.match(
+    finalizer,
+    /mddSyncWarning[\s\S]*MDD draft attachment was deferred/,
+    "the user-facing success path must disclose the deferred documentation attachment",
+  );
 });
 
 test("the CTA uses a synchronous ref lock to reject duplicate submissions", () => {
@@ -183,7 +209,7 @@ test("durable workflow completion is accepted before local completion and naviga
   );
 
   const durableSaveIndex = handleNext.indexOf(
-    "await saveWorkflowStateToDatabase(completedSnapshot)",
+    "await saveWorkflowStateToDatabase(completedSnapshot, currentStep)",
   );
   const durableFailureIndex = handleNext.indexOf("if (!persisted)");
   const localCompletionIndex = handleNext.indexOf("markComplete(");

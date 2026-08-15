@@ -192,29 +192,38 @@ export default function RelationshipWebGL({
       xAxis3D: {
         type: "value",
         name: xLabel,
-        nameTextStyle: { color: "#0f172a", fontSize: 12 },
-        axisLabel: { color: "#475569", fontSize: 10 },
-        splitLine: { show: showGrid, lineStyle: { color: "#e2e8f0" } },
+        nameTextStyle: { color: "#0f172a", fontSize: 13, fontWeight: 700 },
+        axisLabel: { color: "#334155", fontSize: 11, margin: 8 },
+        axisLine: { lineStyle: { color: "#94a3b8", width: 1.5 } },
+        axisTick: { lineStyle: { color: "#94a3b8" } },
+        splitLine: { show: showGrid, lineStyle: { color: "#dbeafe", width: 1 } },
+        axisPointer: { show: false },
       },
       yAxis3D: {
         type: "value",
         name: yLabel,
-        nameTextStyle: { color: "#0f172a", fontSize: 12 },
-        axisLabel: { color: "#475569", fontSize: 10 },
-        splitLine: { show: showGrid, lineStyle: { color: "#e2e8f0" } },
+        nameTextStyle: { color: "#0f172a", fontSize: 13, fontWeight: 700 },
+        axisLabel: { color: "#334155", fontSize: 11, margin: 8 },
+        axisLine: { lineStyle: { color: "#94a3b8", width: 1.5 } },
+        axisTick: { lineStyle: { color: "#94a3b8" } },
+        splitLine: { show: showGrid, lineStyle: { color: "#dbeafe", width: 1 } },
+        axisPointer: { show: false },
       },
       zAxis3D: {
         type: "value",
         name: zLabel,
-        nameTextStyle: { color: "#0f172a", fontSize: 12 },
-        axisLabel: { color: "#475569", fontSize: 10 },
-        splitLine: { show: showGrid, lineStyle: { color: "#e2e8f0" } },
+        nameTextStyle: { color: "#0f172a", fontSize: 13, fontWeight: 700 },
+        axisLabel: { color: "#334155", fontSize: 11, margin: 8 },
+        axisLine: { lineStyle: { color: "#94a3b8", width: 1.5 } },
+        axisTick: { lineStyle: { color: "#94a3b8" } },
+        splitLine: { show: showGrid, lineStyle: { color: "#dbeafe", width: 1 } },
+        axisPointer: { show: false },
       },
       grid3D: {
         show: showGrid,
-        boxWidth: 120,
-        boxDepth: 90,
-        boxHeight: 90,
+        boxWidth: 150,
+        boxDepth: 110,
+        boxHeight: 105,
         environment: "#ffffff",
         light: {
           main: { intensity: 1.15, shadow: false },
@@ -227,10 +236,10 @@ export default function RelationshipWebGL({
           center: camera.center,
           autoRotate: reducedMotion ? false : camera.autoRotate,
           autoRotateSpeed: 7,
-          damping: reducedMotion ? 0 : 0.8,
-          panSensitivity: 1,
-          rotateSensitivity: 1,
-          zoomSensitivity: 1,
+          damping: reducedMotion ? 0 : 0.45,
+          panSensitivity: 1.4,
+          rotateSensitivity: 1.25,
+          zoomSensitivity: 2,
         },
       },
       series,
@@ -255,6 +264,7 @@ export default function RelationshipWebGL({
     const chart = echarts.init(container, undefined, {
       renderer: "canvas",
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      useDirtyRect: true,
     });
     chartRef.current = chart;
 
@@ -311,7 +321,7 @@ export default function RelationshipWebGL({
   }, [onCameraChange, onContextLost, reducedMotion]);
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: true, lazyUpdate: false });
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true });
   }, [option]);
 
   return (

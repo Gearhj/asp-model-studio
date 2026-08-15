@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from functools import wraps
 from typing import Any, Dict
 
@@ -13,6 +14,14 @@ from ..core.modeling_scope import authorize_modeling_scope
 from ..datasets.dataset_identity import assert_expected_active_identity
 from ..security.security_store import require_user
 from .predictor_authorization import governed_predictor_authorization
+from ..analysis_partition.types import AnalysisPartitionError
+from .development_scope import resolve_development_analysis_scope
+from .preprocessing_contract import (
+    PREPROCESSING_CONTRACT_VERSION,
+    classify_preprocessing_record,
+    resolve_special_value_contract,
+    scope_lineage,
+)
 
 
 router = APIRouter()
@@ -21,11 +30,44 @@ router = APIRouter()
 def _state_locked_read(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
+        project_id = kwargs.get("project_id")
+        if project_id is None and args:
+            project_id = args[0]
+        user = kwargs.get("user") or {}
+        authorize_modeling_scope(user, project_id, "view")
         scoped_store = DATASTORE.current()
         with scoped_store.state_lock:
             return function(*args, **kwargs)
 
     return wrapped
+
+
+def _preprocessing_state(
+    record: Any,
+    *,
+    lineage: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    if not isinstance(record, dict):
+        return "absent", []
+    if int(record.get("preprocessing_contract_version") or 0) != (
+        PREPROCESSING_CONTRACT_VERSION
+    ):
+        return "stale_legacy_unverified", [
+            "The artifact predates preprocessing contract v2."
+        ]
+    if lineage is None:
+        return "stale_authority_unavailable", [
+            "The exact current Analysis Partition authority is unavailable."
+        ]
+    return classify_preprocessing_record(record, lineage=lineage)
+
+
+def _current_preprocessing_record(
+    record: Any,
+    *,
+    status: str,
+) -> Any:
+    return deepcopy(record) if status == "current" else None
 
 
 def _identity_fields(identity: Dict[str, Any]) -> Dict[str, str]:
@@ -359,12 +401,27 @@ def preparation_documentation(
         require_expected=True,
         user=user,
     )
-    frame = DATASTORE.raw_df if DATASTORE.raw_df is not None else DATASTORE.get_raw_active_df()
+    scoped_store = DATASTORE.current()
+    frame = scoped_store.get_raw_active_df(include_target=False)
+    lineage: dict[str, Any] | None = None
+    scope = None
+    try:
+        scope = resolve_development_analysis_scope(scoped_store, identity)
+        special_contract = resolve_special_value_contract(
+            identity=identity,
+            scope=scope,
+            store=scoped_store,
+        )
+        lineage = scope_lineage(scope, special_contract)
+    except AnalysisPartitionError:
+        special_contract = None
     authorization = (
-        governed_predictor_authorization(
+        dict(scope.predictor_authorization)
+        if scope is not None
+        else governed_predictor_authorization(
             frame,
-            target=DATASTORE.target,
-            selected_columns=DATASTORE.get_selected_columns(),
+            target=scoped_store.target,
+            selected_columns=scoped_store.get_selected_columns(),
         )
         if frame is not None and not frame.empty
         else {
@@ -374,46 +431,96 @@ def preparation_documentation(
         }
     )
 
-    outlier_application = DATASTORE.meta.get("outlier_application")
+    outlier_application = scoped_store.meta.get("outlier_application")
+    outlier_status, outlier_reasons = _preprocessing_state(
+        outlier_application,
+        lineage=lineage,
+    )
     outliers = {
         **_identity_fields(identity),
-        "status": _record_state(outlier_application, identity),
-        "application": _record_for_response(outlier_application, identity),
+        "status": outlier_status,
+        "application": _current_preprocessing_record(
+            outlier_application,
+            status=outlier_status,
+        ),
+        "stale_reasons": outlier_reasons,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
     }
 
-    missing_application = DATASTORE.meta.get("missing_application")
-    missing_validation = DATASTORE.meta.get("missing_validation")
+    missing_application = scoped_store.meta.get("missing_application")
+    missing_validation = scoped_store.meta.get("missing_validation")
     if isinstance(missing_application, dict):
-        missing_status = _record_state(missing_application, identity)
+        missing_status, missing_reasons = _preprocessing_state(
+            missing_application,
+            lineage=lineage,
+        )
     elif isinstance(missing_validation, dict):
-        missing_status = _record_state(missing_validation, identity)
-        if (
-            missing_status == "confirmed"
-            and missing_validation.get("source_stage") != _current_source_stage(identity)
-        ):
-            missing_status = "stale"
+        missing_status, missing_reasons = _preprocessing_state(
+            missing_validation,
+            lineage=lineage,
+        )
     else:
-        missing_status = "draft"
+        missing_status, missing_reasons = "absent", []
     missing = {
         **_identity_fields(identity),
         "status": missing_status,
-        "application": _record_for_response(missing_application, identity),
-        "validation": _record_for_response(missing_validation, identity),
+        "application": _current_preprocessing_record(
+            missing_application,
+            status=missing_status,
+        )
+        if isinstance(missing_application, dict)
+        else None,
+        "validation": _current_preprocessing_record(
+            missing_validation,
+            status=missing_status,
+        )
+        if isinstance(missing_validation, dict)
+        else None,
+        "stale_reasons": missing_reasons,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+    }
+
+    preprocessing_policy = scoped_store.meta.get("preprocessing_policy")
+    preprocessing_status, preprocessing_reasons = _preprocessing_state(
+        preprocessing_policy,
+        lineage=lineage,
+    )
+    if (
+        preprocessing_status == "current"
+        and preprocessing_policy.get("status") != "approved"
+    ):
+        preprocessing_status = str(
+            preprocessing_policy.get("status") or "incomplete"
+        )
+    preprocessing = {
+        **_identity_fields(identity),
+        "status": preprocessing_status,
+        "policy": _current_preprocessing_record(
+            preprocessing_policy,
+            status="current"
+            if preprocessing_status in {
+                "current",
+                "incomplete_missing_policy",
+            }
+            else preprocessing_status,
+        ),
+        "stale_reasons": preprocessing_reasons,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
     }
 
     feature_engineering = _feature_documentation(
-        DATASTORE.meta.get("feature_manifest"),
+        scoped_store.meta.get("feature_manifest"),
         identity,
     )
     validation_design = _validation_documentation(
-        DATASTORE.meta.get("validation_design"),
-        DATASTORE.meta.get("split_record"),
+        scoped_store.meta.get("validation_design"),
+        scoped_store.meta.get("split_record"),
         feature_engineering,
         identity,
     )
     model_training = _training_documentation(
-        DATASTORE.meta.get("training_execution"),
-        DATASTORE.meta.get("model_selection_decision"),
+        scoped_store.meta.get("training_execution"),
+        scoped_store.meta.get("model_selection_decision"),
         feature_engineering,
         validation_design,
         identity,
@@ -421,26 +528,38 @@ def preparation_documentation(
     statuses = [
         outliers["status"],
         missing["status"],
+        preprocessing["status"],
         feature_engineering["status"],
         validation_design["status"],
         model_training["status"],
     ]
     overall = (
         "stale"
-        if "stale" in statuses
+        if any(str(status).startswith("stale") for status in statuses)
         else "confirmed"
-        if all(status == "confirmed" for status in statuses)
+        if outliers["status"] == "current"
+        and missing["status"] == "current"
+        and preprocessing["status"] == "current"
+        and all(
+            status == "confirmed"
+            for status in (
+                feature_engineering["status"],
+                validation_design["status"],
+                model_training["status"],
+            )
+        )
         else "draft"
     )
     record = {
         "ok": True,
         **_identity_fields(identity),
-        "target": DATASTORE.target,
+        "target": scoped_store.target,
         "predictor_manifest_id": feature_engineering.get("manifest_version"),
         "status": overall,
         "predictor_authorization": authorization,
         "outliers": outliers,
         "missing_values": missing,
+        "preprocessing": preprocessing,
         "feature_engineering": feature_engineering,
         "validation_design": validation_design,
         "model_training": model_training,

@@ -35,6 +35,21 @@ class MissingTableFirstBackendTest(unittest.TestCase):
             profile["cutoff_semantics"],
         )
 
+    def test_governed_special_disclosure_does_not_invent_feature_lineage(self):
+        profile = _distribution_profile(
+            pd.Series([55.0, 72.0, -9.0]),
+            feature="score_without_governed_specials",
+            special_value_contract={"features": {}},
+        )
+
+        # The reserved sentinel remains excluded from ordinary-value fitting,
+        # but it is not called a governed special for a feature absent from the
+        # exact review contract.
+        self.assertEqual(profile["ordinary_numeric_count"], 2)
+        self.assertEqual(profile["observed_count"], 2)
+        self.assertEqual(profile["special_value_count"], 0)
+        self.assertEqual(profile["protected_sentinel_excluded_count"], 1)
+
     def test_categorical_distribution_is_honest_about_cutoffs(self):
         profile = _distribution_profile(
             pd.Series(["current", "current", "late", None], dtype="object")
@@ -136,6 +151,22 @@ class MissingTableFirstBackendTest(unittest.TestCase):
                     missing_router,
                     "_development_scope",
                     return_value=scope,
+                ),
+                patch.object(
+                    missing_router,
+                    "resolve_special_value_contract",
+                    return_value={
+                        "preprocessing_contract_version": 2,
+                        "status": "confirmed",
+                        "special_value_review_id": "special-review-table-first",
+                        "revision": 1,
+                        "features": {
+                            "score": {
+                                "values": [-7],
+                                "policy": "preserve_informative",
+                            }
+                        },
+                    },
                 ),
             ):
                 payload = missing_router.missing_summary(

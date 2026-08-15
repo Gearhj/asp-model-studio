@@ -91,7 +91,7 @@ function buildOption(result: TargetByPredictorResult, reducedMotion: boolean): E
     animation: !reducedMotion,
     animationDuration: reducedMotion ? 0 : 320,
     animationEasing: "cubicOut",
-    grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
+    grid: { left: 72, right: 96, top: 58, bottom: 118, containLabel: false },
     legend: { top: 0, data: ["Event rate", "Event count"] },
     tooltip: {
       trigger: "axis",
@@ -114,7 +114,17 @@ function buildOption(result: TargetByPredictorResult, reducedMotion: boolean): E
         );
       },
     },
-    xAxis: { type: "category", data: categories, axisLabel: { interval: 0, rotate: categories.length > 8 ? 35 : 0, fontSize: 11 } },
+    xAxis: {
+      type: "category",
+      data: categories,
+      axisLabel: {
+        interval: 0,
+        rotate: categories.length > 6 ? 35 : 0,
+        fontSize: 12,
+        width: 110,
+        overflow: "truncate",
+      },
+    },
     yAxis: [
       {
         type: "value",
@@ -208,6 +218,7 @@ export default function TargetByPredictorPanel({
   const [bands, setBands] = useState(10);
   const [includeMissing, setIncludeMissing] = useState(true);
   const chartRef = useRef<echarts.ECharts | null>(null);
+  const appliedRequestedPredictorRef = useRef("");
 
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -225,9 +236,17 @@ export default function TargetByPredictorPanel({
       : [];
 
   useEffect(() => {
-    const requested = requestedPredictor || result?.predictor || "";
+    const requested =
+      requestedPredictor && requestedPredictor !== appliedRequestedPredictorRef.current
+        ? requestedPredictor
+        : !predictor
+          ? result?.predictor ?? ""
+          : "";
     const option = predictors.find((item) => item.feature === requested);
     if (!option || requested === predictor) return;
+    if (requested === requestedPredictor) {
+      appliedRequestedPredictorRef.current = requested;
+    }
     setPredictor(requested);
     setSearch("");
     setAnalysisType(option.kind === "numeric" ? "numeric_quantile" : "categorical");
@@ -418,7 +437,7 @@ export default function TargetByPredictorPanel({
               <EChartsPanel
                 option={option}
                 state={chartState}
-                height={300}
+                height={480}
                 onChartReady={(instance) => {
                   chartRef.current = instance;
                 }}

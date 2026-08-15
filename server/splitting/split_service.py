@@ -19,9 +19,9 @@ from sklearn.model_selection import (
 @dataclass(frozen=True)
 class SplitResult:
     X_train: pd.DataFrame
-    X_test: pd.DataFrame
+    X_test: pd.DataFrame | None
     y_train: pd.Series
-    y_test: pd.Series
+    y_test: pd.Series | None
     original_train_rows: int
     original_train_distribution: dict[str, Any]
     applied_train_distribution: dict[str, Any]
@@ -34,6 +34,7 @@ class SplitResult:
     evaluation_population_role: str
     fold_local_preprocessing: str
     balancing_application_status: str
+    sealed_holdout_rows: int
 
 
 def target_distribution(series: pd.Series, event_value: Any | None = None) -> dict[str, Any]:
@@ -93,6 +94,7 @@ class SplitService:
         prepartitioned_holdout: pd.DataFrame | None = None,
         prepartitioned_development_target: pd.Series | None = None,
         prepartitioned_holdout_target: pd.Series | None = None,
+        sealed_holdout_row_count: int | None = None,
     ) -> SplitResult:
         if target_col not in frame.columns:
             raise ValueError(f"Target column '{target_col}' is not available in the full dataset.")
@@ -121,16 +123,19 @@ class SplitService:
         problem_type = str(config.get("problem_type") or "classification")
         event_value = config.get("event_value")
 
-        supplied_partition_parts = (
-            prepartitioned_development,
-            prepartitioned_holdout,
-            prepartitioned_development_target,
-            prepartitioned_holdout_target,
-        )
-        has_prepartition = all(part is not None for part in supplied_partition_parts)
-        if any(part is not None for part in supplied_partition_parts) and not has_prepartition:
+        if prepartitioned_holdout is not None or prepartitioned_holdout_target is not None:
             raise ValueError(
-                "Development and sealed-holdout frames and targets must be supplied together."
+                "Validation Design must not materialize sealed final-holdout predictors or target values."
+            )
+        has_prepartition = (
+            prepartitioned_development is not None
+            and prepartitioned_development_target is not None
+        )
+        if (
+            prepartitioned_development is None
+        ) != (prepartitioned_development_target is None):
+            raise ValueError(
+                "Development predictors and target must be supplied together."
             )
 
         X = frame.loc[:, selected_features].copy()
@@ -164,24 +169,18 @@ class SplitService:
             # redraw or infer their membership.
             development_constraint_frame = prepartitioned_development.copy()
             development_X = development_constraint_frame.loc[:, selected_features].copy()
-            holdout_X = prepartitioned_holdout.loc[:, selected_features].copy()
             development_y = prepartitioned_development_target.copy()
-            holdout_y = prepartitioned_holdout_target.copy()
-            if development_X.empty or holdout_X.empty:
+            if development_X.empty:
                 raise ValueError(
-                    "The governed Analysis Partition must contain both development and sealed-holdout rows."
+                    "The governed Analysis Partition must contain Development rows."
                 )
-            if len(development_X) != len(development_y) or len(holdout_X) != len(holdout_y):
+            if len(development_X) != len(development_y):
                 raise ValueError(
-                    "The governed Analysis Partition frames and targets are not aligned."
+                    "The governed Development predictors and target are not aligned."
                 )
             if not development_X.index.equals(development_y.index):
                 raise ValueError(
                     "Development predictors and target do not preserve the sealed membership order."
-                )
-            if not holdout_X.index.equals(holdout_y.index):
-                raise ValueError(
-                    "Final-holdout predictors and target do not preserve the sealed membership order."
                 )
             if development_y.isna().any():
                 raise ValueError(
@@ -208,12 +207,9 @@ class SplitService:
             X_train = development_X.copy() if has_prepartition else X.copy()
             y_train = development_y.copy() if has_prepartition else y.copy()
             if has_prepartition:
-                # External TEST/OOT versions are additional validation
-                # references. They never replace or unseal the canonical final
-                # holdout created before EDA.
-                X_test = holdout_X.copy()
-                y_test = holdout_y.copy()
-                evaluation_population_role = "untouched_holdout"
+                X_test = None
+                y_test = None
+                evaluation_population_role = "sealed_holdout_reference"
             else:
                 X_test = external_test_frame.loc[:, selected_features].copy()
                 y_test = external_test_frame[resolved_external_target].copy()
@@ -249,9 +245,9 @@ class SplitService:
         elif has_prepartition:
             X_train = development_X.copy()
             y_train = development_y.copy()
-            X_test = holdout_X.copy()
-            y_test = holdout_y.copy()
-            evaluation_population_role = "untouched_holdout"
+            X_test = None
+            y_test = None
+            evaluation_population_role = "sealed_holdout_reference"
         else:
             X_train, X_test, y_train, y_test = train_test_split(
                 X,
@@ -262,13 +258,16 @@ class SplitService:
             )
 
         original_train = target_distribution(y_train, event_value)
+        resolved_holdout_rows = int(sealed_holdout_row_count or 0)
         test_distribution = (
             {
-                "rows": int(len(y_test)),
+                "rows": resolved_holdout_rows,
                 "status": "sealed",
                 "target_statistics_withheld": True,
+                "predictors_materialized": False,
+                "target_accessed": False,
             }
-            if evaluation_population_role == "untouched_holdout"
+            if evaluation_population_role == "sealed_holdout_reference"
             else target_distribution(y_test, event_value)
         )
         if problem_type == "classification" and len(y_train.value_counts()) == 2:
@@ -279,7 +278,7 @@ class SplitService:
 
         original_train_rows = int(len(y_train))
         training_index = list(y_train.index)
-        validation_index = list(y_test.index)
+        validation_index = [] if y_test is None else list(y_test.index)
         fold_constraint_frame = (
             development_constraint_frame.copy()
             if has_prepartition
@@ -371,6 +370,7 @@ class SplitService:
             evaluation_population_role=evaluation_population_role,
             fold_local_preprocessing=fold_local_preprocessing,
             balancing_application_status=balancing_application_status,
+            sealed_holdout_rows=resolved_holdout_rows,
         )
 
     def _build_fold_architecture(

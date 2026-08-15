@@ -20,8 +20,13 @@ from server.core.result_store import RESULTS, ResultStore
 from server.core.session_checkpoint import _apply_results, _encode_results
 from server.evaluation.eval_service import EVAL
 from server.evaluation import eval_router
+from server.analysis_partition.service import analysis_partition_service
 from server.persistence.db import Database
 from server.persistence.service import PersistenceService
+from server.preprocessing.execution_contract import (
+    canonical_preprocessing_hash,
+    default_no_treatment_contract,
+)
 from server.training.candidate_contract import canonical_contract_hash
 
 
@@ -42,6 +47,76 @@ LINEAGE = {
     "candidate_decision_id": "decision-eval-1",
 }
 
+_FINAL_HOLDOUT_FIXTURE: dict[str, pd.DataFrame | pd.Series] = {}
+
+
+def _final_preprocessing_artifact(
+    candidate_contract: dict,
+    *,
+    fit_rows: int,
+    application_rows: int,
+) -> dict:
+    artifact = {
+        "preprocessing_contract_version": 2,
+        "artifact_kind": "final_development_fitted_preprocessing",
+        "artifact_checksum": "fixture-final-fit-" + candidate_contract[
+            "candidate_id"
+        ],
+        "project_id": candidate_contract["project_id"],
+        "dataset_id": candidate_contract["dataset_id"],
+        "dataset_version_id": candidate_contract["dataset_version_id"],
+        "analysis_partition_id": candidate_contract[
+            "analysis_partition_id"
+        ],
+        "analysis_partition_revision": candidate_contract[
+            "analysis_partition_revision"
+        ],
+        "preprocessing_policy_id": candidate_contract[
+            "preprocessing_policy_id"
+        ],
+        "preprocessing_policy_revision": candidate_contract[
+            "preprocessing_policy_revision"
+        ],
+        "preprocessing_policy_hash": candidate_contract[
+            "preprocessing_policy_hash"
+        ],
+        "candidate_decision_id": LINEAGE["candidate_decision_id"],
+        "candidate_id": candidate_contract["candidate_id"],
+        "fit_scope": "final_development",
+        "fit_population_id": candidate_contract["training_population_id"],
+        "fit_population_count": fit_rows,
+        "fit_population_rows": fit_rows,
+        "fit_excluded_true_null_cells": 0,
+        "fit_excluded_special_value_cells": 0,
+        "application_scope": "final_holdout_fixed_application",
+        "application_population_id": candidate_contract[
+            "final_holdout_partition_id"
+        ],
+        "application_population_rows": application_rows,
+        "outlier_fitted_recipe": {"features": {}},
+        "missing_fitted_recipe": {"features": {}},
+        "encoding_scaling_parameters": {"status": "not_requested"},
+        "encoding_scaling_fitted": False,
+        "feature_names": ["income", "util"],
+        "policy_scope": "governed_recipe",
+        "final_holdout_target_accessed": False,
+        "final_holdout_predictors_included_in_structural_profile": False,
+        "final_holdout_parameter_influence": False,
+        "final_holdout_used_for_selection": False,
+        "final_holdout_transformed_or_materialized_prelock": False,
+        "final_holdout_opened_for_final_reporting": False,
+        "validation_fold_parameter_influence": False,
+        "refit_during_application": False,
+    }
+    artifact["final_artifact_checksum"] = canonical_preprocessing_hash(
+        {
+            key: value
+            for key, value in artifact.items()
+            if key not in {"fitted_at", "final_artifact_checksum"}
+        }
+    )
+    return artifact
+
 
 class CandidateArtifact:
     classes_ = [0, 1]
@@ -58,8 +133,17 @@ class CandidateArtifact:
         return np.linspace(12.0, 38.0, len(frame))
 
 
+class ChallengerArtifact(CandidateArtifact):
+    coef_ = [[0.65, -0.35]]
+
+    # The KNN visualization checks the exact fitted artifact for neighbor
+    # capability, then constructs its bounded display graph independently.
+    def kneighbors(self, frame):
+        return [], []
+
+
 @pytest.fixture(autouse=True)
-def isolated_governance_database():
+def isolated_governance_database(monkeypatch: pytest.MonkeyPatch):
     temporary_root = Path(".tmp")
     temporary_root.mkdir(parents=True, exist_ok=True)
     database_path = temporary_root / (
@@ -69,6 +153,52 @@ def isolated_governance_database():
     database.initialize()
     previous = EVAL._persistence_service
     EVAL._persistence_service = PersistenceService(database)
+
+    def current_partition(
+        project_id,
+        dataset_id,
+        dataset_version_id,
+        **_kwargs,
+    ):
+        assert project_id == LINEAGE["project_id"]
+        assert dataset_id == LINEAGE["dataset_id"]
+        assert dataset_version_id == LINEAGE["dataset_version_id"]
+        return {
+            "analysis_partition_id": "analysis-partition-eval-1",
+            "revision": 1,
+            "development_partition_id": "population-train-eval-1",
+            "sealed_holdout_partition_id": "population-holdout-eval-1",
+            "status": "current",
+            "final_holdout_status": "sealed",
+        }
+
+    def materialize_final_holdout(
+        store,
+        _partition,
+        authorized_predictors,
+        *,
+        candidate_decision_id,
+        final_preprocessing_artifact,
+    ):
+        assert store.X_test is None and store.y_test is None
+        assert candidate_decision_id == LINEAGE["candidate_decision_id"]
+        assert final_preprocessing_artifact["fit_scope"] == "final_development"
+        frame = _FINAL_HOLDOUT_FIXTURE["X"].loc[
+            :, list(authorized_predictors)
+        ].copy()
+        target = _FINAL_HOLDOUT_FIXTURE["y"].copy()
+        return frame, target
+
+    monkeypatch.setattr(
+        analysis_partition_service,
+        "current",
+        current_partition,
+    )
+    monkeypatch.setattr(
+        analysis_partition_service,
+        "materialize_final_holdout",
+        materialize_final_holdout,
+    )
     try:
         yield EVAL._persistence_service
     finally:
@@ -173,19 +303,64 @@ def seed_exact_candidate(
     champion_eligible: bool = True,
     frozen_threshold: float | None = None,
     problem_type: str = "classification",
+    development_rows: int = 4,
 ) -> dict[str, str]:
     DATASTORE.reset_all()
     RESULTS.clear_model_artifacts()
     RESULTS.evaluation_packages = {}
     RESULTS.holdout_evaluations = {}
     RESULTS.selection_integrity_records = {}
-    X_train = pd.DataFrame({"income": [10.0, 20.0, 30.0, 40.0], "util": [0.1, 0.2, 0.3, 0.4]})
+    X_train = (
+        pd.DataFrame(
+            {
+                "income": [10.0, 20.0, 30.0, 40.0],
+                "util": [0.1, 0.2, 0.3, 0.4],
+            }
+        )
+        if development_rows == 4
+        else pd.DataFrame(
+            {
+                "income": [
+                    float(index * 10)
+                    for index in range(1, development_rows + 1)
+                ],
+                "util": [
+                    float((index * 7) % 13) / 13.0
+                    for index in range(1, development_rows + 1)
+                ],
+            }
+        )
+    )
     X_test = pd.DataFrame({"income": [15.0, 25.0, 35.0, 45.0], "util": [0.15, 0.25, 0.35, 0.45]})
-    y_train = pd.Series([0, 0, 1, 1], name=LINEAGE["target"])
+    y_train = pd.Series(
+        (
+            [0, 0, 1, 1]
+            if development_rows == 4
+            else [index % 2 for index in range(development_rows)]
+        ),
+        name=LINEAGE["target"],
+    )
     y_test = pd.Series([0, 1, 0, 1], name=LINEAGE["target"])
-    DATASTORE.set_raw(pd.concat([X_train, X_test], ignore_index=True))
+    raw = pd.concat([X_train, X_test], ignore_index=True)
+    raw[LINEAGE["target"]] = pd.concat(
+        [y_train, y_test], ignore_index=True
+    )
+    DATASTORE.set_raw(raw)
     DATASTORE.set_target(LINEAGE["target"])
-    DATASTORE.set_splits(X_train, X_test, y_train, y_test)
+    DATASTORE.set_splits(X_train, None, y_train, None)
+    _FINAL_HOLDOUT_FIXTURE["X"] = X_test.copy()
+    _FINAL_HOLDOUT_FIXTURE["y"] = y_test.copy()
+    preprocessing_policy = default_no_treatment_contract(
+        identity={
+            "project_id": LINEAGE["project_id"],
+            "dataset_id": LINEAGE["dataset_id"],
+            "dataset_version_id": LINEAGE["dataset_version_id"],
+            "analysis_partition_id": "analysis-partition-eval-1",
+            "analysis_partition_revision": 1,
+        },
+        feature_names=list(X_train.columns),
+        source="evaluation_exact_lineage_fixture",
+    )
     DATASTORE.meta.update(
         {
             "project_id": LINEAGE["project_id"],
@@ -193,6 +368,18 @@ def seed_exact_candidate(
             "dataset_version_id": LINEAGE["dataset_version_id"],
             "dataset_identity_status": "current",
             "split_status": "current",
+            "target_contract_id": "target-contract-eval-1",
+            "predictor_authorization": {
+                "predictor_authorization_id": "predictor-auth-eval-1",
+                "authorized_predictors": list(X_train.columns),
+            },
+            "analysis_partition": {
+                "analysis_partition_id": "analysis-partition-eval-1",
+                "revision": 1,
+                "development_partition_id": "population-train-eval-1",
+                "sealed_holdout_partition_id": "population-holdout-eval-1",
+            },
+            "preprocessing_policy": preprocessing_policy,
             "feature_manifest": {
                 "manifest_hash": LINEAGE["feature_manifest_version"],
                 "confirmation_status": "confirmed",
@@ -206,6 +393,8 @@ def seed_exact_candidate(
                 "split_id": LINEAGE["split_id"],
                 "training_population_id": "population-train-eval-1",
                 "holdout_population_id": "population-holdout-eval-1",
+                "final_holdout_partition_id": "population-holdout-eval-1",
+                "n_test": len(X_test),
                 "validation_design": {
                     "validation_design_id": LINEAGE["validation_design_id"],
                     "design_version": LINEAGE["validation_design_version"],
@@ -255,6 +444,19 @@ def seed_exact_candidate(
             "negative_class": 0,
         },
         "target_contract_id": "target-contract-eval-1",
+        "analysis_partition_id": "analysis-partition-eval-1",
+        "analysis_partition_revision": 1,
+        "preprocessing_contract_version": 2,
+        "preprocessing_policy_id": preprocessing_policy[
+            "preprocessing_policy_id"
+        ],
+        "preprocessing_policy_revision": preprocessing_policy[
+            "preprocessing_policy_revision"
+        ],
+        "preprocessing_policy_hash": preprocessing_policy[
+            "preprocessing_policy_hash"
+        ],
+        "preprocessing_policy": copy.deepcopy(preprocessing_policy),
         "positive_class": 1,
         "predictor_manifest_id": "predictor-manifest-eval-1",
         "predictor_manifest_hash": "predictor-hash-eval-1",
@@ -277,9 +479,11 @@ def seed_exact_candidate(
         "calibration_configuration": {},
         "ranking_metric": "rmse" if problem_type == "regression" else "roc_auc",
         "training_population_id": "population-train-eval-1",
+        "training_population_rows": len(X_train),
         "selection_partition_id": "population-train-eval-1",
         "holdout_population_id": "population-holdout-eval-1",
         "final_holdout_partition_id": "population-holdout-eval-1",
+        "final_holdout_population_rows": len(X_test),
         "fold_definition_id": "fold-definition-eval-1",
         "final_holdout_status": "sealed",
         "selection_resampling_status": "not_applied",
@@ -338,6 +542,11 @@ def seed_exact_candidate(
         "training_contract_hash": "training-contract-hash-eval-1",
     }
     candidate_contract["contract_hash"] = canonical_contract_hash(candidate_contract)
+    final_preprocessing_artifact = _final_preprocessing_artifact(
+        candidate_contract,
+        fit_rows=len(X_train),
+        application_rows=len(X_test),
+    )
     candidate = {
         "key": ALGORITHM_ID,
         "candidate_id": LINEAGE["candidate_id"],
@@ -351,7 +560,21 @@ def seed_exact_candidate(
         "selection_integrity_status": "verified",
         "holdout_isolation_status": "verified",
     }
-    raw_result = {"task": problem_type, "metric_class": "selection"}
+    raw_result = {
+        "task": problem_type,
+        "metric_class": "selection",
+        "oof_y_true": (
+            [10.0, 20.0, 30.0, 40.0]
+            if problem_type == "regression"
+            else [0, 1, 0, 1]
+        ),
+        "oof_y_score": (
+            [11.0, 19.0, 32.0, 38.0]
+            if problem_type == "regression"
+            else [0.05, 0.85, 0.20, 0.70]
+        ),
+        "oof_row_positions": [0, 1, 2, 3],
+    }
     RESULTS.set_last_summary(
         {
             **{
@@ -391,7 +614,35 @@ def seed_exact_candidate(
         "threshold_source": threshold_source,
         "threshold_policy_hash": threshold_policy_hash,
         "actor": {"user_id": "evaluation-test"},
+        "final_fitted_artifact_status": "complete",
+        "final_preprocessing_artifact": copy.deepcopy(
+            final_preprocessing_artifact
+        ),
     }
+    final_model = CandidateArtifact()
+    final_model.preprocessing_artifact_ = copy.deepcopy(
+        final_preprocessing_artifact
+    )
+    RESULTS.set_final_model(
+        final_model,
+        {
+            **LINEAGE,
+            "problem_type": problem_type,
+            "model_key": ALGORITHM_ID,
+            "candidate_id": LINEAGE["candidate_id"],
+            "candidate_decision_id": LINEAGE["candidate_decision_id"],
+            "selected_candidate_contract_hash": candidate_contract[
+                "contract_hash"
+            ],
+            "trained_feature_names": list(X_train.columns),
+            "final_preprocessing_artifact": copy.deepcopy(
+                final_preprocessing_artifact
+            ),
+        },
+    )
+    DATASTORE.meta["final_preprocessing_artifact"] = copy.deepcopy(
+        final_preprocessing_artifact
+    )
     seed_durable_decision(
         candidate_contract,
         DATASTORE.meta["model_selection_decision"],
@@ -399,10 +650,331 @@ def seed_exact_candidate(
     return {**LINEAGE, "problem_type": problem_type}
 
 
+def seed_exact_challenger() -> dict[str, str]:
+    context = seed_exact_candidate()
+    summary = copy.deepcopy(RESULTS.get_last_summary())
+    reporting_row = summary["ranked"][0]
+    challenger_contract = copy.deepcopy(
+        reporting_row["candidate_contract"]
+    )
+    challenger_id = "candidate-eval-challenger-2"
+    challenger_algorithm = "ridge_challenger"
+    challenger_contract["candidate_id"] = challenger_id
+    challenger_contract["algorithm_id"] = challenger_algorithm
+    challenger_contract["algorithm_class"] = (
+        "sklearn.linear_model.RidgeClassifier"
+    )
+    challenger_contract["selection_metric"][
+        "out_of_fold_prediction_artifact_id"
+    ] = "oof-eval-challenger-2"
+    challenger_contract["selection_metric"][
+        "selection_metric_value"
+    ] = 0.84
+    challenger_contract["selection_metric"]["mean"] = 0.84
+    challenger_contract["selection_metric"]["fold_values"] = [0.82, 0.86]
+    challenger_contract["selection_metric"]["standard_deviation"] = 0.02
+    challenger_contract["contract_hash"] = canonical_contract_hash(
+        {
+            key: value
+            for key, value in challenger_contract.items()
+            if key != "contract_hash"
+        }
+    )
+    challenger = {
+        **copy.deepcopy(reporting_row),
+        "key": challenger_algorithm,
+        "candidate_id": challenger_id,
+        "name": "Ridge Classifier",
+        "auc": 0.84,
+        "candidate_contract": challenger_contract,
+        "selection_metric": copy.deepcopy(
+            challenger_contract["selection_metric"]
+        ),
+    }
+    challenger_raw = {
+        "task": "classification",
+        "metric_class": "selection",
+        "oof_y_true": [0, 1, 0, 1],
+        "oof_y_score": [0.10, 0.90, 0.30, 0.80],
+        "oof_row_positions": [0, 1, 2, 3],
+    }
+    summary["ranked"].append(challenger)
+    summary["raw"][challenger_algorithm] = challenger_raw
+    RESULTS.set_last_summary(summary)
+
+    artifacts = dict(RESULTS.get_model_artifacts())
+    metadata = {
+        key: copy.deepcopy(RESULTS.get_model_artifact_metadata(key))
+        for key in artifacts
+    }
+    reporting_metadata = metadata[ALGORITHM_ID]
+    artifacts[challenger_algorithm] = ChallengerArtifact()
+    metadata[challenger_algorithm] = {
+        **copy.deepcopy(reporting_metadata),
+        "candidate_id": challenger_id,
+        "model_key": challenger_algorithm,
+        "candidate_contract": challenger_contract,
+    }
+    RESULTS.set_model_artifacts(artifacts, metadata)
+    return {
+        **context,
+        "candidate_id": challenger_id,
+        "candidate_decision_id": "",
+        "evaluation_package_id": "",
+        "evidence_scope": "selection_review",
+    }
+
+
 def assert_lineage_rejected(payload: dict, phrase: str) -> None:
     assert payload["ok"] is False
     assert payload["lineage_error"] is True
     assert phrase in payload["error"].lower()
+
+
+def test_selection_review_challenger_uses_persisted_oof_without_holdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = seed_exact_challenger()
+
+    def reject_holdout(*args, **kwargs):
+        raise AssertionError("selection review must not open the final holdout")
+
+    monkeypatch.setattr(EVAL, "_open_final_holdout", reject_holdout)
+
+    curves = EVAL.get_curves(context["candidate_id"], context)
+    command = EVAL.get_evaluation_command_center(
+        context["candidate_id"],
+        threshold=0.5,
+        context=context,
+    )
+    response = eval_router._evaluation_response(
+        context["candidate_id"],
+        context,
+        command,
+        "command_center",
+        "evaluation-test",
+    )
+
+    assert curves["ok"] is True
+    assert curves["metrics"]["auc"] == pytest.approx(1.0)
+    assert curves["confusion"] == [[2, 0], [0, 2]]
+    assert curves["roc"]["fpr"]
+    assert curves["pr"]["precision"]
+    assert command["ok"] is True
+    assert command["evaluation_role"] == "DEVELOPMENT"
+    assert command["threshold"]["confusion"] == [[2, 0], [0, 2]]
+    assert command["lift"]["deciles"]
+    assert command["calibration"]["rows"]
+    assert response["evidence_scope"] == "selection_review"
+    assert response["evaluation_population"] == "development_out_of_fold"
+    assert response["analysis_binding"] == "exact_selection_review"
+    assert response["candidate_id"] == context["candidate_id"]
+    assert response["artifact_binding"]["candidate_contract_hash"]
+    for forbidden in (
+        "candidate_decision_id",
+        "evaluation_package_id",
+        "evaluation_package",
+        "holdout_exposure",
+        "holdout_prediction_digest",
+        "final_holdout_evidence",
+    ):
+        assert forbidden not in response
+
+    assert RESULTS.holdout_evaluations == {}
+    assert RESULTS.evaluation_packages == {}
+    repository = EVAL._governance_repository()
+    with repository.database.connection() as connection:
+        exposure_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM holdout_exposures"
+        ).fetchone()["count"]
+        package_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM evaluation_packages"
+        ).fetchone()["count"]
+    assert exposure_count == 0
+    assert package_count == 0
+
+
+def test_selection_review_interpretation_uses_development_population_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = seed_exact_challenger()
+
+    def reject_holdout_data(*args, **kwargs):
+        raise AssertionError("selection review must not read the holdout split")
+
+    monkeypatch.setattr(EVAL, "_test_data", reject_holdout_data)
+
+    importance = EVAL.feature_importance(context["candidate_id"], context)
+    pdp = EVAL.pdp(context["candidate_id"], "income", context)
+    sensitivity = EVAL.sensitivity(
+        context["candidate_id"], "income", context
+    )
+    shap = EVAL.shap_summary(context["candidate_id"], context)
+    boundary = EVAL.decision_boundary(
+        context["candidate_id"], context=context
+    )
+    knn = EVAL.knn_clusters(context["candidate_id"], context=context)
+    vsi = EVAL.vsi_summary(context["candidate_id"], context=context)
+
+    for payload in (
+        importance,
+        pdp,
+        sensitivity,
+        shap,
+        boundary,
+        knn,
+        vsi,
+    ):
+        assert payload["ok"] is True, payload
+    assert shap["method"] == "Development replacement impact"
+    assert vsi["reference"] == "development_internal_reference"
+    assert vsi["comparison"] == "development_internal_comparison"
+    for point in boundary["points"]:
+        assert boundary["x_domain"][0] <= point["x"] <= boundary[
+            "x_domain"
+        ][1]
+        assert boundary["y_domain"][0] <= point["y"] <= boundary[
+            "y_domain"
+        ][1]
+
+    response = eval_router._interpretation_response(
+        context["candidate_id"],
+        context,
+        pdp,
+        "partial_dependence",
+    )
+    assert response["evidence_scope"] == "selection_review"
+    assert response["evaluation_population"] == "development_population"
+    assert response["analysis_binding"] == "exact_selection_review"
+    assert "evaluation_package_id" not in response
+    assert RESULTS.holdout_evaluations == {}
+
+
+def test_regression_selection_review_uses_real_oof_residuals_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = {
+        **seed_exact_regression_candidate(),
+        "candidate_decision_id": "",
+        "evaluation_package_id": "",
+        "evidence_scope": "selection_review",
+    }
+
+    def reject_holdout(*args, **kwargs):
+        raise AssertionError("selection review must not open the final holdout")
+
+    monkeypatch.setattr(EVAL, "_open_final_holdout", reject_holdout)
+    curves = EVAL.get_curves(context["candidate_id"], context)
+    command = EVAL.get_evaluation_command_center(
+        context["candidate_id"], context=context
+    )
+
+    assert curves["ok"] is True
+    assert curves["task"] == "regression"
+    assert len(curves["residuals"]["points"]) == 4
+    assert curves["metrics"]["rmse"] == pytest.approx(
+        (10.0 / 4.0) ** 0.5
+    )
+    assert command["ok"] is True
+    assert command["evaluation_role"] == "DEVELOPMENT"
+    assert command["observation_count"] == 4
+    assert "holdout_prediction_digest" not in command
+    assert RESULTS.holdout_evaluations == {}
+
+
+def test_selection_review_fails_closed_when_oof_evidence_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = seed_exact_challenger()
+    summary = RESULTS.get_last_summary()
+    raw = summary["raw"]["ridge_challenger"]
+    raw.pop("oof_y_true")
+    raw.pop("oof_y_score")
+
+    def reject_holdout(*args, **kwargs):
+        raise AssertionError("missing OOF evidence must not fall back to holdout")
+
+    monkeypatch.setattr(EVAL, "_open_final_holdout", reject_holdout)
+    curves = EVAL.get_curves(context["candidate_id"], context)
+
+    assert curves["ok"] is False
+    assert "out-of-fold" in curves["error"]
+    assert RESULTS.holdout_evaluations == {}
+
+
+def test_interpretation_without_package_requires_selection_review_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = seed_exact_challenger()
+    monkeypatch.setattr(
+        eval_router,
+        "authorize_modeling_scope",
+        lambda *args, **kwargs: context["project_id"],
+    )
+
+    review = eval_router._interpretation_context(
+        evaluation_package_id="",
+        model_version_id="",
+        context=context,
+        user={"userId": "evaluation-test"},
+    )
+    assert review["evidence_scope"] == "selection_review"
+    assert review["evaluation_package_id"] == ""
+
+    with pytest.raises(HTTPException) as failure:
+        eval_router._interpretation_context(
+            evaluation_package_id="",
+            model_version_id="",
+            context={
+                **context,
+                "evidence_scope": "",
+                "candidate_decision_id": LINEAGE["candidate_decision_id"],
+            },
+            user={"userId": "evaluation-test"},
+        )
+    assert failure.value.status_code == 422
+    assert "evaluation_package_id" in str(failure.value.detail)
+
+
+def test_lineage_dependency_omits_decision_only_for_selection_review() -> None:
+    seeded = seed_exact_challenger()
+    exact = {
+        field: seeded[field]
+        for field in (
+            "project_id",
+            "dataset_id",
+            "dataset_version_id",
+            "candidate_id",
+            "training_job_id",
+            "training_run_id",
+            "feature_manifest_version",
+            "validation_design_id",
+            "validation_design_version",
+            "split_id",
+            "target",
+            "problem_type",
+        )
+    }
+    review = eval_router._lineage_context(
+        **exact,
+        candidate_decision_id="",
+        evaluation_package_id="",
+        evidence_scope="selection_review",
+        user={"userId": "evaluation-test"},
+    )
+    assert review["candidate_decision_id"] == ""
+    assert review["evidence_scope"] == "selection_review"
+
+    with pytest.raises(HTTPException) as failure:
+        eval_router._lineage_context(
+            **exact,
+            candidate_decision_id="",
+            evaluation_package_id="",
+            evidence_scope="",
+            user={"userId": "evaluation-test"},
+        )
+    assert failure.value.status_code == 422
+    assert "candidate_decision_id" in str(failure.value.detail)
 
 
 def complete_evaluation_package(context: dict[str, str]) -> dict:
@@ -997,9 +1569,15 @@ def test_durable_publication_uses_exact_candidate_contract(monkeypatch: pytest.M
     assert saved["ok"] is True
     exact_candidate_artifact = saved["_fitted_object"]
     interleaved_other_candidate_artifact = CandidateArtifact()
+    interleaved_other_candidate_artifact.preprocessing_artifact_ = copy.deepcopy(
+        DATASTORE.meta["final_preprocessing_artifact"]
+    )
+    interleaved_final_metadata = copy.deepcopy(
+        RESULTS.get_final_model_metadata()
+    )
     RESULTS.set_final_model(
         interleaved_other_candidate_artifact,
-        {"source_candidate_id": "candidate-interleaved-b"},
+        interleaved_final_metadata,
     )
     captured: dict = {}
 
@@ -1046,22 +1624,13 @@ def test_durable_publication_uses_exact_candidate_contract(monkeypatch: pytest.M
     assert captured["model_name"] == (
         f"ATLAS::{context['dataset_id']}::{context['dataset_version_id']}::{context['target']}"
     )
+    assert captured["candidate_model_name"] == "Logistic Regression"
 
 
 def test_rfe_analysis_is_independent_of_final_holdout_and_cannot_publish(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    context = seed_exact_candidate()
-    X_train = pd.DataFrame(
-        {
-            "income": [float(index * 10) for index in range(1, 21)],
-            "util": [float((index * 7) % 13) / 13.0 for index in range(1, 21)],
-        }
-    )
-    y_train = pd.Series([index % 2 for index in range(20)], name=context["target"])
-    X_test = pd.DataFrame({"income": [5.0, 15.0, 25.0, 35.0], "util": [0.1, 0.2, 0.3, 0.4]})
-    y_test = pd.Series([0, 1, 0, 1], name=context["target"])
-    DATASTORE.set_splits(X_train, X_test, y_train, y_test)
+    context = seed_exact_candidate(development_rows=20)
 
     first = EVAL.rfe(context["candidate_id"], keep=1, context=context)
     assert first["ok"] is True
@@ -1072,7 +1641,8 @@ def test_rfe_analysis_is_independent_of_final_holdout_and_cannot_publish(
         {"income": [10_000.0, -10_000.0, 50_000.0, -50_000.0], "util": [99.0, -99.0, 50.0, -50.0]}
     )
     changed_y = pd.Series([1, 1, 0, 0], name=context["target"])
-    DATASTORE.set_splits(X_train, changed_holdout, y_train, changed_y)
+    _FINAL_HOLDOUT_FIXTURE["X"] = changed_holdout
+    _FINAL_HOLDOUT_FIXTURE["y"] = changed_y
     second = EVAL.rfe(context["candidate_id"], keep=1, context=context)
     assert second["ok"] is True
     assert second["rows"] == first["rows"]
@@ -1113,6 +1683,12 @@ def test_interpretation_recovers_only_explicit_exact_registered_artifact_after_r
     )
     model_version_id = "model-version-restart-1"
     registered_artifact = CandidateArtifact()
+    registered_final_preprocessing = copy.deepcopy(
+        DATASTORE.meta["final_preprocessing_artifact"]
+    )
+    registered_artifact.preprocessing_artifact_ = copy.deepcopy(
+        registered_final_preprocessing
+    )
     version = {
         "modelVersionId": model_version_id,
         "publicationStatus": "finalized",
@@ -1145,9 +1721,10 @@ def test_interpretation_recovers_only_explicit_exact_registered_artifact_after_r
             "splitId": context["split_id"],
             "evaluationPackageId": evaluation_package_id,
             "candidateDecisionId": context["candidate_decision_id"],
-            "candidateContractHash": candidate_contract["contract_hash"],
-            "candidateContract": candidate_contract,
-        },
+                "candidateContractHash": candidate_contract["contract_hash"],
+                "candidateContract": candidate_contract,
+                "finalPreprocessingArtifact": registered_final_preprocessing,
+            },
         "lineage": {
             "trainingJobId": context["training_job_id"],
             "validationDesignVersion": context["validation_design_version"],
@@ -1325,6 +1902,7 @@ def test_final_status_resolves_only_the_durable_exact_context(monkeypatch: pytes
             "artifactVerified": True,
             "checksum": "checksum-eval-1",
             "artifactFormat": "joblib",
+            "modelName": "Logistic Regression",
             "modelVersion": {
                 "modelVersionId": "model-version-eval-1",
                 "projectId": context["project_id"],
@@ -1357,6 +1935,9 @@ def test_final_status_resolves_only_the_durable_exact_context(monkeypatch: pytes
     assert status["ready"] is True
     metadata = status["metadata"]
     assert metadata["model_version_id"] == "model-version-eval-1"
+    assert metadata["name"] == "Logistic Regression"
+    assert metadata["model_name"] == "Logistic Regression"
+    assert metadata["modelName"] == "Logistic Regression"
     assert metadata["candidate_id"] == context["candidate_id"]
     assert metadata["training_run_id"] == context["training_run_id"]
     assert metadata["feature_manifest_version"] == context["feature_manifest_version"]

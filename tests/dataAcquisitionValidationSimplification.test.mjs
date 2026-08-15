@@ -92,13 +92,14 @@ test("special-value semantics and section completion remain governed", () => {
   assert.match(modelDocument, /variableDefaults/);
 });
 
-test("the rendered validation flow is one recommended holdout-plus-CV path", () => {
+test("the rendered validation flow exposes the two governed validation choices", () => {
   for (const text of [
     "Training and Validation Design",
     "Data Acquisition Analysis Partition",
     'data-testid="analysis-partition-read-only-summary"',
-    "Stratified K-fold · recommended",
-    "Only cross-validation inside development and training-only policies can be configured here.",
+    "K-fold cross-validation",
+    "Traditional TRAIN / TEST / OOT setup",
+    "TEST and OOT datasets are selected later",
     "Holdout remains untouched",
     "Development event rate",
     "Current policy",
@@ -143,7 +144,6 @@ test("balancing, external validation, and predictor review remain visible workfl
 test("readiness is exact, lazy full-population fallback is absent, and drafts auto-save", () => {
   for (const blocker of [
     "Create and confirm the current feature manifest before defining validation.",
-    "Select a cross-validation method.",
     "At least one projected fold lacks event coverage.",
     "Select an immutable TEST version or disable external TEST.",
     "Select an immutable OOT version or disable external OOT.",

@@ -18,10 +18,6 @@ import {
 import type { ExactPromotedModelIdentity } from "./implementationMonitoringIdentity";
 import { resolveModelDocumentationChampion } from "./modelDocumentationChampion";
 import {
-  loadCanonicalPreparationBrowserState,
-  type CanonicalPreparationBrowserState,
-} from "./preparationGovernance";
-import {
   atlasReportStyles,
   decisionJournalTimelineHtml,
   objectTableHtml,
@@ -106,11 +102,25 @@ function formatPolicyValue(value: unknown) {
     .join("; ");
 }
 
-function summarizeMissingTreatment(
-  stored: CanonicalPreparationBrowserState["missingPolicy"],
-) {
+type ExecutedPreparation = {
+  outlierMethods: Record<string, unknown>;
+  outlierGlobalMethod: string;
+  outlierRationales: Record<string, string>;
+  outlierAnalyticalTypes: Record<string, unknown>;
+  missingPolicy: Record<string, unknown>;
+  balanceMethod: string;
+  splitStrategy: string;
+  balanceRatio: string;
+  executionLineage: Record<string, unknown>;
+};
+
+function summarizeMissingTreatment(stored: Record<string, unknown>) {
   const wrappedConfig = recordValue(stored.config);
   const config = wrappedConfig ?? stored;
+  const activeTreatment = safe(
+    stored.active_treatment ?? stored.default_strategy,
+    "Not documented",
+  ).toUpperCase();
   const explicitOverrideNames = Array.isArray(stored.overrideFeatures)
     ? stored.overrideFeatures.map(String)
     : Object.entries(config)
@@ -123,8 +133,9 @@ function summarizeMissingTreatment(
     (feature) => feature in config,
   );
   const result: Record<string, unknown> = {
+    "Active treatment": activeTreatment,
     "Global strategy": wrappedConfig
-      ? safe(stored.globalStrategy, "None")
+      ? safe(stored.globalStrategy ?? stored.default_strategy, "None")
       : Object.keys(stored).length
         ? "Per-feature policy"
         : "Not documented",
@@ -133,7 +144,16 @@ function summarizeMissingTreatment(
       Object.keys(config).length - overrideNames.length,
     ),
     "Explicit overrides": overrideNames.length,
+    "True-null cells": stored.true_null_cell_count ?? "Not documented",
+    "Affected predictors": stored.affected_predictor_count ?? "Not documented",
+    "Affected rows": stored.affected_row_count ?? "Not documented",
+    "Materialization required": stored.materialization_required ?? "Not documented",
+    "Processed frame created": stored.processed_frame_created ?? "Not documented",
   };
+  if (activeTreatment === "NONE" && stored.zero_null_validated === true) {
+    result["Estimator fit status"] = "No imputation estimator was fitted";
+    result["Materialization status"] = "No processed frame was created";
+  }
   if (safe(stored.globalStrategy, "") === "Constant") {
     result["Global constant"] = safe(
       stored.globalConstant,
@@ -147,7 +167,7 @@ function summarizeMissingTreatment(
 }
 
 function summarizeOutlierTreatment(
-  preparation: CanonicalPreparationBrowserState,
+  preparation: ExecutedPreparation,
 ) {
   const methods = preparation.outlierMethods;
   const globalMethod = preparation.outlierGlobalMethod;
@@ -161,6 +181,7 @@ function summarizeOutlierTreatment(
       Object.keys(methods).length - overrides.length,
     ),
     "Explicit overrides": overrides.length,
+    "Analytical type / eligibility": preparation.outlierAnalyticalTypes,
   };
   for (const [feature, method] of overrides) {
     result[`Override - ${feature}`] = safe(method);
@@ -533,8 +554,55 @@ function buildSections(
   }
   const promotedChampion = championResolution.identity;
   const champion = championResolution.supplementaryExperiment;
-  const preparation =
-    loadCanonicalPreparationBrowserState(datasetIdentity);
+  const executedSteps = recordValue(champion?.preprocessingSteps);
+  if (
+    !executedSteps ||
+    executedSteps.authority !== "backend_governed_training_execution" ||
+    Number(executedSteps.preprocessingContractVersion ?? 0) !== 2
+  ) {
+    throw new Error(
+      "Model Development Documentation requires the backend-executed preprocessing v2 lineage for the exact champion.",
+    );
+  }
+  const outlierPolicy = recordValue(executedSteps.outlierPolicy) ?? {};
+  const missingPolicy = recordValue(executedSteps.missingPolicy) ?? {};
+  const validationExecutionPolicy =
+    recordValue(executedSteps.validationExecutionPolicy) ?? {};
+  const modelGovernedPreprocessing =
+    recordValue(executedSteps.modelGovernedPreprocessing) ?? {};
+  const foldLocalExecution =
+    recordValue(executedSteps.foldLocalExecution) ?? {};
+  const outlierConfig = recordValue(outlierPolicy.config) ?? {};
+  const rationaleRecord = recordValue(outlierPolicy.rationales) ?? {};
+  const preparation: ExecutedPreparation = {
+    outlierMethods: outlierConfig,
+    outlierGlobalMethod: safe(outlierPolicy.global_method, "NONE"),
+    outlierRationales: Object.fromEntries(
+      Object.entries(rationaleRecord).map(([key, value]) => [key, String(value ?? "")]),
+    ),
+    outlierAnalyticalTypes:
+      recordValue(outlierPolicy.analytical_types) ?? {},
+    missingPolicy,
+    balanceMethod: safe(
+      validationExecutionPolicy.balancing_method,
+      "none",
+    ),
+    splitStrategy: "Sealed Analysis Partition with approved Validation Design",
+    balanceRatio: safe(
+      validationExecutionPolicy.minority_share,
+      "Not applicable",
+    ),
+    executionLineage: {
+      Authority: executedSteps.authority,
+      "Preprocessing contract version": executedSteps.preprocessingContractVersion,
+      "Preprocessing policy ID": executedSteps.preprocessingPolicyId,
+      "Preprocessing policy revision": executedSteps.preprocessingPolicyRevision,
+      "Preprocessing policy hash": executedSteps.preprocessingPolicyHash,
+      "Fold-local training execution": foldLocalExecution,
+      "Candidate/model preprocessing execution": modelGovernedPreprocessing,
+      "Final holdout parameter influence": false,
+    },
+  };
   const decisions = loadDecisionJournal();
   const materialDecisions = summarizeMaterialReportDecisions(decisions);
   const readiness = buildReportReadiness({
@@ -677,7 +745,9 @@ function buildSections(
         "Data quality summary:",
         dataQuality
           ? [
-              `- Duplicate rows: ${dataQuality.duplicateRows}`,
+              dataQuality.duplicateContract
+                ? `- Exact duplicates: ${dataQuality.duplicateContract.redundant_duplicate_rows} redundant rows beyond the retained ${dataQuality.duplicateContract.keep_semantics} occurrence; ${dataQuality.duplicateContract.duplicate_participant_rows} participant rows across ${dataQuality.duplicateContract.duplicate_group_count} groups; scope ${dataQuality.duplicateContract.scope}; target ${dataQuality.duplicateContract.target_included ? "included" : "excluded"}.`
+                : `- Exact duplicates: backend definition unavailable; browser value ${dataQuality.duplicateRows} is non-authoritative.`,
               `- Constant columns: ${dataQuality.constantColumns.join(", ") || "None detected"}`,
               `- Potential leakage columns: ${dataQuality.potentialLeakageColumns.join(", ") || "None detected"}`,
               `- High missing fields: ${dataQuality.missing.slice(0, 5).map((row) => `${row.column} ${formatNumber(row.percent * 100, 2)}%`).join(", ") || "None detected"}`,
@@ -693,6 +763,13 @@ function buildSections(
     },
     { title: "Missing Value Treatment", content: objectTableHtml(missingStrategies, "No missing value strategy captured.") },
     { title: "Outlier Treatment", content: objectTableHtml(outlierMethods, "No outlier strategy captured.") },
+    {
+      title: "Preprocessing Execution and Holdout Isolation",
+      content: objectTableHtml(
+        preparation.executionLineage,
+        "No backend-governed preprocessing execution lineage was captured.",
+      ),
+    },
     {
       title: "Feature Engineering",
       content:

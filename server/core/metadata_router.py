@@ -156,11 +156,12 @@ def _persist_predictor_authorization(
     selected_columns: List[str],
     user: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Create the durable pre-EDA predictor authorization manifest.
+    """Create the durable pre-partition predictor authorization manifest.
 
-    This intentionally performs structural authorization only.  Any
-    target-directed leakage discovery is deferred until the sealed development
-    partition exists and can be evaluated without reading holdout targets.
+    Data Acquisition still owns the unsealed registered target at this point,
+    so deterministic target sources are detected once here and persisted with
+    their mappings. Downstream EDA consumes this lineage without rediscovering
+    against a sealed final-holdout target.
     """
 
     target_contract = {
@@ -176,7 +177,7 @@ def _persist_predictor_authorization(
         frame,
         target,
         selected_columns,
-        detect_target_sources=False,
+        detect_target_sources=True,
         include_prior_authorization=False,
     )
     manifest_base = {
@@ -186,6 +187,7 @@ def _persist_predictor_authorization(
         "excluded_predictors": resolved["excluded_predictors"],
         "selected_predictors": sorted(resolved["selected_predictors"]),
         "target_source_excluded": resolved["target_source_excluded"],
+        "target_source_fields": resolved["target_source_fields"],
         "target_source_detection_scope": resolved["target_source_detection_scope"],
         "source": "data_acquisition",
     }
@@ -197,6 +199,7 @@ def _persist_predictor_authorization(
         **manifest_base,
         "manifest_version": predictor_authorization_id,
         "predictor_authorization_id": predictor_authorization_id,
+        "target_source_evidence_ref": predictor_authorization_id,
         "artifact_hash": predictor_authorization_id.removeprefix("predictor-auth-"),
         "status": "current",
         "created_at": created_at,
@@ -216,7 +219,9 @@ def _persist_predictor_authorization(
             "title": "Data Acquisition Predictor Authorization",
             "summary": (
                 f"{len(manifest['authorized_predictors'])} predictors authorized "
-                "before the Analysis Partition was reserved."
+                "before the Analysis Partition was reserved; "
+                f"{len(manifest['target_source_excluded'])} deterministic target "
+                "source field(s) excluded with registered-population evidence."
             ),
             "source_ref": (
                 f"dataset:{identity.get('dataset_id')}:"

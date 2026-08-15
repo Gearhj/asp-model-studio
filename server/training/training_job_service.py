@@ -603,7 +603,12 @@ class TrainingJobService:
             preflight_data_revision = int(scoped_store.data_revision)
         preflight = self.preflight(request)
         if not preflight["ready"]:
-            target_authority_errors = preflight.get("blocking_details") or []
+            blocking_details = preflight.get("blocking_details") or []
+            target_authority_errors = [
+                detail
+                for detail in blocking_details
+                if str(detail.get("code") or "").startswith("training_target_")
+            ]
             if target_authority_errors:
                 detail = target_authority_errors[0]
                 raise TrainingTargetSemanticsError(
@@ -694,6 +699,9 @@ class TrainingJobService:
                 "retry_parent_job_id": request.retry_parent_job_id,
                 "validation_execution_policy": validation_execution_policy,
                 "target_semantics_authority": target_semantics_authority,
+                "preprocessing_policy_hash": (
+                    preflight.get("governed_preprocessing_contract") or {}
+                ).get("preprocessing_policy_hash"),
             }
         )
         explicit_idempotency = bool(request.idempotency_key.strip())
@@ -715,9 +723,16 @@ class TrainingJobService:
                     replay, idempotent_replay=True
                 )
 
-        X_train, y_train, excluded = TRAINER._get_training_partition(
+        X_train, y_train, excluded, preprocessing_recipe = TRAINER._get_training_partition(
             inherited_folds
         )
+        preflight_recipe = preflight.get("governed_preprocessing_contract") or {}
+        if str(preprocessing_recipe.get("preprocessing_policy_hash") or "") != str(
+            preflight_recipe.get("preprocessing_policy_hash") or ""
+        ):
+            raise ValueError(
+                "The governed preprocessing policy changed after preflight. Run validation again."
+            )
         trained_feature_names = [str(column) for column in X_train.columns]
         requested_parallel = max(1, int(request.max_parallel or 1))
         safe_parallel = min(
@@ -834,6 +849,9 @@ class TrainingJobService:
             "validation_execution_policy": deepcopy(
                 validation_execution_policy
             ),
+            "governed_preprocessing_contract": deepcopy(
+                preprocessing_recipe
+            ),
             "target_semantics_authority": deepcopy(
                 target_semantics_authority
             ),
@@ -890,11 +908,24 @@ class TrainingJobService:
                 "feature_manifest_version": preflight["feature_manifest_version"],
                 "selected_original_features": preflight["selected_original_features"],
                 "selected_engineered_features": preflight["engineered_features"],
-                "preprocessing_pipeline": request.preprocessing_pipeline or manifest.get("pipeline_steps", []),
+                "preprocessing_policy": deepcopy(preprocessing_recipe),
+                "preprocessing_contract_version": preprocessing_recipe.get(
+                    "preprocessing_contract_version"
+                ),
+                "preprocessing_policy_id": preprocessing_recipe.get(
+                    "preprocessing_policy_id"
+                ),
+                "preprocessing_policy_revision": preprocessing_recipe.get(
+                    "preprocessing_policy_revision"
+                ),
+                "preprocessing_policy_hash": preprocessing_recipe.get(
+                    "preprocessing_policy_hash"
+                ),
                 "split_id": preflight["split_id"],
                 "training_population_id": preflight[
                     "training_population_id"
                 ],
+                "training_population_rows": int(len(X_train)),
                 "selection_partition_id": preflight[
                     "selection_partition_id"
                 ],
@@ -904,6 +935,9 @@ class TrainingJobService:
                 "final_holdout_partition_id": preflight[
                     "final_holdout_partition_id"
                 ],
+                "final_holdout_population_rows": int(
+                    preflight.get("test_rows") or 0
+                ),
                 "fold_definition_id": preflight["fold_definition_id"],
                 "final_holdout_status": preflight["final_holdout_status"],
                 "holdout_isolation_status": preflight[
@@ -970,6 +1004,7 @@ class TrainingJobService:
             "_target_semantics_authority": deepcopy(
                 target_semantics_authority
             ),
+            "_preprocessing_recipe": deepcopy(preprocessing_recipe),
         }
         job["contract"] = complete_training_contract(
             job["contract"],
@@ -977,9 +1012,7 @@ class TrainingJobService:
             store_meta={
                 key: deepcopy(scoped_store.meta.get(key))
                 for key in (
-                    "outlier_application",
-                    "missing_application",
-                    "missing_validation",
+                    "preprocessing_policy",
                 )
             },
             training_job_id=job_id,
@@ -994,6 +1027,10 @@ class TrainingJobService:
             "predictor_manifest_hash",
             "treatment_manifest_id",
             "treatment_manifest_hash",
+            "preprocessing_contract_version",
+            "preprocessing_policy_id",
+            "preprocessing_policy_revision",
+            "preprocessing_policy_hash",
             "feature_manifest_id",
             "feature_manifest_hash",
             "materialization_id",
@@ -1109,6 +1146,17 @@ class TrainingJobService:
             return False, "The active canonical dataset identity changed."
         if int(store.data_revision) != int(job.get("data_revision", -1)):
             return False, "The governed pre-training data revision changed."
+        if store.X_test is not None or store.y_test is not None:
+            return False, "The sealed final holdout was materialized during candidate training."
+        current_preprocessing_policy = (
+            store.meta.get("preprocessing_policy")
+            if isinstance(store.meta.get("preprocessing_policy"), dict)
+            else {}
+        )
+        if str(
+            current_preprocessing_policy.get("preprocessing_policy_hash") or ""
+        ) != str(job.get("preprocessing_policy_hash") or ""):
+            return False, "The governed preprocessing policy changed."
 
         manifest = (
             store.meta.get("feature_manifest")
@@ -1614,6 +1662,13 @@ class TrainingJobService:
             validation_policy=deepcopy(
                 self._jobs[job_id].get("_validation_execution_policy") or {}
             ),
+            preprocessing_recipe=deepcopy(
+                self._jobs[job_id].get("_preprocessing_recipe") or {}
+            ),
+            preprocessing_actor=str(
+                self._jobs[job_id].get("owner_user_id")
+                or "backend_training_engine"
+            ),
         )
         result["runtime_ms"] = int((time.perf_counter() - started) * 1000)
         if request.calibrate and not calibration_allowed:
@@ -1708,6 +1763,10 @@ class TrainingJobService:
                     "predictor_manifest_hash",
                     "treatment_manifest_id",
                     "treatment_manifest_hash",
+                    "preprocessing_contract_version",
+                    "preprocessing_policy_id",
+                    "preprocessing_policy_revision",
+                    "preprocessing_policy_hash",
                     "feature_manifest_id",
                     "feature_manifest_hash",
                     "feature_manifest_version",
@@ -1834,6 +1893,30 @@ class TrainingJobService:
                 raise CandidateContractError(
                     "A completed result no longer matches the frozen training contract."
                 )
+        fold_preprocessing_artifacts: list[dict[str, Any]] = []
+        for row in ranked:
+            candidate_id = str(row.get("candidate_id") or "")
+            algorithm_id = str(row.get("key") or "")
+            governed = (
+                row.get("governed_preprocessing")
+                if isinstance(row.get("governed_preprocessing"), dict)
+                else {}
+            )
+            for artifact in governed.get("fold_fitted_artifacts") or []:
+                if not isinstance(artifact, dict):
+                    continue
+                fold_preprocessing_artifacts.append(
+                    {
+                        **deepcopy(artifact),
+                        "training_job_id": job_id,
+                        "training_run_id": str(
+                            frozen_training_contract.get("training_run_id")
+                            or ""
+                        ),
+                        "candidate_id": candidate_id,
+                        "algorithm_id": algorithm_id,
+                    }
+                )
         problem_type = str(
             ranked[0].get("task") if ranked else job.get("problem_type") or ""
         )
@@ -1904,6 +1987,17 @@ class TrainingJobService:
             "predictor_manifest_hash": job["predictor_manifest_hash"],
             "treatment_manifest_id": job["treatment_manifest_id"],
             "treatment_manifest_hash": job["treatment_manifest_hash"],
+            "preprocessing_contract_version": job[
+                "preprocessing_contract_version"
+            ],
+            "preprocessing_policy_id": job["preprocessing_policy_id"],
+            "preprocessing_policy_revision": job[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": job["preprocessing_policy_hash"],
+            "governed_preprocessing_contract": deepcopy(
+                job.get("governed_preprocessing_contract") or {}
+            ),
             "target_contract_id": job["target_contract_id"],
             "split_id": job["split_id"],
             "training_population_id": job["training_population_id"],
@@ -1941,6 +2035,9 @@ class TrainingJobService:
                 deepcopy(row["candidate_contract"])
                 for row in ranked
             ],
+            "fold_fitted_preprocessing_artifacts": deepcopy(
+                fold_preprocessing_artifacts
+            ),
         }
         # Recheck and persist inside the same per-scope state transition lock
         # used by Dataset Library activation and preparation invalidation.
@@ -2018,6 +2115,18 @@ class TrainingJobService:
                         "predictor_manifest_hash": job["predictor_manifest_hash"],
                         "treatment_manifest_id": job["treatment_manifest_id"],
                         "treatment_manifest_hash": job["treatment_manifest_hash"],
+                        "preprocessing_contract_version": job[
+                            "preprocessing_contract_version"
+                        ],
+                        "preprocessing_policy_id": job[
+                            "preprocessing_policy_id"
+                        ],
+                        "preprocessing_policy_revision": job[
+                            "preprocessing_policy_revision"
+                        ],
+                        "preprocessing_policy_hash": job[
+                            "preprocessing_policy_hash"
+                        ],
                         "target_contract_id": job["target_contract_id"],
                         "split_id": job["split_id"],
                         "training_population_id": job[
@@ -2068,6 +2177,47 @@ class TrainingJobService:
                     (time.perf_counter() - persistence_started) * 1000
                 )
                 job["_result_store"].set_last_summary(json_safe(summary))
+            current_policy = (
+                dataset_store.meta.get("preprocessing_policy")
+                if isinstance(
+                    dataset_store.meta.get("preprocessing_policy"), dict
+                )
+                else {}
+            )
+            if str(current_policy.get("preprocessing_policy_hash") or "") != str(
+                frozen_training_contract.get("preprocessing_policy_hash") or ""
+            ):
+                raise CandidateContractError(
+                    "The preprocessing policy changed before fold artifacts could be persisted."
+                )
+            updated_policy = deepcopy(current_policy)
+            updated_policy["fold_fitted_artifact_status"] = "complete"
+            updated_policy["fold_fitted_artifacts"] = deepcopy(
+                fold_preprocessing_artifacts
+            )
+            updated_policy["final_fitted_artifact_status"] = (
+                "pending_candidate_lock"
+            )
+            dataset_store.meta["preprocessing_policy"] = updated_policy
+            dataset_store.meta["fold_preprocessing_execution"] = {
+                "preprocessing_contract_version": 2,
+                "preprocessing_policy_id": job["preprocessing_policy_id"],
+                "preprocessing_policy_revision": job[
+                    "preprocessing_policy_revision"
+                ],
+                "preprocessing_policy_hash": job[
+                    "preprocessing_policy_hash"
+                ],
+                "training_job_id": job["job_id"],
+                "training_run_id": job["training_run_id"],
+                "fit_scope": "cv_training_fold",
+                "application_scope": "cv_validation_fold",
+                "final_holdout_parameter_influence": False,
+                "final_holdout_used_for_selection": False,
+                "final_holdout_transformed_or_materialized_prelock": False,
+                "artifacts": deepcopy(fold_preprocessing_artifacts),
+                "completed_at": job["completed_at"],
+            }
             dataset_store.meta["training_execution"] = json_safe(
                 {
                     "project_id": job["project_id"],
@@ -2095,6 +2245,18 @@ class TrainingJobService:
                     "predictor_manifest_hash": job["predictor_manifest_hash"],
                     "treatment_manifest_id": job["treatment_manifest_id"],
                     "treatment_manifest_hash": job["treatment_manifest_hash"],
+                    "preprocessing_contract_version": job[
+                        "preprocessing_contract_version"
+                    ],
+                    "preprocessing_policy_id": job[
+                        "preprocessing_policy_id"
+                    ],
+                    "preprocessing_policy_revision": job[
+                        "preprocessing_policy_revision"
+                    ],
+                    "preprocessing_policy_hash": job[
+                        "preprocessing_policy_hash"
+                    ],
                     "target_contract_id": job["target_contract_id"],
                     "split_id": job["split_id"],
                     "training_population_id": job[

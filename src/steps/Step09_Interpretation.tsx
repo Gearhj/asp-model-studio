@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import StepShell from "../components/StepShell";
 import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
@@ -54,6 +54,8 @@ type RankedRow = {
   validation_design_version?: string;
   split_id?: string;
   candidate_contract?: Record<string, unknown>;
+  model_version_id?: string;
+  artifact_digest?: string;
   task?: "classification" | "regression" | "anomaly";
   auc?: number;
   pr_auc?: number;
@@ -68,6 +70,21 @@ type RankedRow = {
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
 type AnalysisMeta = { method: string; sampleCount: number | null };
 type GovernedInterpretationEnvelope = {
+  evidence_scope?: "selection_review" | string;
+  evaluation_population?: string;
+  candidate_id?: string;
+  training_job_id?: string;
+  training_run_id?: string;
+  project_id?: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
+  target?: string;
+  feature_manifest_version?: string;
+  validation_design_id?: string;
+  validation_design_version?: string;
+  split_id?: string;
+  model_version_id?: string;
+  artifact_digest?: string;
   evaluation_package_id?: string;
   interpretation_artifact?: {
     evaluation_package_id?: string;
@@ -199,7 +216,7 @@ type BoundaryResponse = {
   grid?: BoundaryCell[];
   points?: BoundaryPoint[];
   numeric_features?: string[];
-};
+} & GovernedInterpretationEnvelope;
 type TreeNode = {
   id: number;
   depth: number;
@@ -214,7 +231,7 @@ type TreeNode = {
   model_type?: "classification" | "regression";
 };
 type TreeEdge = { source: number; target: number; label: string };
-type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string; model_type?: "classification" | "regression" };
+type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string; model_type?: "classification" | "regression" } & GovernedInterpretationEnvelope;
 
 type CachedRfeResult = Pick<
   RfeResult,
@@ -299,6 +316,47 @@ function isArtifactContextError(message: string) {
 function displayModelName(model?: RankedRow, fallbackKey = "") {
   if (isKnnModel(model, fallbackKey)) return "K-Nearest Neighbors";
   return model?.name ?? fallbackKey;
+}
+
+type ModelFamily = "linear" | "tree" | "ensemble" | "distance" | "kernel" | "probabilistic" | "other";
+
+function modelFamily(model?: RankedRow, fallbackKey = ""): { key: ModelFamily; label: string; accent: string } {
+  const text = `${model?.key ?? fallbackKey} ${model?.name ?? ""}`.toLowerCase();
+  if (/random forest|gradient boost|xgboost|lightgbm|catboost|extra trees|adaboost|ensemble/.test(text)) {
+    return { key: "ensemble", label: "Ensemble", accent: "from-violet-500 to-fuchsia-500" };
+  }
+  if (/decision tree|tree/.test(text)) return { key: "tree", label: "Decision tree", accent: "from-emerald-500 to-teal-500" };
+  if (/knn|nearest/.test(text)) return { key: "distance", label: "Distance-based", accent: "from-sky-500 to-cyan-500" };
+  if (/svm|support vector|kernel/.test(text)) return { key: "kernel", label: "Kernel", accent: "from-amber-500 to-orange-500" };
+  if (/naive bayes|bayesian/.test(text)) return { key: "probabilistic", label: "Probabilistic", accent: "from-rose-500 to-pink-500" };
+  if (/linear|logistic|ridge|lasso|elastic/.test(text)) return { key: "linear", label: "Linear", accent: "from-blue-600 to-indigo-500" };
+  return { key: "other", label: "Supervised model", accent: "from-slate-600 to-slate-400" };
+}
+
+function selectionReviewEnvelopeMatches(
+  artifact: GovernedInterpretationEnvelope,
+  candidate: InterpretationCandidate,
+): boolean {
+  const exactFields: Array<keyof InterpretationCandidate> = [
+    "candidate_id",
+    "training_job_id",
+    "training_run_id",
+    "project_id",
+    "dataset_id",
+    "dataset_version_id",
+    "target",
+    "feature_manifest_version",
+    "validation_design_id",
+    "validation_design_version",
+    "split_id",
+  ];
+  return (
+    artifact.evidence_scope === "selection_review" &&
+    Boolean(artifact.evaluation_population) &&
+    !String(artifact.evaluation_package_id ?? "").trim() &&
+    !artifact.interpretation_artifact?.evaluation_package &&
+    exactFields.every((field) => String(artifact[field as keyof GovernedInterpretationEnvelope] ?? "").trim() === candidate[field])
+  );
 }
 
 function candidateFromRow(model: RankedRow): InterpretationCandidate {
@@ -389,6 +447,7 @@ export default function Step09_Interpretation() {
   const [finalSensitivityRows, setFinalSensitivityRows] = useState<SensitivitySummaryRow[]>([]);
   const [vifRows, setVifRows] = useState<VifRow[]>([]);
   const [finalDiagnosticsReady, setFinalDiagnosticsReady] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
   const [shapRows, setShapRows] = useState<ImportanceRow[]>([]);
   const [rfeKeep, setRfeKeep] = useState(10);
   const [rfeRows, setRfeRows] = useState<RfeRow[]>([]);
@@ -414,6 +473,7 @@ export default function Step09_Interpretation() {
   const [finalPromotion, setFinalPromotion] = useState<DurablePromotion | null>(null);
   const [selectionDecision, setSelectionDecision] = useState<LockedSelectionDecision | null>(null);
   const [governedEvaluationPackage, setGovernedEvaluationPackage] = useState<GovernedEvaluationPackage | null>(null);
+  const [verifiedInterpretationContext, setVerifiedInterpretationContext] = useState("");
   const requestedQuery = useMemo(
     () => new URLSearchParams(location.search),
     [location.search]
@@ -429,10 +489,13 @@ export default function Step09_Interpretation() {
   const explanationSequence = useRef(0);
   const effectSequence = useRef(0);
   const boundarySequence = useRef(0);
+  const rfeSequence = useRef(0);
+  const diagnosticsSequence = useRef(0);
   const selectedModelRow = models.find((model) => model.candidate_id === selectedModel);
   const selectedCandidate = selectedModelRow ? candidateFromRow(selectedModelRow) : null;
+  const evaluationModelRow = models.find((model) => model.candidate_id === requestedCandidateId);
   const promotionReadiness = resolvePromotionReadiness(
-    selectedModelRow ?? null,
+    evaluationModelRow ?? null,
     selectionDecision,
     governedEvaluationPackage,
   );
@@ -449,7 +512,6 @@ export default function Step09_Interpretation() {
   const rfeIsRegression = rfeMetric === "rmse" || (!rfeMetric && selectedModelIsRegression);
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
-  const canRunRfe = Boolean(selectedCandidate && evaluationPackageId && promotionReadiness.ready) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
   const requestedContextMatches = Boolean(
     selectedCandidate &&
       requestedEvaluationPackageId &&
@@ -459,14 +521,26 @@ export default function Step09_Interpretation() {
       selectionDecision?.decision_id === requestedCandidateDecisionId &&
       lockedDecisionMatchesCandidate(selectionDecision, selectedModelRow ?? null),
   );
-  const interpretationContextQuery = selectedCandidate && requestedContextMatches
+  const selectedIsEvaluationCandidate = Boolean(requestedContextMatches);
+  const interpretationContextQuery = selectedCandidate && (selectedIsEvaluationCandidate || selectedCandidate.candidate_id !== requestedCandidateId)
     ? (() => {
       const params = candidateRequestParams(selectedCandidate);
-      params.set("evaluation_package_id", requestedEvaluationPackageId);
-      params.set("candidate_decision_id", requestedCandidateDecisionId);
+      if (selectedIsEvaluationCandidate) {
+        params.set("evaluation_package_id", requestedEvaluationPackageId);
+        params.set("candidate_decision_id", requestedCandidateDecisionId);
+      } else {
+        params.set("evidence_scope", "selection_review");
+      }
       return params.toString();
     })()
     : "";
+  const interpretationContextReady = Boolean(
+    interpretationContextQuery && verifiedInterpretationContext === interpretationContextQuery,
+  );
+  const canRunRfe = Boolean(selectedCandidate && interpretationContextReady) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
+  const selectedMetric = selectedModelRow ? verifiedSelectionMetric(selectedModelRow) : null;
+  const selectedRank = selectedModelRow ? models.indexOf(selectedModelRow) + 1 : 0;
+  const selectedFamily = modelFamily(selectedModelRow, selectedModel);
   const rfeCacheScope = useMemo(
     () => `${identityScope}:${interpretationContextQuery}`,
     [identityScope, interpretationContextQuery]
@@ -481,7 +555,11 @@ export default function Step09_Interpretation() {
       setMessage("Promote and verify an exact model version before export.");
       return;
     }
-    window.location.href = `${API_BASE}/model/export?model_version_id=${encodeURIComponent(finalPromotion.modelVersionId)}&format=json&project_id=${encodeURIComponent(projectId)}`;
+    const params = new URLSearchParams();
+    params.set("model_version_id", finalPromotion.modelVersionId);
+    params.set("format", "json");
+    params.set("project_id", projectId);
+    window.location.href = `${API_BASE}/model/export?${params.toString()}`;
   };
 
   useEffect(() => {
@@ -492,6 +570,7 @@ export default function Step09_Interpretation() {
       setSelectedModel("");
       setSelectionDecision(null);
       setGovernedEvaluationPackage(null);
+      setVerifiedInterpretationContext("");
       setMessage(identityError);
       setModelsLoading(false);
       return;
@@ -532,8 +611,9 @@ export default function Step09_Interpretation() {
           setModels([]);
           setSelectedModel("");
           setSelectionDecision(null);
+          setVerifiedInterpretationContext("");
           if (requestedSelection && !requestedCandidateDecisionId) {
-            setMessage("The Evaluation handoff is missing its exact candidate_decision_id. Return to Evaluation and reopen the locked candidate.");
+            setMessage("The Evaluation handoff is missing its exact candidate_decision_id. Return to Evaluation and reopen the Evaluation candidate.");
           }
           return;
         }
@@ -562,11 +642,19 @@ export default function Step09_Interpretation() {
           setModels([]);
           setSelectedModel("");
           setSelectionDecision(null);
-          setMessage("Interpretation requires the exact durable locked candidate decision and verified non-holdout selection evidence. No latest, leaderboard, or browser-state fallback was accepted.");
+          setVerifiedInterpretationContext("");
+          setMessage("Interpretation requires the exact durable Evaluation-candidate decision and verified non-holdout selection evidence. No latest, leaderboard, or browser-state fallback was accepted.");
           return;
         }
+        const currentRunCandidates = ranked.filter((row) => {
+          try {
+            return candidateFromRow(row).training_run_id === exactCandidate.training_run_id;
+          } catch {
+            return false;
+          }
+        });
         setSelectionDecision(locked);
-        setModels([requestedSelection]);
+        setModels(currentRunCandidates);
         setSelectedModel(requestedSelection.candidate_id ?? "");
         if ((data.summary?.ranked ?? []).length && !ranked.length) {
           setMessage("Training results were found, but their exact candidate lineage is incomplete or stale. Retrain under the current governed dataset version.");
@@ -583,6 +671,7 @@ export default function Step09_Interpretation() {
         setSelectedModel("");
         setSelectionDecision(null);
         setGovernedEvaluationPackage(null);
+        setVerifiedInterpretationContext("");
         setMessage(String(err?.message ?? err));
       })
       .finally(() => setModelsLoading(false));
@@ -631,12 +720,14 @@ export default function Step09_Interpretation() {
     if (!selectedCandidate) {
       setEvaluationPackageId("");
       setGovernedEvaluationPackage(null);
+      setVerifiedInterpretationContext("");
       return;
     }
-    if (!requestedContextMatches || !interpretationContextQuery) {
+    if (!interpretationContextQuery) {
       setEvaluationPackageId("");
       setGovernedEvaluationPackage(null);
-      setArtifactContextError("Open Interpretation from the completed Evaluation package for this exact candidate. ATLAS will not infer a package.");
+      setVerifiedInterpretationContext("");
+      setArtifactContextError("Open Interpretation from the completed Evaluation package for the exact Evaluation candidate. ATLAS will not infer its decision or package.");
       return;
     }
     const sequence = explanationSequence.current + 1;
@@ -648,11 +739,32 @@ export default function Step09_Interpretation() {
     setArtifactContextError("");
     setEvaluationPackageId("");
     setGovernedEvaluationPackage(null);
+    setVerifiedInterpretationContext("");
     setImportance([]);
     setShapRows([]);
     setPdp([]);
     setSensitivity([]);
     setSelectedFeature("");
+    setBoundary(null);
+    setBoundaryX("");
+    setBoundaryY("");
+    rfeSequence.current += 1;
+    setRfeRunning(false);
+    diagnosticsSequence.current += 1;
+    setFinalSensitivityRows([]);
+    setVifRows([]);
+    setFinalDiagnosticsReady(false);
+    setDiagnosticsError("");
+    setRfeRows([]);
+    setRfeCurve([]);
+    setRfeError("");
+    setRecommendedCount(null);
+    setBestRfeCount(null);
+    setBestRfeAuc(null);
+    setBestRfeRmse(null);
+    setRfeAucTolerance(null);
+    setRfeRmseTolerance(null);
+    setRfeMetric(null);
     Promise.allSettled([
       getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number; error?: string } & GovernedInterpretationEnvelope>(
         `${API_BASE}/interpretation/importance?${interpretationContextQuery}`
@@ -675,54 +787,77 @@ export default function Step09_Interpretation() {
         const shapRes = shapResult.status === "fulfilled" ? shapResult.value : null;
         const successfulArtifacts = [importanceRes, detailsRes, hyperparameterRes, shapRes]
           .filter((artifact): artifact is NonNullable<typeof artifact> => artifact?.ok === true);
-        const packageIds = successfulArtifacts
-          .map((artifact) => String(artifact.evaluation_package_id ?? "").trim())
-          .filter(Boolean);
-        const mismatchedPackage = packageIds.some((packageId) => packageId !== requestedEvaluationPackageId);
-        if (successfulArtifacts.length && (packageIds.length !== successfulArtifacts.length || mismatchedPackage)) {
-          const packageError = "Interpretation responses do not match the explicit completed evaluation_package_id from Evaluation. Return to Evaluation and review this exact candidate.";
-          setArtifactContextError(packageError);
-          setGovernedEvaluationPackage(null);
-          setEvaluationPackageId("");
-          setMessage(packageError);
-          return;
-        }
-        const packageCandidates = successfulArtifacts
-          .map((artifact) => normalizeGovernedEvaluationPackage(artifact.interpretation_artifact?.evaluation_package))
-          .filter((value): value is GovernedEvaluationPackage => Boolean(value));
-        const exactPackage = packageCandidates.find(
-          (value) => String(value.evaluation_package_id ?? "").trim() === requestedEvaluationPackageId,
-        ) ?? null;
-        const localReadiness = resolvePromotionReadiness(
-          selectedModelRow ?? null,
-          selectionDecision,
-          exactPackage,
-        );
-        if (
-          !successfulArtifacts.length ||
-          packageCandidates.length !== successfulArtifacts.length ||
-          !localReadiness.ready ||
-          localReadiness.evaluationPackageId !== requestedEvaluationPackageId
-        ) {
-          const packageError = localReadiness.reason || "Interpretation did not return the exact verified Evaluation package and holdout-isolation evidence.";
-          setGovernedEvaluationPackage(null);
-          setArtifactContextError(packageError);
-          setEvaluationPackageId("");
-          setMessage(packageError);
-          return;
-        }
-        setGovernedEvaluationPackage(exactPackage);
-        setEvaluationPackageId(requestedEvaluationPackageId);
-        const rows = importanceRes?.rows ?? [];
-        const nextShapRows = shapRes?.rows ?? [];
         const failures = [importanceResult, detailsResult, hyperparameterResult, shapResult]
           .filter((result) => result.status === "rejected")
           .map((result) => String((result as PromiseRejectedResult).reason?.message ?? (result as PromiseRejectedResult).reason));
+        if (!successfulArtifacts.length) {
+          const analysisError = failures.length
+            ? Array.from(new Set(failures)).join(" ")
+            : "No model-specific Interpretation artifacts were returned.";
+          setArtifactContextError(analysisError);
+          setMessage(analysisError);
+          return;
+        }
+        if (selectedIsEvaluationCandidate) {
+          const packageIds = successfulArtifacts
+            .map((artifact) => String(artifact.evaluation_package_id ?? "").trim())
+            .filter(Boolean);
+          const mismatchedPackage = packageIds.some((packageId) => packageId !== requestedEvaluationPackageId);
+          if (packageIds.length !== successfulArtifacts.length || mismatchedPackage) {
+            const packageError = "Interpretation responses do not match the explicit completed evaluation_package_id from Evaluation. Return to Evaluation and review this exact candidate.";
+            setArtifactContextError(packageError);
+            setGovernedEvaluationPackage(null);
+            setEvaluationPackageId("");
+            setMessage(packageError);
+            return;
+          }
+          const packageCandidates = successfulArtifacts
+            .map((artifact) => normalizeGovernedEvaluationPackage(artifact.interpretation_artifact?.evaluation_package))
+            .filter((value): value is GovernedEvaluationPackage => Boolean(value));
+          const exactPackage = packageCandidates.find(
+            (value) => String(value.evaluation_package_id ?? "").trim() === requestedEvaluationPackageId,
+          ) ?? null;
+          const localReadiness = resolvePromotionReadiness(
+            selectedModelRow ?? null,
+            selectionDecision,
+            exactPackage,
+          );
+          if (
+            packageCandidates.length !== successfulArtifacts.length ||
+            !localReadiness.ready ||
+            localReadiness.evaluationPackageId !== requestedEvaluationPackageId
+          ) {
+            const packageError = localReadiness.reason || "Interpretation did not return the exact verified Evaluation package and holdout-isolation evidence.";
+            setGovernedEvaluationPackage(null);
+            setArtifactContextError(packageError);
+            setEvaluationPackageId("");
+            setMessage(packageError);
+            return;
+          }
+          setGovernedEvaluationPackage(exactPackage);
+          setEvaluationPackageId(requestedEvaluationPackageId);
+        } else {
+          const mismatchedSelectionReview = successfulArtifacts.some(
+            (artifact) => !selectionReviewEnvelopeMatches(artifact, selectedCandidate),
+          );
+          if (mismatchedSelectionReview) {
+            const scopeError = "Selection-review responses did not preserve the selected candidate lineage or attempted to claim Evaluation-package authority.";
+            setArtifactContextError(scopeError);
+            setMessage(scopeError);
+            return;
+          }
+          setGovernedEvaluationPackage(null);
+          setEvaluationPackageId("");
+        }
+        setVerifiedInterpretationContext(interpretationContextQuery);
+        const rows = importanceRes?.rows ?? [];
+        const nextShapRows = shapRes?.rows ?? [];
         const contextFailure = failures.find(isArtifactContextError) ?? "";
         if (contextFailure) {
           setArtifactContextError(contextFailure);
           setGovernedEvaluationPackage(null);
           setEvaluationPackageId("");
+          setVerifiedInterpretationContext("");
           setImportance([]);
           setShapRows([]);
           setSelectedFeature("");
@@ -761,14 +896,24 @@ export default function Step09_Interpretation() {
           getJson<TreeResponse>(
             `${API_BASE}/eval/tree?max_depth=4&${interpretationContextQuery}`
           )
-            .then((treeRes) => setTreeStructure(treeRes))
-            .catch((err) => setTreeStructure({ ok: false, error: String(err?.message ?? err) }));
+            .then((treeRes) => {
+              if (explanationSequence.current !== sequence) return;
+              if (!selectedIsEvaluationCandidate && !selectionReviewEnvelopeMatches(treeRes, selectedCandidate)) {
+                setTreeStructure({ ok: false, error: "The tree response did not preserve selection-review scope and exact candidate lineage." });
+                return;
+              }
+              setTreeStructure(treeRes);
+            })
+            .catch((err) => {
+              if (explanationSequence.current === sequence) setTreeStructure({ ok: false, error: String(err?.message ?? err) });
+            });
         }
       })
       .catch((err) => {
         if (explanationSequence.current === sequence) {
           setGovernedEvaluationPackage(null);
           setEvaluationPackageId("");
+          setVerifiedInterpretationContext("");
           setMessage(String(err?.message ?? err));
         }
       })
@@ -778,7 +923,7 @@ export default function Step09_Interpretation() {
   }, [selectedModel, interpretationContextQuery, requestedContextMatches, requestedEvaluationPackageId, requestedCandidateDecisionId, rfeCacheScope, selectionDecision]);
 
   useEffect(() => {
-    if (!selectedCandidate || !selectedFeature || !evaluationPackageId || !interpretationContextQuery || artifactContextError) return;
+    if (!selectedCandidate || !selectedFeature || !interpretationContextReady || !interpretationContextQuery || artifactContextError) return;
     const sequence = effectSequence.current + 1;
     effectSequence.current = sequence;
     setEffectLoading(true);
@@ -786,10 +931,10 @@ export default function Step09_Interpretation() {
     setPdp([]);
     setSensitivity([]);
     Promise.allSettled([
-      getJson<{ ok: boolean; rows?: CurveRow[] }>(
+      getJson<{ ok: boolean; rows?: CurveRow[] } & GovernedInterpretationEnvelope>(
         `${API_BASE}/interpretation/pdp?feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
-      getJson<{ ok: boolean; rows?: SensitivityRow[] }>(
+      getJson<{ ok: boolean; rows?: SensitivityRow[] } & GovernedInterpretationEnvelope>(
         `${API_BASE}/interpretation/sensitivity?feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
     ])
@@ -797,6 +942,18 @@ export default function Step09_Interpretation() {
         if (effectSequence.current !== sequence) return;
         const pdpRes = pdpResult.status === "fulfilled" ? pdpResult.value : null;
         const sensitivityRes = sensitivityResult.status === "fulfilled" ? sensitivityResult.value : null;
+        const fulfilledEffects = [pdpRes, sensitivityRes].filter(
+          (artifact): artifact is NonNullable<typeof artifact> => artifact?.ok === true,
+        );
+        if (
+          !selectedIsEvaluationCandidate &&
+          fulfilledEffects.some((artifact) => !selectionReviewEnvelopeMatches(artifact, selectedCandidate))
+        ) {
+          setPdp([]);
+          setSensitivity([]);
+          setEffectError("Feature-effect responses did not preserve selection-review scope and exact candidate lineage.");
+          return;
+        }
         setPdp(pdpRes?.rows ?? []);
         setSensitivity(sensitivityRes?.rows ?? []);
         const failures = [pdpResult, sensitivityResult]
@@ -807,12 +964,12 @@ export default function Step09_Interpretation() {
       .finally(() => {
         if (effectSequence.current === sequence) setEffectLoading(false);
       });
-  }, [selectedModel, selectedFeature, interpretationContextQuery, evaluationPackageId, artifactContextError]);
+  }, [selectedModel, selectedFeature, interpretationContextQuery, interpretationContextReady, artifactContextError]);
 
   useEffect(() => {
     const sequence = boundarySequence.current + 1;
     boundarySequence.current = sequence;
-    if (!selectedCandidate || !evaluationPackageId || !interpretationContextQuery || artifactContextError) {
+    if (!selectedCandidate || !interpretationContextReady || !interpretationContextQuery || artifactContextError) {
       setBoundary(null);
       return;
     }
@@ -822,6 +979,10 @@ export default function Step09_Interpretation() {
     getJson<BoundaryResponse>(`${API_BASE}/interpretation/decision_boundary?${params.toString()}`)
       .then((data) => {
         if (boundarySequence.current !== sequence) return;
+        if (!selectedIsEvaluationCandidate && !selectionReviewEnvelopeMatches(data, selectedCandidate)) {
+          setBoundary({ ok: false, error: "The decision-boundary response did not preserve selection-review scope and exact candidate lineage." });
+          return;
+        }
         if (!data.ok) {
           setBoundary(data);
           return;
@@ -833,30 +994,100 @@ export default function Step09_Interpretation() {
       .catch((err) => {
         if (boundarySequence.current === sequence) setMessage(String(err?.message ?? err));
       });
-  }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, evaluationPackageId, artifactContextError]);
+  }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, interpretationContextReady, artifactContextError]);
+
+  useEffect(() => {
+    const sequence = diagnosticsSequence.current + 1;
+    diagnosticsSequence.current = sequence;
+    if (!selectedCandidate || !interpretationContextReady || !interpretationContextQuery || artifactContextError) {
+      setFinalSensitivityRows([]);
+      setVifRows([]);
+      setFinalDiagnosticsReady(false);
+      return;
+    }
+    setDiagnosticsError("");
+    Promise.allSettled([
+      getJson<{ ok: boolean; rows?: SensitivitySummaryRow[]; error?: string } & GovernedInterpretationEnvelope>(
+        `${API_BASE}/interpretation/sensitivity_summary?top_n=12&${interpretationContextQuery}`
+      ),
+      getJson<{ ok: boolean; rows?: VifRow[]; error?: string } & GovernedInterpretationEnvelope>(
+        `${API_BASE}/interpretation/vif?${interpretationContextQuery}`
+      ),
+    ]).then(([sensitivityResult, vifResult]) => {
+      if (diagnosticsSequence.current !== sequence) return;
+      const sensitivityRes = sensitivityResult.status === "fulfilled" ? sensitivityResult.value : null;
+      const vifRes = vifResult.status === "fulfilled" ? vifResult.value : null;
+      const fulfilledDiagnostics = [sensitivityRes, vifRes].filter(
+        (artifact): artifact is NonNullable<typeof artifact> => artifact?.ok === true,
+      );
+      if (
+        !selectedIsEvaluationCandidate &&
+        fulfilledDiagnostics.some((artifact) => !selectionReviewEnvelopeMatches(artifact, selectedCandidate))
+      ) {
+        setFinalSensitivityRows([]);
+        setVifRows([]);
+        setFinalDiagnosticsReady(false);
+        setDiagnosticsError("Model diagnostics did not preserve selection-review scope and exact candidate lineage.");
+        return;
+      }
+      setFinalSensitivityRows(sensitivityRes?.rows ?? []);
+      setVifRows(vifRes?.rows ?? []);
+      setFinalDiagnosticsReady(fulfilledDiagnostics.length > 0);
+      const failures = [sensitivityResult, vifResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => String((result as PromiseRejectedResult).reason?.message ?? (result as PromiseRejectedResult).reason));
+      if (failures.length) setDiagnosticsError(Array.from(new Set(failures)).join(" "));
+    });
+  }, [selectedModel, selectedIsEvaluationCandidate, interpretationContextQuery, interpretationContextReady, artifactContextError]);
 
   const featureOptions = useMemo(
     () => Array.from(new Set([...importance, ...shapRows].map((row) => row.feature.replace(/^.*__/, "")))),
     [importance, shapRows]
   );
 
+  const selectModelForInterpretation = (candidateId: string) => {
+    const nextModel = models.find((model) => model.candidate_id === candidateId);
+    if (!nextModel || candidateId === selectedModel) return;
+    const previousModel = selectedModelRow;
+    setSelectedModel(candidateId);
+    setMessage("");
+    logDecision({
+      workflowStep: "Interpretation",
+      actionType: "workflow_setting_changed",
+      subject: "Model under interpretation review",
+      previousValue: previousModel?.candidate_id ?? "none",
+      newValue: {
+        candidate_id: candidateId,
+        model_name: displayModelName(nextModel, nextModel.key),
+        evidence_scope: candidateId === requestedCandidateId ? "evaluation_reporting" : "selection_review",
+      },
+      followStatus: "not_applicable",
+    });
+  };
+
   const runRfe = () => {
-    if (!selectedCandidate || !evaluationPackageId || !interpretationContextQuery || rfeRunning) return;
+    if (!selectedCandidate || !interpretationContextReady || !interpretationContextQuery || rfeRunning) return;
     if (rfeUnsupportedMessage) {
       setRfeError(rfeUnsupportedMessage);
       setMessage(rfeUnsupportedMessage);
       return;
     }
+    const sequence = rfeSequence.current + 1;
+    rfeSequence.current = sequence;
     setRfeRunning(true);
     setMessage("Running RFE with timeout protection. ATLAS limits feature elimination requests so the workflow cannot remain stuck.");
     setRfeError("");
-    getJsonWithTimeout<RfeResult>(
+    getJsonWithTimeout<RfeResult & GovernedInterpretationEnvelope>(
       `${API_BASE}/interpretation/rfe?keep=${rfeKeep}&${interpretationContextQuery}`,
       RFE_TIMEOUT_MS,
       "RFE timed out after 30 seconds. Try a smaller feature set or select a linear, tree, or estimator-compatible model."
     )
       .then((data) => {
+        if (rfeSequence.current !== sequence) return;
         if (!data.ok) throw new Error(data.error ?? "RFE failed.");
+        if (!selectedIsEvaluationCandidate && !selectionReviewEnvelopeMatches(data, selectedCandidate)) {
+          throw new Error("The RFE response did not preserve selection-review scope and exact candidate lineage.");
+        }
         setRfeRows(data.rows ?? []);
         setRfeCurve(data.curve ?? []);
         setRecommendedCount(data.recommended_count ?? null);
@@ -871,15 +1102,20 @@ export default function Step09_Interpretation() {
         saveRfeCache(rfeCacheScope, data, nextKeep);
       })
       .catch((err) => {
+        if (rfeSequence.current !== sequence) return;
         const text = String(err?.message ?? err);
         setRfeError(`RFE could not complete: ${text}`);
         setMessage(`RFE could not complete: ${text}`);
       })
-      .finally(() => setRfeRunning(false));
+      .finally(() => {
+        if (rfeSequence.current === sequence) setRfeRunning(false);
+      });
   };
 
   const loadFinalDiagnostics = async (modelVersionId: string) => {
     if (!selectedCandidate || !evaluationPackageId || !selectionDecision) return;
+    const sequence = diagnosticsSequence.current + 1;
+    diagnosticsSequence.current = sequence;
     const params = candidateRequestParams(selectedCandidate);
     params.set("evaluation_package_id", evaluationPackageId);
     params.set("candidate_decision_id", selectionDecision.decision_id);
@@ -893,6 +1129,7 @@ export default function Step09_Interpretation() {
         `${API_BASE}/interpretation/vif?${params.toString()}`
       ),
     ]);
+    if (diagnosticsSequence.current !== sequence) return;
     if (!sensitivityRes.ok) throw new Error(sensitivityRes.error ?? "Final-model sensitivity failed.");
     if (!vifRes.ok) throw new Error(vifRes.error ?? "Final-model VIF failed.");
     setFinalSensitivityRows(sensitivityRes.rows ?? []);
@@ -930,9 +1167,12 @@ export default function Step09_Interpretation() {
     setSavingFinalModel(true);
     try {
       if (!selectedCandidate) throw new Error("Select one exact governed candidate before promotion.");
+      if (!selectedIsEvaluationCandidate) {
+        throw new Error("Only the exact Evaluation candidate with its completed reporting package can be saved as final. Selection-review candidates cannot be promoted from this page.");
+      }
       if (!evaluationPackageId) throw new Error("Complete Evaluation for this exact candidate before promotion.");
       if (!selectedModelRow || !selectionDecision || !governedEvaluationPackage || !promotionReadiness.ready) {
-        throw new Error(promotionReadiness.reason || "Promotion requires the exact locked decision and verified selection/final-holdout isolation evidence.");
+        throw new Error(promotionReadiness.reason || "Promotion requires the exact Evaluation-candidate decision and verified selection/final-holdout isolation evidence.");
       }
       const promotion = await promoteExactCandidate(
         API_BASE,
@@ -980,13 +1220,14 @@ export default function Step09_Interpretation() {
 
   const heroMetrics: AtlasWorkflowMetric[] = [
     { label: "Project", value: projectName },
-    { label: "Exact Model Under Review", value: models.length.toLocaleString(), tone: models.length ? "info" : "warning" },
+    { label: "Exact Run Candidates", value: models.length.toLocaleString(), tone: models.length ? "info" : "warning" },
     { label: "Comparison Context", value: comparisonModels.length.toLocaleString(), tone: comparisonModels.length ? "info" : "warning" },
     { label: "Selected Model", value: displayModelName(selectedModelRow, selectedModel) || "Not selected" },
+    { label: "Review Scope", value: selectedIsEvaluationCandidate ? "Evaluation evidence" : "Selection review", tone: selectedIsEvaluationCandidate ? "success" : "info" },
     { label: "Problem Type", value: selectedModelIsRegression ? "Regression" : "Classification" },
     { label: "Importance Drivers", value: importance.length.toLocaleString(), tone: importance.length ? "success" : "warning" },
     { label: "RFE Status", value: rfeRows.length ? `${rfeSelectedCount} retained` : "Not run", tone: rfeRows.length ? "info" : "warning" },
-    { label: "Selection Integrity", value: promotionReadiness.ready ? "Verified" : "Blocked", tone: promotionReadiness.ready ? "success" : "warning" },
+    { label: "Promotion Gate", value: selectedIsEvaluationCandidate ? (promotionReadiness.ready ? "Verified" : "Pending") : "Evaluation candidate only", tone: selectedIsEvaluationCandidate && promotionReadiness.ready ? "success" : "warning" },
     { label: "Final Artifact", value: finalModelReady ? "Saved" : "Required", tone: finalModelReady ? "success" : "warning" },
   ];
 
@@ -1042,30 +1283,49 @@ export default function Step09_Interpretation() {
       nextStatusLine="Scoring will use the saved final-model artifact and its retained feature contract."
     >
     <div className="w-full space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Interpretation workspace</div>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">Candidate explanation and final-model control</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Every panel is tied to the selected trained artifact, governed holdout, and current dataset version.
-          </p>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white shadow-sm" data-testid="interpretation-model-workspace">
+        <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">Interpretation workspace</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Review every exact model from this training run</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Choose any candidate to refresh its explanation, effects, diagnostics, and model-specific tables. Only the Evaluation candidate keeps reporting-package evidence and final-model promotion authority.
+            </p>
+          </div>
+          <label className="grid min-w-[min(100%,24rem)] gap-2 text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-sky-200">Model under review</span>
+            <select
+              aria-label="Interpretation model"
+              data-testid="interpretation-model-selector"
+              className="rounded-xl border border-white/20 bg-white px-4 py-3 font-semibold text-slate-950 shadow-sm outline-none ring-sky-400 transition focus:ring-2"
+              value={selectedModel}
+              onChange={(event) => selectModelForInterpretation(event.target.value)}
+              disabled={models.length < 2}
+            >
+              <option value="">Select an exact candidate</option>
+              {models.map((model, index) => {
+                const roles = [
+                  index === 0 ? "Champion" : "",
+                  model.candidate_id === requestedCandidateId ? "Evaluation candidate" : "Selection review",
+                ].filter(Boolean).join(" · ");
+                return (
+                  <option key={model.candidate_id} value={model.candidate_id}>
+                    {index + 1}. {displayModelName(model, model.key)} — {roles}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
         </div>
-        <label className="grid gap-1 text-sm">
-          <span className="text-xs font-medium text-gray-600">Model</span>
-          <select
-            className="rounded-md border px-3 py-2"
-            value={selectedModel}
-            disabled
-          >
-            <option value="">Select an exact candidate</option>
-            {models.map((model) => (
-              <option key={model.candidate_id} value={model.candidate_id}>
-                {displayModelName(model, model.key)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+        <SelectedModelSummary
+          model={selectedModelRow}
+          family={selectedFamily}
+          rank={selectedRank}
+          metric={selectedMetric}
+          isEvaluationCandidate={selectedIsEvaluationCandidate}
+          contextReady={interpretationContextReady}
+        />
+      </section>
 
       {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
       {!selectedCandidate ? (
@@ -1074,11 +1334,11 @@ export default function Step09_Interpretation() {
         </AtlasAttentionPanel>
       ) : null}
 
-      {selectedCandidate && selectionDecision ? (
+      {selectedCandidate && selectionDecision && selectedIsEvaluationCandidate ? (
         <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4" data-testid="interpretation-selection-holdout-provenance">
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Selection and holdout provenance</div>
-          <h2 className="mt-1 text-sm font-semibold text-blue-950">Interpretation is bound to the exact locked candidate</h2>
-          <p className="mt-1 text-xs leading-5 text-blue-900">Candidate selection remains frozen from non-holdout evidence. Final-holdout metrics are reporting-only and cannot change the candidate, features, calibration, or threshold.</p>
+          <h2 className="mt-1 text-sm font-semibold text-blue-950">Evaluation candidate reporting evidence</h2>
+          <p className="mt-1 text-xs leading-5 text-blue-900">The Evaluation candidate remains governed by its durable selection decision. Final-holdout metrics are reporting-only and cannot change the candidate, features, calibration, or threshold.</p>
           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Candidate decision</span><div className="mt-1 break-all">{selectionDecision.decision_id}</div></div>
             <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Selection metric</span><div className="mt-1">{selectionMetricLabel(selectionDecision.selection_metric)}: {selectionDecision.selection_metric.value.toFixed(4)}</div></div>
@@ -1093,7 +1353,7 @@ export default function Step09_Interpretation() {
           <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">Evaluation comparison handoff</div>
           <h2 className="mt-1 text-sm font-semibold text-violet-950">Explicit candidate comparison context</h2>
           <p className="mt-1 text-xs leading-5 text-violet-900">
-            These candidates were explicitly selected in Evaluation and were resolved again from the exact backend training result. The cards contain verified development-selection evidence only. Challenger cards cannot open the final holdout, replace the locked candidate, drive Interpretation analyses, or be promoted from this page.
+            These candidates were explicitly selected in Evaluation and resolved again from the exact backend training result. Use the model selector above to open model-specific selection-review analyses. Comparison candidates cannot open the final holdout, replace the Evaluation candidate, claim its reporting package, or be promoted from this page.
           </p>
           {comparisonHandoffMessage ? (
             <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -1104,7 +1364,8 @@ export default function Step09_Interpretation() {
             {comparisonModels.map((model) => {
               const metric = verifiedSelectionMetric(model);
               if (!metric || !model.candidate_id) return null;
-              const locked = model.candidate_id === selectionDecision?.selected_candidate_id;
+              const isEvaluationCandidate = model.candidate_id === selectionDecision?.selected_candidate_id;
+              const rank = models.findIndex((candidate) => candidate.candidate_id === model.candidate_id) + 1;
               return (
                 <article
                   key={model.candidate_id}
@@ -1113,8 +1374,8 @@ export default function Step09_Interpretation() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold text-slate-950">{displayModelName(model, model.key)}</h3>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${locked ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
-                      {locked ? "Locked candidate" : "Selection-evidence challenger"}
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isEvaluationCandidate ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
+                      {[rank === 1 ? "Champion" : "", isEvaluationCandidate ? "Evaluation candidate" : "Selection review"].filter(Boolean).join(" · ")}
                     </span>
                   </div>
                   <div className="mt-2 break-all font-mono text-[10px] text-slate-500">{model.candidate_id}</div>
@@ -1190,7 +1451,7 @@ export default function Step09_Interpretation() {
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">Feature Importance</h2>
-            <AnalysisScopeBadge loading={explanationLoading} meta={importanceMeta} />
+            <AnalysisScopeBadge loading={explanationLoading} meta={importanceMeta} selectionReview={!selectedIsEvaluationCandidate} />
           </div>
           <p className="mt-1 text-xs text-gray-500">
             {selectedModelIsRegression
@@ -1202,12 +1463,12 @@ export default function Step09_Interpretation() {
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">SHAP Summary</h2>
-            <AnalysisScopeBadge loading={explanationLoading} meta={shapMeta} />
+            <AnalysisScopeBadge loading={explanationLoading} meta={shapMeta} selectionReview={!selectedIsEvaluationCandidate} />
           </div>
           <p className="mt-1 text-xs text-gray-500">
             {selectedModelIsRegression
-              ? "Appropriate for regression: estimates how each feature changes predicted target values on holdout records."
-              : "Model-agnostic replacement impact on held-out predictions. This differs from native feature importance."}
+              ? `Appropriate for regression: estimates how each feature changes predicted target values on ${selectedIsEvaluationCandidate ? "reporting-package" : "development"} records.`
+              : `Model-agnostic replacement impact on ${selectedIsEvaluationCandidate ? "reporting-package" : "development"} predictions. This differs from native feature importance.`}
           </p>
           {explanationErrors.shap ? <AnalysisError text={explanationErrors.shap} /> : <BarTable rows={shapRows} valueKey="importance" color="teal" loading={explanationLoading} />}
         </section>
@@ -1262,7 +1523,7 @@ export default function Step09_Interpretation() {
           <div>
             <h2 className="text-sm font-semibold">Recursive Feature Elimination</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Shows how a bounded surrogate changes across feature counts using the existing held-out results. This is diagnostic analysis only; it cannot select, refit, or alter the candidate promoted as final.
+              Shows how a bounded surrogate changes across feature counts using governed development evidence. This is diagnostic analysis only; it cannot select, refit, or alter the candidate promoted as final.
             </p>
             <p className="mt-2 text-xs leading-5 text-slate-600">
               ATLAS uses a bounded {rfeIsRegression ? "linear" : "logistic"} surrogate for reproducible inspection. If this analysis suggests a different feature set, create and validate that feature contract upstream, then train a new candidate; do not tune the frozen candidate against the final holdout.
@@ -1339,33 +1600,38 @@ export default function Step09_Interpretation() {
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4" data-testid="exact-candidate-promotion">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-3xl">
-            <h2 className="text-sm font-semibold text-emerald-950">Final Model Promotion</h2>
+            <h2 className="text-sm font-semibold text-emerald-950">Final Model Promotion · Evaluation candidate only</h2>
             <p className="mt-1 text-xs leading-5 text-emerald-900">
               Save the exact frozen training candidate and its immutable lineage. RFE results above are analysis-only and do not change the fitted artifact, feature contract, or candidate identity being promoted.
             </p>
-            {selectedCandidate ? (
+            {selectedCandidate && selectedIsEvaluationCandidate ? (
               <p className="mt-2 break-all font-mono text-[11px] text-emerald-800">
                 Candidate {selectedCandidate.candidate_id} · Training run {selectedCandidate.training_run_id}
                 {evaluationPackageId ? ` · Evaluation package ${evaluationPackageId}` : " · Evaluation package required"}
-                {selectionDecision ? ` · Candidate decision ${selectionDecision.decision_id}` : " · Locked decision required"}
+                {selectionDecision ? ` · Candidate decision ${selectionDecision.decision_id}` : " · Evaluation decision required"}
               </p>
             ) : null}
           </div>
           <button
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
-            disabled={!selectedCandidate || !evaluationPackageId || !promotionReadiness.ready || savingFinalModel || Boolean(artifactContextError)}
+            disabled={!selectedCandidate || !evaluationPackageId || !promotionReadiness.ready || !selectedIsEvaluationCandidate || savingFinalModel || Boolean(artifactContextError)}
             onClick={saveExactCandidateAsFinal}
-            title={promotionReadiness.ready ? "Promote the exact locked candidate with verified selection and holdout-isolation evidence." : promotionReadiness.reason}
+            title={!selectedIsEvaluationCandidate ? "Select the Evaluation candidate to save it as final. Selection-review candidates cannot be promoted." : promotionReadiness.ready ? "Promote the exact Evaluation candidate with verified selection and holdout-isolation evidence." : promotionReadiness.reason}
           >
             {savingFinalModel ? "Saving..." : "Save as Final Model"}
           </button>
         </div>
-        {!evaluationPackageId && selectedCandidate ? (
+        {selectedCandidate && !selectedIsEvaluationCandidate ? (
+          <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-950">
+            <span className="font-semibold">Selection review only.</span> This model can be fully interpreted here, but it does not own the Evaluation decision or reporting package. Choose the Evaluation candidate in the selector to use Save as Final Model.
+          </div>
+        ) : null}
+        {selectedIsEvaluationCandidate && !evaluationPackageId && selectedCandidate ? (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
             A completed backend-issued evaluation package is required. Return to Evaluation, review this exact candidate, and then reopen Interpretation.
           </div>
         ) : null}
-        {evaluationPackageId && !promotionReadiness.ready ? (
+        {selectedIsEvaluationCandidate && evaluationPackageId && !promotionReadiness.ready ? (
           <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
             {promotionReadiness.reason}
           </div>
@@ -1420,33 +1686,40 @@ export default function Step09_Interpretation() {
         </div>
       </section>
 
-      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold">Final Model Sensitivity Analysis</h2>
+      <section className="rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Selected Model Sensitivity Analysis</h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">{selectedIsEvaluationCandidate ? "Evaluation reporting" : "Selection review"}</span>
+        </div>
         <p className="mt-1 text-xs text-gray-500">
-          Runs after Save as Final Model and ranks prediction shifts for the exact promoted candidate feature contract.
+          Ranks prediction shifts for the exact model currently selected above and refreshes whenever that selection changes.
         </p>
+        {diagnosticsError ? <AnalysisError text={diagnosticsError} /> : null}
         {finalDiagnosticsReady ? (
           <SensitivitySummaryTable rows={finalSensitivityRows} />
         ) : (
           <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
-            Save the exact frozen candidate as final to generate registered-model sensitivity.
+            Loading sensitivity for the selected model and evidence scope...
           </div>
         )}
-      </section>}
+      </section>
 
-      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold">Variance Inflation Factor</h2>
+      <section className="rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Selected Model Variance Inflation Factor</h2>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">{selectedIsEvaluationCandidate ? "Evaluation reporting" : "Selection review"}</span>
+        </div>
         <p className="mt-1 text-xs text-gray-500">
-          Runs after Save as Final Model and checks multicollinearity across the exact promoted candidate feature contract.
+          Checks multicollinearity across the exact selected candidate feature contract.
         </p>
         {finalDiagnosticsReady ? (
           <VifTable rows={vifRows} />
         ) : (
           <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
-            Save the exact frozen candidate as final to generate VIF diagnostics.
+            Loading VIF diagnostics for the selected model and evidence scope...
           </div>
         )}
-      </section>}
+      </section>
 
     </div>
     </StepShell>
@@ -1460,6 +1733,89 @@ function FocusCard({ title, text }: { title: string; text: string }) {
       <p className="mt-1 text-xs leading-5 text-slate-600">{text}</p>
     </div>
   );
+}
+
+function SelectedModelSummary({
+  model,
+  family,
+  rank,
+  metric,
+  isEvaluationCandidate,
+  contextReady,
+}: {
+  model?: RankedRow;
+  family: ReturnType<typeof modelFamily>;
+  rank: number;
+  metric: SelectionMetricEvidence | null;
+  isEvaluationCandidate: boolean;
+  contextReady: boolean;
+}) {
+  if (!model) return null;
+  return (
+    <div className="border-t border-white/10 bg-white/[0.06] p-5" data-testid="selected-model-summary">
+      <div className="grid gap-4 lg:grid-cols-[180px_1fr]">
+        <div className={`flex min-h-36 items-center justify-center rounded-2xl bg-gradient-to-br ${family.accent} p-4 shadow-inner`}>
+          <ModelFamilyGlyph family={family.key} />
+        </div>
+        <div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xl font-semibold">{displayModelName(model, model.key)}</h3>
+                {rank === 1 ? <span className="rounded-full bg-amber-300 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-950">Champion</span> : null}
+                {isEvaluationCandidate ? <span className="rounded-full bg-emerald-300 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-950">Evaluation candidate</span> : <span className="rounded-full bg-sky-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-950">Selection review</span>}
+              </div>
+              <p className="mt-1 text-sm text-slate-300">{family.label} family · rank {rank || "—"} in this exact training run</p>
+            </div>
+            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${contextReady ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200" : "border-amber-300/40 bg-amber-300/10 text-amber-200"}`}>
+              {contextReady ? "Model evidence loaded" : "Loading exact model evidence"}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-white/[0.07] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Evidence scope</div>
+              <div className="mt-1 text-sm font-semibold">{isEvaluationCandidate ? "Evaluation reporting package" : "Development selection review"}</div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.07] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Verified selection metric</div>
+              <div className="mt-1 text-sm font-semibold">{metric ? `${selectionMetricLabel(metric)} ${metric.value.toFixed(4)}` : "Unavailable"}</div>
+              {metric ? <div className="mt-1 text-[10px] text-slate-400">{metric.source.replaceAll("_", " ")} · {metric.fold_count} folds</div> : null}
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.07] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Task</div>
+              <div className="mt-1 text-sm font-semibold capitalize">{model.task ?? "Supervised"}</div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.07] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Exact candidate</div>
+              <div className="mt-1 truncate font-mono text-[11px]" title={model.candidate_id}>{model.candidate_id}</div>
+              <div className="mt-1 truncate font-mono text-[10px] text-slate-400" title={model.training_run_id}>Run {model.training_run_id}</div>
+            </div>
+          </div>
+          <p className={`mt-4 rounded-xl border px-3 py-2 text-xs leading-5 ${isEvaluationCandidate ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100" : "border-sky-300/30 bg-sky-300/10 text-sky-100"}`}>
+            {isEvaluationCandidate
+              ? "Reporting-package scope: these panels may use the completed Evaluation package. Promotion remains fail-closed until its exact decision, package, and holdout-isolation evidence verify."
+              : "Selection-review scope: these panels use development evidence for comparison and interpretation. They do not open the final holdout, claim an Evaluation package, change the Evaluation candidate, or grant promotion authority."}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelFamilyGlyph({ family }: { family: ModelFamily }) {
+  if (family === "linear") {
+    return <svg viewBox="0 0 120 90" className="h-24 w-32" role="img" aria-label="Linear model family graphic"><path d="M14 73L106 18" fill="none" stroke="white" strokeWidth="6" strokeLinecap="round" /><circle cx="26" cy="65" r="5" fill="white" /><circle cx="51" cy="52" r="5" fill="white" /><circle cx="77" cy="35" r="5" fill="white" /><circle cx="98" cy="24" r="5" fill="white" /></svg>;
+  }
+  if (family === "tree" || family === "ensemble") {
+    return <svg viewBox="0 0 120 90" className="h-24 w-32" role="img" aria-label={`${family === "ensemble" ? "Ensemble" : "Decision tree"} model family graphic`}><path d="M60 16V34M60 34L32 52M60 34L88 52M32 52L20 72M32 52L44 72M88 52L76 72M88 52L100 72" fill="none" stroke="white" strokeWidth="5" strokeLinecap="round" /><g fill="white"><circle cx="60" cy="15" r="7" /><circle cx="32" cy="52" r="6" /><circle cx="88" cy="52" r="6" /><circle cx="20" cy="74" r="5" /><circle cx="44" cy="74" r="5" /><circle cx="76" cy="74" r="5" /><circle cx="100" cy="74" r="5" /></g></svg>;
+  }
+  if (family === "distance") {
+    return <svg viewBox="0 0 120 90" className="h-24 w-32" role="img" aria-label="Distance-based model family graphic"><g fill="white"><circle cx="28" cy="28" r="7" /><circle cx="46" cy="42" r="6" /><circle cx="35" cy="61" r="5" /><circle cx="86" cy="25" r="6" /><circle cx="94" cy="48" r="7" /><circle cx="74" cy="64" r="5" /></g><circle cx="60" cy="45" r="27" fill="none" stroke="white" strokeWidth="3" strokeDasharray="5 5" /></svg>;
+  }
+  if (family === "kernel") {
+    return <svg viewBox="0 0 120 90" className="h-24 w-32" role="img" aria-label="Kernel model family graphic"><path d="M12 70C38 8 72 82 108 20" fill="none" stroke="white" strokeWidth="5" strokeLinecap="round" /><path d="M12 48C42 18 78 74 108 42" fill="none" stroke="white" strokeWidth="2" strokeDasharray="5 5" /></svg>;
+  }
+  return <svg viewBox="0 0 120 90" className="h-24 w-32" role="img" aria-label={`${family} model family graphic`}><circle cx="60" cy="45" r="28" fill="none" stroke="white" strokeWidth="5" /><circle cx="60" cy="45" r="10" fill="white" /><path d="M60 17V8M60 82V73M32 45H20M100 45H88" stroke="white" strokeWidth="5" strokeLinecap="round" /></svg>;
 }
 
 function ModelDetails({ details, tree, forceRegression = false }: { details: DetailResponse | null; tree: TreeResponse | null; forceRegression?: boolean }) {
@@ -1555,7 +1911,7 @@ function KnnClassifierInterpretation({ hyperparameters, selectedName }: { hyperp
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <FocusCard title="Feature scaling dependency" text="KNN is distance based. Standardization or comparable feature scales are usually required before relying on the classifier." />
           <FocusCard title="Nearest-neighbor caveats" text="Local neighborhoods can be unstable in sparse, high-dimensional, or imbalanced data. Review recall, PR-AUC, lift, and calibration." />
-          <FocusCard title="Classification performance" text="Use holdout classification metrics and threshold analysis. Accuracy alone is not sufficient for rare-event targets." />
+          <FocusCard title="Classification performance" text="Use governed classification metrics and threshold analysis. Accuracy alone is not sufficient for rare-event targets." />
           <FocusCard title="Local explanation guidance" text="Explain individual predictions by showing the nearest neighbor mix, distances, and observed class labels when available." />
         </div>
       </section>
@@ -2000,12 +2356,12 @@ function MetricTile({
   );
 }
 
-function AnalysisScopeBadge({ loading, meta }: { loading: boolean; meta: AnalysisMeta }) {
+function AnalysisScopeBadge({ loading, meta, selectionReview }: { loading: boolean; meta: AnalysisMeta; selectionReview: boolean }) {
   const label = loading
-    ? "Computing holdout evidence"
+    ? selectionReview ? "Computing selection-review evidence" : "Computing reporting evidence"
     : meta.method
       ? `${meta.method}${meta.sampleCount ? ` | ${meta.sampleCount.toLocaleString()} rows` : ""}`
-      : "Governed holdout";
+      : selectionReview ? "Development selection review" : "Evaluation reporting package";
   return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${loading ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>{label}</span>;
 }
 
@@ -2044,18 +2400,34 @@ function BarTable({ rows, valueKey, color = "indigo", loading = false }: { rows:
 }
 
 function DecisionBoundaryChart({ boundary }: { boundary: BoundaryResponse | null }) {
+  const clipId = `decision-boundary-${useId().replace(/:/g, "")}`;
   if (!boundary) return <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Loading decision boundary...</div>;
   if (!boundary.ok) return <div className="mt-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{boundary.error ?? "Decision boundary unavailable."}</div>;
-  const grid = boundary.grid ?? [];
-  const points = boundary.points ?? [];
   const [xMin, xMax] = boundary.x_domain ?? [0, 1];
   const [yMin, yMax] = boundary.y_domain ?? [0, 1];
+  if (![xMin, xMax, yMin, yMax].every(Number.isFinite) || xMax <= xMin || yMax <= yMin) {
+    return <div className="mt-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Decision boundary domains are invalid for this model and feature pair.</div>;
+  }
+  const insideDomain = (xValue: number, yValue: number) => (
+    Number.isFinite(xValue) &&
+    Number.isFinite(yValue) &&
+    xValue >= xMin &&
+    xValue <= xMax &&
+    yValue >= yMin &&
+    yValue <= yMax
+  );
+  const grid = (boundary.grid ?? []).filter(
+    (cell) => insideDomain(cell.x, cell.y) && Number.isFinite(cell.score),
+  );
+  const points = (boundary.points ?? []).filter(
+    (point) => insideDomain(point.x, point.y) && Number.isFinite(point.class),
+  );
   const width = 880;
   const height = 430;
   const pad = 54;
   const plotWidth = width - pad - 24;
   const plotHeight = height - pad - 24;
-  const resolution = boundary.resolution ?? 60;
+  const resolution = Math.max(1, boundary.resolution ?? 60);
   const cellW = plotWidth / resolution + 0.5;
   const cellH = plotHeight / resolution + 0.5;
   const x = (value: number) => pad + ((value - xMin) / (xMax - xMin || 1)) * plotWidth;
@@ -2098,32 +2470,43 @@ function DecisionBoundaryChart({ boundary }: { boundary: BoundaryResponse | null
         className="h-[430px] w-full rounded-xl bg-white"
         data-x-feature={boundary.x_feature ?? ""}
         data-y-feature={boundary.y_feature ?? ""}
+        data-visible-grid-cells={grid.length}
+        data-visible-points={points.length}
       >
-        {grid.map((cell, index) => (
-          <rect
-            key={index}
-            x={x(cell.x) - cellW / 2}
-            y={y(cell.y) - cellH / 2}
-            width={cellW}
-            height={cellH}
-            fill={color(cell.score)}
-            opacity={0.92}
-          />
-        ))}
+        <defs>
+          <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+            <path d={`M ${pad} 18 H ${width - 24} V ${height - pad} H ${pad} Z`} />
+          </clipPath>
+        </defs>
+        <g clipPath={`url(#${clipId})`} data-testid="decision-boundary-grid">
+          {grid.map((cell, index) => (
+            <rect
+              key={index}
+              x={x(cell.x) - cellW / 2}
+              y={y(cell.y) - cellH / 2}
+              width={cellW}
+              height={cellH}
+              fill={color(cell.score)}
+              opacity={0.92}
+            />
+          ))}
+        </g>
         <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#64748b" />
         <line x1={pad} y1={18} x2={pad} y2={height - pad} stroke="#64748b" />
-        {points.map((point, index) => (
-          <circle
-            key={index}
-            cx={x(point.x)}
-            cy={y(point.y)}
-            r={3.2}
-            fill={pointColor(point.class)}
-            stroke="#111827"
-            strokeWidth={0.8}
-            opacity={0.88}
-          />
-        ))}
+        <g clipPath={`url(#${clipId})`} data-testid="decision-boundary-points">
+          {points.map((point, index) => (
+            <circle
+              key={index}
+              cx={x(point.x)}
+              cy={y(point.y)}
+              r={3.2}
+              fill={pointColor(point.class)}
+              stroke="#111827"
+              strokeWidth={0.8}
+              opacity={0.88}
+            />
+          ))}
+        </g>
         <text x={width / 2} y={height - 12} textAnchor="middle" className="fill-slate-700 text-[11px]">{boundary.x_feature}</text>
         <text x={16} y={height / 2} textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`} className="fill-slate-700 text-[11px]">{boundary.y_feature}</text>
         <text x={pad} y={height - 34} className="fill-slate-500 text-[10px]">{xMin.toFixed(3)}</text>
@@ -2150,7 +2533,7 @@ function HyperparameterTable({ rows }: { rows: HyperparameterRow[] }) {
 }
 
 function LineChart({ title, rows, feature, loading = false }: { title: string; rows: CurveRow[]; feature: string; loading?: boolean }) {
-  if (loading) return <div className="flex h-[260px] animate-pulse items-center justify-center rounded-xl bg-slate-100 text-sm font-medium text-slate-500">Computing partial dependence on the governed holdout...</div>;
+  if (loading) return <div className="flex h-[260px] animate-pulse items-center justify-center rounded-xl bg-slate-100 text-sm font-medium text-slate-500">Computing partial dependence from the selected evidence scope...</div>;
   if (!rows.length) return <div className="flex h-[260px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-6 text-center text-sm text-gray-500">Select a compatible explained feature to generate partial dependence.</div>;
   const width = 520;
   const height = 260;
@@ -2391,7 +2774,7 @@ function VsiTable({ rows }: { rows: VsiRow[] }) {
 }
 
 function VifTable({ rows }: { rows: VifRow[] }) {
-  if (!rows.length) return <div className="mt-3 text-sm text-gray-500">VIF requires at least two numeric final-model variables.</div>;
+  if (!rows.length) return <div className="mt-3 text-sm text-gray-500">VIF requires at least two numeric variables in the selected model feature contract.</div>;
   const statusClass = (status: VifRow["status"]) => {
     if (status === "pass") return "bg-emerald-50 text-emerald-900 border-emerald-100";
     if (status === "warning") return "bg-amber-50 text-amber-900 border-amber-100";

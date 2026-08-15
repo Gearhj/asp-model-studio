@@ -220,7 +220,7 @@ export default function StepShell({
             currentStep,
             targetStep?.id,
           );
-          const persisted = await saveWorkflowStateToDatabase(completedSnapshot);
+          const persisted = await saveWorkflowStateToDatabase(completedSnapshot, currentStep);
           if (!persisted) {
             throw new Error(DURABLE_WORKFLOW_COMPLETION_ERROR);
           }

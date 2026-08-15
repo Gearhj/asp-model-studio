@@ -179,6 +179,77 @@ test("durable workflow completion does not resolve before the authoritative PUT"
   assert.equal(settled, true);
 });
 
+test("required workflow completion succeeds only when the backend confirms current effective state", async () => {
+  events.length = 0;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      workflowState: {
+        workflowStatus: {
+          effectiveCompletedSteps: ["step12"],
+          effectiveSteps: {
+            step12: {
+              effectiveStatus: "complete",
+              lineageStatus: "current",
+            },
+          },
+        },
+      },
+    }),
+  });
+
+  const ok = await persistence.saveWorkflowStateToDatabase({
+    projectId: "effective-completion-project",
+    modelId: "00005",
+    projectName: "Effective Completion Project",
+    projectType: "predictive-modeling",
+    workflowId: "predictive-modeling",
+    workflowSteps: [{ id: "step12", route: "/step12", status: "complete" }],
+    currentStepId: "step13",
+    hasDataset: true,
+  }, "step12");
+
+  assert.equal(ok, true);
+  assert.equal(events.at(-1)?.detail?.status, "database_saved");
+});
+
+test("HTTP 200 historical workflow status cannot unlock forward navigation", async () => {
+  events.length = 0;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      workflowState: {
+        workflowStatus: {
+          effectiveCompletedSteps: [],
+          effectiveSteps: {
+            step12: {
+              effectiveStatus: "pending",
+              lineageStatus: "stale",
+            },
+          },
+        },
+      },
+    }),
+  });
+
+  const ok = await persistence.saveWorkflowStateToDatabase({
+    projectId: "historical-only-project",
+    modelId: "00006",
+    projectName: "Historical Only Project",
+    projectType: "predictive-modeling",
+    workflowId: "predictive-modeling",
+    workflowSteps: [{ id: "step12", route: "/step12", status: "complete" }],
+    currentStepId: "step13",
+    hasDataset: true,
+  }, "step12");
+
+  assert.equal(ok, false);
+  assert.equal(events.at(-1)?.detail?.status, "database_save_failed");
+  assert.match(events.at(-1)?.detail?.message ?? "", /canonical completion evidence/i);
+});
+
 test("template changes and client-only exports persist explicit backend contracts", async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {

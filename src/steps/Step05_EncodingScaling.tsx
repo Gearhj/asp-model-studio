@@ -1236,6 +1236,7 @@ export default function Step05FeatureEngineering() {
     };
 
     try {
+      let mddSyncWarning = "";
       if (
         dirty ||
         currentManifest.validation_status !== "passed" ||
@@ -1341,15 +1342,22 @@ export default function Step05FeatureEngineering() {
         "Recording durable Feature Engineering evidence",
         () => completeStep(currentManifest),
       );
-      await runStage(
-        "Updating the exact Model Development Document draft",
-        () =>
-          syncFeatureEngineeringMdd(
-            datasetIdentity,
-            evidence,
-            currentManifest,
-          ),
-      );
+      try {
+        await runStage(
+          "Updating the exact Model Development Document draft",
+          () =>
+            syncFeatureEngineeringMdd(
+              datasetIdentity,
+              evidence,
+              currentManifest,
+            ),
+        );
+      } catch (cause) {
+        mddSyncWarning =
+          cause instanceof Error
+            ? cause.message
+            : "ATLAS could not attach the Feature Engineering evidence to the MDD draft.";
+      }
       const documentation = await runStage(
         "Verifying the live preparation and MDD contract",
         () => getPreparationDocumentation(datasetIdentity),
@@ -1366,7 +1374,9 @@ export default function Step05FeatureEngineering() {
       }
       setPreparationDocs(documentation);
       setMessage(
-        "Feature set confirmed. Opening Balance & Split with the exact saved and materialized contract.",
+        mddSyncWarning
+          ? `Feature set confirmed. Opening Balance & Split with the exact saved and materialized contract. MDD draft attachment was deferred: ${mddSyncWarning}`
+          : "Feature set confirmed. Opening Balance & Split with the exact saved and materialized contract.",
       );
       return true;
     } catch (cause) {

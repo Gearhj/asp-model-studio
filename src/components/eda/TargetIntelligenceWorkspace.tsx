@@ -1354,6 +1354,12 @@ function TargetQualitySection({
   const perfect = safeArray<any>(quality.perfect_relationship_candidates);
   const invalid = safeArray<any>(quality.invalid_target_values);
   const unexpected = safeArray<string>(quality.unexpected_target_values);
+  const knownExcludedSources = safeArray<any>(
+    quality.known_deterministic_sources_excluded_upstream,
+  );
+  const knownExcludedSourceNames = knownExcludedSources
+    .map((item) => String(item.field ?? "").trim())
+    .filter(Boolean);
   const blocking = perfect.length > 0;
 
   return (
@@ -1419,7 +1425,13 @@ function TargetQualitySection({
               ) : (
                 <tr>
                   <td className="px-3 py-3 text-sm text-slate-600" colSpan={4} data-testid="leakage-no-signal">
-                    {LEAKAGE_STATE_LABELS.no_signal} -- no field name or structural relationship indicates target leakage.
+                    {knownExcludedSourceNames.length ? (
+                      <>
+                        Known deterministic target source excluded upstream: {knownExcludedSourceNames.join(", ")}. No additional deterministic or suspected leakage candidates were detected among the authorized predictors.
+                      </>
+                    ) : (
+                      <>No deterministic or suspected leakage candidates were detected among the authorized predictors.</>
+                    )}
                   </td>
                 </tr>
               )}

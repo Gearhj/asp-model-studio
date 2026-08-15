@@ -11,7 +11,6 @@ import { buildExperimentalDesignAnalysis, type ExperimentalDesignNodeState } fro
 import {
   requireLocalDatasetCanonicalIdentity,
 } from "./datasetIdentity";
-import { loadCanonicalPreparationBrowserState } from "./preparationGovernance";
 import {
   atlasReportStyles,
   decisionJournalTimelineHtml,
@@ -40,6 +39,71 @@ export type GovernanceReport = {
 function safe(value: unknown, fallback = "Not documented") {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function backendExecutedPreparation(champion: ExperimentRecord | null) {
+  const steps = recordValue(champion?.preprocessingSteps);
+  const exact = Boolean(
+    steps &&
+      steps.authority === "backend_governed_training_execution" &&
+      Number(steps.preprocessingContractVersion ?? 0) === 2 &&
+      String(steps.preprocessingPolicyId ?? "").trim() &&
+      String(steps.preprocessingPolicyHash ?? "").trim(),
+  );
+  if (!exact || !steps) {
+    const unavailable = {
+      "Execution status":
+        "Unavailable — no exact backend-governed preprocessing v2 execution is linked to the champion.",
+    };
+    return {
+      status: "unavailable",
+      missingStrategies: unavailable,
+      outlierMethods: unavailable,
+      balanceMethod: "Not available from backend execution lineage",
+      balanceRatio: "Not available from backend execution lineage",
+      splitStrategy: "Not available from backend execution lineage",
+      kFolds: "",
+      lineage: unavailable,
+    };
+  }
+
+  const outlierPolicy = recordValue(steps.outlierPolicy) ?? {};
+  const missingPolicy = recordValue(steps.missingPolicy) ?? {};
+  const validation = recordValue(steps.validationExecutionPolicy) ?? {};
+  const modelExecution = recordValue(steps.modelGovernedPreprocessing) ?? {};
+  const foldExecution = recordValue(steps.foldLocalExecution) ?? {};
+  return {
+    status: "exact_backend_execution",
+    missingStrategies: missingPolicy,
+    outlierMethods: {
+      "Global method": safe(outlierPolicy.global_method, "NONE"),
+      "Feature methods": recordValue(outlierPolicy.config) ?? {},
+      "Analytical types": recordValue(outlierPolicy.analytical_types) ?? {},
+      "Override rationales": recordValue(outlierPolicy.rationales) ?? {},
+    },
+    balanceMethod: safe(validation.balancing_method, "none"),
+    balanceRatio: safe(validation.minority_share, "Not applicable"),
+    splitStrategy: "Sealed Analysis Partition with approved Validation Design",
+    kFolds: safe(
+      foldExecution.governed_fold_count ?? validation.fold_count,
+      "",
+    ),
+    lineage: {
+      Authority: steps.authority,
+      "Preprocessing contract version": steps.preprocessingContractVersion,
+      "Preprocessing policy ID": steps.preprocessingPolicyId,
+      "Preprocessing policy revision": steps.preprocessingPolicyRevision,
+      "Preprocessing policy hash": steps.preprocessingPolicyHash,
+      "Fold-local execution": foldExecution,
+      "Model preprocessing execution": modelExecution,
+    },
+  };
 }
 
 function formatNumber(value: unknown, digits = 4) {
@@ -242,16 +306,11 @@ function buildSections(): GovernanceSection[] {
     loadExperiments(datasetIdentity),
     problemType,
   );
-  const preparation =
-    loadCanonicalPreparationBrowserState(datasetIdentity);
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
-  const missingStrategies = preparation.missingPolicy;
-  const outlierMethods = {
-    "Global method": preparation.outlierGlobalMethod,
-    "Feature methods": preparation.outlierMethods,
-    "Override rationales": preparation.outlierRationales,
-  };
+  const preparation = backendExecutedPreparation(champion);
+  const missingStrategies = preparation.missingStrategies;
+  const outlierMethods = preparation.outlierMethods;
   const balanceMethod = preparation.balanceMethod;
   const balanceRatio = preparation.balanceRatio;
   const splitStrategy = preparation.splitStrategy;
@@ -323,7 +382,9 @@ function buildSections(): GovernanceSection[] {
         "Data quality:",
         dataQuality
           ? [
-              `- Duplicate rows: ${dataQuality.duplicateRows}`,
+              dataQuality.duplicateContract
+                ? `- Exact duplicates: ${dataQuality.duplicateContract.redundant_duplicate_rows} redundant rows beyond the retained ${dataQuality.duplicateContract.keep_semantics} occurrence; ${dataQuality.duplicateContract.duplicate_participant_rows} participant rows across ${dataQuality.duplicateContract.duplicate_group_count} groups; scope ${dataQuality.duplicateContract.scope}; target ${dataQuality.duplicateContract.target_included ? "included" : "excluded"}.`
+                : `- Exact duplicates: backend definition unavailable; browser value ${dataQuality.duplicateRows} is non-authoritative.`,
               `- Potential leakage columns: ${dataQuality.potentialLeakageColumns.join(", ") || "None detected"}`,
               `- High missing fields: ${dataQuality.missing.slice(0, 5).map((row) => `${row.column} ${formatNumber(row.percent * 100, 2)}%`).join(", ") || "None detected"}`,
             ].join("\n")
@@ -335,6 +396,13 @@ function buildSections(): GovernanceSection[] {
     { title: "Exclusions", content: formatList(excludedFeatures, "No feature exclusions were captured in the decision journal.") },
     { title: "Outlier Strategy", content: formatObject(outlierMethods, "No outlier strategy was captured.") },
     { title: "Missing Value Strategy", content: formatObject(missingStrategies, "No missing-value strategy was captured.") },
+    {
+      title: "Preprocessing Execution Lineage",
+      content: formatObject(
+        preparation.lineage,
+        "No backend-governed preprocessing execution is linked to the champion.",
+      ),
+    },
     {
       title: "Feature Engineering",
       content: [

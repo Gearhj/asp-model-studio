@@ -195,6 +195,17 @@ class NetworkGuardPolicy:
         host_header: str = "",
     ) -> NetworkDecision:
         if str(method).upper() == "CONNECT":
+            connect_target = urlsplit(f"//{str(raw_url).strip()}")
+            try:
+                connect_port = int(connect_target.port or 443)
+            except (TypeError, ValueError):
+                return NetworkDecision(False, "invalid_url", "", "")
+            if (
+                (connect_target.hostname or "").casefold()
+                in {LOOPBACK_HOST.casefold(), "localhost", "::1"}
+                and connect_port in LIVE_ATLAS_PORTS
+            ):
+                return NetworkDecision(False, "live_port", "", "")
             return NetworkDecision(False, "connect_tunnel", "", "")
         if str(upgrade).strip().lower() == "websocket":
             return NetworkDecision(False, "websocket", "", "")
@@ -506,13 +517,31 @@ def start_network_guard(
 
 
 def network_summary_has_violation(summary: Mapping[str, int | bool]) -> bool:
-    """Return whether the browser made a blocked or unavailable contact.
+    """Return whether the browser crossed or could not reach its allowed boundary.
 
     Browser-side disconnects after a successful upstream response are retained
-    as diagnostic evidence but are not network-boundary violations.
+    as diagnostic evidence but are not network-boundary violations. Chromium's
+    deny-proxy CONNECT attempts are likewise retained and blocked before any
+    tunnel exists; they are containment evidence, not successful contacts.
     """
 
-    return int(summary["blocked"]) > 0 or int(summary["upstream_error"]) > 0
+    fatal_reasons = (
+        "live_port",
+        "unexpected_origin",
+        "unexpected_scheme",
+        "frontend_api",
+        "backend_non_api",
+        "websocket",
+        "invalid_url",
+        "upstream_error",
+    )
+    if any(int(summary.get(reason, 0)) > 0 for reason in fatal_reasons):
+        return True
+    classified_blocked = sum(
+        int(summary.get(reason, 0))
+        for reason in (*fatal_reasons[:-1], "connect_tunnel")
+    )
+    return int(summary.get("blocked", 0)) != classified_blocked
 
 
 def create_harness_layout(base_temp: str | Path | None = None) -> HarnessLayout:
@@ -619,6 +648,14 @@ def build_node_environment(
             "ATLAS_E2E_NETWORK_GUARD_PROXY": proxy,
             "ATLAS_E2E_HEADLESS": "0" if headed else "1",
             "ATLAS_E2E_RUN_ID": layout.child.run_id,
+            "ATLAS_E2E_STOP_AFTER_INTERPRETATION": (
+                "1"
+                if os.environ.get(
+                    "ATLAS_E2E_STOP_AFTER_INTERPRETATION", ""
+                ).strip()
+                == "1"
+                else "0"
+            ),
             "E2E_AUDIT_RUN_ID": layout.child.run_id,
             "E2E_AUDIT_DIR": str(layout.screenshots),
             "ATLAS_BROWSER_STORAGE_ROOT": str(layout.browser_profile),

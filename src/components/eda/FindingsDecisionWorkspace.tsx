@@ -21,7 +21,6 @@ import {
   AtlasAttentionPanel,
   AtlasWorkflowSection,
 } from "../ui/AtlasWorkflow";
-import { logDecision } from "../../lib/decisionJournal";
 import {
   EDA_CARRY_FORWARD_DESTINATIONS,
   EDA_FINDING_CATEGORIES,
@@ -29,6 +28,7 @@ import {
   generateEdaFindings,
   resolveFindingDecision,
   type EdaCarryForwardDestination,
+  type EdaDuplicateResolutionAction,
   type EdaFinding,
   type EdaFindingCategory,
   type EdaFindingDecision,
@@ -564,6 +564,36 @@ function ParentFindingDetail({
           data-testid="eda-parent-finding-review-controls"
         >
           <div className="grid gap-3 sm:grid-cols-2">
+            {parent.family === "exact_duplicate_rows" ? (
+              <label className="sm:col-span-2">
+                <span className="atlas-label">Duplicate population resolution</span>
+                <select
+                  className="atlas-input mt-1"
+                  value={decision.resolutionAction ?? "unresolved"}
+                  onChange={(event) =>
+                    onDecision({
+                      ...decision,
+                      resolutionAction: event.target
+                        .value as EdaDuplicateResolutionAction,
+                    })
+                  }
+                  data-testid="eda-duplicate-parent-resolution"
+                >
+                  <option value="unresolved">Choose a population resolution</option>
+                  <option value="retain_current_population">
+                    Retain current population as valid repeated observations
+                  </option>
+                  <option value="exclude_upstream_and_repartition">
+                    Exclude upstream and create a new Analysis Partition
+                  </option>
+                </select>
+                <span className="mt-1 block text-xs leading-5 text-slate-600">
+                  Retention can complete this EDA after rationale is recorded.
+                  Exclusion invalidates the current population and remains blocked
+                  until upstream registration and partition revision are complete.
+                </span>
+              </label>
+            ) : null}
             <label>
               <span className="atlas-label">Governed disposition</span>
               <select
@@ -684,7 +714,6 @@ export default function FindingsDecisionWorkspace({
   const [sort, setSort] = useState<FindingSort>("importance");
   const [selectedId, setSelectedId] = useState<string>("");
   const [selectedParentId, setSelectedParentId] = useState<string>("");
-  const [duplicateMessage, setDuplicateMessage] = useState("");
   const [bulkFamily, setBulkFamily] = useState("");
   const [bulkDisposition, setBulkDisposition] =
     useState<EdaFindingDisposition>("documented");
@@ -816,26 +845,85 @@ export default function FindingsDecisionWorkspace({
     });
   }
 
-  function saveDuplicateDecision() {
-    logDecision({
-      workflowStep: "Exploratory Data Analysis",
-      actionType: "workflow_setting_changed",
-      subject: "Duplicate row treatment",
-      previousValue: "review",
-      newValue: duplicateTreatment,
-      systemRecommendation:
-        "Confirm whether duplicate records represent repeated observations or ingestion duplication before downstream modeling.",
-      userReason:
-        duplicateTreatment === "exclude"
-          ? "Reviewer selected duplicate-row exclusion for downstream preprocessing."
-          : "Reviewer recorded duplicate-row handling decision.",
-    });
+  function acceptRemainingRequiredParentFindings() {
+    const rationale = [
+      ...(state.requiredConditions ?? []),
+      state.commentary,
+      state.overallConclusion,
+    ]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .join("\n");
+    if (!rationale) {
+      setBulkMessage(
+        "Add reviewer commentary or required conditions before applying the summary to unresolved findings.",
+      );
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    const nextDecisions = { ...(state.parentDecisions ?? {}) };
+    const affectedParents: EdaParentFinding[] = [];
+    for (const parent of parentFindings) {
+      if (parent.requirement === "informational" || parent.systemDisposition) {
+        continue;
+      }
+      if (parent.family === "exact_duplicate_rows") {
+        // Duplicate population resolution is intentionally explicit and can
+        // never be inferred from reviewer-summary bulk acceptance.
+        continue;
+      }
+      const current = resolveParentFindingDecision(parent, state);
+      if (
+        !completionEligibility.governance.unresolved_required_parent_ids.includes(
+          parent.parentId,
+        )
+      ) {
+        continue;
+      }
+      if (!parent.allowedDispositions.includes("accepted")) {
+        continue;
+      }
+      nextDecisions[parent.parentId] = {
+        ...current,
+        disposition: "accepted",
+        rationale,
+        destination: current.destination || parent.defaultDestination,
+        transformation: current.transformation || "No transformation",
+        updatedAt: timestamp,
+      };
+      affectedParents.push(parent);
+    }
+    if (!affectedParents.length) {
+      setBulkMessage("No unresolved required parent findings were eligible for this action.");
+      return;
+    }
     onChange({
       ...state,
-      duplicateTreatment,
-      duplicateDecisionSavedAt: new Date().toISOString(),
+      parentDecisions: nextDecisions,
+      bulkDispositionAudit: [
+        ...(state.bulkDispositionAudit ?? []),
+        {
+          actionId: `eda-summary-disposition-${timestamp}`,
+          family: "all_unresolved_required",
+          parentIds: affectedParents.map((parent) => parent.parentId),
+          childIds: affectedParents.flatMap((parent) => [...parent.childIds]),
+          priorStatuses: Object.fromEntries(
+            affectedParents.map((parent) => [
+              parent.parentId,
+              resolveParentFindingDecision(parent, state).disposition,
+            ]),
+          ),
+          newStatus: "accepted",
+          rationale,
+          destination: "",
+          actor: reviewerDisplayName || "Authenticated reviewer",
+          timestamp,
+        },
+      ],
     });
-    setDuplicateMessage("Duplicate-row decision recorded.");
+    setBulkMessage(
+      `${affectedParents.length} unresolved required parent finding${affectedParents.length === 1 ? "" : "s"} accepted with the reviewer summary as rationale.`,
+    );
   }
 
   return (
@@ -909,6 +997,69 @@ export default function FindingsDecisionWorkspace({
           </span>
         </div>
       </AtlasWorkflowSection>
+
+      <section
+        className="overflow-hidden rounded-2xl border border-slate-900 bg-white shadow-sm"
+        data-testid="eda-findings-action-guide"
+        aria-label="EDA findings action guide"
+      >
+        <div className="bg-slate-950 px-5 py-4 text-white">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">
+            What matters on this page
+          </div>
+          <h2 className="mt-1 text-lg font-bold">
+            Review the required finding groups, choose a disposition, then save.
+          </h2>
+        </div>
+        <div className="grid gap-3 p-4 md:grid-cols-3">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-blue-950">
+              <ListChecks size={16} aria-hidden="true" />
+              1. Start with unresolved
+            </div>
+            <p className="mt-1 text-xs leading-5 text-blue-900">
+              The amber unresolved count is the blocker. Open those parent groups first.
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-amber-950">
+              <ClipboardCheck size={16} aria-hidden="true" />
+              2. Pick a disposition
+            </div>
+            <p className="mt-1 text-xs leading-5 text-amber-900">
+              Accept, reject, defer, document, or mark no action required. Add rationale where requested.
+            </p>
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <div className="flex items-center gap-2 text-sm font-bold text-emerald-950">
+              <Save size={16} aria-hidden="true" />
+              3. Save evidence
+            </div>
+            <p className="mt-1 text-xs leading-5 text-emerald-900">
+              Saving records the governed EDA evidence. It does not apply feature treatment or mutate the dataset.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        className="overflow-hidden rounded-2xl border border-indigo-200 bg-indigo-50 shadow-sm"
+        data-testid="eda-finding-disposition-workspace-heading"
+      >
+        <div className="bg-indigo-950 px-5 py-4 text-white">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-200">
+            Finding Disposition Workspace
+          </div>
+          <h2 className="mt-1 text-lg font-bold">
+            Parent findings · Disposition · Bulk actions
+          </h2>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-indigo-100">
+            Work through each required parent finding here. These decisions document
+            what should carry forward; they do not change the dataset or apply
+            treatment automatically.
+          </p>
+        </div>
+      </section>
 
       <section
         className="grid gap-4 xl:grid-cols-[minmax(320px,0.75fr)_minmax(560px,1.25fr)]"
@@ -1421,10 +1572,10 @@ export default function FindingsDecisionWorkspace({
 
       {duplicateFinding ? (
         <AtlasWorkflowSection
-          eyebrow="Legacy workflow preserved"
-          title="Duplicate Row Decision"
-          description="Record how exact duplicates should be handled before downstream preprocessing and model training."
-          tone="warning"
+          eyebrow="Compatibility history"
+          title="Legacy Duplicate Row Decision"
+          description="Read-only history from the retired duplicate control. The exact-duplicate parent finding above is the sole writable authority."
+          tone="neutral"
           className="eda-primary-analysis"
         >
           {/* Compatibility marker: data-testid="eda-duplicate-decision" is
@@ -1432,59 +1583,45 @@ export default function FindingsDecisionWorkspace({
           <div
             data-testid={duplicateDecisionTestId}
             data-decision={duplicateTreatment}
+            data-authority="read-only-legacy-history"
           >
-            <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-              <label>
-                <span className="atlas-label">Duplicate row action</span>
-                <select
-                  className="atlas-input mt-1"
-                  value={duplicateTreatment}
-                  onChange={(event) =>
-                    onChange({
-                      ...state,
-                      duplicateTreatment: event.target
-                        .value as NonNullable<
-                        EdaFindingsReviewState["duplicateTreatment"]
-                      >,
-                      duplicateDecisionSavedAt: undefined,
-                    })
-                  }
-                >
-                  <option value="review">
-                    Review before downstream treatment
-                  </option>
-                  <option value="exclude">
-                    Exclude duplicate rows before downstream modeling
-                  </option>
-                  <option value="keep">
-                    Keep duplicate rows as repeated observations
-                  </option>
-                </select>
-                <span className="mt-1 block text-xs text-slate-600">
-                  This records the EDA decision. Dataset mutation occurs only
-                  through later governed preprocessing evidence.
-                </span>
-              </label>
-              <button
-                type="button"
-                className="atlas-primary-button"
-                onClick={saveDuplicateDecision}
-              >
-                Save duplicate-row decision
-              </button>
-            </div>
-            {duplicateMessage ? (
-              <div className="mt-3 text-sm font-medium text-emerald-700">
-                {duplicateMessage}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="font-semibold text-slate-950">
+                Historical value: {duplicateTreatment.replace(/_/g, " ")}
               </div>
-            ) : null}
+              <div className="mt-1 text-xs leading-5 text-slate-600">
+                {state.duplicateDecisionSavedAt
+                  ? `Recorded ${state.duplicateDecisionSavedAt}.`
+                  : "No saved legacy decision exists."}{" "}
+                This value cannot satisfy completion and cannot be edited here.
+              </div>
+            </div>
           </div>
         </AtlasWorkflowSection>
       ) : null}
 
+      <section
+        className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm"
+        data-testid="eda-reviewer-summary-heading"
+      >
+        <div className="bg-slate-950 px-5 py-4 text-white">
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-300">
+            EDA Reviewer Summary
+          </div>
+          <h2 className="mt-1 text-lg font-bold">
+            Overall conclusion · Reviewer comments · Conditions · Overall status · Save to Evidence
+          </h2>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-200">
+            Use this area for the phase-level sign-off after the parent findings
+            are dispositioned. The Continue button requires this summary plus an
+            Accepted or Accepted with Conditions status.
+          </p>
+        </div>
+      </section>
+
       <AtlasWorkflowSection
         eyebrow="Reviewer record"
-        title="Conclusion and Status"
+        title="Overall conclusion, comments, conditions, and status"
         description="Completion requires an expert conclusion, commentary, eligible required parent dispositions, and an Accepted or Accepted with Conditions status. A generated draft is optional, editable, and never approving."
         tone="neutral"
       >
@@ -1615,6 +1752,18 @@ export default function FindingsDecisionWorkspace({
           >
             <Save size={15} aria-hidden="true" /> Save to Evidence Center
           </button>
+          {!completionEligibility.eligible &&
+          completionEligibility.governance.unresolved_parent_finding_count ? (
+            <button
+              type="button"
+              className="atlas-secondary-button border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+              onClick={acceptRemainingRequiredParentFindings}
+              data-testid="eda-accept-unresolved-parent-findings"
+            >
+              <CheckCircle2 size={15} aria-hidden="true" />
+              Apply summary to unresolved findings
+            </button>
+          ) : null}
           {state.reviewerDraftGeneratedAt ? (
             <span
               className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800"

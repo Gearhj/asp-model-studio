@@ -45,10 +45,11 @@ test("Outliers uses one inline apply action and clips capped evidence", () => {
   assert.doesNotMatch(table, />Type</);
 });
 
-test("Missing Values exposes live count, rate, and imputed value", () => {
+test("Missing Values separates live counts from treatment and reference values", () => {
   assert.match(missing, />Missing</);
   assert.match(missing, />Missing rate</);
-  assert.match(missing, />Imputed value</);
+  assert.match(missing, /Treatment \/ reference value/);
+  assert.match(missing, /Inactive planning value/);
   assert.match(missing, /projectedImputationValue\(/);
   assert.match(missing, /data-testid=\{`missing-imputed-value-\$\{column\.name\}`\}/);
   assert.match(missing, /Missingness and Imputation Map/);

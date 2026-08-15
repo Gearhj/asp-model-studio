@@ -643,18 +643,40 @@ class CanonicalDatasetIdentityTests(unittest.TestCase):
         )
         self.assertEqual(outlier_summary.status_code, 200, outlier_summary.text)
         self.assertEqual(outlier_summary.json()["dataset_version_id"], version_id)
+        preprocessing_lineage = outlier_summary.json()["preprocessing_lineage"]
+        preprocessing_mutation_authority = {
+            "preprocessing_contract_version": outlier_summary.json()[
+                "preprocessing_contract_version"
+            ],
+            "analysis_partition_id": preprocessing_lineage[
+                "analysis_partition_id"
+            ],
+            "analysis_partition_revision": preprocessing_lineage[
+                "analysis_partition_revision"
+            ],
+            "expected_predictor_authorization_id": preprocessing_lineage[
+                "predictor_authorization_id"
+            ],
+            "expected_special_value_review_id": preprocessing_lineage.get(
+                "special_value_review_id"
+            ),
+            "expected_special_value_review_revision": preprocessing_lineage.get(
+                "special_value_review_revision", 0
+            ),
+        }
         outlier_apply = client.post(
             "/api/outliers/apply",
             json={
                 "project_id": project_id,
                 "target": "bad_flag",
                 "problem_type": "classification",
-                "global_method": "IQR_1_5",
+                "global_method": "NONE",
                 "config": {
-                    "predictor_a": "USE_GLOBAL",
-                    "predictor_b": "USE_GLOBAL",
+                    "predictor_a": "NONE",
+                    "predictor_b": "NONE",
                 },
                 "acknowledged_high_impact": True,
+                **preprocessing_mutation_authority,
                 **expected,
             },
         )
@@ -669,6 +691,7 @@ class CanonicalDatasetIdentityTests(unittest.TestCase):
             json={
                 "project_id": project_id,
                 "problem_type": "classification",
+                **preprocessing_mutation_authority,
                 **expected,
             },
         )

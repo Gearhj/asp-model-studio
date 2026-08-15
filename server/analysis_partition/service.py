@@ -16,6 +16,10 @@ from ..persistence.repositories.analysis_partition_repository import (
     AnalysisPartitionStateError,
 )
 from ..persistence.service import get_persistence_service
+from ..preprocessing.execution_contract import (
+    PreprocessingContractError,
+    validate_final_preprocessing_artifact,
+)
 from .types import (
     ANALYSIS_PARTITION_CONTRADICTORY,
     ANALYSIS_PARTITION_DOCUMENTATION_PENDING,
@@ -2267,6 +2271,90 @@ class AnalysisPartitionService:
                 compatibility
             )
         return X_dev, X_holdout, y_dev, y_holdout
+
+    def materialize_final_holdout(
+        self,
+        store: Any,
+        record: Mapping[str, Any],
+        selected_features: Iterable[str],
+        *,
+        candidate_decision_id: str,
+        final_preprocessing_artifact: Mapping[str, Any],
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """Open only the exact holdout at the locked reporting boundary."""
+
+        if not _text(candidate_decision_id):
+            raise AnalysisPartitionError(
+                ANALYSIS_PARTITION_INTEGRITY_FAILED,
+                "A locked candidate decision is required before final-holdout materialization.",
+                recovery="Lock the candidate and complete the final Development Population fit first.",
+                identifiers=_record_identifiers(record),
+            )
+        try:
+            validate_final_preprocessing_artifact(
+                final_preprocessing_artifact,
+                {},
+                candidate_decision_id=candidate_decision_id,
+            )
+        except PreprocessingContractError:
+            raise AnalysisPartitionError(
+                ANALYSIS_PARTITION_INTEGRITY_FAILED,
+                "The final Development-fitted preprocessing artifact is missing or does not match the locked decision.",
+                recovery="Recreate the final Development Population fit without opening the holdout.",
+                identifiers=_record_identifiers(record),
+            )
+        compatibility = self.target_authority_compatibility(record)
+        frame, target = self._validate_frame_structure(
+            store, record, raw_only=False
+        )
+        features = _authorized_predictors(store, selected_features)
+        missing = [name for name in features if name not in frame.columns]
+        if missing:
+            raise AnalysisPartitionError(
+                PREDICTOR_AUTHORIZATION_REQUIRED,
+                "Final-holdout predictors do not match the locked model feature contract.",
+                recovery="Rebuild and retrain from the exact current Analysis Partition.",
+                identifiers={
+                    **_record_identifiers(record),
+                    "missing_features": missing,
+                },
+            )
+        assignments = record.get("row_assignments_json")
+        if not isinstance(assignments, dict):
+            raise AnalysisPartitionError(
+                ANALYSIS_PARTITION_INTEGRITY_FAILED,
+                "Durable final-holdout row assignments are unavailable.",
+                recovery="Restore the exact durable Analysis Partition; never redraw membership.",
+                identifiers=_record_identifiers(record),
+            )
+        holdout = [int(item) for item in assignments["holdout_positions"]]
+        expected_fingerprint = _text(
+            assignments.get("holdout_target_fingerprint")
+        )
+        native_v2 = compatibility["lineage_contract"] == "analysis_partition_v2"
+        if (
+            native_v2 and not expected_fingerprint
+        ) or (
+            expected_fingerprint
+            and _target_membership_fingerprint(frame, target, holdout)
+            != expected_fingerprint
+        ):
+            raise AnalysisPartitionError(
+                ANALYSIS_PARTITION_INTEGRITY_FAILED,
+                "Final-holdout target membership failed checksum validation.",
+                recovery="Restore the exact registered dataset version; do not redraw the holdout.",
+                identifiers=_record_identifiers(record),
+            )
+        X_holdout = frame.iloc[holdout].loc[:, features].copy()
+        y_holdout = frame.iloc[holdout].loc[:, target].copy()
+        y_holdout.name = target
+        X_holdout.attrs["analysis_partition_compatibility"] = dict(
+            compatibility
+        )
+        y_holdout.attrs["analysis_partition_compatibility"] = dict(
+            compatibility
+        )
+        return X_holdout, y_holdout
 
     def invalidate(
         self,

@@ -18,6 +18,7 @@ import {
 } from "react";
 import { ATLAS_MOTION_TOKENS } from "../../../visual-intelligence/motion";
 import { useReducedMotion } from "../../../visual-intelligence/useReducedMotion";
+import { resolveVifSimulatorCandidate } from "../../../lib/vifSimulatorSelection";
 import type {
   VifResolutionDecisionRequest,
   VifResolutionInputs,
@@ -55,15 +56,47 @@ export type VifSimulationResult = {
   currentMaterialReviewCount?: number | null;
   materialReviewCount?: number | null;
   rows?: VifRow[];
+  candidateState?: {
+    status: "preview_only";
+    candidateExcludedFeature: string;
+    remainingPredictors: string[];
+    committed: false;
+    mutationPerformed: false;
+  };
 };
 
 export type VifScope = {
   scope?: string;
   analysis_scope?: string;
   population_rows?: number;
+  development_population_rows?: number;
   complete_case_rows?: number;
   rows_used?: number;
+  vif_eligible_rows?: number;
   rows_excluded?: number;
+  excluded_rows?: number;
+  coverage_rate?: number;
+  vif_coverage_rate?: number;
+  low_coverage_threshold?: number;
+  low_coverage?: boolean;
+  low_coverage_warning?: string | null;
+  calculation_stage?: string;
+  preliminary_or_final?: string;
+  may_authorize_automatic_exclusion?: boolean;
+  event_coverage?: {
+    included_event_rows?: number;
+    included_non_event_rows?: number;
+    included_event_rate?: number | null;
+    excluded_event_rows?: number;
+    excluded_non_event_rows?: number;
+    excluded_event_rate?: number | null;
+  };
+  exclusion_breakdown?: {
+    rows_with_true_null?: number;
+    rows_with_bureau_special_value?: number;
+    rows_with_parse_failure_or_non_finite?: number;
+    rows_with_multiple_exclusion_reasons?: number;
+  };
   exclusion_reasons?: string[];
   special_value_representation?: string;
   missing_value_treatment?: string;
@@ -391,8 +424,9 @@ export default function VifExplorer({
     ...preparedRows.map((row) => row.numericVif ?? 0),
   );
   const scaleMaximum = Math.min(50, Math.max(12, Math.ceil(finiteMaximum * 1.08)));
-  const selectedPrepared = preparedRows.find(
-    (row) => normalizedName(row.featureName) === normalizedName(selectedVariable ?? ""),
+  const selectedPrepared = resolveVifSimulatorCandidate(
+    preparedRows,
+    selectedVariable,
   );
   const activeVariable = selectedPrepared?.featureName ?? null;
   const motionSignature = preparedRows
@@ -637,15 +671,13 @@ export default function VifExplorer({
               data-testid="vif-scope-badge"
               title={
                 scope
-                  ? `Development Population: ${Number(scope.complete_case_rows ?? 0).toLocaleString()} eligible complete rows before the deterministic ${Number(scope.maximum_rows ?? 0).toLocaleString()}-row cap; ${Number(scope.rows_excluded ?? 0).toLocaleString()} rows excluded; final holdout excluded`
+                  ? `Development Population: ${Number(scope.development_population_rows ?? scope.population_rows ?? 0).toLocaleString()} rows; ${Number(scope.vif_eligible_rows ?? scope.rows_used ?? 0).toLocaleString()} complete-case VIF-eligible rows (${((scope.vif_coverage_rate ?? scope.coverage_rate ?? 0) * 100).toFixed(1)}% coverage); ${Number(scope.excluded_rows ?? scope.rows_excluded ?? 0).toLocaleString()} rows excluded; final holdout excluded`
                   : "Backend-bounded VIF computation"
               }
             >
               {scope
-                ? `Development Population · ${Number(scope.rows_used ?? 0).toLocaleString()} rows${
-                    scope.sampled ? " · sampled" : " · complete cases"
-                  }`
-                : "Development Population · bounded backend computation"}
+                ? `Development Population · ${Number(scope.vif_eligible_rows ?? scope.rows_used ?? 0).toLocaleString()} eligible · ${((scope.vif_coverage_rate ?? scope.coverage_rate ?? 0) * 100).toFixed(1)}% coverage`
+                : "Development Population · backend computation"}
             </span>
             {selectedVariable ? (
               <button
@@ -670,8 +702,56 @@ export default function VifExplorer({
         </div>
       </header>
 
+      {scope?.low_coverage && scope.low_coverage_warning ? (
+        <div
+          className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950 sm:px-5"
+          data-testid="vif-low-coverage-warning"
+        >
+          {scope.low_coverage_warning} This preliminary EDA diagnostic never
+          authorizes automatic predictor exclusion.
+        </div>
+      ) : null}
+
       <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_minmax(330px,0.75fr)]">
         <div className="min-w-0 border-b border-slate-200 p-4 sm:p-5 xl:border-b-0 xl:border-r">
+          <div
+            className="mb-4 grid gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-blue-950 lg:grid-cols-3"
+            data-testid="vif-guidance-panel"
+          >
+            <div>
+              <div className="font-bold uppercase tracking-wide text-blue-800">
+                How to read VIF
+              </div>
+              <p className="mt-1">
+                VIF estimates how strongly a predictor can be explained by the
+                other predictors. Values under 3 are usually low concern; 3–5
+                is a light review range; 5–10 suggests redundancy for linear or
+                scorecard models; 10+ needs material review.
+              </p>
+            </div>
+            <div>
+              <div className="font-bold uppercase tracking-wide text-blue-800">
+                What to do
+              </div>
+              <p className="mt-1">
+                Do not drop variables from this screen automatically. Select a
+                variable, inspect its strongest partners, then document whether
+                to retain, drop, combine, or defer the issue for Feature
+                Engineering.
+              </p>
+            </div>
+            <div>
+              <div className="font-bold uppercase tracking-wide text-blue-800">
+                Model-family impact
+              </div>
+              <p className="mt-1">
+                VIF pruning matters most for linear and scorecard models. Most
+                tree-based models tolerate correlated predictors, so high VIF is
+                usually governance evidence unless it harms stability,
+                interpretability, or production availability.
+              </p>
+            </div>
+          </div>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               ["Analyzed", preparedRows.length, "border-slate-200 bg-slate-50 text-slate-800"],
@@ -1099,6 +1179,12 @@ export default function VifExplorer({
                   {simulationState.status === "success" ? (
                     <div data-testid="vif-simulation-comparison" className="space-y-2">
                       <p>{simulationState.result?.summary ?? `Temporary simulation completed for ${simulationState.variable}.`}</p>
+                      {simulationState.result?.candidateState ? (
+                        <p className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 font-semibold text-blue-900">
+                          Preview only: {simulationState.result.candidateState.candidateExcludedFeature} is
+                          excluded from this candidate calculation only; no governed state was committed.
+                        </p>
+                      ) : null}
                       <div className="grid grid-cols-2 gap-2">
                         <div className="rounded-lg border border-slate-200 bg-white p-2">
                           <span className="block font-bold uppercase tracking-wide text-slate-500">Current governed set</span>

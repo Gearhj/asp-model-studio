@@ -90,6 +90,30 @@ export type EdaBulkDispositionAction = {
   mutation_applied: false;
 };
 
+export type EdaCompletionContract = {
+  contract_version: string;
+  contract_id: string;
+  contract_hash: string;
+  population_contract_id: string;
+  duplicate_authority: {
+    parent_id: string;
+    scope: "development_population";
+    duplicate_rows: number | null;
+    writable_source: "governed_parent_finding";
+    legacy_duplicate_decision: "read_only_compatibility_history";
+    resolution_actions: Array<
+      "retain_current_population" | "exclude_upstream_and_repartition"
+    >;
+  };
+  exclude_upstream_and_repartition: {
+    allowed_in_current_confirmation: false;
+    requires_registered_population_revision: true;
+    requires_analysis_partition_revision: true;
+    current_analysis_partition_id: string;
+    current_analysis_partition_revision: number | null;
+  };
+};
+
 export type EdaMddStaleness = {
   stale_sections: Array<{
     section: EdaDocumentationSectionKey;
@@ -131,6 +155,7 @@ export type EdaDocumentationPayload = {
   reviewer_record?: EdaDocumentationReviewerRecord;
   bulk_disposition_actions?: EdaBulkDispositionAction[];
   performance_metadata: Record<string, unknown>;
+  completion_contract?: EdaCompletionContract | Record<string, unknown>;
   duplicate_decision?: string | null;
   target_source_exclusions: string[];
   unresolved_blocking_findings: string[];

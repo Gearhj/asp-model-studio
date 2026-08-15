@@ -110,8 +110,13 @@ test("9-13 prerequisite-first entry, verified continuation, deep links, and proj
 });
 
 test("14-15 target-directed EDA materializes development only and proves holdout non-access", () => {
-  assert.match(handoff, /payload\.scope !== "development_population"/);
-  assert.match(handoff, /finalHoldoutAccessed !== false/);
+  assert.match(handoff, /registeredStructuralOverview/);
+  assert.match(handoff, /targetDirectedScope !== "development_population"/);
+  assert.match(handoff, /targetDirectedRows !== handoff\.context\.analysis_partition\.development_rows/);
+  assert.match(handoff, /finalHoldoutTargetAccessed !== false/);
+  assert.match(handoff, /final_holdout_parameter_influence !== false/);
+  assert.match(handoff, /final_holdout_used_for_selection !== false/);
+  assert.match(handoff, /final_holdout_transformed_or_materialized_prelock !== false/);
   assert.match(handoff, /sealed_final_holdout_excluded/);
   assert.match(workspaceService, /analysis_partition_service\.materialize_development\(/);
   assert.match(workspaceService, /"final_holdout_accessed": False/);

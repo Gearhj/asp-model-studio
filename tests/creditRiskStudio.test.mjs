@@ -930,7 +930,7 @@ test("Credit Risk Studio overlays remain inside real Feature Engineering, Traini
   assert.doesNotMatch(training, /Mark Complete &amp; Go to Evaluation|Mark Complete & Go to Evaluation/);
   ["AUC", "PR-AUC", "Lift, Gain, and Capture", "RMSE"].forEach((label) => assert.match(evaluation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.doesNotMatch(evaluation, /Mark Complete &amp; Interpret Model|Mark Complete & Interpret Model/);
-  ["Feature Importance", "RFE", "Final Model Sensitivity Analysis"].forEach((label) => assert.match(interpretation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+  ["Feature Importance", "RFE", "Selected Model Sensitivity Analysis"].forEach((label) => assert.match(interpretation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(interpretation, /getNextStepPath\("step09"\)/);
   assert.match(interpretation, /nextPath=\{getNextStepPath\("step09"\)\}/);
   assert.match(scoring, /data-testid="train-scoring-zone"[\s\S]*title="Development TRAIN output"/);

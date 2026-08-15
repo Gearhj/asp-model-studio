@@ -60,6 +60,16 @@ type DistributionBin = {
   event_rate: number | null;
 };
 
+type TargetOverlayBin = {
+  key: string;
+  bin: number;
+  lower: number;
+  upper: number;
+  event_count: number | null;
+  non_event_count: number | null;
+  event_rate: number | null;
+};
+
 type DistributionMetrics = {
   active: boolean;
   minimum: number | null;
@@ -150,6 +160,7 @@ type DistributionResponse = {
     iv_contribution: number;
     missing: boolean;
   }>;
+  class_boxplots?: BoxPlotSeries[];
   predictor_authorization?: {
     manifest_version: string;
     authorized_predictors: string[];
@@ -256,6 +267,57 @@ function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function parseIvBinRange(label: string, fallbackIndex: number): { lower: number; upper: number } | null {
+  const matches = String(label)
+    .match(/-?\d+(?:\.\d+)?/g)
+    ?.map((value) => Number(value))
+    .filter(Number.isFinite);
+  if (!matches?.length) return null;
+  if (matches.length >= 2) {
+    const lower = Math.min(matches[0], matches[1]);
+    const upper = Math.max(matches[0], matches[1]);
+    return { lower, upper };
+  }
+  const value = matches[0];
+  const offset = Math.max(0.000001, Math.abs(value) * 0.000001, fallbackIndex * 0.000001);
+  return { lower: value - offset, upper: value + offset };
+}
+
+function buildTargetOverlayBins(data: DistributionResponse): TargetOverlayBin[] {
+  const histogramTargetEvidence = data.bins.filter(
+    (row) =>
+      finite(row.event_rate) ||
+      finite(row.event_count) ||
+      finite(row.non_event_count),
+  );
+  if (histogramTargetEvidence.length) {
+    return data.bins.map((row) => ({
+      key: row.key,
+      bin: row.bin,
+      lower: row.lower,
+      upper: row.upper,
+      event_count: row.event_count,
+      non_event_count: row.non_event_count,
+      event_rate: row.event_rate,
+    }));
+  }
+  return data.iv_by_bin
+    .map((row, index) => {
+      const range = parseIvBinRange(row.label, index + 1);
+      if (!range) return null;
+      return {
+        key: row.label,
+        bin: index,
+        lower: range.lower,
+        upper: range.upper,
+        event_count: finite(row.event_count) ? row.event_count : null,
+        non_event_count: finite(row.non_event_count) ? row.non_event_count : null,
+        event_rate: finite(row.event_rate) ? row.event_rate : null,
+      };
+    })
+    .filter(Boolean) as TargetOverlayBin[];
+}
+
 function governedMissingRate(data: DistributionResponse | null): number | null {
   const population = Number(data?.analysis_scope?.fullGovernedPopulationRows ?? 0);
   if (population <= 0) return null;
@@ -265,6 +327,9 @@ function governedMissingRate(data: DistributionResponse | null): number | null {
 function distributionBoxPlotSeries(
   data: DistributionResponse | null,
 ): BoxPlotSeries[] {
+  if (data?.problem_type === "classification" && data.class_boxplots?.length) {
+    return data.class_boxplots;
+  }
   const statistics = data?.statistics;
   if (
     !statistics ||
@@ -423,7 +488,6 @@ export default function PredictorDistributionExplorer({
   const [reload, setReload] = useState(0);
   const [showDensity, setShowDensity] = useState(true);
   const [showEventRate, setShowEventRate] = useState(problemType === "classification");
-  const [showTargetClass, setShowTargetClass] = useState(false);
   const [showOutliers, setShowOutliers] = useState(false);
   const [showIv, setShowIv] = useState(true);
   const [quantileDisplayMode, setQuantileDisplayMode] = useState<
@@ -700,7 +764,7 @@ export default function PredictorDistributionExplorer({
             </h3>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
               Distribution, statistical markers, missingness, and outlier bounds use the Full
-              Governed Population. IV, WoE, event rates, and target-class overlays use the
+              Governed Population. IV, WoE, and event-rate overlays use the
               Development Population; the sealed final holdout is excluded.
             </p>
           </div>
@@ -716,6 +780,16 @@ export default function PredictorDistributionExplorer({
             </span>
           </div>
         </div>
+        {showEventRate && problemType === "classification" ? (
+          <div
+            className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-950"
+            data-testid="eda-target-class-overlay-guidance"
+          >
+            <strong>Event rate</strong> is the single orange Development Population
+            rate-by-bin line on the right axis. Each bin label shows the event-rate
+            percentage for that histogram bar.
+          </div>
+        ) : null}
       </div>
 
       <div className="border-b border-slate-200 bg-slate-50/80 p-4">
@@ -759,12 +833,6 @@ export default function PredictorDistributionExplorer({
             label="Event rate (Development)"
             checked={showEventRate}
             onChange={setShowEventRate}
-            disabled={problemType !== "classification"}
-          />
-          <OverlayToggle
-            label="Target classes"
-            checked={showTargetClass}
-            onChange={setShowTargetClass}
             disabled={problemType !== "classification"}
           />
           <OverlayToggle
@@ -813,7 +881,6 @@ export default function PredictorDistributionExplorer({
           reducedMotion={reducedMotion}
           showDensity={showDensity}
           showEventRate={showEventRate}
-          showTargetClass={showTargetClass}
           showOutliers={showOutliers}
           hoveredBin={hoveredBin}
           onHover={handleHover}
@@ -827,12 +894,24 @@ export default function PredictorDistributionExplorer({
         {boxPlotSeries.length ? (
           <div className="mt-4">
             <StatisticalBoxPlot
-              title={`${variable} box plot`}
-              subtitle="The box shows Q1 to Q3, the center line is the median, and the whiskers use the backend IQR fences clipped to the observed range."
+              title={
+                problemType === "classification" && boxPlotSeries.length > 1
+                  ? `${variable} by target class`
+                  : `${variable} box plot`
+              }
+              subtitle={
+                problemType === "classification" && boxPlotSeries.length > 1
+                  ? "Two exact Development Population box plots compare Event (1) and Non-event (0). The sealed final holdout is excluded."
+                  : "The box shows Q1 to Q3, the center line is the median, and the whiskers use the backend IQR fences clipped to the observed range."
+              }
               series={boxPlotSeries}
               valueLabel={variable}
               dataTestId="eda-predictor-box-plot"
-              note="Rose endpoints mark the observed minimum and maximum. Box-plot statistics and the reported outlier count use the Full Governed Population; no raw predictor values are loaded into the browser."
+              note={
+                problemType === "classification" && boxPlotSeries.length > 1
+                  ? "Class-segmented box-plot statistics are aggregated on the server from the Development Population; no raw predictor values are loaded into the browser."
+                  : "Rose endpoints mark the observed minimum and maximum. Box-plot statistics and the reported outlier count use the Full Governed Population; no raw predictor values are loaded into the browser."
+              }
             />
           </div>
         ) : null}
@@ -1127,7 +1206,7 @@ export default function PredictorDistributionExplorer({
           </div>
         </div>
 
-        {problemType === "classification" ? (
+        {false && problemType === "classification" ? (
         <div
           className="mt-4 overflow-hidden rounded-xl border border-blue-200 bg-blue-50/30"
           data-testid="eda-iv-by-bin"
@@ -1204,7 +1283,6 @@ function DistributionChart({
   reducedMotion,
   showDensity,
   showEventRate,
-  showTargetClass,
   showOutliers,
   hoveredBin,
   onHover,
@@ -1220,7 +1298,6 @@ function DistributionChart({
   reducedMotion: boolean;
   showDensity: boolean;
   showEventRate: boolean;
-  showTargetClass: boolean;
   showOutliers: boolean;
   hoveredBin: DistributionBin | null;
   onHover: (bin: DistributionBin | null) => void;
@@ -1265,11 +1342,22 @@ function DistributionChart({
       .scaleLinear()
       .domain([0, d3.max(data.bins, (row) => row.density) ?? 1])
       .range([margin.top + plotHeight, margin.top + 8]);
+    const targetOverlayBins = buildTargetOverlayBins(data);
     const eventY = d3
       .scaleLinear()
-      .domain([0, Math.max(0.01, d3.max(data.bins, (row) => row.event_rate ?? 0) ?? 0.01)])
+      .domain([0, Math.max(0.01, d3.max(targetOverlayBins, (row) => row.event_rate ?? 0) ?? 0.01)])
       .nice()
       .range([margin.top + plotHeight, margin.top + 8]);
+    const clampPlotX = (value: number) =>
+      Math.max(margin.left, Math.min(margin.left + plotWidth, value));
+    const clampPlotY = (value: number) =>
+      Math.max(margin.top, Math.min(margin.top + plotHeight, value));
+    const binCenterX = (row: { lower: number; upper: number }) =>
+      clampPlotX(x((row.lower + row.upper) / 2));
+    const eventRateY = (value: number | null | undefined) =>
+      clampPlotY(eventY(Math.max(0, Math.min(1, Number(value ?? 0)))));
+    const rowCountY = (value: number | null | undefined) =>
+      clampPlotY(y(Math.max(0, Number(value ?? 0))));
 
     svg.attr("viewBox", `0 0 ${width} ${height}`);
     svg.selectAll<SVGGElement, unknown>("g.plot-root").data([null]).join("g").attr("class", "plot-root");
@@ -1402,6 +1490,38 @@ function DistributionChart({
       .attr("font-size", 10);
     plot.selectAll(".x-axis path,.y-axis path,.x-axis line,.y-axis line").attr("stroke", "#cbd5e1");
 
+    const eventAxisGroup = plot
+      .selectAll<SVGGElement, unknown>("g.event-rate-axis")
+      .data(showEventRate && data.problem_type === "classification" ? [null] : [])
+      .join("g")
+      .attr("class", "event-rate-axis")
+      .attr("transform", `translate(${margin.left + plotWidth},0)`);
+    const eventAxisRun = runAtlasD3Transition(
+      eventAxisGroup,
+      (targetSelection) =>
+        targetSelection.call(
+          d3
+            .axisRight(eventY)
+            .ticks(4)
+            .tickFormat((value) => `${formatNumber(Number(value) * 100, 0)}%`),
+        ),
+      {
+        chartId: "eda-predictor-distribution",
+        channel: "event-rate-axis",
+        kind: "axis",
+        reducedMotion,
+        immediate,
+        signal: revision.signal,
+      },
+    );
+    plot
+      .selectAll(".event-rate-axis text")
+      .attr("fill", "#ea580c")
+      .attr("font-size", 10);
+    plot
+      .selectAll(".event-rate-axis path,.event-rate-axis line")
+      .attr("stroke", "#fed7aa");
+
     const markerRows = [
       finite(data.markers.mean)
         ? { id: "mean", value: data.markers.mean, label: "Mean", color: "#2563eb", dash: null }
@@ -1533,14 +1653,14 @@ function DistributionChart({
     });
 
     const eventLine = d3
-      .line<DistributionBin>()
+      .line<TargetOverlayBin>()
       .defined((row) => finite(row.event_rate))
-      .x((row) => x((row.lower + row.upper) / 2))
-      .y((row) => eventY(row.event_rate ?? 0))
+      .x((row) => binCenterX(row))
+      .y((row) => eventRateY(row.event_rate))
       .curve(d3.curveMonotoneX);
     const eventPath = plot
-      .selectAll<SVGPathElement, DistributionBin[]>("path.event-rate-line")
-      .data(showEventRate && data.problem_type === "classification" ? [data.bins] : [])
+      .selectAll<SVGPathElement, TargetOverlayBin[]>("path.event-rate-line")
+      .data(showEventRate && data.problem_type === "classification" ? [targetOverlayBins] : [])
       .join("path")
       .attr("class", "event-rate-line")
       .attr("fill", "none")
@@ -1560,45 +1680,144 @@ function DistributionChart({
         signal: revision.signal,
       },
     );
-
-    const targetClassLine = (key: "event_count" | "non_event_count") =>
-      d3
-        .line<DistributionBin>()
-        .defined((row) => finite(row[key]))
-        .x((row) => x((row.lower + row.upper) / 2))
-        .y((row) => y(row[key] ?? 0))
-        .curve(d3.curveMonotoneX);
-    const targetClassSeries = showTargetClass && data.problem_type === "classification"
-      ? [
-          { key: "event_count" as const, color: "#059669", dash: null },
-          { key: "non_event_count" as const, color: "#475569", dash: "3,3" },
-        ]
-      : [];
-    const targetClassPaths = plot
-      .selectAll<SVGPathElement, (typeof targetClassSeries)[number]>(
-        "path.target-class-line",
+    const eventPoints = plot
+      .selectAll<SVGCircleElement, DistributionBin>("circle.event-rate-point")
+      .data(
+        showEventRate && data.problem_type === "classification"
+          ? targetOverlayBins.filter((row) => finite(row.event_rate))
+          : [],
+        (row) => String(row.bin),
       )
-      .data(targetClassSeries, (row) => row.key)
-      .join("path")
-      .attr("class", (row) => `target-class-line target-class-${row.key}`)
-      .attr("fill", "none")
-      .attr("stroke", (row) => row.color)
-      .attr("stroke-width", 1.75)
-      .attr("stroke-dasharray", (row) => row.dash)
+      .join("circle")
+      .attr("class", "event-rate-point")
+      .attr("fill", "#ea580c")
+      .attr("stroke", "#fff7ed")
+      .attr("stroke-width", 1)
       .attr("pointer-events", "none");
-    const targetClassRun = runAtlasD3Transition(
-      targetClassPaths,
+    const eventPointRun = runAtlasD3Transition(
+      eventPoints,
       (targetSelection) =>
-        targetSelection.attr("d", (row) => targetClassLine(row.key)(data.bins) ?? ""),
+        targetSelection
+          .attr("cx", (row) => binCenterX(row))
+          .attr("cy", (row) => eventRateY(row.event_rate))
+          .attr("r", 3.5),
       {
         chartId: "eda-predictor-distribution",
-        channel: "target-classes",
+        channel: "event-rate-points",
         kind: isEnter ? "enter" : "update",
         reducedMotion,
         immediate,
         signal: revision.signal,
       },
     );
+
+    const eventRateLabels = plot
+      .selectAll<SVGTextElement, TargetOverlayBin>("text.event-rate-bin-label")
+      .data(
+        showEventRate && data.problem_type === "classification"
+          ? targetOverlayBins.filter((row) => finite(row.event_rate))
+          : [],
+        (row) => String(row.bin),
+      )
+      .join("text")
+      .attr("class", "event-rate-bin-label")
+      .attr("text-anchor", "middle")
+      .attr("fill", "#9a3412")
+      .attr("font-size", 10)
+      .attr("font-weight", 800)
+      .attr("paint-order", "stroke")
+      .attr("stroke", "#ffffff")
+      .attr("stroke-width", 3)
+      .attr("pointer-events", "none");
+    const eventRateLabelRun = runAtlasD3Transition(
+      eventRateLabels,
+      (targetSelection) =>
+        targetSelection
+          .attr("x", (row) => binCenterX(row))
+          .attr("y", (row) => eventRateY(row.event_rate) - 9),
+      {
+        chartId: "eda-predictor-distribution",
+        channel: "event-rate-labels",
+        kind: isEnter ? "enter" : "update",
+        reducedMotion,
+        immediate,
+        signal: revision.signal,
+      },
+    );
+    eventRateLabels.text((row) => formatPercent(row.event_rate, 0));
+    const lastEventRateBin = showEventRate && data.problem_type === "classification"
+      ? [...targetOverlayBins].reverse().find((row) => finite(row.event_rate))
+      : null;
+    plot
+      .selectAll<SVGTextElement, TargetOverlayBin>("text.event-rate-end-label")
+      .data(lastEventRateBin ? [lastEventRateBin] : [])
+      .join("text")
+      .attr("class", "event-rate-end-label")
+      .attr("x", (row) => Math.min(binCenterX(row) + 8, margin.left + plotWidth - 78))
+      .attr("y", (row) => eventRateY(row.event_rate) - 8)
+      .attr("fill", "#ea580c")
+      .attr("font-size", 11)
+      .attr("font-weight", 800)
+      .attr("pointer-events", "none")
+      .text("Event rate");
+    plot
+      .selectAll<SVGTextElement, unknown>(
+        "text.target-class-end-label",
+      )
+      .data([])
+      .join("text");
+
+    const legendRows = [
+      { id: "rows", label: "Rows", color: "#60a5fa", dash: null },
+      showDensity ? { id: "density", label: "Density", color: "#0f766e", dash: null } : null,
+      showEventRate && data.problem_type === "classification"
+        ? { id: "event-rate", label: "Event rate %", color: "#ea580c", dash: "6,3" }
+        : null,
+    ].filter(Boolean) as Array<{
+      id: string;
+      label: string;
+      color: string;
+      dash: string | null;
+    }>;
+    const legend = plot
+      .selectAll<SVGGElement, (typeof legendRows)[number]>("g.distribution-legend")
+      .data(legendRows, (row) => row.id)
+      .join(
+        (enter) => {
+          const group = enter.append("g").attr("class", "distribution-legend");
+          group.append("line");
+          group.append("circle");
+          group.append("text");
+          return group;
+        },
+        (update) => update,
+        (exit) => exit.remove(),
+      )
+      .attr("transform", (_row, index) => `translate(${margin.left + index * 112},12)`);
+    legend
+      .select("line")
+      .attr("x1", 0)
+      .attr("x2", 20)
+      .attr("y1", 0)
+      .attr("y2", 0)
+      .attr("stroke", (row) => row.color)
+      .attr("stroke-width", 2)
+      .attr("stroke-dasharray", (row) => row.dash);
+    legend
+      .select("circle")
+      .attr("cx", 10)
+      .attr("cy", 0)
+      .attr("r", 3)
+      .attr("fill", (row) => row.color)
+      .attr("opacity", (row) => (row.id === "rows" ? 0 : 1));
+    legend
+      .select("text")
+      .attr("x", 26)
+      .attr("y", 4)
+      .attr("fill", "#475569")
+      .attr("font-size", 10)
+      .attr("font-weight", 700)
+      .text((row) => row.label);
 
     const brushGroup = plot
       .selectAll<SVGGElement, unknown>("g.range-brush")
@@ -1668,15 +1887,28 @@ function DistributionChart({
       .attr("font-weight", 700)
       .attr("fill", "#64748b")
       .text("Rows");
+    plot
+      .selectAll<SVGTextElement, unknown>("text.event-rate-title")
+      .data(showEventRate && data.problem_type === "classification" ? [null] : [])
+      .join("text")
+      .attr("class", "event-rate-title")
+      .attr("transform", `translate(${width - 16},${margin.top + plotHeight / 2}) rotate(90)`)
+      .attr("text-anchor", "middle")
+      .attr("font-size", 10)
+      .attr("font-weight", 700)
+      .attr("fill", "#ea580c")
+      .text("Event rate");
 
     const settled = Promise.all([
       barRun.finished,
       axisRunX.finished,
       axisRunY.finished,
+      eventAxisRun.finished,
       markerRun.finished,
       densityRun.finished,
       eventRun.finished,
-      targetClassRun.finished,
+      eventPointRun.finished,
+      eventRateLabelRun.finished,
       exitRun.finished,
     ]).then(() => {
       if (!revision.signal.aborted) onMotionPhase("settled");
@@ -1698,7 +1930,6 @@ function DistributionChart({
     reducedMotion,
     showDensity,
     showEventRate,
-    showTargetClass,
     showOutliers,
     variable,
     width,
@@ -1806,7 +2037,7 @@ function DistributionChart({
         aria-busy={loading}
         aria-label={
           data
-            ? `Governed mixed-scope chart of ${data.feature}. Histogram, mean ${formatNumber(data.markers.mean, 3)}, median ${formatNumber(data.markers.median, 3)}, missingness, and outlier bounds use the Full Governed Population. Target-rate and target-class overlays use the Development Population, with the sealed final holdout excluded. Use Tab to focus bins, Enter to select a bin, or the numeric range inputs below.`
+            ? `Governed mixed-scope chart of ${data.feature}. Histogram, mean ${formatNumber(data.markers.mean, 3)}, median ${formatNumber(data.markers.median, 3)}, missingness, and outlier bounds use the Full Governed Population. Event-rate overlays use the Development Population, with the sealed final holdout excluded. Use Tab to focus bins, Enter to select a bin, or the numeric range inputs below.`
             : "Governed mixed-scope distribution chart is loading."
         }
         data-testid="eda-distribution-svg"

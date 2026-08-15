@@ -306,6 +306,8 @@ export function defaultParentFindingDecision(
     rationale: parent.systemRationale ?? "",
     destination: parent.defaultDestination,
     transformation: "No transformation",
+    resolutionAction:
+      parent.family === "exact_duplicate_rows" ? "unresolved" : undefined,
   };
 }
 
@@ -360,6 +362,13 @@ export function isEligibleParentDisposition(
   }
   if (decision.disposition === "unresolved") return false;
   if (decision.disposition === "not_applicable") return false;
+  if (parent.family === "exact_duplicate_rows") {
+    // The exact-duplicate parent is the only writable authority. Retaining the
+    // current population can complete with rationale; an exclusion decision
+    // necessarily invalidates this population and requires a new upstream
+    // population plus Analysis Partition revision before EDA can complete.
+    if (decision.resolutionAction !== "retain_current_population") return false;
+  }
   if (
     decisionRequiresRationale(parent, decision.disposition) &&
     !decision.rationale.trim()
@@ -391,6 +400,10 @@ export function documentedParentFindingRows(
       reviewer_rationale: decision.rationale,
       downstream_destination: decision.destination || null,
       suggested_transformation: decision.transformation,
+      resolution_action:
+        parent.family === "exact_duplicate_rows"
+          ? decision.resolutionAction ?? "unresolved"
+          : null,
       eligible_for_completion: isEligibleParentDisposition(parent, decision),
       rationale_required: decisionRequiresRationale(
         parent,
@@ -522,6 +535,11 @@ export function applyBulkParentDisposition(input: {
   if (selected.some((parent) => parent.requirement === "informational")) {
     throw new Error(
       "Informational parent findings retain their canonical system disposition and cannot receive a bulk reviewer disposition.",
+    );
+  }
+  if (selected.some((parent) => parent.family === "exact_duplicate_rows")) {
+    throw new Error(
+      "Exact duplicate rows require an explicit retain-current-population or exclude-upstream-and-repartition choice; bulk disposition is disabled.",
     );
   }
   if (!input.rationale.trim()) {

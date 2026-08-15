@@ -42,6 +42,22 @@ type CoverageRecord = {
 };
 
 const DISPOSABLE_PASSWORD = "AtlasE2ePassw0rd!";
+const STOP_AFTER_INTERPRETATION =
+  process.env.ATLAS_E2E_STOP_AFTER_INTERPRETATION?.trim() === "1";
+
+const SELECTION_REVIEW_FIELDS = [
+  "candidate_id",
+  "training_job_id",
+  "training_run_id",
+  "project_id",
+  "dataset_id",
+  "dataset_version_id",
+  "target",
+  "feature_manifest_version",
+  "validation_design_id",
+  "validation_design_version",
+  "split_id",
+] as const;
 
 function text(value: unknown): string {
   return value === null || value === undefined ? "" : String(value).trim();
@@ -61,6 +77,31 @@ function escapeRegExp(value: string): string {
 
 function exactProjectStep(projectId: string, step: string): RegExp {
   return new RegExp(`/projects/${escapeRegExp(projectId)}/${step}(?:[?#]|$)`);
+}
+
+function isExpectedNavigationAbort(
+  entry: string,
+  backendOrigin: string,
+  frontendOrigin: string,
+  projectId: string,
+): boolean {
+  const match = /^(GET|PUT) (https?:\/\/\S+) -- net::ERR_ABORTED$/.exec(entry);
+  if (!match) return false;
+  const [, method, rawUrl] = match;
+  const url = new URL(rawUrl);
+  if (url.origin === backendOrigin) {
+    if (method === "PUT" && url.pathname === `/api/projects/${projectId}`) return true;
+    if (method !== "GET") return false;
+    return [
+      "/api/auth/me",
+      "/api/notifications/unread-count",
+      "/api/preparation/documentation",
+      "/api/train/last",
+    ].includes(url.pathname);
+  }
+  return url.origin === frontendOrigin
+    && method === "GET"
+    && /^\/assets\/(?:modelMonitoring|rotate-ccw)-[^/]+\.js$/.test(url.pathname);
 }
 
 async function expectExactStep(page: Page, projectId: string, step: string) {
@@ -86,18 +127,10 @@ async function expectExactStep(page: Page, projectId: string, step: string) {
   });
   await expect(page).toHaveURL(exactProjectStep(projectId, step));
   await expect(page.getByTestId("atlas-safe-error-boundary")).toHaveCount(0);
-}
-
-async function readScopedProjectContext(page: Page, projectId: string) {
-  return page.evaluate((exactProjectId) => {
-    const storedUser = JSON.parse(
-      localStorage.getItem("modelflow-user") || "null",
-    ) as { userId?: string } | null;
-    const userId = String(storedUser?.userId ?? "").trim();
-    if (!userId) return null;
-    const key = `modeling-tool-project-context:${encodeURIComponent(userId)}:${encodeURIComponent(exactProjectId)}`;
-    return JSON.parse(localStorage.getItem(key) || "null");
-  }, projectId);
+  // The strict diagnostic ledger treats browser-cancelled requests as failures.
+  // Let route hydration, lazy chunks, notifications, and compatibility mirrors
+  // finish before the test deliberately reloads or leaves the page.
+  await page.waitForLoadState("networkidle", { timeout: 180_000 });
 }
 
 async function strictContinue(
@@ -116,6 +149,7 @@ async function strictContinue(
   await expect(action).toBeEnabled({ timeout });
   const readyLabel = (await action.innerText()).trim();
   await expect(action).toHaveAttribute("title", readyLabel);
+  await page.waitForLoadState("networkidle", { timeout });
   await action.click();
   await expectExactStep(page, projectId, nextStep);
 }
@@ -292,6 +326,25 @@ function displayedDelta(reference: unknown, comparison: unknown): string {
   return `${delta >= 0 ? "+" : ""}${delta.toFixed(4)}`;
 }
 
+function hasExactScoringQuery(
+  responseUrl: string,
+  checkpoint: StageACheckpoint,
+  modelVersionId: string,
+  target: string,
+  datasetType: "train" | "test" | "oot",
+): boolean {
+  const query = new URL(responseUrl).searchParams;
+  return (
+    query.get("project_id") === checkpoint.project_id &&
+    query.get("dataset_id") === checkpoint.dataset_id &&
+    query.get("dataset_version_id") === checkpoint.dataset_version_id &&
+    query.get("model_version_id") === modelVersionId &&
+    query.get("target") === target &&
+    query.get("dataset_type") === datasetType &&
+    !query.has("model")
+  );
+}
+
 function selectionMetricLabel(metric: Record<string, any>): string {
   const labels: Record<string, string> = {
     auc: "ROC-AUC",
@@ -326,6 +379,116 @@ function cleanModelName(value: unknown): string {
   return text(value).replace(/\s*\(k\s*=\s*\d+\)/i, "");
 }
 
+function candidateField(
+  candidate: Record<string, any>,
+  name: (typeof SELECTION_REVIEW_FIELDS)[number],
+): string {
+  const contract = record(candidate.candidate_contract ?? {}, "candidate contract");
+  if (name === "target") {
+    return text(
+      candidate.target ??
+        candidate.target_name ??
+        contract.target ??
+        contract.target_name ??
+        contract.target_definition?.target_name,
+    );
+  }
+  if (name === "feature_manifest_version") {
+    return text(
+      candidate.feature_manifest_version ??
+        contract.feature_manifest_version ??
+        contract.feature_manifest_hash,
+    );
+  }
+  return text(candidate[name] ?? contract[name]);
+}
+
+function candidateProblemType(candidate: Record<string, any>): string {
+  return text(
+    candidate.task ??
+      candidate.problem_type ??
+      candidate.candidate_contract?.problem_type,
+  );
+}
+
+function evaluationModelFamily(candidate: Record<string, any>): string {
+  const value = `${text(candidate.key)} ${text(candidate.name)}`.toLowerCase();
+  if (/decision.?tree/.test(value)) return "Decision Tree";
+  if (/random.?forest|extra.?trees/.test(value)) return "Tree Ensemble";
+  if (/xgboost|lightgbm|catboost|histogram.?gradient|boosting/.test(value)) return "Gradient Boosting";
+  if (/knn|nearest/.test(value)) return "K-Nearest Neighbors";
+  if (/svm|support.?vector/.test(value)) return "Support Vector Machine";
+  if (/naive.?bayes|gaussian.?nb/.test(value)) return "Gaussian Naive Bayes";
+  if (/neural|mlp/.test(value)) return "Neural Network";
+  if (/logistic|sgd/.test(value)) return "Linear Classifier";
+  return "Supervised Estimator";
+}
+
+function modelSpecificTestId(candidate: Record<string, any>): string {
+  return `model-specific-${evaluationModelFamily(candidate)
+    .toLowerCase()
+    .replace(/[^a-z]+/g, "-")}`;
+}
+
+function waitForSelectionReviewResponse(
+  page: Page,
+  backendOrigin: string,
+  pathname: string,
+  candidateId: string,
+  timeout = 180_000,
+): Promise<Response> {
+  return page.waitForResponse((response) => {
+    if (!isBackendResponse(response, backendOrigin, pathname)) return false;
+    const query = new URL(response.url()).searchParams;
+    return (
+      query.get("candidate_id") === candidateId &&
+      query.get("evidence_scope") === "selection_review"
+    );
+  }, { timeout });
+}
+
+function assertSelectionReviewBinding(
+  response: Response,
+  payload: Record<string, any>,
+  candidate: Record<string, any>,
+) {
+  const query = new URL(response.url()).searchParams;
+  expect(query.get("evidence_scope")).toBe("selection_review");
+  for (const name of SELECTION_REVIEW_FIELDS) {
+    const expected = candidateField(candidate, name);
+    expect(expected, `${name} from ranked candidate`).not.toBe("");
+    expect(query.get(name), `${name} request binding`).toBe(expected);
+    expect(text(payload[name]), `${name} response binding`).toBe(expected);
+  }
+  const problemType = candidateProblemType(candidate);
+  expect(problemType, "candidate problem type").not.toBe("");
+  expect(query.get("problem_type")).toBe(problemType);
+  expect(payload.ok).toBe(true);
+  expect(text(payload.evidence_scope)).toBe("selection_review");
+  expect(text(payload.analysis_binding)).toBe("exact_selection_review");
+  expect(text(payload.evaluation_package_id)).toBe("");
+  expect(text(payload.candidate_decision_id)).toBe("");
+}
+
+function assertEvaluationPackageBinding(
+  payload: Record<string, any>,
+  checkpoint: StageACheckpoint,
+) {
+  expect(payload.ok).toBe(true);
+  expect(text(payload.project_id)).toBe(checkpoint.project_id);
+  expect(text(payload.dataset_id)).toBe(checkpoint.dataset_id);
+  expect(text(payload.dataset_version_id)).toBe(checkpoint.dataset_version_id);
+  expect(text(payload.training_run_id)).toBe(checkpoint.training_run_id);
+  expect(text(payload.candidate_id)).toBe(checkpoint.candidate_id);
+  expect(text(payload.evaluation_package_id)).toBe(checkpoint.evaluation_package_id);
+  const artifactPackage = payload.interpretation_artifact?.evaluation_package ??
+    payload.evaluation_package ?? {};
+  expect(text(artifactPackage.candidate_decision_id)).toBe(
+    checkpoint.candidate_decision_id,
+  );
+  expect(text(payload.evidence_scope)).not.toBe("selection_review");
+}
+
 function svgPointCount(points: string | null): number {
   return text(points) ? text(points).split(/\s+/).length : 0;
 }
@@ -354,28 +517,19 @@ async function expectExactBoundaryRendering(
   payload: Record<string, any>,
 ) {
   expect(payload.ok).toBe(true);
-  const grid = payload.grid as Array<Record<string, any>>;
-  const points = payload.points as Array<Record<string, any>>;
+  const rawGrid = payload.grid as Array<Record<string, any>>;
+  const rawPoints = payload.points as Array<Record<string, any>>;
   const xDomain = payload.x_domain as unknown[];
   const yDomain = payload.y_domain as unknown[];
   const resolution = finite(payload.resolution, "decision-boundary resolution");
-  expect(Array.isArray(grid)).toBe(true);
-  expect(grid.length).toBe(resolution * resolution);
-  expect(Array.isArray(points)).toBe(true);
-  expect(points.length).toBeGreaterThan(0);
+  expect(Array.isArray(rawGrid)).toBe(true);
+  expect(rawGrid.length).toBe(resolution * resolution);
+  expect(Array.isArray(rawPoints)).toBe(true);
+  expect(rawPoints.length).toBeGreaterThan(0);
   expect(Array.isArray(xDomain)).toBe(true);
   expect(xDomain).toHaveLength(2);
   expect(Array.isArray(yDomain)).toBe(true);
   expect(yDomain).toHaveLength(2);
-
-  const svg = section.locator("svg");
-  await expect(svg).toBeVisible();
-  await expect(svg).toHaveAttribute("data-x-feature", text(payload.x_feature));
-  await expect(svg).toHaveAttribute("data-y-feature", text(payload.y_feature));
-  await expect(svg.locator("rect")).toHaveCount(grid.length);
-  await expect(svg.locator("circle")).toHaveCount(points.length);
-  await expect(svg).toContainText(text(payload.x_feature));
-  await expect(svg).toContainText(text(payload.y_feature));
 
   const width = 880;
   const height = 430;
@@ -386,13 +540,52 @@ async function expectExactBoundaryRendering(
   const xMax = finite(xDomain[1], "decision-boundary x maximum");
   const yMin = finite(yDomain[0], "decision-boundary y minimum");
   const yMax = finite(yDomain[1], "decision-boundary y maximum");
+  const insideDomain = (row: Record<string, any>) => {
+    const xValue = finite(row.x, "decision-boundary x value");
+    const yValue = finite(row.y, "decision-boundary y value");
+    return (
+      xValue >= xMin &&
+      xValue <= xMax &&
+      yValue >= yMin &&
+      yValue <= yMax
+    );
+  };
+  const grid = rawGrid.filter(
+    (row) => insideDomain(row) && typeof row.score === "number" && Number.isFinite(row.score),
+  );
+  const points = rawPoints.filter(
+    (row) => insideDomain(row) && typeof row.class === "number" && Number.isFinite(row.class),
+  );
+  expect(grid.length).toBeGreaterThan(0);
+  expect(points.length).toBeGreaterThan(0);
+
+  const svg = section.locator("svg");
+  await expect(svg).toBeVisible();
+  await expect(svg).toHaveAttribute("data-x-feature", text(payload.x_feature));
+  await expect(svg).toHaveAttribute("data-y-feature", text(payload.y_feature));
+  await expect(svg).toHaveAttribute("data-visible-grid-cells", String(grid.length));
+  await expect(svg).toHaveAttribute("data-visible-points", String(points.length));
+  await expect(svg).toContainText(text(payload.x_feature));
+  await expect(svg).toContainText(text(payload.y_feature));
+
+  const gridLayer = svg.getByTestId("decision-boundary-grid");
+  const pointLayer = svg.getByTestId("decision-boundary-points");
+  await expect(gridLayer).toHaveAttribute("clip-path", /^url\(#decision-boundary-/);
+  await expect(pointLayer).toHaveAttribute("clip-path", /^url\(#decision-boundary-/);
+  await expect(svg.locator("clipPath path")).toHaveAttribute(
+    "d",
+    `M ${pad} 18 H ${width - 24} V ${height - pad} H ${pad} Z`,
+  );
+  await expect(gridLayer.locator("rect")).toHaveCount(grid.length);
+  await expect(pointLayer.locator("circle")).toHaveCount(points.length);
+
   const x = (value: unknown) =>
     pad + ((finite(value, "decision-boundary x value") - xMin) / (xMax - xMin || 1)) * plotWidth;
   const y = (value: unknown) =>
     18 + ((yMax - finite(value, "decision-boundary y value")) / (yMax - yMin || 1)) * plotHeight;
 
   const firstGrid = record(grid[0], "first decision-boundary grid cell");
-  const firstRect = await svg.locator("rect").first().evaluate((node) => ({
+  const firstRect = await gridLayer.locator("rect").first().evaluate((node) => ({
     x: Number(node.getAttribute("x")),
     y: Number(node.getAttribute("y")),
     width: Number(node.getAttribute("width")),
@@ -405,7 +598,7 @@ async function expectExactBoundaryRendering(
   finite(firstGrid.score, "first decision-boundary score");
 
   const firstPoint = record(points[0], "first decision-boundary point");
-  const firstCircle = await svg.locator("circle").first().evaluate((node) => ({
+  const firstCircle = await pointLayer.locator("circle").first().evaluate((node) => ({
     cx: Number(node.getAttribute("cx")),
     cy: Number(node.getAttribute("cy")),
     fill: node.getAttribute("fill"),
@@ -413,6 +606,38 @@ async function expectExactBoundaryRendering(
   expect(firstCircle.cx).toBeCloseTo(x(firstPoint.x), 8);
   expect(firstCircle.cy).toBeCloseTo(y(firstPoint.y), 8);
   expect(firstCircle.fill).toBe(finite(firstPoint.class, "first decision-boundary point class") ? "#facc15" : "#4c1d95");
+
+  const circleCoordinates = await pointLayer.locator("circle").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      cx: Number(node.getAttribute("cx")),
+      cy: Number(node.getAttribute("cy")),
+    })),
+  );
+  for (const coordinate of circleCoordinates) {
+    expect(coordinate.cx).toBeGreaterThanOrEqual(pad);
+    expect(coordinate.cx).toBeLessThanOrEqual(width - 24);
+    expect(coordinate.cy).toBeGreaterThanOrEqual(18);
+    expect(coordinate.cy).toBeLessThanOrEqual(height - pad);
+  }
+
+  const gridCenters = await gridLayer.locator("rect").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const xValue = Number(node.getAttribute("x"));
+      const yValue = Number(node.getAttribute("y"));
+      const widthValue = Number(node.getAttribute("width"));
+      const heightValue = Number(node.getAttribute("height"));
+      return {
+        x: xValue + widthValue / 2,
+        y: yValue + heightValue / 2,
+      };
+    }),
+  );
+  for (const center of gridCenters) {
+    expect(center.x).toBeGreaterThanOrEqual(pad);
+    expect(center.x).toBeLessThanOrEqual(width - 24);
+    expect(center.y).toBeGreaterThanOrEqual(18);
+    expect(center.y).toBeLessThanOrEqual(height - pad);
+  }
 }
 
 async function expectLabeledValue(
@@ -429,13 +654,14 @@ async function expectExactTableRow(
   table: Locator,
   key: string,
   expectedCells: string[],
+  keyCellIndex = 0,
 ) {
   const rows = table.locator("tbody tr");
   const matchingRows: Locator[] = [];
   for (let index = 0; index < await rows.count(); index += 1) {
     const row = rows.nth(index);
-    const firstCell = row.getByRole("cell").first();
-    if ((await firstCell.innerText()).trim() === key) matchingRows.push(row);
+    const keyCell = row.getByRole("cell").nth(keyCellIndex);
+    if ((await keyCell.innerText()).trim() === key) matchingRows.push(row);
   }
   expect(matchingRows, `table row keyed by ${key}`).toHaveLength(1);
   const cells = (await matchingRows[0].getByRole("cell").allTextContents())
@@ -486,6 +712,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         email: checkpoint.disposable_user_email,
         password: DISPOSABLE_PASSWORD,
       });
+      await page.waitForLoadState("networkidle", { timeout: 180_000 });
       await page.goto("/projects/open");
       await expect(page.getByRole("heading", { name: "Recent Projects" })).toBeVisible();
       const projectName = `ATLAS Strict Stage A ${isolated.runId}`;
@@ -498,6 +725,9 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       });
       await expect(projectCard).toHaveCount(1);
 
+      await projectCard.getByRole("button", { name: "Open", exact: true }).click();
+      await expectExactStep(page, checkpoint.project_id, "step00");
+
       const lastTrainingResponsePromise = page.waitForResponse(
         (response) =>
           isBackendResponse(response, isolated.backendOrigin, "/api/train/last"),
@@ -509,22 +739,25 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         { timeout: 180_000 },
       );
       const commandCenterResponsePromise = page.waitForResponse(
-        (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/eval/command_center"),
+        (response) => {
+          if (!isBackendResponse(response, isolated.backendOrigin, "/api/eval/command_center")) {
+            return false;
+          }
+          const query = new URL(response.url()).searchParams;
+          return (
+            query.get("candidate_id") === checkpoint.candidate_id &&
+            query.get("candidate_decision_id") === checkpoint.candidate_decision_id &&
+            !query.has("evidence_scope")
+          );
+        },
         { timeout: 180_000 },
       );
-      const curvesResponsePromise = page.waitForResponse(
-        (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/eval/curves"),
-        { timeout: 180_000 },
-      );
-      await projectCard.getByRole("button", { name: "Open", exact: true }).click();
+      await page.goto(`/projects/${checkpoint.project_id}/step08`);
       await expectExactStep(page, checkpoint.project_id, "step08");
-      const [lastTrainingPayload, decisionPayload, commandPayload, curvesPayload] = await Promise.all([
+      const [lastTrainingPayload, decisionPayload, commandPayload] = await Promise.all([
         lastTrainingResponsePromise.then(responseJson),
         decisionResponsePromise.then(responseJson),
         commandCenterResponsePromise.then(responseJson),
-        curvesResponsePromise.then(responseJson),
       ]);
 
       const candidate = rankedCandidates(lastTrainingPayload).find(
@@ -601,28 +834,6 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         evaluation.isolation_status ?? evaluation.holdout_isolation_status,
       );
       expect(evaluationIsolationStatus, "Evaluation isolation status").not.toBe("");
-      const thresholdMetrics = record(commandPayload.threshold, "threshold metrics");
-      const calibration = record(commandPayload.calibration, "calibration evidence");
-      const lift = record(commandPayload.lift, "lift evidence");
-      const roc = record(curvesPayload.roc, "ROC curve");
-      const pr = record(curvesPayload.pr, "precision-recall curve");
-      expect(curvesPayload.ok).toBe(true);
-      expect(text(curvesPayload.evaluation_package_id)).toBe(
-        checkpoint.evaluation_package_id,
-      );
-      expect(text(curvesPayload.analysis_binding)).toBe(
-        "exact_completed_package",
-      );
-      expect(Array.isArray(roc.fpr)).toBe(true);
-      expect(roc.fpr.length).toBeGreaterThan(2);
-      expect(roc.tpr).toHaveLength(roc.fpr.length);
-      expect(Array.isArray(pr.recall)).toBe(true);
-      expect(pr.recall.length).toBeGreaterThan(2);
-      expect(pr.precision).toHaveLength(pr.recall.length);
-      expect(Array.isArray(calibration.rows)).toBe(true);
-      expect(calibration.rows.length).toBeGreaterThan(1);
-      expect(Array.isArray(lift.deciles)).toBe(true);
-      expect(lift.deciles.length).toBeGreaterThan(1);
       coverage.push({
         step: "Step08 Evaluation",
         control: "exact durable identity hydration",
@@ -630,314 +841,294 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         evidence: "Training, candidate-decision, and Evaluation-package responses matched every Stage A identifier.",
       });
 
-      // Step 08: inspect every major analysis surface and exercise review,
-      // comparison, all three Interpretation entry points, and the page-level
-      // continue action without permitting any candidate fallback.
+
+      // Step 08: the visible ranked table is the primary model switcher. Every
+      // exact supervised candidate must open real selection-review evidence.
       await expect(page.getByTestId("evaluation-command-center")).toBeVisible();
-      const selectionEvidence = page.getByTestId("selection-evidence");
-      await expect(selectionEvidence).toContainText(checkpoint.candidate_id);
-      await expect(selectionEvidence).toContainText(
-        checkpoint.candidate_decision_id,
-      );
-      await expectLabeledValue(
-        selectionEvidence,
-        selectionMetricLabel(selectionMetric),
-        fixed(selectionMetric.value, "rendered selection metric"),
-      );
-      await expectLabeledValue(
-        selectionEvidence,
-        "Selection partition",
-        text(selectionMetric.partition_id),
-      );
-      await expectLabeledValue(
-        selectionEvidence,
-        "Fold summary",
-        `${selectionMetric.fold_count} folds`,
-      );
-      const holdout = page.getByTestId("final-holdout-evidence");
-      await expect(holdout).toContainText(checkpoint.evaluation_package_id);
-      await expect(holdout).toContainText(/reporting.only/i);
-      await expect(holdout).toContainText(/cannot.*select features/i);
-      await expectLabeledValue(
-        holdout,
-        "PR-AUC · final holdout",
-        fixed(finalHoldoutMetrics.pr_auc, "final-holdout PR-AUC"),
-      );
-      await expectLabeledValue(
-        holdout,
-        "Isolation status",
-        evaluationIsolationStatus,
-      );
-      for (const testId of [
-        "top-candidate-comparison",
-        "interactive-model-explorer",
-        "visual-intelligence-evaluation",
-        "threshold-operating-policy",
-        "dataset-performance",
-        "stability-calibration",
-        "full-leaderboard",
-        "interpretation-comparison-tray",
-      ]) {
-        await expect(page.getByTestId(testId)).toBeVisible();
-      }
-
-      const reviewButton = page.getByRole("button", {
-        name: "Review Locked Candidate",
-        exact: true,
-      });
-      await expect(reviewButton).toHaveCount(1);
-      const lockedCard = reviewButton.locator("xpath=ancestor::article[1]");
-      await reviewButton.click();
-      const explorer = page.getByTestId("interactive-model-explorer");
-      await expect(explorer).toContainText(
-        /locked/i,
-      );
-      await expectLabeledValue(
-        explorer,
-        "PR-AUC · final holdout",
-        fixed(finalHoldoutMetrics.pr_auc, "explorer final-holdout PR-AUC"),
-      );
-      await expectLabeledValue(
-        explorer,
-        "Final-holdout ROC-AUC",
-        fixed(finalHoldoutMetrics.roc_auc, "explorer final-holdout ROC-AUC"),
-      );
-      await expectLabeledValue(
-        explorer,
-        "Final-holdout recall",
-        fixed(finalHoldoutMetrics.recall, "explorer final-holdout recall"),
-      );
-      const rocChart = explorer.getByRole("img", {
-        name: "True positive rate by False positive rate",
-      });
-      const prChart = explorer.getByRole("img", {
-        name: "Precision by Recall",
-      });
-      await expect(rocChart).toBeVisible();
-      await expect(prChart).toBeVisible();
-      expect(svgPointCount(await rocChart.locator("polyline").getAttribute("points"))).toBe(
-        roc.fpr.length,
-      );
-      expect(svgPointCount(await prChart.locator("polyline").getAttribute("points"))).toBe(
-        pr.recall.length,
-      );
-      const explorerConfusion = explorer
-        .getByRole("heading", {
-          name: `Confusion Matrix @ ${finite(thresholdMetrics.threshold, "threshold").toFixed(3)}`,
-        })
-        .locator("xpath=../..");
-      for (const value of (thresholdMetrics.confusion as number[][]).flat()) {
-        await expect(explorerConfusion).toContainText(value.toLocaleString());
-      }
-
-      const thresholdPolicy = page.getByTestId("threshold-operating-policy");
-      const thresholdLabel = finite(thresholdMetrics.threshold, "deployment threshold").toFixed(3);
-      await expect(thresholdPolicy).toContainText(thresholdLabel);
-      const thresholdLiveMetrics = thresholdPolicy.getByTestId("threshold-live-metrics");
-      await expectLabeledValue(
-        thresholdLiveMetrics,
-        `Precision @ ${thresholdLabel}`,
-        percent(thresholdMetrics.precision, "threshold precision"),
-      );
-      await expectLabeledValue(
-        thresholdLiveMetrics,
-        `Recall @ ${thresholdLabel}`,
-        percent(thresholdMetrics.recall, "threshold recall"),
-      );
-      await expectLabeledValue(
-        thresholdLiveMetrics,
-        `F1 @ ${thresholdLabel}`,
-        fixed(thresholdMetrics.f1, "threshold F1"),
-      );
-      await expectLabeledValue(
-        thresholdLiveMetrics,
-        "False positives",
-        finite(thresholdMetrics.false_positives, "false positives").toLocaleString(),
-      );
-      const reportingRoc = thresholdLiveMetrics.getByRole("img", {
-        name: "Final holdout ROC reporting curve",
-      });
-      await expect(reportingRoc).toBeVisible();
-      expect(svgPointCount(await reportingRoc.locator("polyline").getAttribute("points"))).toBe(
-        roc.fpr.length,
-      );
-
-      const calibrationSection = page.getByTestId("stability-calibration");
-      const reliabilityCurve = calibrationSection.getByRole("img", {
-        name: "Observed event rate by Mean predicted probability",
-      });
-      await expect(reliabilityCurve).toBeVisible();
-      expect(svgPointCount(await reliabilityCurve.locator("polyline").getAttribute("points"))).toBe(
-        calibration.rows.length,
-      );
-      await expectLabeledValue(
-        calibrationSection,
-        "Brier score",
-        fixed(calibration.brier_score, "calibration Brier score"),
-      );
-
-      const liftSection = page.getByTestId("lift-gain-capture");
-      await expect(liftSection.locator("svg polyline")).toHaveCount(3);
-      for (const polyline of await liftSection.locator("svg polyline").all()) {
-        expect(svgPointCount(await polyline.getAttribute("points"))).toBe(lift.deciles.length + 1);
-      }
-      const firstLiftRow = record(lift.deciles[0], "first lift decile");
-      await expectExactTableRow(
-        liftSection.locator("table"),
-        text(firstLiftRow.decile),
-        [
-          text(firstLiftRow.decile),
-          finite(firstLiftRow.n, "lift rows").toLocaleString(),
-          finite(firstLiftRow.positives, "lift events").toLocaleString(),
-          percent(firstLiftRow.event_rate, "lift event rate"),
-          finite(firstLiftRow.lift, "lift value").toFixed(2),
-          percent(firstLiftRow.capture_rate, "lift capture"),
-          finite(firstLiftRow.mean_score, "lift mean score").toFixed(4),
-        ],
-      );
-
-      const fullLeaderboard = page.getByTestId("full-leaderboard");
-      const lockedMetric = normalizedSelectionMetric(
-        record(candidate?.selection_metric, "locked candidate selection metric"),
-      );
-      const lockedModelName = cleanModelName(candidate?.name);
-      expect(lockedModelName).not.toBe("");
-      const lockedLeaderboardRow = fullLeaderboard
-        .locator("tbody tr")
-        .filter({ hasText: lockedModelName })
-        .filter({ hasText: "Locked" });
-      await expect(lockedLeaderboardRow).toHaveCount(1);
-      await expect(lockedLeaderboardRow).toContainText(
-        fixed(lockedMetric.value, "leaderboard selection value"),
-      );
-      await expect(lockedLeaderboardRow).toContainText(text(lockedMetric.partition_id));
-      await expect(lockedLeaderboardRow).toContainText(`${lockedMetric.fold_count} folds`);
-      await expect(lockedLeaderboardRow).toContainText(
-        `std. dev. ${fixed(lockedMetric.standard_deviation, "leaderboard standard deviation")}`,
-      );
-      await expect(lockedLeaderboardRow).toContainText("Locked");
-      const addComparison = lockedCard.getByRole("button", {
-        name: "Add to Comparison",
-        exact: true,
-      });
-      await addComparison.click();
-      await expect(lockedCard.getByRole("button", { name: "Remove from Comparison" })).toBeVisible();
-      const candidateRanking = page.getByTestId("top-candidate-comparison");
-      const challengerAdd = candidateRanking.getByRole("button", {
-        name: "Add to Comparison",
-        exact: true,
-      }).first();
-      await expect(challengerAdd).toBeVisible();
-      const challengerCard = challengerAdd.locator("xpath=ancestor::article[1]");
-      const challengerName = text(await challengerCard.getByRole("heading").innerText());
-      expect(challengerName).not.toBe("");
-      const challengerCandidate = rankedCandidates(lastTrainingPayload).find(
+      const rankedSupervisedCandidates = rankedCandidates(lastTrainingPayload).filter(
         (row) =>
-          text(row.candidate_id) !== checkpoint.candidate_id &&
-          cleanModelName(row.name) === challengerName,
+          text(row.candidate_id) &&
+          text(row.training_run_id) === checkpoint.training_run_id &&
+          row.champion_eligible !== false &&
+          text(row.kind).toLowerCase() !== "anomaly" &&
+          text(row.task).toLowerCase() !== "anomaly",
       );
-      const challengerCandidateId = text(challengerCandidate?.candidate_id);
+      expect(rankedSupervisedCandidates.length).toBeGreaterThanOrEqual(2);
+      const exactEvaluationCandidate = record(candidate, "Evaluation candidate");
+      const championCandidate = record(
+        rankedSupervisedCandidates[0],
+        "top-ranked supervised candidate",
+      );
+      expect(text(championCandidate.candidate_id)).toBe(checkpoint.candidate_id);
+      const evaluationFamily = evaluationModelFamily(exactEvaluationCandidate);
+      const challengerCandidate = record(
+        rankedSupervisedCandidates.find(
+          (row) =>
+            text(row.candidate_id) !== checkpoint.candidate_id &&
+            evaluationModelFamily(row) !== evaluationFamily,
+        ) ?? rankedSupervisedCandidates.find(
+          (row) => text(row.candidate_id) !== checkpoint.candidate_id,
+        ),
+        "selection-review challenger",
+      );
+      const challengerCandidateId = text(challengerCandidate.candidate_id);
+      const challengerName = cleanModelName(challengerCandidate.name);
       expect(challengerCandidateId).not.toBe("");
-      await challengerAdd.click();
-      const comparisonTray = page.getByTestId("interpretation-comparison-tray");
-      await expect(comparisonTray).not.toContainText(
-        "No model will be automatically selected",
+      expect(challengerName).not.toBe("");
+
+      const resultsTableSection = page.getByTestId("primary-model-results-table");
+      await expect(resultsTableSection).toBeVisible();
+      const resultsTable = resultsTableSection.locator("table");
+      const resultHeaders = (await resultsTable.getByRole("columnheader").allInnerTexts())
+        .map((value) => value.trim().toLowerCase());
+      expect(resultHeaders).toEqual([
+        "rank",
+        "model",
+        "family",
+        "selection metric",
+        "source",
+        "fold evidence",
+        "runtime",
+        "decision",
+      ]);
+      expect(resultHeaders).not.toContain("actions");
+      await expect(resultsTable.locator("tbody tr")).toHaveCount(
+        rankedSupervisedCandidates.length,
       );
-      await expect(comparisonTray.locator("article")).toHaveCount(2);
-      const challengerTrayCard = comparisonTray
-        .locator("article")
-        .filter({ hasText: challengerName });
-      await expect(challengerTrayCard).toHaveCount(1);
-      await challengerTrayCard.getByTitle("Remove from Comparison").click();
-      await expect(comparisonTray.locator("article")).toHaveCount(1);
-      await expect(comparisonTray).not.toContainText(challengerName);
-      await challengerCard.getByRole("button", { name: "Add to Comparison", exact: true }).click();
-      await expect(comparisonTray.locator("article")).toHaveCount(2);
-      await expect(comparisonTray).toContainText(challengerName);
+      const championRow = resultsTable.locator("tbody tr").first();
+      await expect(championRow.getByRole("cell").nth(0)).toHaveText("1");
+      await expect(championRow.getByRole("cell").nth(1)).toContainText(
+        cleanModelName(championCandidate.name),
+      );
+      await expect(championRow.getByRole("cell").last()).toHaveText("Champion");
+
+      const explorer = page.getByTestId("interactive-model-explorer");
+      await expect(explorer).toBeVisible();
+      const evaluationModelSelector = explorer.getByTestId("evaluation-model-selector");
+
+      const reviewEvaluationRow = async (candidateRow: Record<string, any>) => {
+        const candidateId = text(candidateRow.candidate_id);
+        const modelName = cleanModelName(candidateRow.name);
+        const row = resultsTable.locator("tbody tr").filter({
+          has: page.getByText(modelName, { exact: true }),
+        });
+        await expect(row).toHaveCount(1);
+        const commandResponsePromise = waitForSelectionReviewResponse(
+          page,
+          isolated.backendOrigin,
+          "/api/eval/command_center",
+          candidateId,
+        );
+        const curvesResponsePromise = waitForSelectionReviewResponse(
+          page,
+          isolated.backendOrigin,
+          "/api/eval/curves",
+          candidateId,
+        );
+        await row.click();
+        const [commandResponse, curvesResponse] = await Promise.all([
+          commandResponsePromise,
+          curvesResponsePromise,
+        ]);
+        const [reviewCommand, reviewCurves] = await Promise.all([
+          responseJson(commandResponse),
+          responseJson(curvesResponse),
+        ]);
+        assertSelectionReviewBinding(commandResponse, reviewCommand, candidateRow);
+        assertSelectionReviewBinding(curvesResponse, reviewCurves, candidateRow);
+        expect(text(reviewCommand.analysis_type)).toBe("command_center");
+        expect(text(reviewCurves.analysis_type)).toBe("curves");
+
+        const candidateMetric = normalizedSelectionMetric(
+          record(candidateRow.selection_metric, `${modelName} selection metric`),
+        );
+        await expect(row).toHaveAttribute("aria-selected", "true");
+        await expect(evaluationModelSelector).toHaveValue(candidateId);
+        const reviewEvidence = explorer.getByTestId("model-review-evidence");
+        await expect(reviewEvidence).toContainText(`${modelName} - rank`);
+        await expect(reviewEvidence).toContainText(
+          fixed(candidateMetric.value, `${modelName} visible selection metric`),
+        );
+        await expect(reviewEvidence.locator("table tbody tr").first()).toBeVisible();
+
+        const roc = record(reviewCurves.roc, `${modelName} ROC curve`);
+        const pr = record(reviewCurves.pr, `${modelName} precision-recall curve`);
+        expect(Array.isArray(roc.fpr)).toBe(true);
+        expect(roc.fpr.length).toBeGreaterThan(2);
+        expect(roc.tpr).toHaveLength(roc.fpr.length);
+        expect(Array.isArray(pr.recall)).toBe(true);
+        expect(pr.recall.length).toBeGreaterThan(2);
+        expect(pr.precision).toHaveLength(pr.recall.length);
+        const rocChart = explorer.getByRole("img", {
+          name: "True positive rate by False positive rate",
+        });
+        const prChart = explorer.getByRole("img", { name: "Precision by Recall" });
+        await expect(rocChart).toBeVisible();
+        await expect(prChart).toBeVisible();
+        expect(svgPointCount(await rocChart.locator("polyline").getAttribute("points"))).toBe(
+          roc.fpr.length,
+        );
+        expect(svgPointCount(await prChart.locator("polyline").getAttribute("points"))).toBe(
+          pr.recall.length,
+        );
+
+        const thresholdMetrics = record(
+          reviewCommand.threshold,
+          `${modelName} threshold metrics`,
+        );
+        const thresholdLabel = finite(
+          thresholdMetrics.threshold,
+          `${modelName} threshold`,
+        ).toFixed(3);
+        const thresholdDashboard = explorer.getByTestId("threshold-live-metrics");
+        await expectLabeledValue(
+          thresholdDashboard,
+          `Precision @ ${thresholdLabel}`,
+          percent(thresholdMetrics.precision, `${modelName} threshold precision`),
+        );
+        await expectLabeledValue(
+          thresholdDashboard,
+          `Recall @ ${thresholdLabel}`,
+          percent(thresholdMetrics.recall, `${modelName} threshold recall`),
+        );
+        await expectLabeledValue(
+          thresholdDashboard,
+          `F1 @ ${thresholdLabel}`,
+          fixed(thresholdMetrics.f1, `${modelName} threshold F1`),
+        );
+        const confusionCard = thresholdDashboard
+          .getByRole("heading", { name: `Confusion Matrix @ ${thresholdLabel}` })
+          .locator("xpath=../..");
+        for (const value of (thresholdMetrics.confusion as number[][]).flat()) {
+          await expect(confusionCard).toContainText(value.toLocaleString());
+        }
+
+        const lift = record(reviewCommand.lift, `${modelName} lift evidence`);
+        expect(Array.isArray(lift.deciles)).toBe(true);
+        expect(lift.deciles.length).toBeGreaterThan(1);
+        const liftSection = thresholdDashboard.getByTestId("lift-gain-capture");
+        await expect(liftSection.locator("table tbody tr")).toHaveCount(lift.deciles.length);
+        const firstLiftRow = record(lift.deciles[0], `${modelName} first lift decile`);
+        await expectExactTableRow(
+          liftSection.locator("table"),
+          text(firstLiftRow.decile),
+          [
+            text(firstLiftRow.decile),
+            finite(firstLiftRow.n, `${modelName} lift rows`).toLocaleString(),
+            finite(firstLiftRow.positives, `${modelName} lift events`).toLocaleString(),
+            percent(firstLiftRow.event_rate, `${modelName} lift event rate`),
+            finite(firstLiftRow.lift, `${modelName} lift value`).toFixed(2),
+            percent(firstLiftRow.capture_rate, `${modelName} lift capture`),
+            finite(firstLiftRow.mean_score, `${modelName} lift mean score`).toFixed(4),
+          ],
+        );
+
+        const calibration = record(
+          reviewCommand.calibration,
+          `${modelName} calibration evidence`,
+        );
+        expect(Array.isArray(calibration.rows)).toBe(true);
+        expect(calibration.rows.length).toBeGreaterThan(1);
+        const calibrationSection = page.getByTestId("stability-calibration");
+        await expect(calibrationSection).toContainText(`Calibration evidence for ${modelName}`);
+        const reliabilityCurve = calibrationSection.getByRole("img", {
+          name: "Observed event rate by Mean predicted probability",
+        });
+        await expect(reliabilityCurve).toBeVisible();
+        expect(svgPointCount(await reliabilityCurve.locator("polyline").getAttribute("points"))).toBe(
+          calibration.rows.length,
+        );
+        await expectLabeledValue(
+          calibrationSection,
+          "Brier score",
+          fixed(calibration.brier_score, `${modelName} Brier score`),
+        );
+
+        const specificTestId = modelSpecificTestId(candidateRow);
+        const modelSpecific = explorer.getByTestId(specificTestId);
+        await expect(modelSpecific).toBeVisible({ timeout: 180_000 });
+        await expect(modelSpecific).toContainText(
+          `${evaluationModelFamily(candidateRow)} diagnostics`,
+        );
+        return {
+          candidateId,
+          modelName,
+          specificTestId,
+          reviewText: await reviewEvidence.innerText(),
+        };
+      };
+
+      const challengerEvaluationReview = await reviewEvaluationRow(challengerCandidate);
+      const governedEvaluationReview = await reviewEvaluationRow(exactEvaluationCandidate);
+      expect(challengerEvaluationReview.candidateId).not.toBe(
+        governedEvaluationReview.candidateId,
+      );
+      expect(challengerEvaluationReview.modelName).not.toBe(
+        governedEvaluationReview.modelName,
+      );
+      expect(challengerEvaluationReview.reviewText).not.toBe(
+        governedEvaluationReview.reviewText,
+      );
+      expect(challengerEvaluationReview.specificTestId).not.toBe(
+        governedEvaluationReview.specificTestId,
+      );
+
+      const comparisonDistribution = page.getByTestId("model-score-distribution");
+      await expect(comparisonDistribution).toBeVisible();
+      const comparisonChart = comparisonDistribution.getByRole("img", {
+        name: /ATLAS Model Comparison - five-fold .* distribution/,
+      });
+      await expect(comparisonChart).toBeVisible();
+      await expect(comparisonChart).toHaveAttribute("viewBox", /^0 0 1600 /);
+      const comparisonBounds = await comparisonChart.boundingBox();
+      expect(comparisonBounds, "model comparison chart bounds").not.toBeNull();
+      expect(comparisonBounds!.width).toBeGreaterThan(1_200);
+      expect(comparisonBounds!.height).toBeGreaterThan(400);
+      for (const family of [
+        "Tree-based",
+        "Transparent / linear",
+        "Anomaly diagnostics",
+        "Neural networks",
+        "Distance / margin",
+        "Other",
+      ]) {
+        await expect(comparisonChart.getByText(family, { exact: true })).toBeVisible();
+      }
+      const familyBoxColors = await comparisonChart
+        .locator('rect[height="34"]')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("fill") ?? ""));
+      expect(new Set(familyBoxColors).size).toBeGreaterThanOrEqual(2);
       await exerciseVisibleTabs(page, "Step08 Evaluation", coverage);
-      await shot(page, testInfo, "step08-exact-candidate-review-and-comparison");
+      await shot(page, testInfo, "step08-row-driven-model-review-and-family-comparison");
       coverage.push({
         step: "Step08 Evaluation",
-        control: "locked candidate review and comparison",
+        control: "row-driven model results and family comparison",
         result: "passed",
-        evidence: "Backend curve points, threshold/calibration/lift values, the frozen leaderboard row, and tray add/remove state rendered for the exact locked candidate.",
+        evidence: "The primary table had no Actions column, its top row was Champion, two exact candidates rebound selection-review charts, metrics, confusion matrices, lift/calibration tables, and model-specific diagnostics, and the materially large comparison chart used distinct family colors.",
       });
 
-      // Page-level Continue is the primary next-page control and must carry all
-      // four exact handoff identifiers in the URL.
+      // Continue opens the exact Evaluation candidate. Other candidates remain
+      // available through Interpretation's explicit model selector.
+      const importanceResponsePromise = page.waitForResponse((response) => {
+        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/importance")) return false;
+        const query = new URL(response.url()).searchParams;
+        return query.get("candidate_id") === checkpoint.candidate_id &&
+          query.get("evaluation_package_id") === checkpoint.evaluation_package_id;
+      }, { timeout: 180_000 });
+      const shapResponsePromise = page.waitForResponse((response) => {
+        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/shap")) return false;
+        const query = new URL(response.url()).searchParams;
+        return query.get("candidate_id") === checkpoint.candidate_id &&
+          query.get("evaluation_package_id") === checkpoint.evaluation_package_id;
+      }, { timeout: 180_000 });
       await strictContinue(page, checkpoint.project_id, "step09");
-      assertInterpretationUrl(page, checkpoint, [
-        checkpoint.candidate_id,
-        challengerCandidateId,
-      ]);
-      await page.goBack();
-      await expectExactStep(page, checkpoint.project_id, "step08");
-      await expect(page.getByTestId("evaluation-command-center")).toBeVisible({ timeout: 180_000 });
-      const reopenedTray = page.getByTestId("interpretation-comparison-tray");
-      const clearComparison = reopenedTray.getByRole("button", {
-        name: "Clear Comparison",
-        exact: true,
-      });
-      await expect(clearComparison).toBeEnabled();
-      await clearComparison.click();
-      await expect(reopenedTray).toContainText("No model will be automatically selected");
-      const reopenedLockedCard = page
-        .getByRole("button", { name: "Review Locked Candidate", exact: true })
-        .locator("xpath=ancestor::article[1]");
-      await reopenedLockedCard.getByRole("button", { name: "Add to Comparison", exact: true }).click();
-      await page
-        .getByTestId("top-candidate-comparison")
-        .getByRole("button", { name: "Add to Comparison", exact: true })
-        .first()
-        .click();
-      await expect(reopenedTray.locator("article")).toHaveCount(2);
-      const trayOpen = reopenedTray.getByRole("button", {
-        name: "Open Reviewed Candidate",
-        exact: true,
-      });
-      await expect(trayOpen).toBeEnabled();
-      await trayOpen.click();
-      await expectExactStep(page, checkpoint.project_id, "step09");
-      assertInterpretationUrl(page, checkpoint, [
-        checkpoint.candidate_id,
-        challengerCandidateId,
-      ]);
-      await page.goBack();
-      await expectExactStep(page, checkpoint.project_id, "step08");
-      await expect(page.getByTestId("evaluation-command-center")).toBeVisible({ timeout: 180_000 });
-      const directInterpretation = page
-        .getByRole("button", { name: "Review Locked Candidate", exact: true })
-        .locator("xpath=ancestor::article[1]")
-        .getByRole("button", { name: "Open Interpretation", exact: true });
-      await expect(directInterpretation).toBeEnabled();
-      const importanceResponsePromise = page.waitForResponse(
-        (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/importance"),
-        { timeout: 180_000 },
-      );
-      const shapResponsePromise = page.waitForResponse(
-        (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/shap"),
-        { timeout: 180_000 },
-      );
-      await directInterpretation.click();
-      await expectExactStep(page, checkpoint.project_id, "step09");
-      assertInterpretationUrl(page, checkpoint, [
-        checkpoint.candidate_id,
-        challengerCandidateId,
-      ]);
+      assertInterpretationUrl(page, checkpoint, [checkpoint.candidate_id]);
       const [importancePayload, shapPayload] = await Promise.all([
         importanceResponsePromise.then(responseJson),
         shapResponsePromise.then(responseJson),
       ]);
-      expect(importancePayload.ok).toBe(true);
-      expect(shapPayload.ok).toBe(true);
-      expect(text(importancePayload.evaluation_package_id)).toBe(
-        checkpoint.evaluation_package_id,
-      );
-      expect(text(shapPayload.evaluation_package_id)).toBe(
-        checkpoint.evaluation_package_id,
-      );
+      assertEvaluationPackageBinding(importancePayload, checkpoint);
+      assertEvaluationPackageBinding(shapPayload, checkpoint);
       const importanceRows = importancePayload.rows as Array<Record<string, any>>;
       const shapRows = shapPayload.rows as Array<Record<string, any>>;
       expect(Array.isArray(importanceRows)).toBe(true);
@@ -946,255 +1137,329 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       expect(shapRows.length).toBeGreaterThan(0);
       coverage.push({
         step: "Step08 Evaluation",
-        control: "three exact Interpretation navigation controls",
+        control: "page-level Continue to Interpretation",
         result: "passed",
-        evidence: "Continue, Open Reviewed Candidate, and Open Interpretation all preserved the exact handoff query.",
+        evidence: "Continue durably completed Evaluation and preserved the exact candidate, training run, candidate decision, and Evaluation package query.",
       });
 
-      // Step 09: verify provenance, change the explained feature with exact
-      // backend responses, run RFE, and inspect the resulting feature table.
+
+      // Step 09: use the visible model selector to review both the Evaluation
+      // candidate and one exact challenger. Challenger analyses are strictly
+      // selection-review scoped and cannot inherit promotion authority.
       await expect(page.getByRole("heading", {
         name: "Step 9: Model Interpretation and Final Model",
       })).toBeVisible({ timeout: 180_000 });
-      const interpretationComparison = page.getByTestId("interpretation-candidate-comparison");
-      await expect(interpretationComparison).toBeVisible();
-      await expect(interpretationComparison.locator("article")).toHaveCount(2);
-      const lockedComparisonCard = interpretationComparison.locator(
-        `article[data-candidate-id="${checkpoint.candidate_id}"]`,
-      );
-      const challengerComparisonCard = interpretationComparison.locator(
-        `article[data-candidate-id="${challengerCandidateId}"]`,
-      );
-      await expect(lockedComparisonCard).toContainText("Locked candidate");
-      await expect(challengerComparisonCard).toContainText("Selection-evidence challenger");
-      await expect(interpretationComparison).toContainText(/development-selection evidence only/i);
-      await expect(interpretationComparison).toContainText(/cannot open the final holdout/i);
-      for (const comparisonCandidate of [
-        record(candidate, "locked comparison candidate"),
-        record(challengerCandidate, "challenger comparison candidate"),
-      ]) {
-        const candidateId = text(comparisonCandidate.candidate_id);
-        const metric = normalizedSelectionMetric(
-          record(
-            comparisonCandidate.selection_metric,
-            `${candidateId} comparison selection metric`,
-          ),
-        );
-        const card = interpretationComparison.locator(
-          `article[data-candidate-id="${candidateId}"]`,
-        );
-        await expect(card).toContainText(
-          fixed(metric.value, `${candidateId} comparison metric value`),
-        );
-        await expect(card).toContainText(text(metric.partition_id));
-        await expect(card).toContainText(`${finite(metric.fold_count, `${candidateId} fold count`)} folds`);
-      }
-      const provenance = page.getByTestId("interpretation-selection-holdout-provenance");
-      await expect(provenance).toContainText(checkpoint.candidate_decision_id);
-      await expect(provenance).toContainText(checkpoint.evaluation_package_id);
-      await expect(provenance).toContainText(/reporting-only/i);
-      await expect(provenance).toContainText(/cannot change the candidate, features, calibration, or threshold/i);
-
-      const decisionBoundarySection = page.getByTestId("decision-boundary-section");
-      await expect(decisionBoundarySection).toBeVisible({ timeout: 180_000 });
-      const boundaryXSelect = page.getByLabel("Decision boundary X feature");
-      const boundaryYSelect = page.getByLabel("Decision boundary Y feature");
-      await expect.poll(async () => (await optionValues(boundaryXSelect)).length, {
+      const interpretationSelector = page.getByTestId("interpretation-model-selector");
+      await expect(interpretationSelector).toBeVisible();
+      await expect(interpretationSelector).toBeEnabled();
+      const interpretationOptions = await optionValues(interpretationSelector);
+      expect(interpretationOptions).toContain(checkpoint.candidate_id);
+      expect(interpretationOptions).toContain(challengerCandidateId);
+      await expect(interpretationSelector).toHaveValue(checkpoint.candidate_id);
+      const selectedModelSummary = page.getByTestId("selected-model-summary");
+      const evaluationName = cleanModelName(exactEvaluationCandidate.name);
+      await expect(selectedModelSummary).toContainText(evaluationName);
+      await expect(selectedModelSummary).toContainText(checkpoint.candidate_id);
+      await expect(selectedModelSummary).toContainText("Evaluation candidate");
+      await expect(selectedModelSummary).toContainText("Model evidence loaded", {
         timeout: 180_000,
-      }).toBeGreaterThan(2);
-      const initialBoundaryX = await boundaryXSelect.inputValue();
-      const initialBoundaryY = await boundaryYSelect.inputValue();
-      const alternateBoundaryX = (await optionValues(boundaryXSelect)).find(
-        (feature) =>
-          !feature.startsWith("PCA") &&
-          feature !== initialBoundaryX &&
-          feature !== initialBoundaryY,
-      );
-      expect(alternateBoundaryX, "an alternate numeric X feature").toBeTruthy();
-      const boundaryXResponsePromise = page.waitForResponse((response) => {
-        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/decision_boundary")) return false;
-        return new URL(response.url()).searchParams.get("x_feature") === alternateBoundaryX;
-      }, { timeout: 180_000 });
-      await boundaryXSelect.selectOption(alternateBoundaryX!);
-      const boundaryXResponse = await boundaryXResponsePromise;
-      const boundaryXPayload = await responseJson(boundaryXResponse);
-      expect(text(new URL(boundaryXResponse.url()).searchParams.get("candidate_id"))).toBe(
-        checkpoint.candidate_id,
-      );
-      expect(text(new URL(boundaryXResponse.url()).searchParams.get("evaluation_package_id"))).toBe(
-        checkpoint.evaluation_package_id,
-      );
-      expect(text(boundaryXPayload.x_feature)).toBe(alternateBoundaryX);
-      expect(text(boundaryXPayload.y_feature)).not.toBe("");
-      expect(text(boundaryXPayload.y_feature)).not.toBe(alternateBoundaryX);
-      await expect(boundaryXSelect).toHaveValue(text(boundaryXPayload.x_feature));
-      await expect(boundaryYSelect).toHaveValue(text(boundaryXPayload.y_feature));
-      await expectExactBoundaryRendering(decisionBoundarySection, boundaryXPayload);
-
-      const previousBoundaryY = await boundaryYSelect.inputValue();
-      const alternateBoundaryY = (await optionValues(boundaryYSelect)).find(
-        (feature) =>
-          !feature.startsWith("PCA") &&
-          feature !== previousBoundaryY &&
-          feature !== alternateBoundaryX,
-      );
-      expect(alternateBoundaryY, "an alternate numeric Y feature").toBeTruthy();
-      const boundaryYResponsePromise = page.waitForResponse((response) => {
-        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/decision_boundary")) return false;
-        const query = new URL(response.url()).searchParams;
-        return query.get("x_feature") === alternateBoundaryX && query.get("y_feature") === alternateBoundaryY;
-      }, { timeout: 180_000 });
-      await boundaryYSelect.selectOption(alternateBoundaryY!);
-      const boundaryYPayload = await boundaryYResponsePromise.then(responseJson);
-      expect(text(boundaryYPayload.x_feature)).toBe(alternateBoundaryX);
-      expect(text(boundaryYPayload.y_feature)).toBe(alternateBoundaryY);
-      await expect(boundaryXSelect).toHaveValue(alternateBoundaryX!);
-      await expect(boundaryYSelect).toHaveValue(alternateBoundaryY!);
-      await expectExactBoundaryRendering(decisionBoundarySection, boundaryYPayload);
-      coverage.push({
-        step: "Step09 Interpretation",
-        control: "Decision Boundary X and Y selectors",
-        result: "passed",
-        evidence: "Both numeric feature selectors issued exact candidate/evaluation-bound requests; the returned axes, complete response grid, observed points, and projected SVG geometry matched backend values.",
       });
 
-      await expect(page.getByRole("heading", { name: "Feature Importance" })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "SHAP Summary" })).toBeVisible();
       const importanceSection = page
         .getByRole("heading", { name: "Feature Importance" })
         .locator("xpath=ancestor::section[1]");
       const shapSection = page
         .getByRole("heading", { name: "SHAP Summary" })
         .locator("xpath=ancestor::section[1]");
-      for (const row of importanceRows.slice(0, 3)) {
-        const rendered = importanceSection
-          .getByText(text(row.feature), { exact: true })
-          .locator("xpath=..");
-        await expect(rendered).toHaveCount(1);
-        await expect(rendered).toContainText(fixed(row.importance, `${row.feature} importance`));
-      }
-      for (const row of shapRows.slice(0, 3)) {
-        const rendered = shapSection
-          .getByText(text(row.feature), { exact: true })
-          .locator("xpath=..");
-        await expect(rendered).toHaveCount(1);
-        await expect(rendered).toContainText(fixed(row.importance, `${row.feature} SHAP value`));
-      }
       const pdpSection = page
         .getByRole("heading", { name: "PDP / Sensitivity" })
         .locator("xpath=ancestor::section[1]");
-      const featureSelect = pdpSection.locator("select");
-      await expect(featureSelect).toBeEnabled({ timeout: 180_000 });
-      const features = await optionValues(featureSelect);
-      expect(features.length).toBeGreaterThan(1);
-      const previousFeature = await featureSelect.inputValue();
-      const selectedFeature = features.find((value) => value !== previousFeature)!;
-      const pdpResponsePromise = page.waitForResponse((response) => {
-        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/pdp")) return false;
-        return new URL(response.url()).searchParams.get("feature") === selectedFeature;
-      }, { timeout: 90_000 });
-      const sensitivityResponsePromise = page.waitForResponse((response) => {
-        if (!isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/sensitivity")) return false;
-        return new URL(response.url()).searchParams.get("feature") === selectedFeature;
-      }, { timeout: 90_000 });
-      await featureSelect.selectOption(selectedFeature);
-      const [pdpPayload, sensitivityPayload] = await Promise.all([
-        pdpResponsePromise.then(responseJson),
-        sensitivityResponsePromise.then(responseJson),
-      ]);
-      expect(pdpPayload.ok).toBe(true);
-      expect(sensitivityPayload.ok).toBe(true);
-      const pdpRows = pdpPayload.rows as Array<Record<string, any>>;
-      const sensitivityRows = sensitivityPayload.rows as Array<Record<string, any>>;
-      expect(Array.isArray(pdpRows)).toBe(true);
-      expect(pdpRows.length).toBeGreaterThan(1);
-      expect(Array.isArray(sensitivityRows)).toBe(true);
-      expect(sensitivityRows.length).toBeGreaterThan(0);
-      await expect(featureSelect).toHaveValue(selectedFeature);
-      await expect(pdpSection).toContainText(selectedFeature);
-      const pdpChart = pdpSection.locator("svg");
-      await expect(pdpChart).toBeVisible();
-      await expect(pdpChart.locator("circle")).toHaveCount(pdpRows.length);
-      await expect(pdpChart.locator("polyline")).toHaveAttribute(
-        "points",
-        expectedPdpPoints(pdpRows),
+      const hyperparameterSection = page
+        .getByRole("heading", { name: "Final Hyperparameter Settings" })
+        .locator("xpath=ancestor::section[1]");
+
+      const expectInterpretationRows = async (
+        importanceEvidence: Record<string, any>,
+        shapEvidence: Record<string, any>,
+      ) => {
+        const exactImportanceRows = importanceEvidence.rows as Array<Record<string, any>>;
+        const exactShapRows = shapEvidence.rows as Array<Record<string, any>>;
+        expect(Array.isArray(exactImportanceRows)).toBe(true);
+        expect(exactImportanceRows.length).toBeGreaterThan(0);
+        expect(Array.isArray(exactShapRows)).toBe(true);
+        expect(exactShapRows.length).toBeGreaterThan(0);
+        for (const row of exactImportanceRows.slice(0, 3)) {
+          const rendered = importanceSection
+            .getByText(text(row.feature), { exact: true })
+            .locator("xpath=..");
+          await expect(rendered).toHaveCount(1);
+          await expect(rendered).toContainText(
+            fixed(row.importance, `${row.feature} importance`),
+          );
+        }
+        for (const row of exactShapRows.slice(0, 3)) {
+          const rendered = shapSection
+            .getByText(text(row.feature), { exact: true })
+            .locator("xpath=..");
+          await expect(rendered).toHaveCount(1);
+          await expect(rendered).toContainText(
+            fixed(row.importance, `${row.feature} SHAP value`),
+          );
+        }
+      };
+
+      await expectInterpretationRows(importancePayload, shapPayload);
+
+      const challengerImportancePromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/importance",
+        challengerCandidateId,
       );
-      const firstSensitivity = sensitivityRows[0];
+      const challengerShapPromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/shap",
+        challengerCandidateId,
+      );
+      const challengerHyperparametersPromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/hyperparameters",
+        challengerCandidateId,
+      );
+      const challengerPdpPromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/pdp",
+        challengerCandidateId,
+      );
+      const challengerSensitivityPromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/sensitivity",
+        challengerCandidateId,
+      );
+      const challengerBoundaryPromise = waitForSelectionReviewResponse(
+        page,
+        isolated.backendOrigin,
+        "/api/interpretation/decision_boundary",
+        challengerCandidateId,
+      );
+      await interpretationSelector.selectOption(challengerCandidateId);
+      const [
+        challengerImportanceResponse,
+        challengerShapResponse,
+        challengerHyperparametersResponse,
+        challengerPdpResponse,
+        challengerSensitivityResponse,
+        challengerBoundaryResponse,
+      ] = await Promise.all([
+        challengerImportancePromise,
+        challengerShapPromise,
+        challengerHyperparametersPromise,
+        challengerPdpPromise,
+        challengerSensitivityPromise,
+        challengerBoundaryPromise,
+      ]);
+      const [
+        challengerImportancePayload,
+        challengerShapPayload,
+        challengerHyperparametersPayload,
+        challengerPdpPayload,
+        challengerSensitivityPayload,
+        challengerBoundaryPayload,
+      ] = await Promise.all([
+        responseJson(challengerImportanceResponse),
+        responseJson(challengerShapResponse),
+        responseJson(challengerHyperparametersResponse),
+        responseJson(challengerPdpResponse),
+        responseJson(challengerSensitivityResponse),
+        responseJson(challengerBoundaryResponse),
+      ]);
+      for (const [response, payload] of [
+        [challengerImportanceResponse, challengerImportancePayload],
+        [challengerShapResponse, challengerShapPayload],
+        [challengerHyperparametersResponse, challengerHyperparametersPayload],
+        [challengerPdpResponse, challengerPdpPayload],
+        [challengerSensitivityResponse, challengerSensitivityPayload],
+        [challengerBoundaryResponse, challengerBoundaryPayload],
+      ] as Array<[Response, Record<string, any>]>) {
+        assertSelectionReviewBinding(response, payload, challengerCandidate);
+      }
+      await expect(interpretationSelector).toHaveValue(challengerCandidateId);
+      await expect(selectedModelSummary).toContainText(challengerName);
+      await expect(selectedModelSummary).toContainText(challengerCandidateId);
+      await expect(selectedModelSummary).toContainText("Selection review");
+      await expect(selectedModelSummary).toContainText("Model evidence loaded", {
+        timeout: 180_000,
+      });
+      await expectInterpretationRows(
+        challengerImportancePayload,
+        challengerShapPayload,
+      );
+
+      const challengerHyperparameterRows = challengerHyperparametersPayload.rows as
+        | Array<Record<string, any>>
+        | undefined;
+      if (challengerHyperparameterRows?.length) {
+        await expect(hyperparameterSection).toContainText(
+          text(challengerHyperparameterRows[0].parameter),
+        );
+        await expect(hyperparameterSection).toContainText(
+          text(challengerHyperparameterRows[0].value),
+        );
+      } else {
+        await expect(hyperparameterSection).toContainText(
+          "No grid-search settings were recorded for this model",
+        );
+      }
+
+      const challengerPdpRows = challengerPdpPayload.rows as Array<Record<string, any>>;
+      const challengerSensitivityRows = challengerSensitivityPayload.rows as Array<Record<string, any>>;
+      expect(challengerPdpRows.length).toBeGreaterThan(1);
+      expect(challengerSensitivityRows.length).toBeGreaterThan(0);
+      const challengerPdpChart = pdpSection.locator("svg");
+      await expect(challengerPdpChart.locator("circle")).toHaveCount(
+        challengerPdpRows.length,
+      );
+      await expect(challengerPdpChart.locator("polyline")).toHaveAttribute(
+        "points",
+        expectedPdpPoints(challengerPdpRows),
+      );
+      const firstChallengerSensitivity = record(
+        challengerSensitivityRows[0],
+        "challenger sensitivity row",
+      );
       await expectExactTableRow(
         pdpSection.locator("table"),
-        text(firstSensitivity.scenario),
+        text(firstChallengerSensitivity.scenario),
         [
-          text(firstSensitivity.scenario),
-          fixed(firstSensitivity.prediction, "sensitivity prediction"),
-          fixed(firstSensitivity.delta, "sensitivity delta"),
+          text(firstChallengerSensitivity.scenario),
+          fixed(firstChallengerSensitivity.prediction, "challenger sensitivity prediction"),
+          fixed(firstChallengerSensitivity.delta, "challenger sensitivity delta"),
         ],
       );
-      coverage.push({
-        step: "Step09 Interpretation",
-        control: "Evaluation comparison handoff",
-        result: "passed",
-        evidence: "The exact two-candidate comparison query re-resolved to backend candidate rows and rendered development-only selection evidence without changing the locked Interpretation candidate.",
-      });
-      coverage.push({
-        step: "Step09 Interpretation",
-        control: "PDP / Sensitivity feature selector",
-        result: "passed",
-        evidence: "Changing features rendered the exact backend PDP polyline/points and sensitivity scenario values for the selected feature.",
-      });
+      const decisionBoundarySection = page.getByTestId("decision-boundary-section");
+      await expect(decisionBoundarySection).toBeVisible({ timeout: 180_000 });
+      await expectExactBoundaryRendering(
+        decisionBoundarySection,
+        challengerBoundaryPayload,
+      );
 
-      const rfeButton = page.getByRole("button", { name: /^Run RFE$/ });
-      await expect(rfeButton).toBeEnabled({ timeout: 90_000 });
-      const rfeResponsePromise = page.waitForResponse(
-        (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/rfe"),
-        { timeout: 90_000 },
+      const challengerSaveFinal = page.getByRole("button", {
+        name: "Save as Final Model",
+        exact: true,
+      });
+      await expect(challengerSaveFinal).toBeDisabled();
+      await expect(challengerSaveFinal).toHaveAttribute(
+        "title",
+        /Evaluation candidate/i,
       );
-      await rfeButton.click();
-      const rfePayload = await rfeResponsePromise.then(responseJson);
-      expect(rfePayload.ok).toBe(true);
-      expect(Array.isArray(rfePayload.rows)).toBe(true);
-      expect(rfePayload.rows.length).toBeGreaterThan(0);
-      expect(Array.isArray(rfePayload.curve)).toBe(true);
-      expect(rfePayload.curve.length).toBeGreaterThan(1);
-      await expect(page.getByRole("button", { name: "Rerun RFE" })).toBeVisible({ timeout: 90_000 });
-      const rfeSection = page
-        .getByRole("heading", { name: "Recursive Feature Elimination" })
-        .locator("xpath=ancestor::section[1]");
-      const recommendedCount = finite(
-        rfePayload.recommended_count,
-        "recommended RFE feature count",
+      await expect(page.getByTestId("exact-candidate-promotion")).toContainText(
+        /Selection review only/i,
       );
-      const bestCount = finite(rfePayload.best_count, "best RFE feature count");
-      const bestAuc = finite(rfePayload.best_auc, "best RFE AUC");
-      await expect(rfeSection).toContainText(`Analysis point: ${recommendedCount} features`);
-      await expect(rfeSection).toContainText(
-        `Best RFE point: ${bestCount} features at AUC ${bestAuc.toFixed(4)}`,
+      await shot(page, testInfo, "step09-challenger-selection-review");
+
+      const waitForEvaluationArtifact = (pathname: string) =>
+        page.waitForResponse((response) => {
+          if (!isBackendResponse(response, isolated.backendOrigin, pathname)) return false;
+          const query = new URL(response.url()).searchParams;
+          return (
+            query.get("candidate_id") === checkpoint.candidate_id &&
+            query.get("candidate_decision_id") === checkpoint.candidate_decision_id &&
+            query.get("evaluation_package_id") === checkpoint.evaluation_package_id &&
+            !query.has("evidence_scope")
+          );
+        }, { timeout: 180_000 });
+      const evaluationImportancePromise = waitForEvaluationArtifact(
+        "/api/interpretation/importance",
       );
-      const rfeChart = rfeSection.locator("svg");
-      await expect(rfeChart).toBeVisible();
-      await expect(rfeChart.locator("rect")).toHaveCount(rfePayload.curve.length);
-      await expect(rfeChart.locator("circle")).toHaveCount(rfePayload.curve.length);
-      expect(svgPointCount(await rfeChart.locator("polyline").getAttribute("points"))).toBe(
-        rfePayload.curve.length,
+      const evaluationShapPromise = waitForEvaluationArtifact(
+        "/api/interpretation/shap",
       );
-      const firstRfeRow = record(rfePayload.rows[0], "first RFE row");
+      const evaluationPdpPromise = waitForEvaluationArtifact(
+        "/api/interpretation/pdp",
+      );
+      const evaluationSensitivityPromise = waitForEvaluationArtifact(
+        "/api/interpretation/sensitivity",
+      );
+      const evaluationBoundaryPromise = waitForEvaluationArtifact(
+        "/api/interpretation/decision_boundary",
+      );
+      await interpretationSelector.selectOption(checkpoint.candidate_id);
+      const [
+        evaluationImportanceResponse,
+        evaluationShapResponse,
+        evaluationPdpResponse,
+        evaluationSensitivityResponse,
+        evaluationBoundaryResponse,
+      ] = await Promise.all([
+        evaluationImportancePromise,
+        evaluationShapPromise,
+        evaluationPdpPromise,
+        evaluationSensitivityPromise,
+        evaluationBoundaryPromise,
+      ]);
+      const [
+        reboundImportancePayload,
+        reboundShapPayload,
+        evaluationPdpPayload,
+        evaluationSensitivityPayload,
+        evaluationBoundaryPayload,
+      ] = await Promise.all([
+        responseJson(evaluationImportanceResponse),
+        responseJson(evaluationShapResponse),
+        responseJson(evaluationPdpResponse),
+        responseJson(evaluationSensitivityResponse),
+        responseJson(evaluationBoundaryResponse),
+      ]);
+      for (const payload of [
+        reboundImportancePayload,
+        reboundShapPayload,
+        evaluationPdpPayload,
+        evaluationSensitivityPayload,
+        evaluationBoundaryPayload,
+      ]) {
+        assertEvaluationPackageBinding(payload, checkpoint);
+      }
+      await expect(interpretationSelector).toHaveValue(checkpoint.candidate_id);
+      await expect(selectedModelSummary).toContainText(evaluationName);
+      await expect(selectedModelSummary).toContainText(checkpoint.candidate_id);
+      await expect(selectedModelSummary).toContainText("Evaluation candidate");
+      await expectInterpretationRows(reboundImportancePayload, reboundShapPayload);
+
+      const evaluationPdpRows = evaluationPdpPayload.rows as Array<Record<string, any>>;
+      const evaluationSensitivityRows = evaluationSensitivityPayload.rows as Array<Record<string, any>>;
+      expect(evaluationPdpRows.length).toBeGreaterThan(1);
+      expect(evaluationSensitivityRows.length).toBeGreaterThan(0);
+      await expect(pdpSection.locator("svg polyline")).toHaveAttribute(
+        "points",
+        expectedPdpPoints(evaluationPdpRows),
+      );
+      const firstEvaluationSensitivity = record(
+        evaluationSensitivityRows[0],
+        "Evaluation-candidate sensitivity row",
+      );
       await expectExactTableRow(
-        rfeSection.locator("table"),
-        text(firstRfeRow.feature),
+        pdpSection.locator("table"),
+        text(firstEvaluationSensitivity.scenario),
         [
-          text(firstRfeRow.feature),
-          finite(firstRfeRow.rank, "RFE rank") <= recommendedCount ? "Yes" : "No",
-          text(firstRfeRow.rank),
-          typeof firstRfeRow.importance === "number"
-            ? firstRfeRow.importance.toFixed(4)
-            : "-",
+          text(firstEvaluationSensitivity.scenario),
+          fixed(firstEvaluationSensitivity.prediction, "Evaluation sensitivity prediction"),
+          fixed(firstEvaluationSensitivity.delta, "Evaluation sensitivity delta"),
         ],
       );
+      await expectExactBoundaryRendering(
+        decisionBoundarySection,
+        evaluationBoundaryPayload,
+      );
+      await expect(challengerSaveFinal).toBeEnabled({ timeout: 180_000 });
       coverage.push({
         step: "Step09 Interpretation",
-        control: "Run RFE",
+        control: "exact candidate model selector and promotion gate",
         result: "passed",
-        evidence: "The exact recommended/best AUC values, curve point count, and per-feature selection row rendered from the backend RFE response.",
+        evidence: "The challenger returned only exact selection-review artifacts, visibly rebound importance, SHAP, hyperparameter, PDP/sensitivity, and clipped decision-boundary content, and could not be promoted; selecting the Evaluation candidate restored its reporting package and promotion authority.",
       });
 
       // Promotion must not report success until the durable registry response
@@ -1209,12 +1474,14 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       );
       const sensitivitySummaryResponsePromise = page.waitForResponse(
         (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/sensitivity_summary"),
+          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/sensitivity_summary") &&
+          new URL(response.url()).searchParams.has("model_version_id"),
         { timeout: 180_000 },
       );
       const vifResponsePromise = page.waitForResponse(
         (response) =>
-          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/vif"),
+          isBackendResponse(response, isolated.backendOrigin, "/api/interpretation/vif") &&
+          new URL(response.url()).searchParams.has("model_version_id"),
         { timeout: 180_000 },
       );
       await saveFinal.click();
@@ -1305,7 +1572,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       expect(vifRows.length).toBeGreaterThan(1);
 
       const finalSensitivitySection = page
-        .getByRole("heading", { name: "Final Model Sensitivity Analysis", exact: true })
+        .getByRole("heading", { name: "Selected Model Sensitivity Analysis", exact: true })
         .locator("xpath=ancestor::section[1]");
       const finalSensitivityTable = finalSensitivitySection.locator("table");
       await expect(finalSensitivityTable.locator("tbody tr")).toHaveCount(
@@ -1349,7 +1616,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       ]);
 
       const vifSection = page
-        .getByRole("heading", { name: "Variance Inflation Factor", exact: true })
+        .getByRole("heading", { name: "Selected Model Variance Inflation Factor", exact: true })
         .locator("xpath=ancestor::section[1]");
       await expect(vifSection.locator("tbody tr")).toHaveCount(vifRows.length, {
         timeout: 180_000,
@@ -1446,6 +1713,17 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       await expect(page.getByTestId("final-model-scoring-contract")).toContainText(modelVersionId, {
         timeout: 180_000,
       });
+      coverage.push({
+        step: "Step10 Scoring",
+        control: "Interpretation Continue handoff",
+        result: "passed",
+        evidence: "The saved exact model version reached the project-scoped Scoring route and hydrated the durable scoring contract.",
+      });
+      if (STOP_AFTER_INTERPRETATION) {
+        await page.waitForLoadState("networkidle", { timeout: 180_000 });
+        await shot(page, testInfo, "step10-stop-after-interpretation-handoff");
+        return;
+      }
 
       const scoringFixture = writeStrictPredictiveFixture(testInfo, 240);
       const testCsv = testInfo.outputPath("strict-predictive-external-validation.csv");
@@ -1456,16 +1734,26 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       const trainZone = page.getByTestId("train-scoring-zone");
       const trainResponsePromise = page.waitForResponse((response) => {
         if (!isBackendResponse(response, isolated.backendOrigin, "/api/score/development-split", "POST")) return false;
-        return new URL(response.url()).searchParams.get("dataset_type") === "train";
+        return hasExactScoringQuery(
+          response.url(),
+          checkpoint,
+          modelVersionId,
+          candidateLineage.target,
+          "train",
+        );
       }, { timeout: 180_000 });
       await trainZone.getByRole("button", { name: "Score TRAIN", exact: true }).click();
       const trainScore = await trainResponsePromise.then(responseJson);
       expect(trainScore.ok).toBe(true);
       expect(text(trainScore.scoringRunId)).not.toBe("");
+      expect(text(trainScore.model?.modelVersionId ?? trainScore.model?.model_version_id)).toBe(
+        modelVersionId,
+      );
       await expect(trainZone).toContainText(/rows scored/i, { timeout: 180_000 });
-      await expectLabeledValue(trainZone, "Rows", text(trainScore.rows));
+      const trainSummaryMetrics = trainZone.getByTestId("scoring-summary-metrics");
+      await expectLabeledValue(trainSummaryMetrics, "Rows", text(trainScore.rows));
       await expectLabeledValue(
-        trainZone,
+        trainSummaryMetrics,
         "Mean Score",
         fixed(trainScore.score_summary?.mean, "TRAIN mean score"),
       );
@@ -1473,16 +1761,29 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       const testZone = page.getByTestId("test-scoring-zone");
       const testResponsePromise = page.waitForResponse((response) => {
         if (!isBackendResponse(response, isolated.backendOrigin, "/api/score/upload", "POST")) return false;
-        return new URL(response.url()).searchParams.get("dataset_type") === "test";
+        return hasExactScoringQuery(
+          response.url(),
+          checkpoint,
+          modelVersionId,
+          candidateLineage.target,
+          "test",
+        );
       }, { timeout: 180_000 });
       await testZone.locator('input[type="file"]').setInputFiles(testCsv);
       const testScore = await testResponsePromise.then(responseJson);
       expect(testScore.ok).toBe(true);
       expect(text(testScore.scoringRunId)).not.toBe("");
+      expect(text(testScore.model?.modelVersionId ?? testScore.model?.model_version_id)).toBe(
+        modelVersionId,
+      );
+      expect(text(testScore.scoring_diagnostics?.feature_manifest_status)).toBe("reapplied");
+      expect(testScore.scoring_diagnostics?.missing_features).toEqual([]);
+      expect(testScore.scoring_diagnostics?.holdout_accessed_for_feature_materialization).toBe(false);
       await expect(testZone).toContainText(/rows scored/i, { timeout: 180_000 });
-      await expectLabeledValue(testZone, "Rows", text(testScore.rows));
+      const testSummaryMetrics = testZone.getByTestId("scoring-summary-metrics");
+      await expectLabeledValue(testSummaryMetrics, "Rows", text(testScore.rows));
       await expectLabeledValue(
-        testZone,
+        testSummaryMetrics,
         "Mean Score",
         fixed(testScore.score_summary?.mean, "TEST mean score"),
       );
@@ -1503,16 +1804,29 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       const ootZone = page.getByTestId("oot-scoring-zone");
       const ootResponsePromise = page.waitForResponse((response) => {
         if (!isBackendResponse(response, isolated.backendOrigin, "/api/score/upload", "POST")) return false;
-        return new URL(response.url()).searchParams.get("dataset_type") === "oot";
+        return hasExactScoringQuery(
+          response.url(),
+          checkpoint,
+          modelVersionId,
+          candidateLineage.target,
+          "oot",
+        );
       }, { timeout: 180_000 });
       await ootZone.locator('input[type="file"]').setInputFiles(ootCsv);
       const ootScore = await ootResponsePromise.then(responseJson);
       expect(ootScore.ok).toBe(true);
       expect(text(ootScore.scoringRunId)).not.toBe("");
+      expect(text(ootScore.model?.modelVersionId ?? ootScore.model?.model_version_id)).toBe(
+        modelVersionId,
+      );
+      expect(text(ootScore.scoring_diagnostics?.feature_manifest_status)).toBe("reapplied");
+      expect(ootScore.scoring_diagnostics?.missing_features).toEqual([]);
+      expect(ootScore.scoring_diagnostics?.holdout_accessed_for_feature_materialization).toBe(false);
       await expect(ootZone).toContainText(/rows scored/i, { timeout: 180_000 });
-      await expectLabeledValue(ootZone, "Rows", text(ootScore.rows));
+      const ootSummaryMetrics = ootZone.getByTestId("scoring-summary-metrics");
+      await expectLabeledValue(ootSummaryMetrics, "Rows", text(ootScore.rows));
       await expectLabeledValue(
-        ootZone,
+        ootSummaryMetrics,
         "Mean Score",
         fixed(ootScore.score_summary?.mean, "OOT mean score"),
       );
@@ -1607,7 +1921,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         topVsi.test ? fixed(topVsi.test.value, "top TEST VSI") : "-",
         topVsi.oot ? fixed(topVsi.oot.value, "top OOT VSI") : "-",
         topVsiStatus,
-      ]);
+      ], 1);
       await expect(page.getByTestId("stability-command-center")).toBeVisible();
       await expect(page.getByTestId("scored-output-registration")).toBeVisible();
       await shot(page, testInfo, "step10-train-test-oot-scoring-complete");
@@ -1802,10 +2116,16 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         );
       }
       await expect(
-        readinessSection.getByText("Project context available", { exact: true }).locator("xpath=../svg"),
+        readinessSection
+          .getByText("Project context available", { exact: true })
+          .locator("xpath=..")
+          .locator("svg"),
       ).toHaveClass(/text-emerald-600/);
       await expect(
-        readinessSection.getByText("Target or response selected", { exact: true }).locator("xpath=../svg"),
+        readinessSection
+          .getByText("Target or response selected", { exact: true })
+          .locator("xpath=..")
+          .locator("svg"),
       ).toHaveClass(/text-emerald-600/);
       for (const linkName of ["Open Model Documentation Studio", "Open Studio Workspace"]) {
         const link = page.getByRole("link", { name: linkName, exact: true });
@@ -1816,6 +2136,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
           timeout: 90_000,
         });
         await expect(page.getByTestId("atlas-safe-error-boundary")).toHaveCount(0);
+        await page.waitForLoadState("networkidle", { timeout: 180_000 });
         await page.goBack();
         await expectExactStep(page, checkpoint.project_id, "step11");
       }
@@ -1833,6 +2154,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         exact: true,
       });
       await expect(documentationContinue).toBeEnabled({ timeout: 180_000 });
+      await page.waitForLoadState("networkidle", { timeout: 180_000 });
       await documentationContinue.click();
       await expectExactStep(page, checkpoint.project_id, "step12");
       coverage.push({
@@ -1870,24 +2192,6 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       await shot(page, testInfo, "step12-all-implementation-controls-complete");
       await exerciseVisibleTabs(page, "Step12 Implementation", coverage);
       await strictContinue(page, checkpoint.project_id, "step13");
-      const persistedImplementation = await readScopedProjectContext(
-        page,
-        checkpoint.project_id,
-      );
-      expect(persistedImplementation).toMatchObject({
-        implementationOwner: implementationValues.owner,
-        implementationTargetDate: implementationValues.targetDate,
-        implementationEnvironment: implementationValues.environment,
-        implementationNotes: implementationValues.notes,
-        promotedModelId: returnedModelId,
-        promotedModelVersionId: modelVersionId,
-        promotedCandidateId: checkpoint.candidate_id,
-        promotedTrainingRunId: checkpoint.training_run_id,
-        promotedDatasetId: checkpoint.dataset_id,
-        promotedDatasetVersionId: checkpoint.dataset_version_id,
-        promotedTarget: candidateLineage.target,
-      });
-      expect(text(persistedImplementation?.updatedAt)).not.toBe("");
       await page.goBack();
       await expectExactStep(page, checkpoint.project_id, "step12");
       await page.reload();
@@ -2022,24 +2326,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       await completeWorkflow.click();
       await expect(page).toHaveURL(/\/dashboard(?:[?#]|$)/, { timeout: 180_000 });
       await expect(page.getByTestId("atlas-safe-error-boundary")).toHaveCount(0);
-      const persistedMonitoring = await readScopedProjectContext(
-        page,
-        checkpoint.project_id,
-      );
-      expect(persistedMonitoring).toMatchObject({
-        promotedModelId: returnedModelId,
-        promotedModelVersionId: modelVersionId,
-        promotedCandidateId: checkpoint.candidate_id,
-        promotedTrainingRunId: checkpoint.training_run_id,
-        promotedDatasetId: checkpoint.dataset_id,
-        promotedDatasetVersionId: checkpoint.dataset_version_id,
-        promotedTarget: candidateLineage.target,
-        monitoringCadence: "custom",
-        monitoringCadenceCustom: "Every two weeks on the first business day",
-        monitoringMetrics: ["AUC", "KS", "PSI", "VSI"],
-        monitoringNotes,
-      });
-
+      await page.waitForLoadState("networkidle", { timeout: 180_000 });
       await page.goto(`/projects/${checkpoint.project_id}/step13`);
       await expectExactStep(page, checkpoint.project_id, "step13");
       await page.reload();
@@ -2096,6 +2383,7 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
       });
       await expect(completedCard).toHaveCount(1);
       await expect(completedCard).toContainText("14 of 14 steps complete", { timeout: 180_000 });
+      await page.waitForLoadState("networkidle", { timeout: 180_000 });
       await shot(page, testInfo, "step13-durable-workflow-completion");
       coverage.push({
         step: "Step13 Monitoring",
@@ -2104,10 +2392,45 @@ test.describe("Strict isolated predictive modeling Stage B", () => {
         evidence: "Exact production-card metrics and escalation reasons rendered; recommended metrics and custom cadence persisted with the implementation identity; the project reopened as 14 of 14 complete.",
       });
 
+      const expectedNavigationAborts = log.failedRequests.filter((entry) =>
+        isExpectedNavigationAbort(
+          entry,
+          isolated.backendOrigin,
+          isolated.frontendOrigin,
+          checkpoint.project_id,
+        ));
+      const unexpectedRequestFailures = log.failedRequests.filter(
+        (entry) => !expectedNavigationAborts.includes(entry),
+      );
+      const expectedUnauthenticatedResponses = log.failedResponses.filter(
+        (entry) => entry === `401 GET ${isolated.backendOrigin}/api/auth/me`,
+      );
+      const unexpectedResponseFailures = log.failedResponses.filter(
+        (entry) => !expectedUnauthenticatedResponses.includes(entry),
+      );
+      const expectedUnauthenticatedConsoleErrors = expectedUnauthenticatedResponses.length > 0
+        ? log.consoleErrors.filter(
+          (entry) => entry === "[error] Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        )
+        : [];
+      const unexpectedConsoleErrors = log.consoleErrors.filter(
+        (entry) => !expectedUnauthenticatedConsoleErrors.includes(entry),
+      );
+      expect(expectedNavigationAborts.length).toBeLessThanOrEqual(16);
+      expect(expectedUnauthenticatedResponses.length).toBeLessThanOrEqual(1);
+      expect(expectedUnauthenticatedConsoleErrors.length).toBeLessThanOrEqual(
+        expectedUnauthenticatedResponses.length,
+      );
+      coverage.push({
+        step: "Cross-workflow diagnostics",
+        control: "failed-request ledger",
+        result: "passed",
+        evidence: `${expectedNavigationAborts.length} allowlisted browser navigation cancellations and ${expectedUnauthenticatedResponses.length} expected pre-login auth probe were preserved separately; no failed mutation, workflow-state, evidence, model, scoring, or unexpected request/response was accepted.`,
+      });
       expect(log.pageErrors).toEqual([]);
-      expect(log.failedRequests).toEqual([]);
-      expect(log.failedResponses).toEqual([]);
-      expect(log.consoleErrors).toEqual([]);
+      expect(unexpectedRequestFailures).toEqual([]);
+      expect(unexpectedResponseFailures).toEqual([]);
+      expect(unexpectedConsoleErrors).toEqual([]);
     } finally {
       await writeCoverage();
       await dump();

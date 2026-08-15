@@ -39,6 +39,7 @@ import {
   saveCarryForwardDisposition,
   type CarryForwardDisposition,
   type PreparationCarryForwardItem,
+  type PreparationDocumentationStatus,
   type PreparationDocumentationState,
 } from "../lib/preparationGovernance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -102,6 +103,19 @@ type MissingStats = {
   present_target_metric: number | null;
   difference: number | null;
   standardized_difference?: number | null;
+  registered_structural?: {
+    scope: "registered_structural_population";
+    row_count: number;
+    missing: number;
+    missingPct: number;
+    nonmissing_count: number;
+    observed_count: number;
+    distinct_count: number;
+    special_value_count: number;
+    special_value_rate: number;
+    special_values: Record<string, number>;
+    distribution: MissingStats["distribution"];
+  };
 };
 type MissingApplication = {
   applied_at: string;
@@ -112,18 +126,31 @@ type MissingApplication = {
   config: MissingConfig;
   config_signature: string;
   source_stage: string;
-  rows_before: number;
-  rows_after: number;
-  missing_before: number;
-  missing_after: number;
+  row_count: number;
+  registered_population_row_count: number;
+  registered_structural_missing_count: number;
+  development_missing_before: number;
+  development_missing_after: number;
   dropped_rows: number;
-  treatments: Array<{
-    feature: string;
-    strategy: MissingStrategy;
-    filled: number;
-    value?: string;
-    dropped_rows?: number;
-  }>;
+  development_preview: {
+    counts: {
+      flagged_cell_count: number;
+      affected_row_count: number;
+      affected_row_rate: number;
+      affected_predictor_count: number;
+      mean_flagged_features_per_affected_row: number;
+      maximum_flagged_features_on_one_row: number;
+    };
+    treatments: Array<{
+      feature: string;
+      strategy: string;
+      flagged_cell_count: number;
+      fitted_value: { kind: string; value: unknown };
+    }>;
+  };
+  backend_materialization: false;
+  processed_frame_materialized: false;
+  sealed_holdout_transformed: false;
 };
 type MissingValidation = {
   validated_at: string;
@@ -135,18 +162,24 @@ type MissingValidation = {
   row_count: number;
   predictor_count: number;
   missing_cells: 0;
-  strategy: "None";
+  strategy: "NONE";
   status: "validated_no_treatment_required";
   backend_materialization: false;
-  statement: "Validated, no treatment required.";
+  statement: string;
+  processed_frame_materialized: false;
+  sealed_holdout_transformed: false;
 };
 type MissingSummary = {
   ok: boolean;
-  scope: "full_dataset";
+  scope: "development_population";
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
   rows: number;
+  row_count: number;
+  development_rows: number;
+  registered_population_rows: number;
+  registered_structural_row_count: number;
   columns: ColumnInfo[];
   stats: Record<string, MissingStats>;
   target: string | null;
@@ -163,6 +196,16 @@ type MissingSummary = {
   };
   application?: MissingApplication | null;
   validation?: MissingValidation | null;
+  counts: MissingApplication["development_preview"]["counts"];
+  registered_structural_counts: MissingApplication["development_preview"]["counts"];
+  preprocessing_contract_version: 2;
+  analysis_partition_id: string;
+  analysis_partition_revision: number;
+  predictor_authorization_id: string;
+  special_value_contract: {
+    special_value_review_id: string | null;
+    revision: number;
+  };
 };
 
 const API_BASE =
@@ -177,7 +220,6 @@ const STRATEGIES: MissingStrategy[] = [
   "Median",
   "Mode",
   "Constant",
-  "Drop Row",
 ];
 const STRATEGY_GUIDANCE: Record<MissingStrategy, string> = {
   None: "Recommended when no true nulls exist or when a downstream estimator intentionally preserves missingness.",
@@ -501,7 +543,7 @@ export default function Step04MissingValues() {
                 parse_failure_count: 0,
                 reference_cutoffs: null,
                 cutoff_semantics:
-                  "Distribution evidence is unavailable until the full-data summary is refreshed.",
+                  "Distribution evidence is unavailable until the Development Population summary is refreshed.",
               },
             },
           ];
@@ -566,7 +608,7 @@ export default function Step04MissingValues() {
       setError(
         cause instanceof Error
           ? cause.message
-          : "Full-data missingness analysis is unavailable.",
+          : "Development Population missingness analysis is unavailable.",
       );
     } finally {
       if (requestNumber === hydrationRequest.current) {
@@ -639,9 +681,17 @@ export default function Step04MissingValues() {
   const totalSpecial =
     summary?.columns.reduce(
       (sum, column) =>
-        sum + (summary.stats[column.name]?.special_value_count ?? 0),
+        sum +
+        (summary.stats[column.name]?.registered_structural
+          ?.special_value_count ?? 0),
       0,
     ) ?? 0;
+  const registeredStructuralMissing =
+    summary?.registered_structural_counts?.flagged_cell_count ?? 0;
+  const holdoutOnlyMissing = Math.max(
+    0,
+    registeredStructuralMissing - totalMissing,
+  );
   const affectedPredictors =
     summary?.columns.filter(
       (column) => (summary.stats[column.name]?.missing ?? 0) > 0,
@@ -649,7 +699,8 @@ export default function Step04MissingValues() {
   const specialPredictors =
     summary?.columns.filter(
       (column) =>
-        (summary.stats[column.name]?.special_value_count ?? 0) > 0,
+        (summary.stats[column.name]?.registered_structural
+          ?.special_value_count ?? 0) > 0,
     ).length ?? 0;
   const informativeCount =
     summary?.columns.filter(
@@ -718,11 +769,15 @@ export default function Step04MissingValues() {
         (column) => (config[column.name]?.strategy ?? "None") !== "None",
       ).length
     : 0;
-  const documentationStatus = applied
+  const persistedMissingStatus =
+    preparationDocs?.missing_values.status ?? "absent";
+  const documentationStatus: PreparationDocumentationStatus = applied
     ? "confirmed"
     : summary?.application || summary?.validation
       ? "stale"
-      : (preparationDocs?.missing_values.status ?? "draft");
+      : persistedMissingStatus.startsWith("stale")
+        ? "stale"
+        : "draft";
   const decisionState = applying
     ? totalMissing
       ? "Applying"
@@ -886,7 +941,7 @@ export default function Step04MissingValues() {
     try {
       const payload = await requestJson<{
         ok: true;
-        scope: "full_dataset";
+        scope: "development_population";
         project_id: string;
         dataset_id: string;
         dataset_version_id: string;
@@ -901,6 +956,15 @@ export default function Step04MissingValues() {
           dataset_version: datasetIdentity.dataset_version_id,
           event_value: summary.event_value,
           problem_type: summary.problem_type,
+          preprocessing_contract_version: 2,
+          analysis_partition_id: summary.analysis_partition_id,
+          analysis_partition_revision: summary.analysis_partition_revision,
+          expected_predictor_authorization_id:
+            summary.predictor_authorization_id,
+          expected_special_value_review_id:
+            summary.special_value_contract.special_value_review_id,
+          expected_special_value_review_revision:
+            summary.special_value_contract.revision,
         }),
       });
       assertExactDatasetIdentity(
@@ -923,9 +987,11 @@ export default function Step04MissingValues() {
           ? {
               ...current,
               missing_values: {
-                status: "confirmed",
+                status: "current",
                 application: null,
                 validation: payload.validation,
+                stale_reasons: [],
+                preprocessing_contract_version: 2,
               },
             }
           : current,
@@ -968,13 +1034,10 @@ export default function Step04MissingValues() {
     const dropRowFeatures = summary.columns.filter(
       (column) => config[column.name]?.strategy === "Drop Row",
     );
-    if (
-      dropRowFeatures.length &&
-      !window.confirm(
-        `Drop Row is selected for ${dropRowFeatures.length} predictor${dropRowFeatures.length === 1 ? "" : "s"}. This changes the modeling population and may introduce selection bias. Apply only after reviewing the row-loss preview. Continue?`,
-      )
-    ) {
-      setMessage("Row-removal treatment was not applied.");
+    if (dropRowFeatures.length) {
+      setError(
+        "Row deletion cannot execute after the Analysis Partition is sealed. Revise the registered population and confirm a new partition instead.",
+      );
       return null;
     }
     setApplying(true);
@@ -983,7 +1046,7 @@ export default function Step04MissingValues() {
     try {
       const payload = await requestJson<{
         ok: true;
-        scope: "full_dataset";
+        scope: "development_population";
         project_id: string;
         dataset_id: string;
         dataset_version_id: string;
@@ -999,6 +1062,15 @@ export default function Step04MissingValues() {
           config: normalizeConfig(summary.columns, config),
           event_value: summary.event_value,
           problem_type: summary.problem_type,
+          preprocessing_contract_version: 2,
+          analysis_partition_id: summary.analysis_partition_id,
+          analysis_partition_revision: summary.analysis_partition_revision,
+          expected_predictor_authorization_id:
+            summary.predictor_authorization_id,
+          expected_special_value_review_id:
+            summary.special_value_contract.special_value_review_id,
+          expected_special_value_review_revision:
+            summary.special_value_contract.revision,
         }),
       });
       assertExactDatasetIdentity(
@@ -1016,8 +1088,22 @@ export default function Step04MissingValues() {
           ? { ...current, application: payload.application, validation: null }
           : current,
       );
+      setPreparationDocs((current) =>
+        current
+          ? {
+              ...current,
+              missing_values: {
+                status: "current",
+                application: payload.application,
+                validation: null,
+                stale_reasons: [],
+                preprocessing_contract_version: 2,
+              },
+            }
+          : current,
+      );
       setMessage(
-        `Applied ${payload.application.treatments.length.toLocaleString()} governed treatments. True nulls changed from ${payload.application.missing_before.toLocaleString()} to ${payload.application.missing_after.toLocaleString()}; bureau special values remained separate.`,
+        `Approved ${payload.application.development_preview.treatments.length.toLocaleString()} governed treatments. The Development preview changed true nulls from ${payload.application.development_missing_before.toLocaleString()} to ${payload.application.development_missing_after.toLocaleString()}; training re-fits values fold-locally and bureau special codes remain protected.`,
       );
       return payload.application;
     } catch (cause) {
@@ -1052,8 +1138,10 @@ export default function Step04MissingValues() {
     await createEvidence({
       ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
         sourceStage: decision.source_stage,
-        scope: "full_dataset",
-        backendMaterialization: !isValidation,
+        scope: isValidation
+          ? "registered_structural_zero_null_validation"
+          : "development_preview",
+        backendMaterialization: false,
       }),
       projectName,
       evidenceType: "missing_values",
@@ -1062,7 +1150,7 @@ export default function Step04MissingValues() {
         : "Governed Missing-Value Treatment",
       summary: isValidation
         ? "No null imputation is required for the current modeling population. Bureau special values remain governed values and are handled separately."
-        : `${decision.treatments.length.toLocaleString()} treatments were applied. True nulls changed from ${decision.missing_before.toLocaleString()} to ${decision.missing_after.toLocaleString()}.`,
+        : `${decision.development_preview.treatments.length.toLocaleString()} treatments were approved. The Development preview changed true nulls from ${decision.development_missing_before.toLocaleString()} to ${decision.development_missing_after.toLocaleString()}.`,
       sourcePage: "Missing Values",
       sourceRoute: "/step04",
       modelIds: [],
@@ -1076,7 +1164,7 @@ export default function Step04MissingValues() {
       tags: [
         "predictive_modeling",
         "missing_values",
-        isValidation ? "validated_no_treatment" : "full_dataset",
+        isValidation ? "validated_no_treatment" : "development_preview",
         "special_values_separate",
       ],
       status: "ready",
@@ -1102,10 +1190,18 @@ export default function Step04MissingValues() {
       nextPath="/step05"
       onNext={completeStep}
       nextDisabled={
-        loading || !datasetIdentity || !summary || !!error || applying
+        loading ||
+        !datasetIdentity ||
+        !summary ||
+        !!error ||
+        applying ||
+        (totalMissing === 0 && holdoutOnlyMissing > 0)
       }
       nextDisabledReason={
-        error || "Load the governed missingness profile before continuing."
+        error ||
+        (totalMissing === 0 && holdoutOnlyMissing > 0
+          ? "Nulls occur outside Development, so ATLAS cannot fit an imputer without holdout influence. Revise the registered population and seal a new Analysis Partition."
+          : "Load the governed missingness profile before continuing.")
       }
       nextLabel={
         totalMissing === 0
@@ -1116,10 +1212,10 @@ export default function Step04MissingValues() {
         applied
           ? totalMissing === 0
             ? "Validated, no treatment required. Continue to Feature Engineering."
-            : "The current treatment is materialized and ready for Feature Engineering."
+            : "The policy and Development preview are approved; training will fit fold-local values."
           : totalMissing === 0
             ? "Validation records a no-treatment decision without backend materialization."
-            : "Selected strategies will be materialized only after explicit confirmation."
+            : "Selected strategies become policy only after confirmation; no full-population frame is created."
       }
       showEmbeddedNext
       nextAlwaysVisible
@@ -1129,7 +1225,7 @@ export default function Step04MissingValues() {
         <PreparationPageIdentity
           step="Step 4 of 13"
           title="Missing Values"
-          description="Distinguish true nulls from governed bureau special values, validate the current population, and materialize only a necessary treatment."
+          description="Distinguish true nulls from governed bureau special values, approve a Development preview, and defer executable fitting to training folds."
           datasetName={datasetName}
           datasetVersion={
             datasetIdentity?.dataset_version_id || ""
@@ -1159,9 +1255,9 @@ export default function Step04MissingValues() {
               tone: affectedPredictors ? "warning" : "success",
             },
             {
-              label: "Special values",
+              label: "Governed special-value cells",
               value: totalSpecial.toLocaleString(),
-              detail: `${specialPredictors} predictors`,
+              detail: `across ${specialPredictors.toLocaleString()} predictors`,
               tone: totalSpecial ? "info" : "neutral",
             },
             {
@@ -1236,7 +1332,7 @@ export default function Step04MissingValues() {
         {summary ? (
           <>
             <PreparationGovernanceDisclosure
-              summary={`${summary.columns.length.toLocaleString()} predictors authorized · ${totalSpecial.toLocaleString()} special values preserved · MDD ${documentationStatus}`}
+              summary={`${summary.columns.length.toLocaleString()} predictors authorized · ${totalSpecial.toLocaleString()} registered-structural governed special-value cells across ${specialPredictors.toLocaleString()} predictors · MDD ${documentationStatus}`}
             >
               <AtlasStatusStrip
                 items={[
@@ -1251,7 +1347,7 @@ export default function Step04MissingValues() {
                   {
                     label: "Null / special separation",
                     state: "complete",
-                    detail: `${totalMissing.toLocaleString()} / ${totalSpecial.toLocaleString()}`,
+                    detail: `${totalMissing.toLocaleString()} Development true-null cells / ${totalSpecial.toLocaleString()} registered-structural governed special-value cells`,
                   },
                   {
                     label: "Decision",
@@ -1351,7 +1447,10 @@ export default function Step04MissingValues() {
               tone="info"
               id="missing-feature-table"
               action={
-                <AtlasDataScopeBadge scope="full_dataset" rows={summary.rows} />
+                <AtlasDataScopeBadge
+                  scope="development_population"
+                  rows={summary.row_count}
+                />
               }
             >
               <div
@@ -1458,7 +1557,9 @@ export default function Step04MissingValues() {
                       </th>
                       <th className="px-3 py-2 text-right">Missing</th>
                       <th className="px-3 py-2 text-right">Missing rate</th>
-                      <th className="min-w-44 px-3 py-2">Imputed value</th>
+                      <th className="min-w-44 px-3 py-2">
+                        Treatment / reference value
+                      </th>
                       <th className="min-w-64 px-3 py-2">Treatment / override</th>
                       <th className="px-3 py-2 text-right">Nonmissing</th>
                       <th className="px-3 py-2 text-right">IV</th>
@@ -1792,7 +1893,7 @@ export default function Step04MissingValues() {
               <AtlasWorkflowSection
                 eyebrow="Preview only"
                 title="Treatment Impact Preview"
-                description="Selected treatment only. Expected fill and row-loss impact from full-data null counts; preview does not materialize a backend frame."
+                description="Selected treatment only. Expected fill and row-loss impact use Development Population true-null counts; preview does not materialize a backend frame."
                 tone="warning"
                 id="missing-impact-preview"
               >
@@ -1936,7 +2037,7 @@ export default function Step04MissingValues() {
                     Complete Predictor Inventory
                   </span>
                   <span className="mt-1 block text-xs text-slate-600">
-                    Expand for searchable full-data counts, target comparison,
+                    Expand for searchable Development Population counts, target comparison,
                     special-value prevalence, and feature overrides.
                   </span>
                 </span>
@@ -2225,7 +2326,11 @@ function MissingnessTreatmentRow({
           {strategy}
         </span>
         <div className="mt-1 text-sm font-bold text-slate-950">
-          {strategy === "Drop Row" ? "Action" : "Imputed value"}:{" "}
+          {strategy === "Drop Row"
+            ? "Action"
+            : missingCount > 0 && strategy !== "None"
+              ? "Active fill value"
+              : "Inactive planning value"}:{" "}
           <span
             className="text-blue-800"
             data-testid={`missing-impact-value-${column.name}`}

@@ -356,6 +356,9 @@ test("four distinct visuals expose purpose, controls, accessibility, and export"
   assert.match(secondarySource, /Where are quality or treatment risks/);
   assert.match(secondarySource, /Event-Rate Shape Gallery/);
   assert.match(secondarySource, /How does target behavior vary/);
+  assert.match(secondarySource, /data-testid="event-rate-shape-lift-table"/);
+  assert.match(secondarySource, /Associated lift table/);
+  assert.match(secondarySource, /Highest-risk band/);
   assert.match(secondarySource, /Missingness \/ Special-Value Map/);
   assert.match(secondarySource, /What exceptional values require treatment/);
   assert.match(landscapeSource + secondarySource, /Export CSV/);
@@ -364,6 +367,32 @@ test("four distinct visuals expose purpose, controls, accessibility, and export"
   assert.match(landscapeSource + secondarySource, /onKeyDown/);
   assert.match(secondarySource, /mutually exclusive/i);
   assert.doesNotMatch(secondarySource, /data-outlier-marker/);
+});
+
+test("distribution explorer renders the event-rate overlay with labels, legend, and axis", () => {
+  for (const marker of [
+    'const [showEventRate, setShowEventRate] = useState(problemType === "classification")',
+    "path.event-rate-line",
+    "circle.event-rate-point",
+    "text.event-rate-bin-label",
+    "text.event-rate-end-label",
+    "clampPlotX",
+    "clampPlotY",
+    "class_boxplots",
+    "buildTargetOverlayBins",
+    "data.iv_by_bin",
+    "g.event-rate-axis",
+    "g.distribution-legend",
+    "Event rate",
+  ]) {
+    assert.match(
+      distributionSource,
+      new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+  }
+  assert.doesNotMatch(distributionSource, /showTargetClass/);
+  assert.doesNotMatch(distributionSource, /path\.target-class-line/);
+  assert.doesNotMatch(distributionSource, />Target classes</);
 });
 
 test("motion, linked selection, and exact performance events are wired", () => {

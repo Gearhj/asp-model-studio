@@ -47,6 +47,9 @@ export type CanonicalValidationDesignDraft = {
 
 export type CanonicalPreparationBrowserState = {
   identity: CanonicalDatasetIdentity;
+  authority: "browser_draft_only";
+  executable: false;
+  backendPolicyAuthority: false;
   outlierMethods: Record<string, unknown>;
   outlierGlobalMethod: string;
   outlierRationales: Record<string, string>;
@@ -217,6 +220,9 @@ export function loadCanonicalPreparationBrowserState(
 
   return {
     identity,
+    authority: "browser_draft_only",
+    executable: false,
+    backendPolicyAuthority: false,
     outlierMethods,
     outlierGlobalMethod:
       readScopedText(OUTLIER_GLOBAL_METHOD_STORAGE_PREFIX, identity) ||
@@ -257,6 +263,14 @@ export type PreparationDocumentationStatus =
   | "confirmed"
   | "stale";
 
+export type PreprocessingArtifactStatus =
+  | "absent"
+  | "current"
+  | "incomplete_missing_policy"
+  | "stale_legacy_unverified"
+  | "stale_lineage"
+  | "stale_authority_unavailable";
+
 export type PreparationDocumentationState = {
   ok: boolean;
   project_id: string;
@@ -274,13 +288,23 @@ export type PreparationDocumentationState = {
     target_source_excluded: string[];
   };
   outliers: {
-    status: PreparationDocumentationStatus;
+    status: PreprocessingArtifactStatus;
     application: Record<string, unknown> | null;
+    stale_reasons?: string[];
+    preprocessing_contract_version: 2;
   };
   missing_values: {
-    status: PreparationDocumentationStatus;
+    status: PreprocessingArtifactStatus;
     application: Record<string, unknown> | null;
     validation: Record<string, unknown> | null;
+    stale_reasons?: string[];
+    preprocessing_contract_version: 2;
+  };
+  preprocessing: {
+    status: PreprocessingArtifactStatus;
+    policy: Record<string, unknown> | null;
+    stale_reasons?: string[];
+    preprocessing_contract_version: 2;
   };
   feature_engineering: {
     status: PreparationDocumentationStatus;

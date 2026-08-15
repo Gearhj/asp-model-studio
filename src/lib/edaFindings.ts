@@ -62,11 +62,17 @@ export type EdaOverallReviewStatus =
   // the governed parent-finding contract was introduced.
   | "reviewed";
 
+export type EdaDuplicateResolutionAction =
+  | "unresolved"
+  | "retain_current_population"
+  | "exclude_upstream_and_repartition";
+
 export type EdaFindingDecision = {
   disposition: EdaFindingDisposition;
   rationale: string;
   destination: EdaCarryForwardDestination | "";
   transformation: EdaTransformationOption;
+  resolutionAction?: EdaDuplicateResolutionAction;
   updatedAt?: string;
 };
 

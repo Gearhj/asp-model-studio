@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from io import StringIO
 import logging
@@ -423,6 +424,7 @@ def _checkpoint_pretraining_lineage_errors(
         "outlier_application",
         "missing_application",
         "missing_validation",
+        "preprocessing_policy",
         "feature_manifest",
         "feature_preview",
         "validation_design",
@@ -440,6 +442,134 @@ def _checkpoint_pretraining_lineage_errors(
         ):
             errors.append(f"{key} lacks the exact canonical dataset identity")
 
+    meta = store.meta
+    partition = (
+        meta.get("analysis_partition")
+        if isinstance(meta.get("analysis_partition"), dict)
+        else {}
+    )
+    authorization = (
+        meta.get("predictor_authorization")
+        if isinstance(meta.get("predictor_authorization"), dict)
+        else {}
+    )
+    special_review = (
+        meta.get("special_value_review")
+        if isinstance(meta.get("special_value_review"), dict)
+        else {}
+    )
+    expected_preprocessing_lineage = {
+        "project_id": identity.get("project_id"),
+        "dataset_id": identity.get("dataset_id"),
+        "dataset_version_id": identity.get("dataset_version_id"),
+        "target": store.target,
+        "target_contract_id": (
+            partition.get("target_contract_id")
+            or meta.get("target_contract_id")
+        ),
+        "predictor_authorization_id": (
+            authorization.get("predictor_authorization_id")
+            or meta.get("predictor_authorization_id")
+        ),
+        "analysis_partition_id": (
+            partition.get("analysis_partition_id")
+            or meta.get("analysis_partition_id")
+        ),
+        "analysis_partition_revision": (
+            partition.get("revision")
+            or meta.get("analysis_partition_revision")
+        ),
+        "source_checksum": (
+            partition.get("source_checksum")
+            or meta.get("source_checksum")
+        ),
+        "special_value_review_id": (
+            special_review.get("special_value_review_id")
+            or meta.get("special_value_review_id")
+        ),
+        "special_value_review_revision": (
+            special_review.get("revision")
+            or meta.get("special_value_review_revision")
+            or 0
+        ),
+        "special_value_detection_fingerprint": (
+            special_review.get("detection_fingerprint")
+            or meta.get("special_value_detection_fingerprint")
+        ),
+    }
+    preprocessing_records = {
+        key: meta.get(key)
+        for key in (
+            "outlier_application",
+            "missing_application",
+            "missing_validation",
+            "preprocessing_policy",
+        )
+        if meta.get(key) is not None
+    }
+    for key, record in preprocessing_records.items():
+        if not isinstance(record, dict) or int(
+            record.get("preprocessing_contract_version") or 0
+        ) != 2:
+            errors.append(
+                f"{key} is an unverifiable legacy preprocessing artifact"
+            )
+            continue
+        for field, expected in expected_preprocessing_lineage.items():
+            if expected in (None, ""):
+                continue
+            actual = record.get(field)
+            if field.endswith("revision"):
+                matches = int(actual or 0) == int(expected or 0)
+            else:
+                matches = str(actual or "") == str(expected or "")
+            if not matches:
+                errors.append(
+                    f"{key} {field} does not match current preprocessing authority"
+                )
+        if key == "preprocessing_policy":
+            nested = record.get("lineage")
+            if not isinstance(nested, dict):
+                errors.append("preprocessing_policy lacks nested exact lineage")
+            else:
+                for field, expected in expected_preprocessing_lineage.items():
+                    if expected in (None, ""):
+                        continue
+                    actual = nested.get(field)
+                    if field.endswith("revision"):
+                        matches = int(actual or 0) == int(expected or 0)
+                    else:
+                        matches = str(actual or "") == str(expected or "")
+                    if not matches:
+                        errors.append(
+                            "preprocessing_policy nested lineage does not match "
+                            f"current {field} authority"
+                        )
+
+    for key in ("outlier_policy", "missing_policy"):
+        policy = meta.get(key)
+        if policy is not None and (
+            not isinstance(policy, dict)
+            or int(policy.get("preprocessing_contract_version") or 0) != 2
+        ):
+            errors.append(f"{key} is not a preprocessing-v2 policy")
+    legacy_preparation_present = any(
+        meta.get(key) is not None
+        for key in (
+            "outlier_application",
+            "missing_application",
+            "missing_validation",
+            "missing_config",
+            "processed_stage",
+        )
+    )
+    if legacy_preparation_present and not isinstance(
+        meta.get("preprocessing_policy"), dict
+    ):
+        errors.append(
+            "preparation state lacks the canonical preprocessing-v2 policy"
+        )
+
     stage = str(store.meta.get("processed_stage") or "")
     stage_record = {
         "outliers": "outlier_application",
@@ -447,6 +577,10 @@ def _checkpoint_pretraining_lineage_errors(
         "feature_engineering": "feature_manifest",
     }.get(stage)
     if store.processed_df is not None:
+        if stage in {"outliers", "missing_values"}:
+            errors.append(
+                "preprocessing v2 forbids a globally materialized outlier or missing-value frame"
+            )
         if not stage_record:
             errors.append("processed_df has no governed processed_stage")
         elif not _record_has_exact_identity(
@@ -455,6 +589,16 @@ def _checkpoint_pretraining_lineage_errors(
         ):
             errors.append(
                 f"processed_df cannot be proven by {stage_record}"
+            )
+        combined = meta.get("preprocessing_policy")
+        if stage == "feature_engineering" and (
+            not isinstance(combined, dict)
+            or int(combined.get("preprocessing_contract_version") or 0) != 2
+            or combined.get("status") != "approved"
+            or not bool(combined.get("executable"))
+        ):
+            errors.append(
+                "feature-engineering processed state depends on an unverified preprocessing policy"
             )
 
     has_splits = any(
@@ -479,6 +623,45 @@ def _quarantine_checkpoint_pretraining_state(
     errors: List[str],
 ) -> None:
     """Keep the exact source/target but discard unverifiable derivatives."""
+    history = store.meta.get("preprocessing_audit_history")
+    history = history if isinstance(history, list) else []
+    quarantined_at = datetime.now(timezone.utc).isoformat()
+    reason = "; ".join(errors)
+    for key in PRETRAINING_STATE_KEYS:
+        record = store.meta.get(key)
+        if record is None:
+            continue
+        history.append(
+            {
+                "state_key": key,
+                "status": "stale_quarantined_on_checkpoint_restore",
+                "reason": reason,
+                "quarantined_at": quarantined_at,
+                "record": record,
+            }
+        )
+    if store.processed_df is not None:
+        processed = store.processed_df
+        try:
+            hashed = pd.util.hash_pandas_object(processed, index=True).values
+            processed_hash = hashlib.sha256(hashed.tobytes()).hexdigest()
+        except Exception:
+            processed_hash = "unavailable"
+        history.append(
+            {
+                "state_key": "processed_df",
+                "status": "stale_quarantined_on_checkpoint_restore",
+                "reason": reason,
+                "quarantined_at": quarantined_at,
+                "record": {
+                    "processed_stage": store.meta.get("processed_stage"),
+                    "row_count": int(len(processed)),
+                    "columns": [str(value) for value in processed.columns],
+                    "processed_frame_hash": processed_hash,
+                    "frame_retained_as_current": False,
+                },
+            }
+        )
     store.processed_df = None
     store.X_train = None
     store.X_test = None
@@ -488,6 +671,8 @@ def _quarantine_checkpoint_pretraining_state(
         # Target and exact source identity remain authoritative; every derived
         # contract must be rebuilt from the immutable registered artifact.
         store.meta.pop(key, None)
+    if history:
+        store.meta["preprocessing_audit_history"] = history
     store.meta["pretraining_state_status"] = "stale"
     store.meta["pretraining_state_reason"] = (
         "Checkpoint-derived state was quarantined because its exact Dataset "

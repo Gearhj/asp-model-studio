@@ -11,6 +11,7 @@ import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
 import { resolveFinalModelReadiness } from "../lib/finalModelReadiness";
 import {
+  buildExactScoringRequestQuery,
   buildExactScoringHistoryFilters,
   buildFinalModelStatusQuery,
   eligibleDurableScoringPartitions,
@@ -23,6 +24,7 @@ import { getCachedUserId } from "../lib/authSession";
 import RunComparePanel from "../visual-intelligence/production/RunComparePanel";
 import RegisterScoredDatasetButton from "../visual-intelligence/production/RegisterScoredDatasetButton";
 import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
+import { persistPredictiveWorkflowCompletionEvidence } from "../lib/predictiveWorkflowCompletionEvidence";
 
 const QUERY_API_BASE =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
@@ -35,6 +37,7 @@ type Status = "pass" | "warning" | "fail";
 type ScoredSplit = "train" | "test" | "oot";
 type FinalModelMetadata = {
   name?: string;
+  model_name?: string;
   source_model?: string;
   source_estimator_class?: string;
   final_estimator_class?: string;
@@ -62,6 +65,15 @@ type FinalModelMetadata = {
   modelId?: string;
   model_version_id?: string;
   modelVersionId?: string;
+  candidate_id?: string;
+  training_run_id?: string;
+  feature_manifest_version?: string;
+  validation_design_id?: string;
+  split_id?: string;
+  artifact_checksum?: string;
+  checksum?: string;
+  artifact_verification_status?: string;
+  artifact_verified?: boolean;
 };
 type ScoreResult = {
   ok: boolean;
@@ -299,18 +311,15 @@ function ScoringHistoryPanel({
 
 async function uploadScore(
   file: File,
-  projectId: string,
+  context: ExactScoringContinuationContext,
   datasetType: "test" | "oot",
   options: { correctionMethod: string; originalPrior: string; modelPrior: string }
 ) {
   const body = new FormData();
   body.append("file", file);
-  const params = new URLSearchParams({
-    project_id: projectId,
-    dataset_type: datasetType,
-    model: "final",
-    correction_method: options.correctionMethod,
-  });
+  const params = buildExactScoringRequestQuery(context);
+  params.set("dataset_type", datasetType);
+  params.set("correction_method", options.correctionMethod);
   const originalPriorValue = Number(options.originalPrior);
   const modelPriorValue = Number(options.modelPrior);
   if (options.originalPrior.trim() && Number.isFinite(originalPriorValue)) params.set("original_prior", String(originalPriorValue));
@@ -320,32 +329,41 @@ async function uploadScore(
     credentials: "include",
     body,
   });
-  if (!res.ok) throw new Error(`Scoring failed (${res.status})`);
+  if (!res.ok) throw new Error(await scoringResponseError(res, "Scoring failed"));
   const data = (await res.json()) as ScoreResult;
   if (!data.ok) throw new Error(data.error ?? "Scoring failed.");
   return data;
 }
 
 async function scoreDevelopmentSplit(
-  projectId: string,
+  context: ExactScoringContinuationContext,
   datasetType: "train" | "test",
   options: { correctionMethod: string; originalPrior: string; modelPrior: string }
 ) {
-  const params = new URLSearchParams({
-    project_id: projectId,
-    dataset_type: datasetType,
-    model: "final",
-    correction_method: options.correctionMethod,
-  });
+  const params = buildExactScoringRequestQuery(context);
+  params.set("dataset_type", datasetType);
+  params.set("correction_method", options.correctionMethod);
   const originalPriorValue = Number(options.originalPrior);
   const modelPriorValue = Number(options.modelPrior);
   if (options.originalPrior.trim() && Number.isFinite(originalPriorValue)) params.set("original_prior", String(originalPriorValue));
   if (options.modelPrior.trim() && Number.isFinite(modelPriorValue)) params.set("model_prior", String(modelPriorValue));
   const res = await fetch(`${API_BASE}/score/development-split?${params.toString()}`, { method: "POST", credentials: "include" });
-  if (!res.ok) throw new Error(`Development split scoring failed (${res.status})`);
+  if (!res.ok) throw new Error(await scoringResponseError(res, "Development split scoring failed"));
   const data = (await res.json()) as ScoreResult;
   if (!data.ok) throw new Error(data.error ?? "Development split scoring failed.");
   return data;
+}
+
+async function scoringResponseError(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown; error?: unknown };
+    const detail = typeof payload.detail === "string" ? payload.detail.trim() : "";
+    const error = typeof payload.error === "string" ? payload.error.trim() : "";
+    if (detail || error) return detail || error;
+  } catch {
+    // Preserve the status fallback when a proxy returns a non-JSON body.
+  }
+  return `${fallback} (${response.status})`;
 }
 
 export default function Step10Scoring() {
@@ -522,9 +540,13 @@ export default function Step10Scoring() {
   async function handleFile(file: File | undefined, datasetType: "test" | "oot") {
     if (!file) return;
     setMessage("");
+    if (!exactScoringContext) {
+      setMessage("The exact promoted model and training dataset identity is unavailable. No scoring request was sent.");
+      return;
+    }
     setLoading(datasetType);
     try {
-      const data = await uploadScore(file, projectId, datasetType, { correctionMethod, originalPrior, modelPrior });
+      const data = await uploadScore(file, exactScoringContext, datasetType, { correctionMethod, originalPrior, modelPrior });
       if (!originalPrior && typeof data.probability_correction?.default_original_prior === "number") {
         setOriginalPrior(String(data.probability_correction.default_original_prior));
       }
@@ -542,9 +564,13 @@ export default function Step10Scoring() {
 
   async function handleDevelopmentSplit(datasetType: "train") {
     setMessage("");
+    if (!exactScoringContext) {
+      setMessage("The exact promoted model and training dataset identity is unavailable. No scoring request was sent.");
+      return;
+    }
     setLoading(datasetType);
     try {
-      const data = await scoreDevelopmentSplit(projectId, datasetType, { correctionMethod, originalPrior, modelPrior });
+      const data = await scoreDevelopmentSplit(exactScoringContext, datasetType, { correctionMethod, originalPrior, modelPrior });
       setTrainResult(data);
     } catch (err: any) {
       setMessage(err?.message ?? "Development split scoring failed.");
@@ -712,6 +738,54 @@ export default function Step10Scoring() {
       nextDisabledReason="Score at least one governed TRAIN, External Validation, or OOT population before continuing."
       nextLabel="Confirm Scoring and Continue to Documentation"
       nextStatusLine={`${scoredOutputCount} scored output${scoredOutputCount === 1 ? "" : "s"} available for documentation and monitoring.`}
+      onNext={async () => {
+        if (!exactScoringContext || !scoredOutputCount) return false;
+        await persistPredictiveWorkflowCompletionEvidence({
+          datasetIdentity: {
+            project_id: exactScoringContext.projectId,
+            dataset_id: exactScoringContext.datasetId,
+            dataset_version_id: exactScoringContext.datasetVersionId,
+          },
+          projectName,
+          stepId: "step10",
+          evidenceType: "model_diagnostics",
+          artifactType: "scoring_completion",
+          title: "Final Model Scoring Completion",
+          summary: `${durableScoredPartitions.length} governed scoring population${durableScoredPartitions.length === 1 ? "" : "s"} completed for the exact promoted model.`,
+          supportsSections: ["Scoring", "Model Validation", "Performance Monitoring"],
+          tags: ["scoring", "durable_scoring_run", ...durableScoredPartitions],
+          model: {
+            modelId: String(finalModelMetadata.model_id ?? finalModelMetadata.modelId ?? ""),
+            modelVersionId: exactScoringContext.modelVersionId,
+            modelName: String(finalModelMetadata.model_name ?? finalModelMetadata.name ?? ""),
+            candidateId: String(finalModelMetadata.candidate_id ?? ""),
+            trainingRunId: String(finalModelMetadata.training_run_id ?? ""),
+            featureManifestVersion: String(finalModelMetadata.feature_manifest_version ?? ""),
+            validationDesignId: String(finalModelMetadata.validation_design_id ?? ""),
+            splitId: String(finalModelMetadata.split_id ?? ""),
+            artifactChecksum: String(
+              finalModelMetadata.artifact_checksum
+              ?? finalModelMetadata.checksum
+              ?? finalModelMetadata.artifact_hash
+              ?? "",
+            ),
+            artifactVerificationStatus: finalModelMetadata.artifact_verified === true
+              ? "verified"
+              : String(finalModelMetadata.artifact_verification_status ?? ""),
+            target: exactScoringContext.target,
+          },
+          payload: {
+            scoredPartitions: durableScoredPartitions,
+            scoredOutputCount,
+            scoringRunIds: [
+              trainResult?.scoringRunId,
+              testResult?.scoringRunId,
+              ootResult?.scoringRunId,
+            ].filter(Boolean),
+            probabilityCorrectionMethod: correctionMethod,
+          },
+        });
+      }}
       showDeveloperTools={false}
     >
       <div className="w-full space-y-7" data-testid="scoring-command-center">
@@ -1136,7 +1210,7 @@ function UploadCard({
               <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/chart-studio">Open in Chart Studio</Link>
             </div>
           </div> : null}
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-4" data-testid="scoring-summary-metrics">
             <Stat label="Rows" value={String(result.rows ?? "-")} />
             <Stat label={problemType === "regression" ? "Min Prediction" : "Min Score"} value={format(result.score_summary?.min)} />
             <Stat label={problemType === "regression" ? "Mean Prediction" : "Mean Score"} value={format(result.score_summary?.mean)} />
@@ -1151,7 +1225,7 @@ function UploadCard({
             <RegressionScoreVisual result={result} />
           )}
           {problemType === "classification" && result.probability_correction?.method && result.probability_correction.method !== "none" && (
-            <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-4">
               <Stat label="Adj Min" value={format(result.adjusted_score_summary?.min)} />
               <Stat label="Adj Mean" value={format(result.adjusted_score_summary?.mean)} />
               <Stat label="Adj Max" value={format(result.adjusted_score_summary?.max)} />
@@ -1342,7 +1416,7 @@ function ScoredRegistrationPanel({
           <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/chart-studio">Open in Chart Studio</Link>
         </div>
       </div> : null}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-4" data-testid="scoring-summary-metrics">
         <Stat label="Rows" value={String(result.rows ?? "-")} />
         <Stat label={problemType === "regression" ? "Min Prediction" : "Min Score"} value={format(result.score_summary?.min)} />
         <Stat label={problemType === "regression" ? "Mean Prediction" : "Mean Score"} value={format(result.score_summary?.mean)} />

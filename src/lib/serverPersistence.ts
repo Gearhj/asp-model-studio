@@ -9,6 +9,19 @@ const devUserId = rawEnv.DEV ? String(rawEnv.VITE_ATLAS_DEV_USER_ID || "local-de
 
 export type PersistedRecord = Record<string, any>;
 
+type WorkflowStateSaveResponse = {
+  ok?: boolean;
+  workflowState?: {
+    workflowStatus?: {
+      effectiveCompletedSteps?: unknown;
+      effectiveSteps?: Record<string, {
+        effectiveStatus?: unknown;
+        lineageStatus?: unknown;
+      }>;
+    };
+  };
+};
+
 export const DURABLE_WORKFLOW_COMPLETION_ERROR =
   "ATLAS could not durably record this workflow step's completion. Retry to continue; this page remains open.";
 
@@ -138,13 +151,48 @@ export function workflowCompletionSnapshot(
 /** Persist an exact workflow snapshot and report whether the authoritative
  * project record accepted it. Callers that gate navigation can await this
  * instead of relying on the normal debounced compatibility mirror. */
-export async function saveWorkflowStateToDatabase(snapshot: WorkflowProjectSnapshot) {
-  return mirrorToDatabase(snapshot.projectId, () =>
-    persistenceRequest(`/projects/${encodeURIComponent(snapshot.projectId)}/workflow-state`, {
-      method: "PUT",
-      body: JSON.stringify(workflowStatePayload(snapshot)),
-    }),
-  );
+function responseEffectivelyCompletesStep(
+  response: WorkflowStateSaveResponse | null,
+  stepId: string,
+) {
+  const workflowStatus = response?.workflowState?.workflowStatus;
+  const completed = Array.isArray(workflowStatus?.effectiveCompletedSteps)
+    ? workflowStatus.effectiveCompletedSteps.map((value) => String(value))
+    : [];
+  const step = workflowStatus?.effectiveSteps?.[stepId];
+  return completed.includes(stepId)
+    && step?.effectiveStatus === "complete"
+    && step?.lineageStatus === "current";
+}
+
+export async function saveWorkflowStateToDatabase(
+  snapshot: WorkflowProjectSnapshot,
+  requiredEffectiveStepId?: string,
+) {
+  let response: WorkflowStateSaveResponse | null = null;
+  const persisted = await mirrorToDatabase(snapshot.projectId, async () => {
+    response = await persistenceRequest<WorkflowStateSaveResponse>(
+      `/projects/${encodeURIComponent(snapshot.projectId)}/workflow-state`,
+      {
+        method: "PUT",
+        body: JSON.stringify(workflowStatePayload(snapshot)),
+      },
+    );
+  });
+  if (!persisted) return false;
+  if (
+    requiredEffectiveStepId
+    && !responseEffectivelyCompletesStep(response, requiredEffectiveStepId)
+  ) {
+    emitDatabaseFailure(
+      new PersistenceResponseValidationError(
+        `ATLAS recorded ${requiredEffectiveStepId} as historical activity, but the backend did not verify its current canonical completion evidence.`,
+      ),
+      snapshot.projectId,
+    );
+    return false;
+  }
+  return true;
 }
 
 function readOptimizationState(projectId: string) {

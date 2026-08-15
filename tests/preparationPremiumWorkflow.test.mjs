@@ -95,7 +95,11 @@ test("outliers exposes coordinated premium diagnostics and explicit governed sta
   assert.match(sources.outliers, /acknowledged_high_impact/);
   assert.doesNotMatch(sources.outliers, /window\.confirm/);
   assert.match(sources.outliers, /outlier-high-impact-inline-notice/);
-  assert.match(sources.outliers, /no rows were removed/i);
+  assert.match(sources.outliers, /no full-population frame was materialized/i);
+  assert.match(
+    sources.outliers,
+    /training will re-fit thresholds within each fold/i,
+  );
   assert.match(sources.outlierRouter, /idempotent/);
   assert.match(sources.outlierRouter, /High-impact confirmation is required/);
 });
@@ -114,7 +118,7 @@ test("outlier method comparison is deterministic and nonmutating", () => {
     [
       "None",
       "1.5 IQR capping",
-      "Winsorization 0.5 / 99.5",
+      "Winsorization 1 / 99",
       "Percentile capping 5 / 95",
       "Log1p",
       "Robust scaling",
@@ -154,7 +158,11 @@ test("outlier paired previews cap the rendered sample without mutating it", () =
 test("outlier backend separates bureau specials and enforces predictor authorization", () => {
   assert.match(sources.authorization, /BUREAU_SPECIAL_VALUES = \(-9\.0, -8\.0, -7\.0\)/);
   assert.match(sources.authorization, /detect_deterministic_target_sources/);
-  assert.match(sources.outlierService, /ordinary = numeric\.mask\(special_mask\)/);
+  assert.match(
+    sources.outlierService,
+    /development_ordinary = development_numeric\.mask/,
+  );
+  assert.match(sources.outlierService, /registered_structural/);
   assert.match(sources.outlierService, /special_values_preserved/);
   assert.match(sources.outlierService, /authorized_predictors/);
   assert.doesNotMatch(
@@ -191,8 +199,10 @@ test("zero-null backend uses validation rather than materialization", () => {
   );
   assert.match(
     sources.missingRouter,
-    /Use validation instead of materialization/,
+    /active NONE policy when governed null count is zero/,
   );
+  assert.match(sources.missingRouter, /"active_treatment": "NONE"/);
+  assert.match(sources.missingRouter, /"processed_frame_created": False/);
   const validationBody =
     sources.missingRouter.match(
       /def validate_missing_values[\s\S]*?(?=\n@router\.post\("\/apply"\))/,

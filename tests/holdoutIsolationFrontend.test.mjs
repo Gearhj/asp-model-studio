@@ -24,7 +24,14 @@ assert.match(evaluation, /candidate_decision_id", selectionDecision\.decision_id
 assert.match(evaluation, /data-testid="selection-evidence"/);
 assert.match(evaluation, /data-testid="final-holdout-evidence"/);
 assert.match(evaluation, /Final-holdout values never appear in or alter the ranking/);
-assert.match(evaluation, /disabled=\{!locked\}/);
+assert.match(evaluation, /Model Review Workspace/);
+assert.match(evaluation, /verified out-of-fold development selection/);
+assert.match(evaluation, /A separate reporting-only package/);
+assert.match(evaluation, /candidateRequestParams\(selectedCandidate\)/);
+assert.match(evaluation, /evidence_scope", "selection_review"/);
+assert.match(evaluation, /candidateRequestParams\(lockedCandidate\)/);
+assert.match(evaluation, /selectedIsLocked/);
+assert.match(evaluation, /disabled=\{!canInterpret\}/);
 const rankedTable = evaluation.slice(
   evaluation.indexOf("function LeaderboardRow"),
   evaluation.indexOf("function AnomalyDiagnostics"),

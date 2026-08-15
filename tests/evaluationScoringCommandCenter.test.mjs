@@ -19,25 +19,46 @@ const evaluationService = read("server/evaluation/eval_service.py");
 
 ordered(evaluation, [
   'data-testid="atlas-performance-summary"',
-  'data-testid="top-candidate-comparison"',
+  'data-testid="primary-model-results-table"',
   'data-testid="interactive-model-explorer"',
-  'data-testid="threshold-operating-policy"',
-  'data-testid="dataset-performance"',
   'data-testid="stability-calibration"',
-  'data-testid="full-leaderboard"',
-  'data-testid="interpretation-comparison-tray"',
+  'data-testid="model-score-distribution"',
 ], "Evaluation");
 
-assert.doesNotMatch(evaluation, /localCurvesFor|buildLocalDeciles/, "Evaluation must not fabricate local model curves or deciles.");
+const primaryTable = evaluation.slice(
+  evaluation.indexOf('data-testid="primary-model-results-table"'),
+  evaluation.indexOf('data-testid="selection-evidence"'),
+);
+assert.match(primaryTable, /<ModelResultRow/, "Evaluation model table rows must open the review workspace directly.");
+assert.doesNotMatch(primaryTable, />Actions</, "The primary model results table must not expose a separate Actions column.");
+assert.match(evaluation, /function ModelScoreDistribution/, "Evaluation must replace the persistent comparison tray with a model-score distribution view.");
+assert.match(evaluation, /function ModelComparisonDistributionPlot/, "Evaluation must render the full model-family comparison chart.");
+assert.match(evaluation, /className="h-auto min-w-\[1280px\] w-full"/, "The model comparison chart must retain a true large canvas instead of being squeezed by the side panels.");
+assert.match(evaluation, /overflow-x-auto rounded-xl border border-indigo-200/, "The large comparison canvas must remain usable inside a narrower workflow viewport.");
+assert.match(evaluation, /familyColor\(modelFamily\(row\.model\)\)/, "The model comparison chart must color marks by model family.");
+assert.match(evaluation, /metric\?\.fold_values/, "The comparison distribution must use persisted per-fold scores.");
+assert.doesNotMatch(evaluation, /standardDeviation\s*:\s*metric|0\.0045/, "The comparison chart must not synthesize fold distributions from a fallback spread.");
+assert.match(evaluation, /function ModelReviewEvidence/, "Evaluation must expose detailed performance metrics in the model review workspace.");
+assert.match(evaluation, /champion \? statusPill\("Champion"/, "The first ranked model must be labeled Champion.");
+assert.doesNotMatch(evaluation, /localCurvesFor|buildLocalDeciles|buildSelectionReviewArtifacts|buildSelectionCurves|buildSelectionLift|total\s*=\s*1000/, "Evaluation must not fabricate local model curves, deciles, or confusion evidence.");
 assert.match(evaluation, /\/eval\/command_center/, "Evaluation must request backend-calculated command-center diagnostics.");
-assert.doesNotMatch(evaluation, /!selectedCandidate \|\| problemType !== "classification"/, "Regression candidates must also create a completed command-center evaluation package.");
+assert.match(evaluation, /reviewParams\.set\("evidence_scope", "selection_review"\)/, "Every selected model must request explicit development-only review evidence.");
+assert.match(evaluation, /params\.set\("evidence_scope", "selection_review"\)/, "Selected-model threshold metrics must come from explicit selection-review evidence.");
+assert.match(evaluation, /response\.evidence_scope !== "selection_review"/, "Selection review responses must fail closed when the backend omits their evidence scope.");
+assert.match(evaluation, /function RegressionReviewDashboard/, "Regression candidates must receive real residual charts and tables even though classification-only threshold diagnostics are skipped.");
+const reportingPackageEffect = evaluation.slice(
+  evaluation.indexOf("if (!lockedCandidate || !selectionDecision || !lockedCandidateReady)"),
+  evaluation.indexOf("function selectForReview"),
+);
+assert.doesNotMatch(reportingPackageEffect, /problemType !== "classification"/, "The governed reporting package must still be completed for a locked regression candidate.");
 assert.match(evaluation, /evaluation_package_id=\$\{encodeURIComponent\(exactEvaluationPackageId\)\}/, "Interpretation handoff must carry the explicit completed evaluation package.");
 assert.match(evaluation, /DecisionTreeDiagnostic/, "Evaluation must retain model-specific tree diagnostics.");
 assert.match(evaluation, /KnnDiagnostic/, "Evaluation must retain model-specific KNN diagnostics.");
 assert.match(evaluation, /CoefficientDiagnostic/, "Evaluation must retain coefficient diagnostics for linear models.");
 assert.match(evaluation, /Targetless models remain separate/, "Evaluation must isolate anomaly diagnostics from supervised ranking.");
 assert.match(evaluationRouter, /\/eval\/command_center/, "The backend must expose the Evaluation command-center endpoint.");
-assert.match(evaluationService, /Persisted holdout labels and scores are unavailable/, "The backend must report unavailable artifacts instead of fabricating output.");
+assert.match(evaluationService, /Persisted \{population\} labels and scores are unavailable/, "The backend must report unavailable holdout or out-of-fold artifacts instead of fabricating output.");
+assert.match(evaluationService, /Persisted out-of-fold labels and scores are unavailable/, "Selection review must fail closed when a candidate has no persisted OOF evidence.");
 assert.match(evaluation, /Final-holdout metrics below are evidence reports, not threshold recommendations/, "Evaluation must label final-holdout threshold metrics as reporting-only.");
 assert.doesNotMatch(evaluation, /Maximize F1|Target Recall|Target Precision|Review Capacity/, "Evaluation must not expose threshold recommendations derived from the final holdout.");
 assert.doesNotMatch(evaluation, /onPointerDown=\{selectPoint\}/, "The final-holdout ROC must not act as a threshold tuner.");

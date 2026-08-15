@@ -7,10 +7,6 @@ import {
   requireLocalDatasetCanonicalIdentity,
   type CanonicalDatasetIdentityInput,
 } from "./datasetIdentity";
-import {
-  loadCanonicalPreparationBrowserState,
-  type CanonicalPreparationBrowserState,
-} from "./preparationGovernance";
 
 export const EXPERIMENT_TRACKING_KEY = "modeling-tool-mlflow-lite-experiments";
 
@@ -62,25 +58,32 @@ type RankedModel = {
   key: string;
   name: string;
   task?: "classification" | "regression" | "anomaly";
+  candidate_champion?: boolean;
   auc?: number;
   pr_auc?: number;
+  precision?: number | null;
+  recall?: number | null;
   accuracy?: number;
   f1?: number;
+  ks?: number | null;
   mae?: number;
   mse?: number;
   rmse?: number;
   r2?: number;
   adjusted_r2?: number;
   best_params?: Record<string, unknown> | null;
+  governed_preprocessing?: Record<string, unknown>;
+  validation_policy_execution?: Record<string, unknown>;
 };
 
 type CaptureInput = {
-  apiBase: string;
   datasetIdentity: CanonicalDatasetIdentityInput;
   trainingJobId: string;
   ranked: RankedModel[];
   selectedModelKeys: string[];
   trainingSettings: Record<string, unknown>;
+  governedPreprocessingContract: Record<string, unknown>;
+  validationExecutionPolicy: Record<string, unknown>;
   runtimeMs: number;
   calibrated: boolean;
 };
@@ -204,52 +207,39 @@ export function saveExperiments(experiments: ExperimentRecord[]) {
 
 function buildPreprocessingSteps(
   trainingSettings: Record<string, unknown>,
-  preparation: CanonicalPreparationBrowserState,
+  governedContract: Record<string, unknown>,
+  validationExecutionPolicy: Record<string, unknown>,
+  modelExecution?: RankedModel,
 ) {
+  const version = Number(governedContract.preprocessing_contract_version ?? 0);
+  const policyId = String(governedContract.preprocessing_policy_id ?? "").trim();
+  const policyHash = String(governedContract.preprocessing_policy_hash ?? "").trim();
+  if (version !== 2 || !policyId || !policyHash) {
+    throw new Error(
+      "Training experiment persistence requires the backend-authoritative preprocessing v2 contract.",
+    );
+  }
+  const outlierPolicy =
+    governedContract.outlier_policy && typeof governedContract.outlier_policy === "object"
+      ? (governedContract.outlier_policy as Record<string, unknown>)
+      : {};
+  const missingPolicy =
+    governedContract.missing_policy && typeof governedContract.missing_policy === "object"
+      ? (governedContract.missing_policy as Record<string, unknown>)
+      : {};
   return {
-    outlierMethods: preparation.outlierMethods,
-    outlierGlobalMethod: preparation.outlierGlobalMethod,
-    outlierRationales: preparation.outlierRationales,
-    missingStrategies: preparation.missingPolicy,
-    splitStrategy: preparation.splitStrategy,
-    balanceMethod: preparation.balanceMethod,
-    balanceRatio: preparation.balanceRatio,
-    kFolds: preparation.kFolds,
-    validationDesign: preparation.validationDraft,
+    authority: "backend_governed_training_execution",
+    preprocessingContractVersion: version,
+    preprocessingPolicyId: policyId,
+    preprocessingPolicyRevision: governedContract.preprocessing_policy_revision,
+    preprocessingPolicyHash: policyHash,
+    outlierPolicy,
+    missingPolicy,
+    validationExecutionPolicy,
+    modelGovernedPreprocessing: modelExecution?.governed_preprocessing ?? {},
+    foldLocalExecution: modelExecution?.validation_policy_execution ?? {},
     trainingSettings,
   };
-}
-
-async function getJson<T>(url: string): Promise<T | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return (await response.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
-function ksFromRoc(roc?: { fpr: number[]; tpr: number[] }) {
-  if (!roc?.fpr?.length || !roc?.tpr?.length) return undefined;
-  const n = Math.min(roc.fpr.length, roc.tpr.length);
-  let best = 0;
-  for (let i = 0; i < n; i++) best = Math.max(best, Math.abs((roc.tpr[i] ?? 0) - (roc.fpr[i] ?? 0)));
-  return best;
-}
-
-function compactCurve(curve?: { fpr?: number[]; tpr?: number[]; precision?: number[]; recall?: number[] }) {
-  if (!curve) return undefined;
-  const keys = Object.keys(curve) as Array<keyof typeof curve>;
-  const maxLength = Math.max(...keys.map((key) => curve[key]?.length ?? 0), 0);
-  if (!maxLength) return undefined;
-  const step = Math.max(1, Math.ceil(maxLength / 80));
-  const compacted: Record<string, number[]> = {};
-  keys.forEach((key) => {
-    const values = curve[key] ?? [];
-    compacted[key] = values.filter((_, index) => index % step === 0).slice(0, 80);
-  });
-  return compacted;
 }
 
 function interpretabilityScore(modelKey: string, modelName: string) {
@@ -262,35 +252,6 @@ function interpretabilityScore(modelKey: string, modelName: string) {
 
 function compactTimestamp() {
   return new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-}
-
-async function captureDiagnostics(apiBase: string, projectId: string, modelKey: string) {
-  const projectQuery = `project_id=${encodeURIComponent(projectId)}`;
-  const [curves, importance, deciles] = await Promise.all([
-    getJson<{
-      ok?: boolean;
-      metrics?: ExperimentMetricSet;
-      confusion?: number[][];
-      roc?: { fpr: number[]; tpr: number[] };
-      pr?: { precision: number[]; recall: number[] };
-    }>(`${apiBase}/eval/curves?model=${encodeURIComponent(modelKey)}&${projectQuery}`),
-    getJson<{ ok?: boolean; rows?: ExperimentRecord["featureImportance"] }>(
-      `${apiBase}/interpretation/importance?model=${encodeURIComponent(modelKey)}&${projectQuery}`
-    ),
-    getJson<{ ok?: boolean; rows?: { decile?: number; lift?: number }[] }>(
-      `${apiBase}/eval/deciles?model=${encodeURIComponent(modelKey)}&${projectQuery}`
-    ),
-  ]);
-
-  const topLift = deciles?.rows?.length
-    ? Math.max(...deciles.rows.map((row) => Number(row.lift ?? 0)).filter(Number.isFinite))
-    : undefined;
-
-  return {
-    curves,
-    featureImportance: (importance?.rows ?? []).slice(0, 25),
-    topLift,
-  };
 }
 
 export async function recordTrainingExperiments(input: CaptureInput) {
@@ -307,11 +268,6 @@ export async function recordTrainingExperiments(input: CaptureInput) {
       "Training experiment persistence requires an explicit training job artifact ID.",
     );
   }
-  const preparation = loadCanonicalPreparationBrowserState(identity);
-  const preprocessingSteps = buildPreprocessingSteps(
-    input.trainingSettings,
-    preparation,
-  );
   const existing = loadExperiments().map((experiment) =>
     experiment.project_id === identity.project_id &&
     experiment.dataset_id === identity.dataset_id &&
@@ -324,26 +280,25 @@ export async function recordTrainingExperiments(input: CaptureInput) {
     input.ranked
       .filter((model) => input.selectedModelKeys.includes(model.key))
       .map(async (model) => {
-        const diagnostics = await captureDiagnostics(
-          input.apiBase,
-          identity.project_id,
-          model.key,
+        const preprocessingSteps = buildPreprocessingSteps(
+          input.trainingSettings,
+          input.governedPreprocessingContract,
+          input.validationExecutionPolicy,
+          model,
         );
-        const curveMetrics = diagnostics.curves?.metrics ?? {};
         const metrics: ExperimentMetricSet = {
-          auc: curveMetrics.auc ?? model.auc,
-          pr_auc: curveMetrics.pr_auc ?? model.pr_auc,
-          precision: curveMetrics.precision,
-          recall: curveMetrics.recall,
-          f1: curveMetrics.f1 ?? model.f1,
-          ks: ksFromRoc(diagnostics.curves?.roc),
-          lift: diagnostics.topLift,
+          auc: model.auc,
+          pr_auc: model.pr_auc,
+          precision: model.precision ?? undefined,
+          recall: model.recall ?? undefined,
+          f1: model.f1,
+          ks: model.ks ?? undefined,
           calibration: input.calibrated ? "calibrated" : "not calibrated",
-          rmse: curveMetrics.rmse ?? model.rmse,
-          mae: curveMetrics.mae ?? model.mae,
-          mse: curveMetrics.mse ?? model.mse,
-          r2: curveMetrics.r2 ?? model.r2,
-          adjusted_r2: curveMetrics.adjusted_r2 ?? model.adjusted_r2,
+          rmse: model.rmse,
+          mae: model.mae,
+          mse: model.mse,
+          r2: model.r2,
+          adjusted_r2: model.adjusted_r2,
         };
 
         return {
@@ -359,21 +314,25 @@ export async function recordTrainingExperiments(input: CaptureInput) {
           datasetContentHash,
           selectedFeatures,
           preprocessingSteps,
-          balancingMethod: preparation.balanceMethod,
-          splitStrategy: preparation.splitStrategy,
+          balancingMethod: String(
+            input.validationExecutionPolicy.balancing_method ?? "none",
+          ),
+          splitStrategy: "sealed_analysis_partition_with_approved_validation_design",
           modelKey: model.key,
           modelType: model.name,
           hyperparameters: model.best_params ?? null,
           metrics,
-          confusionMatrix: diagnostics.curves?.confusion,
-          rocData: compactCurve(diagnostics.curves?.roc) as ExperimentRecord["rocData"],
-          prData: compactCurve(diagnostics.curves?.pr) as ExperimentRecord["prData"],
-          featureImportance: diagnostics.featureImportance,
+          confusionMatrix: undefined,
+          rocData: undefined,
+          prData: undefined,
+          featureImportance: undefined,
           calibrationStatus: input.calibrated ? "calibrated" : "not calibrated",
           interpretability: interpretabilityScore(model.key, model.name),
           runtimeMs: Math.round(input.runtimeMs / Math.max(1, input.selectedModelKeys.length)),
           champion: false,
-          notes: "Candidate model. Champion approval requires Evaluation and governance review.",
+          notes: model.candidate_champion
+            ? "Training leader under the governed fold-valid selection metric. Final-holdout diagnostics are intentionally absent until candidate lock."
+            : "Governed Development/CV candidate; no Evaluation or Interpretation endpoint was called before lock.",
         } satisfies ExperimentRecord;
       })
   );

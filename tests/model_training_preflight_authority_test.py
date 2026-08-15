@@ -10,6 +10,11 @@ import pytest
 
 from server.analysis_partition import service as partition_service_module
 from server.analysis_partition.service import AnalysisPartitionService
+from server.eda.documentation_service import eda_documentation_service
+from server.preprocessing.execution_contract import (
+    canonical_preprocessing_hash,
+    default_no_treatment_contract,
+)
 from server.training import training_job_service as job_module
 from server.training import training_preflight_service as preflight_module
 from server.training.training_job_service import TrainingJobService
@@ -28,6 +33,47 @@ IDENTITY = {
     "dataset_id": "dataset-preflight-test",
     "dataset_version_id": "version-preflight-test",
 }
+
+
+def approved_none_preprocessing_contract(
+    *,
+    analysis_partition_id: str = "analysis-partition-1",
+    analysis_partition_revision: int = 3,
+    target_contract_id: str = "source-target-contract-1",
+    predictor_authorization_id: str = "predictor-auth-native-1",
+) -> dict[str, object]:
+    contract = default_no_treatment_contract(
+        identity={
+            **IDENTITY,
+            "analysis_partition_id": analysis_partition_id,
+            "analysis_partition_revision": analysis_partition_revision,
+        },
+        feature_names=["feature_a", "feature_b"],
+        source="model_training_preflight_authority_fixture",
+    )
+    lineage = {
+        **contract["lineage"],
+        "target_contract_id": target_contract_id,
+        "predictor_authorization_id": predictor_authorization_id,
+    }
+    contract.update(lineage)
+    contract["lineage"] = lineage
+    checksum = canonical_preprocessing_hash(
+        {
+            "preprocessing_contract_version": contract[
+                "preprocessing_contract_version"
+            ],
+            "lineage": lineage,
+            "special_value_contract": contract["special_value_contract"],
+            "outlier_policy": contract["outlier_policy"],
+            "missing_policy": contract["missing_policy"],
+        }
+    )
+    contract["preprocessing_policy_id"] = (
+        f"preprocessing-policy-{checksum[:20]}"
+    )
+    contract["preprocessing_policy_hash"] = checksum
+    return contract
 
 
 class DummyClassifier:
@@ -92,6 +138,9 @@ class IsolatedStore:
         return {
             **IDENTITY,
             "split_status": "current",
+            "preprocessing_policy": (
+                approved_none_preprocessing_contract()
+            ),
             "analysis_partition": {
                 **IDENTITY,
                 "analysis_partition_id": "analysis-partition-1",
@@ -313,6 +362,11 @@ def native_partition_authority(monkeypatch):
     monkeypatch.setattr(
         preflight_module, "analysis_partition_service", service
     )
+    monkeypatch.setattr(
+        eda_documentation_service,
+        "get_state",
+        lambda *_args, **_kwargs: {"current_approved": None},
+    )
     return SimpleNamespace(
         service=service,
         repository=repository,
@@ -409,6 +463,16 @@ def _legacy_store_and_service(
         record["artifact_hash"] = "corrupted"
     safe_partition = AnalysisPartitionService.safe_record(record)
     store.meta["analysis_partition"] = safe_partition
+    store.meta["preprocessing_policy"] = (
+        approved_none_preprocessing_contract(
+            analysis_partition_id=str(record["analysis_partition_id"]),
+            analysis_partition_revision=int(record["revision"]),
+            target_contract_id=str(record["target_contract_id"]),
+            predictor_authorization_id=str(
+                record["predictor_authorization_id"]
+            ),
+        )
+    )
     split_record = store.meta["split_record"]
     validation_design = split_record["validation_design"]
     lineage = {
@@ -1035,6 +1099,7 @@ def ready_preflight() -> dict:
     target_authority["target_authority_hash"] = (
         preflight_module.canonical_contract_hash(target_authority)
     )
+    preprocessing_contract = approved_none_preprocessing_contract()
     return {
         "ok": True,
         "ready": True,
@@ -1076,6 +1141,7 @@ def ready_preflight() -> dict:
         "recommended_parallelism": 1,
         "estimated_fits": 2,
         "large_run": {"required": False},
+        "governed_preprocessing_contract": preprocessing_contract,
     }
 
 
@@ -1099,7 +1165,12 @@ def test_job_creation_is_idempotent_and_returns_active_identity() -> None:
         patch.object(
             job_module.TRAINER,
             "_get_training_partition",
-            return_value=(store.X_train.copy(), store.y_train.copy(), []),
+            return_value=(
+                store.X_train.copy(),
+                store.y_train.copy(),
+                [],
+                store.meta["preprocessing_policy"],
+            ),
         ),
         patch.object(job_module, "Thread", NoStartThread),
         patch.object(job_module, "schedule_checkpoint_save"),

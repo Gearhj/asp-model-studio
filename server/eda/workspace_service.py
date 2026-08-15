@@ -20,6 +20,12 @@ from ..analytics.target_intelligence_service import (
     wilson_score_interval,
 )
 from ..core.dataset_store import DATASTORE
+from ..core.population_contract import (
+    build_eda_completion_contract,
+    build_population_contract,
+    calculate_duplicate_contract,
+    primary_scope_projection,
+)
 from ..datasets.dataset_identity import assert_expected_active_identity
 from ..evidence.evidence_store import upsert_evidence
 from ..preprocessing.bureau_registry import BUREAU_SPECIAL_VALUES, name_signals
@@ -66,8 +72,6 @@ _ID_NAME = re.compile(r"(^|_)(id|key|uuid|account|customer|application|transacti
 _LEAKAGE_NAME = re.compile(r"target|outcome|response|label|post[_ ]|future|approved|declined", re.IGNORECASE)
 _SPLIT_NAME = re.compile(r"(^|_)(split|fold|partition|sample_role)($|_)", re.IGNORECASE)
 _SYSTEM_NAME = re.compile(r"(^|_)(__|row_number|source_file|ingested_at|created_at|updated_at)($|_)", re.IGNORECASE)
-_TARGET_SOURCE_MAX_DISTINCT = 50
-
 # Part I: two conservative name families, kept separate because they mean
 # different things to a reviewer. A target-derived name suggests the column was
 # computed FROM the outcome; a post-outcome name suggests it was recorded AFTER
@@ -873,54 +877,6 @@ def _predictor_event_shape(
     }
 
 
-def _detect_frame_target_sources(
-    frame: pd.DataFrame,
-    target: str,
-    candidates: list[str],
-) -> dict[str, dict[str, Any]]:
-    """Derive deterministic target lineage from the current backend frame.
-
-    This mirrors the governed-profile rule without trusting a client flag or a
-    HELOC-specific name.  A low-cardinality field is a target source only when
-    every observed source value maps to exactly one observed target value.
-    """
-
-    found: dict[str, dict[str, Any]] = {}
-    if target not in frame.columns:
-        return found
-    for column in candidates:
-        if column == target or column not in frame.columns:
-            continue
-        paired = frame[[column, target]].dropna()
-        distinct = int(paired[column].nunique(dropna=True))
-        if paired.empty or distinct < 2 or distinct > _TARGET_SOURCE_MAX_DISTINCT:
-            continue
-        grouped = (
-            paired.assign(
-                __source__=paired[column].astype(str),
-                __target__=paired[target].astype(str),
-            )
-            .groupby("__source__", dropna=False)
-            .agg(target_count=("__target__", "nunique"), target_value=("__target__", "first"), row_count=("__target__", "size"))
-        )
-        if grouped.empty or int(grouped["target_count"].max()) > 1:
-            continue
-        found[str(column)] = {
-            "field": str(column),
-            "target": target,
-            "relationship": "deterministic_target_source",
-            "mapping": [
-                {
-                    "sourceValue": str(index),
-                    "targetValue": str(row["target_value"]),
-                    "rowCount": int(row["row_count"]),
-                }
-                for index, row in grouped.sort_values("row_count", ascending=False).iterrows()
-            ],
-        }
-    return found
-
-
 def _predictor_authorization(
     frame: pd.DataFrame,
     target: str,
@@ -1439,10 +1395,10 @@ class EDAWorkspaceService:
             )
         )
         # The exact durable authorization, not process-local selected-column
-        # metadata, defines the EDA inventory. Start from the registered source
-        # frame and project it only after the manifest has been verified.
-        active = source_frame.copy(deep=True)
-        if active.empty or target not in active.columns:
+        # metadata, defines the EDA inventory. Once a partition exists, the
+        # registered target column is sealed: retain only predictor structure
+        # here and materialize target values from Development membership below.
+        if target not in source_frame.columns:
             raise EDAAnalyticalContractError(
                 "The exact active dataset projection is unavailable for EDA.",
                 code="dataset_artifact_unavailable",
@@ -1451,17 +1407,22 @@ class EDAWorkspaceService:
                     "Dataset Library version."
                 ),
             )
-        base = DATASTORE.get_base_df()
-        raw = DATASTORE.raw_df
-        lineage_frame = (
-            raw
-            if raw is not None and not raw.empty and target in raw.columns
-            else base
+        active = source_frame.drop(columns=[target], errors="ignore").copy(
+            deep=True
         )
+        if active.empty:
+            raise EDAAnalyticalContractError(
+                "The registered predictor frame is unavailable for EDA.",
+                code="dataset_artifact_unavailable",
+                recovery=(
+                    "Return to Data Acquisition and reopen the exact registered "
+                    "Dataset Library version."
+                ),
+            )
         authorization = _predictor_authorization(
             active,
             target,
-            lineage_frame,
+            None,
             durable_manifest=durable_manifest,
         )
         keep = [
@@ -1469,7 +1430,7 @@ class EDAWorkspaceService:
             for column in authorization["authorized_predictors"]
             if column in active.columns and column != target
         ]
-        df = active.loc[:, [*keep, target]].copy()
+        df = active.loc[:, keep].copy()
         scoped_store = DATASTORE.current()
         development_target = None
         target_authority: dict[str, Any] | None = None
@@ -1656,10 +1617,9 @@ class EDAWorkspaceService:
                 "negative_value": target_authority["negative_value"],
                 "authority_source": target_authority["source"],
             }
-            # Compatibility callers receive only the exact materialized
-            # development target. The full-population target column remains in
-            # ``df`` solely as schema compatibility metadata and is never used
-            # as an EDA calculation input.
+            # Callers receive only the exact materialized Development target.
+            # The registered predictor frame contains no target column or
+            # holdout target values.
             y = development_target
         else:
             problem = "unavailable"
@@ -1746,7 +1706,6 @@ class EDAWorkspaceService:
         fingerprint: str,
         contract: dict[str, Any],
     ) -> str:
-        source_frame = DATASTORE.get_base_df()
         # ``contract`` was built only after resolving the current exact
         # durable partition. Never allow a process-local metadata snapshot to
         # select or identify a cached governed result.
@@ -1764,7 +1723,6 @@ class EDAWorkspaceService:
             # The EDA service is process-global while DatasetStore is scoped.
             # A source-frame identity plus monotonic revision prevents one
             # authorized workspace from reusing another workspace's response.
-            "workspace_instance": id(source_frame) if source_frame is not None else None,
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
             "split_id": contract.get("analysis_partition_id"),
             "split_revision": contract.get("analysis_partition_revision"),
@@ -2344,6 +2302,7 @@ class EDAWorkspaceService:
             ]
             pairwise_records: list[dict[str, Any]] = []
             pairwise_eligible_rows = 0
+            pairwise_render_signature = None
             if pairwise_features:
                 development_features, development_target, _scope = (
                     resolve_development_partition(
@@ -2393,6 +2352,21 @@ class EDAWorkspaceService:
                     }
                     for row in bounded.to_dict(orient="records")
                 ]
+                pairwise_render_signature = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "relationship_artifact_hash": relationship.get(
+                                "artifact_hash"
+                            ),
+                            "features": pairwise_features,
+                            "rendered_rows": pairwise_records,
+                            "sample_limit": request.rendered_sample_limit,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    ).encode("utf-8")
+                ).hexdigest()
             result.update(
                 {
                     "correlation_columns": correlation["columns"],
@@ -2404,6 +2378,9 @@ class EDAWorkspaceService:
                         "pairwise_row_counts"
                     ],
                     "correlation_scope": correlation,
+                    "pairwise_n_coverage": correlation.get(
+                        "pairwise_coverage", []
+                    ),
                     "strong_pairs": strong_pairs[:100],
                     "vif": relationship["vif"],
                     "vif_scope": relationship["vif_scope"],
@@ -2444,6 +2421,7 @@ class EDAWorkspaceService:
                     "pairwise_event_rows": sum(
                         bool(row.get("__event__")) for row in pairwise_records
                     ),
+                    "pairwise_render_signature": pairwise_render_signature,
                     "pairwise_scope_disclosure": {
                         "source_population": "development_population",
                         "analysis_population_id": contract[
@@ -2461,6 +2439,7 @@ class EDAWorkspaceService:
                             "incomplete_pairwise_case",
                         ],
                         "rendered_rows": len(pairwise_records),
+                        "render_signature": pairwise_render_signature,
                         "sample_limit": request.rendered_sample_limit,
                         "special_value_representation": "excluded",
                         "final_holdout_accessed": False,
@@ -2475,69 +2454,21 @@ class EDAWorkspaceService:
                 display_requested_bins = min(
                     60, max(5, int(request.histogram_bins))
                 )
-                full_frame = DATASTORE.get_active_df()
-                ordinary_values = pd.Series(dtype=float)
-                if (
-                    isinstance(full_frame, pd.DataFrame)
-                    and feature in full_frame.columns
-                ):
-                    full_numeric = pd.to_numeric(
-                        full_frame[feature], errors="coerce"
-                    ).replace([np.inf, -np.inf], np.nan)
-                    full_codes = {
-                        float(group["code"])
-                        for group in (
-                            artifact.get("special_values") or {}
-                        ).get("full_population_groups")
-                        or []
-                    }
-                    ordinary_mask = full_numeric.notna() & ~full_numeric.isin(
-                        full_codes
-                    )
-                    ordinary_values = full_numeric[ordinary_mask]
-
-                ordinary_histogram: list[dict[str, Any]] = []
-                if len(ordinary_values):
-                    counts, edges = np.histogram(
-                        ordinary_values.to_numpy(dtype=float),
-                        bins=display_requested_bins,
-                    )
-                    for index, count in enumerate(counts):
-                        lower = float(edges[index])
-                        upper = float(edges[index + 1])
-                        width = max(upper - lower, 1e-12)
-                        ordinary_histogram.append(
-                            {
-                                "key": (
-                                    f"ordinary:{index}:{lower:.12g}:"
-                                    f"{upper:.12g}"
-                                ),
-                                "bin": index + 1,
-                                "lower": _finite(lower),
-                                "upper": _finite(upper),
-                                "count": int(count),
-                                "share": float(
-                                    count / max(contract["population_rows"], 1)
-                                ),
-                                "valid_share": float(
-                                    count / max(len(ordinary_values), 1)
-                                ),
-                                "density": float(
-                                    count
-                                    / max(len(ordinary_values) * width, 1e-12)
-                                ),
-                                "event_count": None,
-                                "non_event_count": None,
-                                "event_rate": None,
-                            }
-                        )
+                # The section factory receives only the exact Development
+                # Population. Preserve its histogram and range statistics;
+                # consulting DATASTORE here would silently reintroduce sealed
+                # holdout predictors into a target-directed tab.
+                ordinary_histogram = list(result.get("histogram") or [])
+                ordinary_row_count = sum(
+                    int(row.get("count") or 0) for row in ordinary_histogram
+                )
                 ordinary_distribution = {
                     **(artifact.get("ordinary_distribution") or {}),
-                    "analysis_scope": "full_governed_population",
+                    "analysis_scope": "development_population",
                     "histogram": ordinary_histogram,
                     "requested_bins": display_requested_bins,
                     "returned_bins": len(ordinary_histogram),
-                    "rows_used": int(len(ordinary_values)),
+                    "rows_used": ordinary_row_count,
                 }
                 effective_display_bins = sum(
                     1 for row in ordinary_histogram if int(row["count"]) > 0
@@ -2571,99 +2502,23 @@ class EDAWorkspaceService:
                     }
                 )
                 selected_subset = result.get("selected_subset") or {}
-                if isinstance(full_frame, pd.DataFrame) and feature in full_frame.columns:
-                    lower = selected_subset.get("minimum")
-                    upper = selected_subset.get("maximum")
-                    selection_mask = ordinary_mask
-                    if lower is not None:
-                        selection_mask &= full_numeric.ge(float(lower))
-                    if upper is not None:
-                        selection_mask &= full_numeric.le(float(upper))
-                    selected_values = full_numeric[selection_mask]
-                    development_row_count = int(
-                        selected_subset.get("row_count") or 0
-                    )
-                    development_event_count = selected_subset.get("event_count")
-                    development_target_rate = selected_subset.get("target_rate")
-                    quantiles = (
-                        selected_values.quantile([0.25, 0.5, 0.75])
-                        if len(selected_values)
-                        else pd.Series(dtype=float)
-                    )
+                if isinstance(selected_subset, dict):
                     selected_subset.update(
                         {
-                            "row_count": int(len(selected_values)),
-                            "population_share": len(selected_values)
-                            / max(contract["population_rows"], 1),
-                            "valid_share": len(selected_values)
-                            / max(len(ordinary_values), 1),
-                            "mean": _finite(selected_values.mean()),
-                            "median": _finite(selected_values.median()),
-                            "standard_deviation": _finite(selected_values.std()),
-                            "q1": _finite(quantiles.loc[0.25])
-                            if len(selected_values)
-                            else None,
-                            "q3": _finite(quantiles.loc[0.75])
-                            if len(selected_values)
-                            else None,
-                            "minimum_value": _finite(selected_values.min()),
-                            "maximum_value": _finite(selected_values.max()),
-                            "development_row_count": development_row_count,
-                            "development_event_count": development_event_count,
-                            "target_rate": development_target_rate,
                             "target_rate_scope": "development_population",
-                            "descriptive_scope": "full_governed_population",
-                            "lower_percentile": float(
-                                (ordinary_values < float(lower)).mean()
-                            )
-                            if len(ordinary_values) and lower is not None
-                            else None,
-                            "upper_percentile": float(
-                                (ordinary_values <= float(upper)).mean()
-                            )
-                            if len(ordinary_values) and upper is not None
-                            else None,
+                            "descriptive_scope": "development_population",
                         }
                     )
                     result["selected_subset"] = selected_subset
                     result["selected_range"] = selected_subset
-                statistics = result.setdefault("statistics", {})
-                full_counts = (
-                    artifact.get("value_classification") or {}
-                ).get("full_population_counts") or {}
                 missing_bucket = result.setdefault("missing_bucket", {})
-                development_missing_count = int(
-                    missing_bucket.get("count") or 0
-                )
-                development_missing_events = missing_bucket.get("event_count")
-                development_missing_rate = missing_bucket.get("event_rate")
-                structural_missing = int(full_counts.get("true_null") or 0) + int(
-                    full_counts.get("parse_failure") or 0
-                )
-                missing_bucket.update(
-                    {
-                        "count": structural_missing,
-                        "share": structural_missing
-                        / max(contract["population_rows"], 1),
-                        "development_count": development_missing_count,
-                        "development_event_count": development_missing_events,
-                        "event_rate": development_missing_rate,
-                        "event_rate_scope": "development_population",
-                        "descriptive_scope": "full_governed_population",
-                    }
-                )
-                statistics.update(
-                    {
-                        "count": int(full_counts.get("ordinary_valid_value") or 0),
-                        "missing_count": int(full_counts.get("true_null") or 0),
-                        "parse_failure_count": int(full_counts.get("parse_failure") or 0),
-                        "bureau_special_value_count": int(full_counts.get("bureau_special_value") or 0),
-                        "outlier_lower": artifact["ordinary_outlier"]["lower_cutoff"],
-                        "outlier_upper": artifact["ordinary_outlier"]["upper_cutoff"],
-                        "outlier_count": artifact["ordinary_outlier"]["count"],
-                        "ordinary_outlier_rate": artifact["ordinary_outlier"]["rate"],
-                    }
-                )
+                if isinstance(missing_bucket, dict):
+                    missing_bucket.update(
+                        {
+                            "event_rate_scope": "development_population",
+                            "descriptive_scope": "development_population",
+                        }
+                    )
 
     def _cached(
         self,
@@ -2706,6 +2561,46 @@ class EDAWorkspaceService:
             # and MDD are pending; no target distribution, ranking, or
             # relationship result may be computed from the full population.
             structural_df = df.drop(columns=[target], errors="ignore")
+            registered_duplicate_contract = calculate_duplicate_contract(
+                structural_df,
+                scope="registered_structural_population",
+                target_column=None,
+                target_included=False,
+                writable_authority=False,
+                purpose="eda_registered_structural_description",
+            )
+            population_contract = build_population_contract(
+                registered_rows=len(df),
+                development_rows=None,
+                holdout_rows=None,
+                primary_scope="registered_structural_population",
+                primary_purpose="eda_overview_structural_readiness",
+                project_id=request.project_id,
+                dataset_id=DATASTORE.meta.get("dataset_id"),
+                dataset_version_id=DATASTORE.meta.get("dataset_version_id"),
+                target=target,
+                target_contract_id=DATASTORE.meta.get("target_contract_id"),
+                predictor_authorization_id=authorization.get(
+                    "predictor_authorization_id"
+                )
+                or authorization.get("manifest_version"),
+                population_policy_id="registered_structural_pre_partition",
+                special_value_policy_id=DATASTORE.meta.get(
+                    "special_value_policy_id"
+                ),
+                analysis_rows=None,
+                fit_rows=None,
+                application_rows=None,
+                materialization_rows=None,
+                registered_duplicate_contract=registered_duplicate_contract,
+                development_duplicate_contract=None,
+                descriptive_scope="registered_structural_population",
+                analysis_scope="unavailable_analysis_partition_required",
+                target_scope="unavailable_analysis_partition_required",
+                registered_structural_predictors_accessed=True,
+                final_holdout_predictors_included_in_structural_profile=False,
+            )
+            primary_population = primary_scope_projection(population_contract)
             result = factory(
                 structural_df,
                 target,
@@ -2715,13 +2610,20 @@ class EDAWorkspaceService:
                 request,
             )
             result.pop("target_profile", None)
-            source_scope = self._workspace_scope(
-                df,
-                target,
-                request.project_id,
-                "eda.workspace.overview.structural_only",
-                fingerprint,
-            )
+            source_scope = {
+                "projectId": request.project_id,
+                "datasetId": DATASTORE.meta.get("dataset_id"),
+                "datasetVersionId": DATASTORE.meta.get("dataset_version_id"),
+                "target": target,
+                "sourceRowCount": int(len(df)),
+                "sourceColumnCount": int(df.shape[1]),
+                "sourceFingerprint": fingerprint,
+                # Compatibility alias for consumers that predate the
+                # source/analysis-scope split. It is the same predictor-only
+                # fingerprint and never includes the sealed holdout target.
+                "datasetFingerprint": fingerprint,
+                "compatibilityPurpose": "non_authoritative_source_frame_identity",
+            }
             readiness = {
                 "status": "blocked",
                 "code": getattr(exc, "code", "analysis_partition_required"),
@@ -2741,8 +2643,8 @@ class EDAWorkspaceService:
                     "ok": True,
                     "partial": True,
                     "section": section,
-                    "scope": "full_governed_population_structural_only",
-                    "descriptive_scope": "full_governed_population",
+                    **primary_population,
+                    "descriptive_scope": "registered_structural_population",
                     "analysis_scope": {
                         "mode": "governed_readiness",
                         "label": "Analysis Partition required",
@@ -2760,7 +2662,6 @@ class EDAWorkspaceService:
                     },
                     "workspace_compatibility_scope": source_scope,
                     "governed_readiness": readiness,
-                    "row_count": int(len(df)),
                     "column_count": int(df.shape[1]),
                     "project_id": request.project_id,
                     "target": target,
@@ -2785,6 +2686,10 @@ class EDAWorkspaceService:
                     "target_source_excluded": authorization[
                         "target_source_excluded"
                     ],
+                    "duplicate_counts": population_contract["duplicates"],
+                    "completion_contract": build_eda_completion_contract(
+                        population_contract
+                    ),
                 }
             )
             return result
@@ -2833,6 +2738,92 @@ class EDAWorkspaceService:
             factory_df = development.copy(deep=True)
             factory_df[target] = development_target
             factory_y = development_target
+        registered_structural_frame = df.drop(columns=[target], errors="ignore")
+        development_analysis_frame = development.copy(deep=True)
+        development_analysis_frame[target] = development_target.to_numpy(copy=True)
+        registered_duplicate_contract = calculate_duplicate_contract(
+            registered_structural_frame,
+            scope="registered_structural_population",
+            target_column=None,
+            target_included=False,
+            writable_authority=False,
+            purpose="eda_registered_structural_description",
+        )
+        development_duplicate_contract = calculate_duplicate_contract(
+            development_analysis_frame,
+            scope="development_population",
+            target_column=target,
+            target_included=True,
+            writable_authority=True,
+            purpose="eda_completion_decision",
+        )
+        primary_scope = (
+            "registered_structural_population"
+            if section == "overview"
+            else "development_population"
+        )
+        population_contract = build_population_contract(
+            registered_rows=len(df),
+            development_rows=contract["rows_used"],
+            holdout_rows=contract["rows_excluded"],
+            primary_scope=primary_scope,
+            primary_purpose=(
+                "eda_overview_registered_structure_with_development_target_context"
+                if section == "overview"
+                else f"eda_{section}_development_analysis"
+            ),
+            project_id=contract["project_id"],
+            dataset_id=contract["dataset_id"],
+            dataset_version_id=contract["dataset_version_id"],
+            target=target,
+            target_contract_id=contract["target_contract_id"],
+            predictor_authorization_id=contract[
+                "predictor_authorization_id"
+            ],
+            analysis_partition_id=contract["analysis_partition_id"],
+            analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
+            analysis_population_id=contract["analysis_population_id"],
+            population_policy_id=contract.get("contract_version"),
+            treatment_policy_id="eda_non_mutating_analysis",
+            special_value_policy_id=contract.get("special_value_policy_id"),
+            analysis_rows=contract["rows_used"],
+            fit_rows=(
+                contract["rows_used"]
+                if section in {"target", "predictors", "relationships"}
+                else None
+            ),
+            application_rows=None,
+            materialization_rows=None,
+            registered_duplicate_contract=registered_duplicate_contract,
+            development_duplicate_contract=development_duplicate_contract,
+            descriptive_scope=(
+                "registered_structural_population"
+                if section == "overview"
+                else "development_population"
+            ),
+            analysis_scope="development_population",
+            target_scope="development_population",
+            fit_scope=(
+                "development_population"
+                if section in {"target", "predictors", "relationships"}
+                else "not_applicable"
+            ),
+            application_scope="not_applicable_non_mutating_eda",
+            materialization_scope="not_applicable_non_mutating_eda",
+            render_scope="aggregate_or_bounded_development_render",
+            registered_structural_predictors_accessed=section == "overview",
+            final_holdout_predictors_included_in_structural_profile=(
+                section == "overview"
+            ),
+            final_holdout_parameter_influence=False,
+            final_holdout_target_accessed=False,
+            final_holdout_used_for_selection=False,
+            final_holdout_transformed_or_materialized_prelock=False,
+            final_holdout_opened_for_final_reporting=False,
+        )
+        primary_population = primary_scope_projection(population_contract)
         result = factory(factory_df, target, factory_y, problem, event, request)
         if section == "target":
             # All Target-tab identity, prevalence, quality, comparison, and
@@ -2841,6 +2832,27 @@ class EDAWorkspaceService:
             # replace them with a full-population target calculation.
             target_quality = result.get("target_quality")
             if isinstance(target_quality, dict):
+                additional_candidates = [
+                    *list(target_quality.get("target_derived_candidates") or []),
+                    *list(target_quality.get("post_outcome_candidates") or []),
+                    *list(target_quality.get("perfect_relationship_candidates") or []),
+                ]
+                known_sources = [
+                    {
+                        **dict(row),
+                        "status": "known_deterministic_source_excluded_upstream",
+                        "predictor_authorization_id": authorization[
+                            "predictor_authorization_id"
+                        ],
+                        "evidence_reference": (
+                            row.get("evidence_reference")
+                            or row.get("evidence_ref")
+                            or authorization["predictor_authorization_id"]
+                        ),
+                    }
+                    for row in authorization["target_source_fields"]
+                    if isinstance(row, dict)
+                ]
                 target_quality.update(
                     {
                         "structural_scope": "development_population",
@@ -2848,6 +2860,22 @@ class EDAWorkspaceService:
                         "target_directed_rows": contract["rows_used"],
                         "split_id": contract["split_id"],
                         "final_holdout_accessed": False,
+                        "known_deterministic_sources_excluded_upstream": known_sources,
+                        "additional_authorized_predictor_candidate_count": len(
+                            additional_candidates
+                        ),
+                        "additional_authorized_predictor_candidates_detected": bool(
+                            additional_candidates
+                        ),
+                        "leakage_conclusion": (
+                            "known_source_excluded_additional_authorized_candidates_require_review"
+                            if additional_candidates
+                            else "known_source_excluded_no_additional_authorized_candidates"
+                            if known_sources
+                            else "no_authorized_predictor_candidates_detected"
+                        ),
+                        "leakage_detection_scope": "authorized_predictors_development_population",
+                        "final_holdout_target_accessed": False,
                     }
                 )
             assessment = result.get("full_population_assessment")
@@ -2872,17 +2900,31 @@ class EDAWorkspaceService:
             contract=contract,
             request=request,
         )
-        scope = self._workspace_scope(
-            df,
-            target,
-            request.project_id,
-            f"eda.workspace.{section}",
-            fingerprint,
-        )
+        scope = {
+            "projectId": request.project_id,
+            "datasetId": contract["dataset_id"],
+            "datasetVersionId": contract["dataset_version_id"],
+            "target": target,
+            "sourceRowCount": int(len(df)),
+            "sourceColumnCount": int(df.shape[1]),
+            "sourceFingerprint": fingerprint,
+            # Compatibility alias only; the authoritative governed artifact
+            # identity remains analysis_scope.artifactHash.
+            "datasetFingerprint": fingerprint,
+            "compatibilityPurpose": "non_authoritative_source_frame_identity",
+        }
         decision_scope = {
             "contractVersion": contract["contract_version"],
-            "mode": "governed_version",
-            "label": "Development Population",
+            "mode": (
+                "governed_mixed_scope"
+                if section == "overview"
+                else "governed_version"
+            ),
+            "label": (
+                "Registered structure with Development target context"
+                if section == "overview"
+                else "Development Population"
+            ),
             "projectId": contract["project_id"],
             "datasetId": contract["dataset_id"],
             "datasetVersionId": contract["dataset_version_id"],
@@ -2922,18 +2964,31 @@ class EDAWorkspaceService:
             "finalHoldoutAccessed": False,
             "finalHoldoutUsedForSelection": False,
         }
+        if section == "overview":
+            decision_scope.update(
+                {
+                    "primaryScope": "registered_structural_population",
+                    "primaryPopulationRows": contract["population_rows"],
+                    "descriptiveScope": "registered_structural_population",
+                    "targetDirectedScope": "development_population",
+                    "targetDirectedPopulationRows": contract["rows_used"],
+                }
+            )
         result.update({
             "ok": True,
             "section": section,
-            "scope": "development_population",
-            "descriptive_scope": "full_governed_population",
+            **primary_population,
+            "descriptive_scope": (
+                "registered_structural_population"
+                if section == "overview"
+                else "development_population"
+            ),
             # `analysis_scope` is the authoritative decision scope. Preserve
             # the old in-memory workspace descriptor only under an explicitly
             # compatibility-labeled field so it cannot contradict governance.
             "analysis_scope": decision_scope,
             "workspace_compatibility_scope": scope,
             "scope_identity": f"governed-eda:{contract['artifact_hash']}",
-            "row_count": int(len(df)),
             "column_count": int(df.shape[1]),
             "project_id": request.project_id,
             "target": target,
@@ -2964,6 +3019,10 @@ class EDAWorkspaceService:
             "cache_status": "miss",
             "requested_histogram_bins": int(request.histogram_bins),
             "predictor_authorization": authorization,
+            "duplicate_counts": population_contract["duplicates"],
+            "completion_contract": build_eda_completion_contract(
+                population_contract
+            ),
             "target_source_fields": authorization["target_source_fields"],
             "target_source_excluded": authorization["target_source_excluded"],
             "rejected_requested_features": [
@@ -3315,7 +3374,22 @@ class EDAWorkspaceService:
         )
 
     def _overview(self, df, target, y, problem, event, request) -> dict[str, Any]:
-        duplicate_rows = int(df.duplicated().sum())
+        target_included = target in df.columns
+        duplicate_contract = calculate_duplicate_contract(
+            df,
+            scope=(
+                "development_population"
+                if target_included
+                else "registered_structural_population"
+            ),
+            target_column=target if target_included else None,
+            target_included=target_included,
+            writable_authority=False,
+            purpose="eda_overview_or_findings_description",
+        )
+        duplicate_rows = int(
+            duplicate_contract["redundant_duplicate_rows"]
+        )
         feature_columns = [column for column in df.columns if column != target]
         numeric_columns: list[str] = []
         categorical_columns: list[str] = []
@@ -3354,6 +3428,7 @@ class EDAWorkspaceService:
             "target_profile": target_payload,
             "data_integrity": {
                 "duplicate_rows": duplicate_rows,
+                "duplicate_contract": duplicate_contract,
                 "constant_columns": constants,
                 "identifier_candidates": identifier_candidates[:50],
                 "leakage_candidates": leakage_candidates[:50],
@@ -3979,6 +4054,44 @@ class EDAWorkspaceService:
             finite_values = [float(row["vif"]) for row in source if row.get("vif") is not None]
             return max(finite_values) if finite_values else None
 
+        authoritative_vif_scope = {
+            **(
+                contract["relationship_artifact"].get("vif_scope") or {}
+            ),
+            **vif_scope,
+            "development_population_rows": int(len(development)),
+            "vif_eligible_rows": int(len(vif_frame)),
+            "vif_coverage_rate": len(vif_frame) / max(len(development), 1),
+            "excluded_rows": int(len(development) - len(vif_frame)),
+            "calculation_stage": "eda_pre_feature_engineering",
+            "preliminary_or_final": "preliminary",
+            "may_authorize_automatic_exclusion": False,
+        }
+        candidate_state = {
+            "status": "preview_only",
+            "candidate_excluded_feature": excluded,
+            "candidate_present_before": excluded in before_by_feature,
+            "candidate_present_after": False,
+            "remaining_predictors": [str(row["feature"]) for row in after],
+            "committed": False,
+            "mutation_performed": False,
+            "selection_authority": False,
+            "predictor_authorization_id": contract[
+                "predictor_authorization_id"
+            ],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "analysis_population_id": contract["analysis_population_id"],
+            "source_relationship_artifact_id": contract[
+                "relationship_artifact"
+            ]["artifact_id"],
+            "source_relationship_artifact_hash": contract[
+                "relationship_artifact"
+            ]["artifact_hash"],
+        }
+
         return {
             "ok": True,
             "project_id": request.project_id,
@@ -3987,6 +4100,7 @@ class EDAWorkspaceService:
             "dataset_version": DATASTORE.meta.get("dataset_version_id"),
             "non_mutating": True,
             "excluded_feature": excluded,
+            "candidate_state": candidate_state,
             "before": before,
             "after": rows,
             "summary": {
@@ -3996,7 +4110,7 @@ class EDAWorkspaceService:
             },
             "predictor_authorization": authorization,
             "scope": "development_population",
-            "vif_scope": vif_scope,
+            "vif_scope": authoritative_vif_scope,
             "governed_relationship_artifact_id": contract[
                 "relationship_artifact"
             ]["artifact_id"],
@@ -4590,7 +4704,6 @@ class EDAWorkspaceService:
         cache_payload = {
             "section": "relationship-sample",
             "project_id": request.project_id,
-            "workspace_instance": id(DATASTORE.get_base_df()),
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
             "workspace_fingerprint": fingerprint,
             "dataset_id": contract["dataset_id"],
@@ -4733,6 +4846,35 @@ class EDAWorkspaceService:
                             else None
                         ),
                         "n": int(len(pairs)),
+                        "pairwise_eligible_row_count": int(len(pairs)),
+                        "population_rows": int(len(df)),
+                        "rows_excluded": int(len(df) - len(pairs)),
+                        "coverage_rate": len(pairs) / max(len(df), 1),
+                        "pairwise_coverage_rate": len(pairs)
+                        / max(len(df), 1),
+                        "association_method": "pearson",
+                        "spearman_correlation": (
+                            _finite(
+                                pairs["left"].corr(
+                                    pairs["right"], method="spearman"
+                                )
+                            )
+                            if len(pairs) >= 3
+                            else None
+                        ),
+                        "confidence_metadata": {
+                            "interval_estimated": False,
+                            "reason": "descriptive_eda_association_only",
+                        },
+                        "stability_metadata": {
+                            "status": (
+                                "low_coverage_review"
+                                if len(pairs) / max(len(df), 1) < 0.8
+                                else "descriptive_only"
+                            ),
+                            "coverage_threshold": 0.8,
+                            "selection_authority": False,
+                        },
                     }
                 )
 
@@ -4807,6 +4949,85 @@ class EDAWorkspaceService:
             }
             points.append(point)
 
+        render_signature = hashlib.sha256(
+            json.dumps(
+                {
+                    "analytical_artifact_hash": contract["relationship_artifact"][
+                        "artifact_hash"
+                    ],
+                    "sampling_method": "deterministic_proportional_stratified",
+                    "seed_id": seed_id,
+                    "eligible_rows": eligible_rows,
+                    "rendered_points": points,
+                },
+                sort_keys=True,
+                default=str,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        registered_duplicate_contract = calculate_duplicate_contract(
+            full_df,
+            scope="registered_structural_population",
+            target_column=None,
+            target_included=False,
+            writable_authority=False,
+            purpose="relationship_sample_registered_structure",
+        )
+        development_analysis_frame = development.copy(deep=True)
+        development_analysis_frame[target] = development_target.to_numpy(copy=True)
+        development_duplicate_contract = calculate_duplicate_contract(
+            development_analysis_frame,
+            scope="development_population",
+            target_column=target,
+            target_included=True,
+            writable_authority=False,
+            purpose="relationship_sample_analysis_description",
+        )
+        population_contract = build_population_contract(
+            registered_rows=contract["population_rows"],
+            development_rows=contract["rows_used"],
+            holdout_rows=contract["rows_excluded"],
+            primary_scope="rendered_sample",
+            primary_purpose="deterministic_relationship_visualization",
+            project_id=contract["project_id"],
+            dataset_id=contract["dataset_id"],
+            dataset_version_id=contract["dataset_version_id"],
+            target=target,
+            target_contract_id=contract["target_contract_id"],
+            predictor_authorization_id=contract[
+                "predictor_authorization_id"
+            ],
+            analysis_partition_id=contract["analysis_partition_id"],
+            analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
+            analysis_population_id=contract["analysis_population_id"],
+            population_policy_id=contract["contract_version"],
+            treatment_policy_id="eda_non_mutating_relationship_render",
+            special_value_policy_id=contract.get("special_value_policy_id"),
+            analysis_rows=eligible_rows,
+            fit_rows=None,
+            application_rows=None,
+            materialization_rows=None,
+            rendered_rows=len(points),
+            registered_duplicate_contract=registered_duplicate_contract,
+            development_duplicate_contract=development_duplicate_contract,
+            descriptive_scope="registered_structural_population",
+            analysis_scope="development_population",
+            target_scope="development_population",
+            fit_scope="not_applicable",
+            application_scope="not_applicable_non_mutating_eda",
+            materialization_scope="not_applicable_non_mutating_eda",
+            render_scope="deterministic_bounded_development_sample",
+            registered_structural_predictors_accessed=False,
+            final_holdout_target_accessed=False,
+            final_holdout_predictors_included_in_structural_profile=False,
+            final_holdout_parameter_influence=False,
+            final_holdout_used_for_selection=False,
+            final_holdout_transformed_or_materialized_prelock=False,
+            final_holdout_opened_for_final_reporting=False,
+        )
+
         analysis_scope = {
             "contractVersion": contract["contract_version"],
             "mode": "governed_version",
@@ -4822,6 +5043,19 @@ class EDAWorkspaceService:
             "splitId": contract["split_id"],
             "exact": True,
             "sampled": eligible_rows > int(request.sample_limit),
+            "population_contract": population_contract,
+            "population_counts": population_contract["counts"],
+            "render_scope": {
+                "analytical_population": "development_population",
+                "analytical_population_rows": int(len(df)),
+                "analytical_eligible_rows": eligible_rows,
+                "rendered_rows": int(len(points)),
+                "sampling_method": "deterministic_proportional_stratified",
+                "seed_id": seed_id,
+                "render_signature": render_signature,
+                "selection_authority": False,
+            },
+            "render_signature": render_signature,
             "artifactId": contract["artifact_id"],
             "artifactHash": contract["artifact_hash"],
             "finalHoldoutAccessed": False,
@@ -4861,6 +5095,13 @@ class EDAWorkspaceService:
             "pair_metrics": pair_metrics,
             "target_encoding": target_encoding,
             "points": points,
+            # Truthful top-level compatibility projections of the canonical
+            # nested render lineage. Keep these exact aliases for consumers
+            # that have not yet migrated to analysis_scope.
+            "render_signature": render_signature,
+            "render_scope": analysis_scope["render_scope"],
+            "population_contract": population_contract,
+            "population_counts": population_contract["counts"],
             "governance": {
                 "authorized_fields": sorted(authorized),
                 "target_source_excluded": authorization["target_source_excluded"],
@@ -5026,12 +5267,23 @@ class EDAWorkspaceService:
             if non_finite:
                 invalid_values.append({"reason": "Non-finite target value", "count": non_finite})
 
-        duplicate_rows = int(df.duplicated().sum())
-        # Duplicate records that carry a target are the ones that actually bias a
-        # rate: a duplicated row with a missing target contributes to neither
-        # numerator nor denominator.
-        duplicate_mask = df.duplicated(keep=False) & y.notna()
-        duplicate_target_rows = int(df[duplicate_mask].duplicated().sum())
+        duplicate_contract = calculate_duplicate_contract(
+            df,
+            scope="development_population",
+            target_column=target if target in df.columns else None,
+            target_included=target in df.columns,
+            writable_authority=False,
+            purpose="eda_target_quality_description",
+        )
+        duplicate_rows = int(
+            duplicate_contract["redundant_duplicate_rows"]
+        )
+        # This unit is explicit: redundant duplicate rows whose target is valid,
+        # rather than all participant rows in duplicate groups.
+        duplicate_target_rows = int(
+            duplicate_contract.get("redundant_duplicate_valid_target_rows")
+            or 0
+        )
 
         candidates = (
             self._leakage_candidates(df, target, y, problem, event)
@@ -5047,6 +5299,8 @@ class EDAWorkspaceService:
             "target_cardinality": int(valid.nunique()),
             "duplicate_rows": duplicate_rows,
             "duplicate_target_bearing_rows": duplicate_target_rows,
+            "duplicate_target_count_unit": "redundant_duplicate_rows",
+            "duplicate_contract": duplicate_contract,
             "target_derived_candidates": [item for item in candidates if item["family"] == "target_derived"],
             "post_outcome_candidates": [item for item in candidates if item["family"] == "post_outcome"],
             "perfect_relationship_candidates": [item for item in candidates if item["family"] == "perfect_relationship"],
@@ -5528,6 +5782,41 @@ class EDAWorkspaceService:
             "upper_percentile": float((values <= upper_selection).mean()),
         }
 
+        def _class_box_plot(mask: pd.Series, label: str, color: str) -> dict[str, Any] | None:
+            class_values = numeric[finite_mask & mask]
+            if class_values.empty:
+                return None
+            class_quantiles = class_values.quantile([0.25, 0.5, 0.75])
+            class_q1 = float(class_quantiles.loc[0.25])
+            class_median = float(class_quantiles.loc[0.5])
+            class_q3 = float(class_quantiles.loc[0.75])
+            class_iqr = class_q3 - class_q1
+            class_lower = class_q1 - 1.5 * class_iqr
+            class_upper = class_q3 + 1.5 * class_iqr
+            return {
+                "id": label.lower().replace(" ", "_").replace("(", "").replace(")", ""),
+                "label": label,
+                "count": int(class_values.count()),
+                "minimum": _finite(class_values.min()),
+                "q1": _finite(class_q1),
+                "median": _finite(class_median),
+                "q3": _finite(class_q3),
+                "maximum": _finite(class_values.max()),
+                "whiskerLow": _finite(max(float(class_values.min()), class_lower)),
+                "whiskerHigh": _finite(min(float(class_values.max()), class_upper)),
+                "outlierCount": int(((class_values < class_lower) | (class_values > class_upper)).sum()),
+                "color": color,
+            }
+
+        class_boxplots: list[dict[str, Any]] = []
+        if problem == "classification" and event is not None:
+            for row in (
+                _class_box_plot(event_mask, "Event (1)", "#dc2626"),
+                _class_box_plot(non_event_mask, "Non-event (0)", "#0f766e"),
+            ):
+                if row is not None:
+                    class_boxplots.append(row)
+
         quantiles = values.quantile([0.25, 0.5, 0.75])
         q1 = float(quantiles.loc[0.25])
         median = float(quantiles.loc[0.5])
@@ -5618,6 +5907,7 @@ class EDAWorkspaceService:
             },
             "iv": _finite(iv_total),
             "iv_by_bin": iv_rows,
+            "class_boxplots": class_boxplots,
             "requested_bins": requested_bins,
             "returned_bins": len(histogram),
         }
@@ -5769,8 +6059,24 @@ class EDAWorkspaceService:
         scope = {
             "scope": "governed_exact_development_complete_case",
             "population_rows": int(len(numeric_df)),
+            "development_population_rows": int(len(numeric_df)),
             "complete_case_rows": complete_case_rows,
             "rows_used": int(len(work)),
+            "vif_eligible_rows": int(len(work)),
+            "rows_excluded": int(len(numeric_df) - len(work)),
+            "excluded_rows": int(len(numeric_df) - len(work)),
+            "coverage_rate": len(work) / max(len(numeric_df), 1),
+            "vif_coverage_rate": len(work) / max(len(numeric_df), 1),
+            "low_coverage_threshold": 0.8,
+            "low_coverage": len(work) / max(len(numeric_df), 1) < 0.8,
+            "low_coverage_warning": (
+                "Complete-case VIF coverage is below 80%; this preview cannot authorize automatic exclusion."
+                if len(work) / max(len(numeric_df), 1) < 0.8
+                else None
+            ),
+            "calculation_stage": "eda_pre_feature_engineering",
+            "preliminary_or_final": "preliminary",
+            "may_authorize_automatic_exclusion": False,
             "sampled": sampled,
             "maximum_rows": maximum_rows,
             "source_predictors": int(numeric_df.shape[1]),

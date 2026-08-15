@@ -12,6 +12,7 @@ import { defaultProjectContext, type ProjectContext } from "../lib/projectContex
 import { migrateStoredContext } from "../lib/projectContextPersistence";
 import { useProjectContextAutosave } from "../lib/useProjectContextAutosave";
 import { useExactPromotedModelIdentity } from "../lib/useExactPromotedModelIdentity";
+import { persistPredictiveWorkflowCompletionEvidence } from "../lib/predictiveWorkflowCompletionEvidence";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
@@ -31,6 +32,9 @@ export default function Step12ModelImplementation() {
   } = usePredictiveIdentity();
   const projectId = projectReadiness.status === "ready"
     ? projectReadiness.project.projectId
+    : "";
+  const projectName = projectReadiness.status === "ready"
+    ? projectReadiness.project.projectName
     : "";
   const datasetIdentity = identityReadiness.status === "ready"
     && identityReadiness.projectId === projectId
@@ -110,7 +114,7 @@ export default function Step12ModelImplementation() {
           ? "Verifying the exact promoted model and durable model version."
           : promotedModel.error || "A verified promoted model is required before implementation planning can be completed."}
       onNext={async () => {
-        if (!promotedModel.identity || !projectId || !authenticatedUserId) return false;
+        if (!promotedModel.identity || !datasetIdentity || !projectId || !authenticatedUserId) return false;
         const previous = context;
         const next = bindPromotedModelIdentity(context, promotedModel.identity);
         setContext(next);
@@ -121,6 +125,24 @@ export default function Step12ModelImplementation() {
               || "ATLAS could not durably save the implementation plan. The page remains open so the plan can be retried.",
           );
         }
+        await persistPredictiveWorkflowCompletionEvidence({
+          datasetIdentity,
+          projectName,
+          stepId: "step12",
+          evidenceType: "governance",
+          artifactType: "implementation_plan",
+          title: "Model Implementation Plan Completion",
+          summary: "The exact promoted model is bound to a durably saved implementation handoff plan.",
+          supportsSections: ["Model Implementation", "Production Handoff", "Governance"],
+          tags: ["implementation", "production_handoff", "promoted_model"],
+          model: promotedModel.identity,
+          payload: {
+            implementationOwner: next.implementationOwner,
+            implementationTargetDate: next.implementationTargetDate,
+            implementationEnvironment: next.implementationEnvironment,
+            implementationNotesPresent: Boolean(next.implementationNotes.trim()),
+          },
+        });
         logDecision({
           workflowStep: "Model Implementation",
           actionType: "workflow_setting_changed",

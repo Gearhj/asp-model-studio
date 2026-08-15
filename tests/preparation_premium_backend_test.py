@@ -36,6 +36,13 @@ from server.preprocessing.missing_router import (  # noqa: E402
     validate_missing_values,
 )
 from server.preprocessing.outlier_service import outlier_service  # noqa: E402
+from server.preprocessing.preprocessing_contract import (  # noqa: E402
+    PREPROCESSING_CONTRACT_VERSION,
+    fit_metadata,
+    fit_outlier_recipe,
+    resolve_special_value_contract,
+    scope_lineage,
+)
 from server.preprocessing.predictor_authorization import (  # noqa: E402
     bureau_special_summary,
     governed_predictor_authorization,
@@ -133,6 +140,7 @@ def configure(frame: pd.DataFrame, include_target_source_in_selection: bool = Fa
 def _test_authorization() -> dict[str, object]:
     predictors = list(DATASTORE.get_selected_columns())
     return {
+        "predictor_authorization_id": "premium-authorization-v2",
         "authorized_predictors": predictors,
         "excluded_predictors": {"bad_flag": "Modeling target"},
         "target_source_excluded": [],
@@ -175,6 +183,55 @@ class TestDevelopmentScope:
             "final_holdout_accessed": False,
             "final_holdout_used_for_selection": False,
         }
+
+
+def install_current_none_outlier_policy() -> None:
+    scope = TestDevelopmentScope()
+    identity = canonical_identity()
+    special_contract = resolve_special_value_contract(
+        identity=identity,
+        scope=scope,
+        store=DATASTORE.current(),
+    )
+    lineage = scope_lineage(scope, special_contract)
+    policy = {
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "approved_outlier_policy",
+        "status": "approved",
+        "outlier_policy_id": "op-premium-none",
+        "outlier_policy_revision": 1,
+        "global_method": "NONE",
+        "config": {
+            feature: "NONE"
+            for feature in scope.predictor_authorization["authorized_predictors"]
+        },
+        "rationales": {},
+        "analytical_types": {},
+    }
+    preview_fit = fit_outlier_recipe(
+        scope.development_features,
+        policy=policy,
+        fit=fit_metadata(
+            fit_scope="development_preview",
+            population_id="premium-development",
+            population_count=len(scope.development_features),
+            lineage=lineage,
+            actor="preparation-premium-test",
+            application_scope="development_population_preview",
+            application_population_id="premium-development",
+            application_population_rows=len(scope.development_features),
+        ),
+        special_value_contract=special_contract,
+    )
+    DATASTORE.meta["outlier_policy"] = policy
+    DATASTORE.meta["outlier_application"] = {
+        **lineage,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "outlier_policy_approval",
+        "state": "approved",
+        "approved_policy": policy,
+        "development_preview_fit": preview_fit,
+    }
 
 
 class PredictorAuthorizationTests(unittest.TestCase):
@@ -325,6 +382,17 @@ class OutlierSpecialValueTests(unittest.TestCase):
             target="bad_flag",
             selected_columns=DATASTORE.get_selected_columns(),
             predictor_authorization=_test_authorization(),
+            rationales={
+                "ExternalRiskEstimate": "Continuous provider risk score."
+            },
+            analytical_types={
+                "ExternalRiskEstimate": {
+                    "analytical_type": "numeric_continuous",
+                    "source": "provider_metadata",
+                    "authoritative_support": "HELOC score definition",
+                    "reason": "Continuous provider risk score.",
+                }
+            },
         )
         self.assertEqual(
             treated.loc[[3, 7, 11], "ExternalRiskEstimate"].tolist(),
@@ -403,13 +471,28 @@ class MissingValidationTests(unittest.TestCase):
         )
         external = payload["stats"]["ExternalRiskEstimate"]
         self.assertEqual(external["missing"], 0)
-        self.assertEqual(external["special_value_count"], 3)
+        # Exact governed-special disclosure comes from the persisted feature/value
+        # contract.  Reserved bureau sentinels remain protected from estimator
+        # fitting even when that feature has not been authorized for the governed
+        # special-value disclosure.
+        self.assertEqual(external["special_value_count"], 0)
+        self.assertEqual(external["protected_sentinel_excluded_count"], 3)
 
     def test_zero_null_validation_does_not_materialize_backend_frame(self):
         configure(frame_with_heloc_semantics())
+        install_current_none_outlier_policy()
         self.assertIsNone(DATASTORE.processed_df)
         payload = validate_missing_values(
-            MissingValidateRequest(project_id=PROJECT_ID),
+            MissingValidateRequest(
+                project_id=PROJECT_ID,
+                expected_dataset_id=DATASET_ID,
+                expected_dataset_version_id=DATASET_VERSION_ID,
+                preprocessing_contract_version=2,
+                analysis_partition_id="analysis-partition-premium",
+                analysis_partition_revision=1,
+                expected_predictor_authorization_id="premium-authorization-v2",
+                expected_special_value_review_revision=0,
+            ),
             user=USER,
         )
         self.assertEqual(

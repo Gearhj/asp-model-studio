@@ -29,32 +29,38 @@ const limits = await import(
   `data:text/javascript;base64,${Buffer.from(transpiled).toString("base64")}`
 );
 
-test("visible predictor choices cap once without duplicate labels", () => {
-  assert.deepEqual(limits.buildPredictorVisibleLimitOptions(5), [5]);
-  assert.deepEqual(limits.buildPredictorVisibleLimitOptions(12), [12]);
-  assert.deepEqual(limits.buildPredictorVisibleLimitOptions(21), [12, 21]);
+test("visible predictor choices expose every exact count", () => {
+  assert.deepEqual(limits.buildPredictorVisibleLimitOptions(5), [1, 2, 3, 4, 5]);
+  assert.deepEqual(
+    limits.buildPredictorVisibleLimitOptions(12),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  );
+  assert.deepEqual(
+    limits.buildPredictorVisibleLimitOptions(21),
+    Array.from({ length: 21 }, (_unused, index) => index + 1),
+  );
   assert.deepEqual(
     limits.buildPredictorVisibleLimitOptions(30),
-    [12, 24, 30],
+    Array.from({ length: 30 }, (_unused, index) => index + 1),
   );
 });
 
-test("exact breakpoints remain exact and the hard ceiling remains bounded", () => {
+test("the hard ceiling remains bounded without duplicate labels", () => {
   assert.deepEqual(
     limits.buildPredictorVisibleLimitOptions(24),
-    [12, 24],
+    Array.from({ length: 24 }, (_unused, index) => index + 1),
   );
   assert.deepEqual(
     limits.buildPredictorVisibleLimitOptions(40),
-    [12, 24, 40],
+    Array.from({ length: 40 }, (_unused, index) => index + 1),
   );
   assert.deepEqual(
     limits.buildPredictorVisibleLimitOptions(60),
-    [12, 24, 40, 60],
+    Array.from({ length: 60 }, (_unused, index) => index + 1),
   );
   assert.deepEqual(
     limits.buildPredictorVisibleLimitOptions(91),
-    [12, 24, 40, 60],
+    Array.from({ length: 60 }, (_unused, index) => index + 1),
   );
   for (const count of [1, 5, 12, 21, 24, 30, 40, 60, 91]) {
     const options = limits.buildPredictorVisibleLimitOptions(count);
@@ -70,7 +76,7 @@ test("default and restored selections resolve to a real option", () => {
   assert.equal(limits.resolvePredictorVisibleLimit(undefined, 30), 24);
   assert.equal(limits.resolvePredictorVisibleLimit(30, 30), 30);
   assert.equal(limits.resolvePredictorVisibleLimit(60, 30), 30);
-  assert.equal(limits.resolvePredictorVisibleLimit(21, 30), 24);
+  assert.equal(limits.resolvePredictorVisibleLimit(21, 30), 21);
 });
 
 test("visible predictor preference persists within dataset and target identity", () => {
@@ -102,7 +108,7 @@ test("visible predictor preference persists within dataset and target identity",
   );
   assert.equal(
     limits.loadPersistedPredictorVisibleLimit(storage, key, 30),
-    24,
+    21,
   );
 });
 

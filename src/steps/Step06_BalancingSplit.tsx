@@ -425,7 +425,7 @@ function resolveEventStats(distribution?: Distribution) {
 }
 
 function eventCountSeverity(events: number | null | undefined) {
-  if (typeof events !== "number") return { tone: "warning" as const, label: "Target counts pending · retry available" };
+  if (typeof events !== "number") return { tone: "warning" as const, label: "Target counts pending Â· retry available" };
   if (events < 30) return { tone: "danger" as const, label: "Critical: fewer than 30 positive events" };
   if (events < 100) return { tone: "warning" as const, label: "High risk: fewer than 100 positive events" };
   if (events < 500) return { tone: "warning" as const, label: "Review: rare-event sample below 500 positives" };
@@ -507,7 +507,6 @@ export default function Step06BalancingSplit() {
   const [initialSelection, setInitialSelection] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
-  const validationStrategy: ValidationStrategy = "hybrid";
   const [externalValidationMode, setExternalValidationMode] =
     useState<ExternalValidationMode>("none");
   const [foldMethod, setFoldMethod] =
@@ -545,6 +544,8 @@ export default function Step06BalancingSplit() {
   const [message, setMessage] = useState("");
   const [partitionResetImpacts, setPartitionResetImpacts] = useState<string[]>([]);
   const [loadingPartitionImpacts, setLoadingPartitionImpacts] = useState(false);
+  const validationStrategy: ValidationStrategy =
+    foldMethod === "none" ? "holdout_current" : "hybrid";
 
   const problemType = profile?.problemType ?? dataset?.problem_type ?? "classification";
   const isClassification = problemType === "classification";
@@ -789,7 +790,7 @@ export default function Step06BalancingSplit() {
         return rightMetric - leftMetric || left.feature_name.localeCompare(right.feature_name);
       });
   }, [eligibleFeatures, problemType, profileByName, search, selected, selectedOnly]);
-  const cvEnabled = true;
+  const cvEnabled = foldMethod !== "none";
   const holdoutEnabled = true;
   const separateTestEnabled =
     externalValidationMode === "test" ||
@@ -992,9 +993,6 @@ export default function Step06BalancingSplit() {
         "Select an immutable OOT version or disable external OOT.",
       );
     }
-    if (cvEnabled && foldMethod === "none") {
-      throw new Error("Select a cross-validation method.");
-    }
     setCreating(true);
     setError("");
     setMessage("");
@@ -1114,15 +1112,16 @@ export default function Step06BalancingSplit() {
       return true;
     }
     const status = await createSplit();
-    await createEvidence({
-      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
-        manifestVersion: status.feature_manifest_version,
-        splitId: status.split_id,
-        validationDesignId: status.validation_design_id,
+      await createEvidence({
+        ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+          manifestVersion: status.feature_manifest_version,
+          splitId: status.split_id,
+          validationDesignId: status.validation_design_id,
         validationDesignVersion: status.validation_design_version,
         trainingPopulationId: status.training_population_id,
         holdoutPopulationId: status.holdout_population_id,
-      }),
+        }),
+      workflowStep: "step06",
       projectName,
       evidenceType: "governance",
       title: "Created Validation Design",
@@ -1137,7 +1136,7 @@ export default function Step06BalancingSplit() {
       status: "ready",
       importance: "high",
       payload: status,
-    });
+    }, { requireDatabaseMirror: true });
     return true;
   }
 
@@ -1146,7 +1145,7 @@ export default function Step06BalancingSplit() {
     { label: "Engineered", value: engineeredSelected.toLocaleString(), tone: engineeredSelected ? "info" : "neutral" },
     { label: "Strategy", value: validationStrategyLabel(validationStrategy) },
     { label: "CV design", value: cvEnabled ? `${foldCount}-fold` : "Not used" },
-    { label: "Holdout", value: holdoutEnabled && Number.isFinite(testSize) ? `${Math.round(testSize * 100)}% · inherited` : separateTestEnabled ? "External TEST" : "Loading" },
+    { label: "Holdout", value: holdoutEnabled && Number.isFinite(testSize) ? `${Math.round(testSize * 100)}% Â· inherited` : separateTestEnabled ? "External TEST" : "Loading" },
     { label: "Balancing", value: isClassification ? balanceMethod === "none" ? "None" : "Training only" : "Not applicable" },
     { label: "Design", value: statusLabel(splitStatus?.status), tone: splitStatus?.status === "current" && !designDirty ? "success" : splitStatus?.status === "stale" || designDirty ? "warning" : "neutral" },
     { label: "Readiness", value: splitStatus?.status === "current" && !dirty && !designDirty ? "Ready" : "Action required", tone: splitStatus?.status === "current" && !dirty && !designDirty ? "success" : "warning" },
@@ -1197,19 +1196,24 @@ export default function Step06BalancingSplit() {
       )
     : null;
   const foldCoverageSufficient =
-    typeof minimumFoldEvents === "number" &&
-    typeof minimumFoldNonEvents === "number" &&
-    minimumFoldEvents > 0 &&
-    minimumFoldNonEvents > 0;
+    !cvEnabled ||
+    (
+      typeof minimumFoldEvents === "number" &&
+      typeof minimumFoldNonEvents === "number" &&
+      minimumFoldEvents > 0 &&
+      minimumFoldNonEvents > 0
+    );
   const externalDatasetReady =
     (!separateTestEnabled ||
       (!!testDatasetId && !!testDatasetVersion)) &&
     (!ootEnabled || (!!ootDatasetId && !!ootDatasetVersion));
   const foldConstraintReady =
-    foldMethod !== "none" &&
+    !cvEnabled ||
+    (
     (!["group_k_fold", "stratified_group_k_fold"].includes(foldMethod) ||
       !!groupField) &&
-    (foldMethod !== "time_series" || !!timeField);
+      (foldMethod !== "time_series" || !!timeField)
+    );
   const readinessItems = [
     {
       label: "Canonical dataset identity",
@@ -1231,7 +1235,7 @@ export default function Step06BalancingSplit() {
         String(splitStatus?.final_holdout_status ?? splitStatus?.analysis_partition?.final_holdout_status ?? "").toLowerCase() === "sealed",
     },
     {
-      label: "Cross-validation selected",
+      label: cvEnabled ? "K-fold cross-validation selected" : "Traditional TRAIN / TEST / OOT selected",
       ready: foldConstraintReady,
     },
     {
@@ -1282,7 +1286,7 @@ export default function Step06BalancingSplit() {
     !developmentTargetDistribution
       ? "The governed development target distribution could not be loaded. Retry the Validation Design status request."
       : "",
-    foldMethod === "none" ? "Select a cross-validation method." : "",
+    "",
     ["group_k_fold", "stratified_group_k_fold"].includes(foldMethod) &&
     !groupField
       ? "Select a governed group field for group cross-validation."
@@ -1378,7 +1382,7 @@ export default function Step06BalancingSplit() {
         />
 
         <PreparationGovernanceDisclosure
-          summary={`${selected.length.toLocaleString()} predictors · ${Math.round(testSize * 100)}% holdout · ${foldCount}-fold CV · ${statusLabel(splitStatus?.status)}`}
+          summary={`${selected.length.toLocaleString()} predictors Â· ${Math.round(testSize * 100)}% holdout Â· ${foldCount}-fold CV Â· ${statusLabel(splitStatus?.status)}`}
         >
           <AtlasStatusStrip
           items={[
@@ -1395,7 +1399,7 @@ export default function Step06BalancingSplit() {
             {
               label: "CV inside training",
               state: foldConstraintReady ? "complete" : "blocked",
-              detail: `${foldCount}-fold · ${foldMethod.replace(/_/g, " ")}`,
+              detail: `${foldCount}-fold Â· ${foldMethod.replace(/_/g, " ")}`,
             },
             {
               label: "Validation Design",
@@ -1443,7 +1447,7 @@ export default function Step06BalancingSplit() {
               <div>
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={16} className="text-blue-700" />
-                  <h3 className="text-sm font-semibold text-slate-950">Data Acquisition Analysis Partition · read-only reference</h3>
+                  <h3 className="text-sm font-semibold text-slate-950">Data Acquisition Analysis Partition Â· read-only reference</h3>
                 </div>
                 <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
                   Validation Design reuses the exact development and sealed final-holdout membership confirmed in Data Acquisition. Only cross-validation inside development and training-only policies can be configured here.
@@ -1503,13 +1507,15 @@ export default function Step06BalancingSplit() {
             <DesignStep
               number="1"
               title="Inherited Development / Final Holdout"
-              detail={`Data Acquisition assigned ${Math.round((1 - testSize) * 100)}% to development and sealed ${Math.round(testSize * 100)}% for final evaluation. Optional external TEST and OOT populations remain separate.`}
+              detail={`Data Acquisition assigned ${Math.round((1 - testSize) * 100)}% to development and sealed ${Math.round(testSize * 100)}% for final evaluation. TEST and OOT datasets are selected later when needed.`}
               complete={testSize >= 0.1}
             />
             <DesignStep
               number="2"
-              title="Cross-Validation Inside Training"
-              detail={`${foldCount}-fold ${foldMethod.replace(/_/g, " ")} estimates stability without exposing the final holdout.`}
+              title={cvEnabled ? "K-fold Cross-Validation Inside Training" : "Traditional TRAIN / TEST / OOT Setup"}
+              detail={cvEnabled
+                ? `${foldCount}-fold ${foldMethod.replace(/_/g, " ")} estimates stability without exposing the final holdout.`
+                : "Records the traditional setup. TEST and OOT datasets are not required on this page."}
               complete={foldConstraintReady}
             />
             <DesignStep
@@ -1518,8 +1524,8 @@ export default function Step06BalancingSplit() {
               title="Training-only balancing policy"
               detail={
                 balanceMethod === "none"
-                  ? "No resampling · holdout unchanged"
-                  : `${balanceMethodLabel(balanceMethod)} · training only`
+                  ? "No resampling Â· holdout unchanged"
+                  : `${balanceMethodLabel(balanceMethod)} Â· training only`
               }
               complete={balanceMethod === "none"}
             />
@@ -1551,22 +1557,15 @@ export default function Step06BalancingSplit() {
               value={`${Math.round(testSize * 100)}%`}
               tone="success"
             />
-            <Metric label="CV scope" value="Inside training only" />
-            <Metric
-              label="External validation"
-              value={
-                externalValidationMode === "none"
-                  ? "Optional · not enabled"
-                  : externalValidationMode.replace("_", " + ").toUpperCase()
-              }
-            />
+            <Metric label="CV scope" value={cvEnabled ? "Inside training only" : "Not used"} />
+            <Metric label="Later TEST / OOT" value="Selected later" />
           </div>
         </AtlasWorkflowSection>
 
         <AtlasWorkflowSection
           eyebrow="Core path"
-          title="2. Configure Cross-Validation"
-          description="The sealed Analysis Partition is inherited from Data Acquisition. Configure cross-validation within development; draft changes save automatically."
+          title="2. Choose Validation Approach"
+          description="Pick one governed validation approach. TEST and OOT datasets are not selected here; this page records the design and carries the sealed holdout forward."
           tone="neutral"
           action={
             <AtlasExecutionStatus
@@ -1586,37 +1585,31 @@ export default function Step06BalancingSplit() {
             data-testid="holdout-cv-controls"
           >
             <label>
-              <span className="atlas-label">Fold method</span>
+              <span className="atlas-label">Validation approach</span>
               <select
                 className="atlas-input mt-1"
                 value={foldMethod}
                 onChange={(event) => {
                   setFoldMethod(event.target.value as FoldMethod);
+                  setExternalValidationMode("none");
                   markDesignChanged();
                 }}
               >
                 {isClassification ? (
                   <option value="stratified_k_fold">
-                    Stratified K-fold · recommended
+                    K-fold cross-validation
                   </option>
                 ) : null}
-                <option value="k_fold">K-fold</option>
-                {isClassification ? (
-                  <option value="repeated_stratified_k_fold">
-                    Repeated stratified K-fold
-                  </option>
+                {!isClassification ? (
+                  <option value="k_fold">K-fold cross-validation</option>
                 ) : null}
-                <option value="group_k_fold">Group K-fold</option>
-                {isClassification ? (
-                  <option value="stratified_group_k_fold">
-                    Stratified group K-fold
-                  </option>
-                ) : null}
-                <option value="time_series">Time-series split</option>
-                <option value="nested_cv">Nested CV · advanced</option>
+                <option value="none">Traditional TRAIN / TEST / OOT setup</option>
               </select>
+              <span className="mt-1 block text-xs text-slate-500">
+                TEST and OOT datasets are selected later; this page only records the validation-design policy.
+              </span>
             </label>
-            <label>
+            {cvEnabled ? <label>
               <span className="atlas-label">Number of folds</span>
               <select
                 className="atlas-input mt-1"
@@ -1628,11 +1621,11 @@ export default function Step06BalancingSplit() {
               >
                 {[3, 4, 5, 6, 8, 10].map((value) => (
                   <option key={value} value={value}>
-                    {value} folds{value === 5 ? " · recommended" : ""}
+                    {value} folds{value === 5 ? " Â· recommended" : ""}
                   </option>
                 ))}
               </select>
-            </label>
+            </label> : null}
             {foldMethod === "repeated_stratified_k_fold" ? (
               <label>
                 <span className="atlas-label">Number of repeats</span>
@@ -1718,7 +1711,7 @@ export default function Step06BalancingSplit() {
                 </select>
               </label>
             ) : null}
-            <label className="flex items-center gap-2 self-end rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-semibold text-slate-700">
+            {cvEnabled ? <label className="flex items-center gap-2 self-end rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-semibold text-slate-700">
               <input
                 type="checkbox"
                 checked={shuffleFolds}
@@ -1729,8 +1722,8 @@ export default function Step06BalancingSplit() {
                 }}
               />
               Shuffle before folding
-            </label>
-            <label>
+            </label> : null}
+            {cvEnabled ? <label>
               <span className="atlas-label">Fold-local preprocessing</span>
               <select
                 className="atlas-input mt-1"
@@ -1744,7 +1737,7 @@ export default function Step06BalancingSplit() {
                 }}
               >
                 <option value="fit_transform_per_fold">
-                  Fit and transform independently within each fold · recommended
+                  Fit and transform independently within each fold Â· recommended
                 </option>
                 <option value="model_native_per_fold">
                   Model-native preprocessing within each fold
@@ -1753,7 +1746,7 @@ export default function Step06BalancingSplit() {
               <span className="mt-1 block text-xs text-slate-500">
                 Preprocessing is fitted on each fold&apos;s training rows only; validation-fold and final-holdout values never influence fitted transforms.
               </span>
-            </label>
+            </label> : null}
           </div>
           <label className="mt-4 block" data-testid="validation-design-rationale">
             <span className="atlas-label">Validation design rationale</span>
@@ -1813,7 +1806,7 @@ export default function Step06BalancingSplit() {
           action={
             targetStats ? (
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                Development event rate · {formatPercent(targetStats.eventRate)}
+                Development event rate Â· {formatPercent(targetStats.eventRate)}
               </span>
             ) : undefined
           }
@@ -1886,7 +1879,7 @@ export default function Step06BalancingSplit() {
             tone="neutral"
             action={
               <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
-                Current policy · {balanceMethodLabel(balanceMethod)}
+                Current policy Â· {balanceMethodLabel(balanceMethod)}
               </span>
             }
           >
@@ -1944,7 +1937,7 @@ export default function Step06BalancingSplit() {
                     }}
                   >
                     <option value="none">
-                      No class weights · recommended
+                      No class weights Â· recommended
                     </option>
                     <option value="balanced">
                       Balanced class weights
@@ -2002,7 +1995,7 @@ export default function Step06BalancingSplit() {
           <AtlasWorkflowSection
             eyebrow="Optional governed validation"
             title="Advanced External Validation Data"
-            description="Attach separate TEST or out-of-time datasets when they are part of the validation design. These controls remain visible so the full evaluation architecture can be reviewed before training."
+            description="TEST and OOT datasets are intentionally not selected here. This page records either k-fold cross-validation or a traditional TRAIN / TEST / OOT setup and leaves external dataset attachment to the later validation workflow."
             tone="neutral"
             action={
               <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-slate-600">
@@ -2014,12 +2007,9 @@ export default function Step06BalancingSplit() {
           >
             <div className="mt-4 border-t border-slate-200 pt-4">
               <p className="text-xs leading-5 text-slate-600">
-                External validation datasets are optional. They may also be
-                attached later during Scoring and Out-of-Time Validation.
-                Supported governed architectures remain Holdout from Current
-                Development Dataset, Separate TEST Dataset, Separate TEST and
-                OOT Datasets, Cross-Validation Strategy, and Hybrid Holdout plus
-                Cross-Validation.
+                External validation datasets are optional and are attached later.
+                Step 06 now asks for only the validation approach: k-fold
+                cross-validation, or traditional TRAIN / TEST / OOT setup.
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {[
@@ -2105,10 +2095,10 @@ export default function Step06BalancingSplit() {
           <AtlasWorkflowSection
             eyebrow="Training input contract"
             title="Final Predictor Review"
-            description={`${selected.length} included · ${Math.max(
+            description={`${selected.length} included Â· ${Math.max(
               0,
               eligibleFeatures.length - selected.length,
-            )} excluded · ${engineeredSelected} engineered · manifest ${
+            )} excluded Â· ${engineeredSelected} engineered Â· manifest ${
               manifestCurrent ? "current" : "requires attention"
             }`}
             tone={manifestCurrent ? "success" : "warning"}
@@ -2124,6 +2114,9 @@ export default function Step06BalancingSplit() {
             }
           >
             <div className="mt-4 border-t border-slate-200 pt-4">
+              <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-950">
+                All eligible predictors are selected by default from the confirmed Feature Engineering manifest. Uncheck only the predictors you intentionally want to hold out of Model Training, then save predictor changes if you make edits.
+              </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <Metric label="Eligible" value={eligibleFeatures.length} />
               <Metric
@@ -2475,7 +2468,7 @@ function ExternalDatasetPicker({
           <span className="atlas-label">Immutable Dataset Version</span>
           <select className="atlas-input mt-1" value={versionId} onChange={(event) => onVersion(event.target.value)} disabled={!selected}>
             <option value="">Select version</option>
-            {(selected?.versions ?? []).map((version) => <option key={version.versionId} value={version.versionId}>{version.versionId} · {version.rowCount.toLocaleString()} rows</option>)}
+            {(selected?.versions ?? []).map((version) => <option key={version.versionId} value={version.versionId}>{version.versionId} Â· {version.rowCount.toLocaleString()} rows</option>)}
           </select>
         </label>
         <label>
@@ -2548,7 +2541,7 @@ function PopulationPartitionVisual({
           <Metric label="Holdout" value={`${holdoutPercent}%`} />
           <Metric
             label="OOT"
-            value={hasOot ? ootLabel ?? "Configured" : "0% · optional"}
+            value={hasOot ? ootLabel ?? "Configured" : "0% Â· optional"}
           />
           <Metric label="Random seed" value={randomSeed} />
         </div>
@@ -2558,15 +2551,15 @@ function PopulationPartitionVisual({
             className="prep-split-preview__train"
             style={{ width: `${trainingPercent}%` }}
           >
-            Training set · {trainingPercent}%
-            {trainRows ? ` · ${trainRows.toLocaleString()} rows` : ""}
+            Training set Â· {trainingPercent}%
+            {trainRows ? ` Â· ${trainRows.toLocaleString()} rows` : ""}
           </div>
           <div
             className="prep-split-preview__holdout"
             style={{ width: `${holdoutPercent}%` }}
           >
-            Test holdout · {holdoutPercent}%
-            {holdoutRows ? ` · ${holdoutRows.toLocaleString()} rows` : ""}
+            Test holdout Â· {holdoutPercent}%
+            {holdoutRows ? ` Â· ${holdoutRows.toLocaleString()} rows` : ""}
           </div>
         </div>
         <div className="mt-1 flex justify-between text-[10px] font-semibold text-slate-500">
@@ -2612,7 +2605,7 @@ function PopulationPartitionVisual({
         <FlowNode
           tone="blue"
           label="Full governed development population"
-          detail={`${fullRows?.toLocaleString() ?? "Projected"} rows · 100% · version pinned`}
+          detail={`${fullRows?.toLocaleString() ?? "Projected"} rows Â· 100% Â· version pinned`}
         />
         <FlowArrow />
         <div className={`grid gap-3 ${hasHoldout ? "grid-cols-[minmax(0,1fr)_minmax(150px,0.38fr)]" : "grid-cols-1"}`}>
@@ -2620,12 +2613,12 @@ function PopulationPartitionVisual({
             <FlowNode
               tone="violet"
               label="Training population"
-              detail={`${trainRows?.toLocaleString() ?? "Projected"} rows · ${hasHoldout ? `${Math.round((1 - holdoutSize) * 100)}%` : "governed development rows"}`}
+              detail={`${trainRows?.toLocaleString() ?? "Projected"} rows Â· ${hasHoldout ? `${Math.round((1 - holdoutSize) * 100)}%` : "governed development rows"}`}
             />
             {hasCv ? (
               <div className="rounded-lg border border-cyan-400/50 bg-cyan-500/20 p-3">
                 <div className="text-xs font-bold text-cyan-50">
-                  ↳ {folds}-fold cross-validation inside training
+                  â†³ {folds}-fold cross-validation inside training
                 </div>
                 <div className="mt-2 grid grid-cols-5 gap-1">
                   {Array.from({ length: folds }, (_, index) => (
@@ -2638,7 +2631,7 @@ function PopulationPartitionVisual({
                   ))}
                 </div>
                 <div className="mt-2 text-[10px] leading-4 text-slate-300">
-                  Rotating validation fold · tuning scope locked to training
+                  Rotating validation fold Â· tuning scope locked to training
                 </div>
               </div>
             ) : null}
@@ -2648,7 +2641,7 @@ function PopulationPartitionVisual({
               <FlowNode
                 tone="emerald"
                 label="Untouched holdout"
-                detail={`${holdoutRows?.toLocaleString() ?? "Projected"} rows · ${Math.round(holdoutSize * 100)}% · final use only`}
+                detail={`${holdoutRows?.toLocaleString() ?? "Projected"} rows Â· ${Math.round(holdoutSize * 100)}% Â· final use only`}
               />
               <div className="rounded-md border border-emerald-400/30 bg-emerald-500/10 p-2 text-[10px] leading-4 text-emerald-100">
                 Never used for tuning, resampling, or candidate filtering.
@@ -2656,8 +2649,8 @@ function PopulationPartitionVisual({
             </div>
           ) : null}
         </div>
-        {hasTest ? <><FlowArrow /><FlowNode tone="amber" label="Separate TEST" detail={`${testLabel ?? "Dataset required"} · immutable version`} /></> : null}
-        {hasOot ? <><FlowArrow /><FlowNode tone="rose" label="Out-of-time confirmation" detail={`${ootLabel ?? "Dataset required"} · temporal evidence`} /></> : null}
+        {hasTest ? <><FlowArrow /><FlowNode tone="amber" label="Separate TEST" detail={`${testLabel ?? "Dataset required"} Â· immutable version`} /></> : null}
+        {hasOot ? <><FlowArrow /><FlowNode tone="rose" label="Out-of-time confirmation" detail={`${ootLabel ?? "Dataset required"} Â· temporal evidence`} /></> : null}
       </div>
     </div>
   );
@@ -2665,7 +2658,7 @@ function PopulationPartitionVisual({
 }
 
 function FlowArrow() {
-  return <div className="flex justify-center text-xs text-slate-500">↓</div>;
+  return <div className="flex justify-center text-xs text-slate-500">â†“</div>;
 }
 
 function FoldArchitectureVisual({
@@ -2707,7 +2700,30 @@ function FoldArchitectureVisual({
                 ? fold.validation_distribution
                 : undefined
             ) as Distribution | undefined;
-            return <div key={fold.sequence} className="grid grid-cols-[70px_1fr_92px] items-center gap-2 text-[10px]"><span className="font-bold text-slate-600">Fold {fold.fold}</span><div className="flex h-7 overflow-hidden rounded-md border border-violet-100"><div className="flex flex-1 items-center justify-center bg-violet-100 text-violet-800">Train {fold.train_rows || "projected"}</div><div className="flex w-[22%] items-center justify-center bg-violet-600 text-white">Validate</div></div><span className="text-right text-slate-500">{distribution ? `${distribution.events ?? "?"} E / ${distribution.non_events ?? "?"} N` : "Pending run"}</span></div>;
+            const segments = Array.from({ length: Math.max(2, foldCount) }, (_, index) => index + 1);
+            return (
+              <div key={fold.sequence} className="grid grid-cols-[70px_1fr_92px] items-center gap-2 text-[10px]">
+                <span className="font-bold text-slate-600">Round {fold.fold}</span>
+                <div className="flex h-7 overflow-hidden rounded-sm border-2 border-slate-900 bg-slate-900">
+                  {segments.map((segment) => {
+                    const isValidation = segment === fold.fold;
+                    return (
+                      <div
+                        key={segment}
+                        className={`flex flex-1 items-center justify-center border-r border-slate-900 last:border-r-0 ${
+                          isValidation
+                            ? "bg-lime-300 font-bold text-slate-950"
+                            : "bg-cyan-500 font-bold text-slate-950"
+                        }`}
+                      >
+                        {isValidation ? "Test Data" : "Training Data"}
+                      </div>
+                    );
+                  })}
+                </div>
+                <span className="text-right text-slate-500">{distribution ? `${distribution.events ?? "?"} E / ${distribution.non_events ?? "?"} N` : "Pending run"}</span>
+              </div>
+            );
           })}
         </div>
       </div>
@@ -2742,9 +2758,9 @@ function ClassBalancePreservationVisual({ distributions }: { distributions: Dist
             return (
               <div key={`${label}-${index}`} className="grid grid-cols-[130px_82px_82px_92px_1fr_68px] items-center gap-2 text-[10px]">
                 <span className="truncate font-semibold text-slate-700">{label}</span>
-                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.rows?.toLocaleString() ?? "—"}</span>
-                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.events?.toLocaleString() ?? "—"}</span>
-                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.non_events?.toLocaleString() ?? "—"}</span>
+                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.rows?.toLocaleString() ?? "â€”"}</span>
+                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.events?.toLocaleString() ?? "â€”"}</span>
+                <span className="text-right font-medium tabular-nums text-slate-600">{distribution?.non_events?.toLocaleString() ?? "â€”"}</span>
                 <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className={deviation > 0.05 ? "h-full rounded-full bg-amber-500" : "h-full rounded-full bg-blue-600"} style={{ width: `${Math.max(1, Math.min(100, (rate ?? 0) * 100))}%` }} /></div>
                 <span className={deviation > 0.05 ? "text-right font-bold tabular-nums text-amber-700" : "text-right font-medium tabular-nums text-slate-600"}>{formatPercent(rate)}</span>
               </div>

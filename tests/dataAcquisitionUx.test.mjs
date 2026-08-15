@@ -245,8 +245,10 @@ assert.match(page, /border-2 border-slate-400 bg-slate-100/, "The command sectio
 assert.match(page, /data-testid="data-acquisition-target-setup"/, "Target selection needs a stable, prominent decision surface.");
 assert.match(page, /Required modeling decision/, "Target selection must state that it is required.");
 assert.match(page, /Identify the Target Variable/, "Target selection needs an explicit action-oriented heading.");
+assert.match(page, /data-testid="target-column-search"/, "Target selection must support searching large feature sets.");
+assert.match(page, /Search target columns/, "The target-column search must be explicitly labeled.");
 assert.match(page, /border-2 border-blue-500/, "Target selection must visually stand apart from surrounding source controls.");
-assert.match(page, /Target confirmed: \$\{props\.target\}/, "The selected target must remain visible as confirmed state.");
+assert.match(page, /Target contract confirmed: \$\{props\.target\}/, "The selected target must remain visible as confirmed state.");
 assert.match(distributionPanel, /border-2 border-blue-300 bg-blue-50/, "Target Setup / Distribution must use a light-blue identity.");
 
 // --- Performance: no full dataset transfer ---------------------------------

@@ -421,16 +421,45 @@ export function assertExactEdaResponseLineage(
   const governedScope = payload.governed_analysis_scope && typeof payload.governed_analysis_scope === "object"
     ? payload.governed_analysis_scope as Record<string, unknown>
     : {};
+  const populationContract = payload.population_contract && typeof payload.population_contract === "object"
+    ? payload.population_contract as Record<string, unknown>
+    : {};
+  const holdoutTruth = populationContract.holdout_truth && typeof populationContract.holdout_truth === "object"
+    ? populationContract.holdout_truth as Record<string, unknown>
+    : {};
   const exclusionReasons = Array.isArray(analysisScope.exclusionReasons)
     ? analysisScope.exclusionReasons.map(String)
     : [];
-  const finalHoldoutAccessed =
+  const primaryScope = String(payload.scope ?? "");
+  const targetDirectedScope = String(
+    analysisScope.targetDirectedScope ??
+    (primaryScope === "development_population" ? primaryScope : ""),
+  );
+  const targetDirectedRows = Number(
+    analysisScope.targetDirectedPopulationRows ??
+    analysisScope.populationRows ??
+    (primaryScope === "development_population" ? payload.row_count : Number.NaN),
+  );
+  const registeredStructuralOverview =
+    primaryScope === "registered_structural_population" &&
+    analysisScope.primaryScope === "registered_structural_population" &&
+    analysisScope.descriptiveScope === "registered_structural_population";
+  const finalHoldoutTargetAccessed =
+    holdoutTruth.final_holdout_target_accessed ??
+    payload.final_holdout_target_accessed ??
     payload.final_holdout_accessed ??
     governedScope.final_holdout_accessed ??
     analysisScope.finalHoldoutAccessed;
   if (
-    payload.scope !== "development_population" ||
-    finalHoldoutAccessed !== false ||
+    (primaryScope !== "development_population" && !registeredStructuralOverview) ||
+    targetDirectedScope !== "development_population" ||
+    targetDirectedRows !== handoff.context.analysis_partition.development_rows ||
+    finalHoldoutTargetAccessed !== false ||
+    holdoutTruth.final_holdout_parameter_influence !== false ||
+    holdoutTruth.final_holdout_used_for_selection !== false ||
+    holdoutTruth.final_holdout_transformed_or_materialized_prelock !== false ||
+    (registeredStructuralOverview &&
+      holdoutTruth.final_holdout_predictors_included_in_structural_profile !== true) ||
     !exclusionReasons.includes("sealed_final_holdout_excluded")
   ) {
     throw new DataAcquisitionEdaHandoffError(

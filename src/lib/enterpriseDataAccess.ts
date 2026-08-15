@@ -55,6 +55,21 @@ export type DataQualitySummary = {
   rowCount: number;
   columnCount: number;
   duplicateRows: number;
+  duplicateContract?: {
+    scope: string;
+    row_count: number;
+    comparison_scope: string;
+    comparison_columns: string[];
+    comparison_column_count: number;
+    duplicate_group_count: number;
+    duplicate_participant_rows: number;
+    redundant_duplicate_rows: number;
+    unique_rows_after_deduplication: number;
+    target_column?: string | null;
+    target_included: boolean;
+    keep_semantics: "first" | "last" | "none";
+    purpose: string;
+  };
   duplicateIdCandidates: string[];
   constantColumns: string[];
   nearZeroVarianceColumns: string[];
@@ -392,6 +407,7 @@ export async function fetchFullDataQualityProfile(input: {
     rowCount: payload.registeredRowCount,
     columnCount: payload.columnCount,
     duplicateRows: payload.duplicateRows,
+    duplicateContract: payload.duplicateContract,
     duplicateIdCandidates: payload.duplicateIdCandidates ?? [],
     constantColumns: payload.constantColumns ?? [],
     nearZeroVarianceColumns: payload.nearZeroVarianceColumns ?? [],

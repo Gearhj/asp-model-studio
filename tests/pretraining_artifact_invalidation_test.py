@@ -22,6 +22,9 @@ from server.core.result_store import RESULTS, ResultStore
 from server.datasets.dataset_router import activate_dataset_version
 from server.persistence.db import Database
 from server.persistence.service import PersistenceService
+from server.preprocessing.execution_contract import (
+    default_no_treatment_contract,
+)
 from server.training.candidate_contract import (
     build_candidate_contract,
     canonical_contract_hash,
@@ -57,6 +60,18 @@ def _target_semantics_authority() -> dict[str, object]:
     }
     authority["target_authority_hash"] = canonical_contract_hash(authority)
     return authority
+
+
+def _approved_none_preprocessing_policy() -> dict[str, object]:
+    return default_no_treatment_contract(
+        identity={
+            **IDENTITY,
+            "analysis_partition_id": "analysis-partition-old",
+            "analysis_partition_revision": 1,
+        },
+        feature_names=["x"],
+        source="pretraining_artifact_invalidation_fixture",
+    )
 
 
 def _seed_downstream(store: DatasetStore, results: ResultStore) -> None:
@@ -295,8 +310,12 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
                 "dataset_identity_status": "current",
                 "selected_columns": ["x"],
                 "split_status": "current",
+                "preprocessing_policy": (
+                    _approved_none_preprocessing_policy()
+                ),
             }
         )
+        preprocessing_policy = store.meta["preprocessing_policy"]
         service = TrainingJobService()
         job_id = "job-race"
         request = TrainingJobRequest(
@@ -351,7 +370,7 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
                 "manifest_id": "manifest-old",
                 "manifest_hash": "manifest-old",
             },
-            store_meta={},
+            store_meta=store.meta,
             training_job_id=job_id,
             training_run_id="training-run-race",
             created_by="owner",
@@ -416,6 +435,19 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             ],
             "analysis_partition_revision": target_authority[
                 "analysis_partition_revision"
+            ],
+            "governed_preprocessing_contract": preprocessing_policy,
+            "preprocessing_contract_version": preprocessing_policy[
+                "preprocessing_contract_version"
+            ],
+            "preprocessing_policy_id": preprocessing_policy[
+                "preprocessing_policy_id"
+            ],
+            "preprocessing_policy_revision": preprocessing_policy[
+                "preprocessing_policy_revision"
+            ],
+            "preprocessing_policy_hash": preprocessing_policy[
+                "preprocessing_policy_hash"
             ],
             "partial_ranked_results": [
                 {
@@ -618,6 +650,9 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
                     **IDENTITY,
                     "manifest_hash": "manifest-old",
                 },
+                "preprocessing_policy": (
+                    _approved_none_preprocessing_policy()
+                ),
                 "split_record": {
                     **IDENTITY,
                     "split_id": "split-old",
@@ -630,10 +665,12 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
                 "split_status": "current",
             }
         )
+        preprocessing_policy = store.meta["preprocessing_policy"]
         copied_training_partition = (
             pd.DataFrame({"x": [1.0, 2.0]}),
             pd.Series([0, 1], name="target"),
             [],
+            preprocessing_policy,
         )
         preflight = {
             "ready": True,
@@ -662,6 +699,7 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             "target_semantics_authority": _target_semantics_authority(),
             "selected_original_features": ["x"],
             "engineered_features": [],
+            "governed_preprocessing_contract": preprocessing_policy,
         }
         request = TrainingJobRequest(
             models=["logreg"],

@@ -103,7 +103,10 @@ test("relationship, correlation, and VIF surfaces disclose development-only evid
   ]);
   includesAll(vif, [
     "Development Population VIF bars",
-    "Development Population · ${Number(scope.rows_used",
+    "Development Population: ${Number(scope.development_population_rows",
+    "${Number(scope.vif_eligible_rows ?? scope.rows_used",
+    "complete-case VIF-eligible rows",
+    "% coverage",
     "sealed final holdout is never accessed",
   ]);
   includesAll(step, [

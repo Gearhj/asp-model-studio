@@ -589,6 +589,33 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         )
         self.assertEqual(relationship["vif_scope"]["missing_value_treatment"], "complete_case")
         self.assertEqual(relationship["vif_scope"]["special_value_representation"], "excluded_from_ordinary_numeric_matrix")
+        vif_scope = relationship["vif_scope"]
+        self.assertEqual(
+            vif_scope["development_population_rows"], DEVELOPMENT_ROWS
+        )
+        self.assertEqual(vif_scope["vif_eligible_rows"], vif_scope["rows_used"])
+        self.assertAlmostEqual(
+            vif_scope["vif_coverage_rate"],
+            vif_scope["vif_eligible_rows"] / DEVELOPMENT_ROWS,
+        )
+        self.assertEqual(vif_scope["preliminary_or_final"], "preliminary")
+        self.assertFalse(vif_scope["may_authorize_automatic_exclusion"])
+        self.assertIn("included_event_rows", vif_scope["event_coverage"])
+        self.assertIn("excluded_event_rows", vif_scope["event_coverage"])
+        self.assertIn(
+            "rows_with_bureau_special_value",
+            vif_scope["exclusion_breakdown"],
+        )
+        for coverage in correlation_scope["pairwise_coverage"]:
+            self.assertEqual(
+                coverage["pairwise_eligible_row_count"], coverage["n"]
+            )
+            self.assertEqual(
+                coverage["pairwise_coverage_rate"], coverage["coverage_rate"]
+            )
+            self.assertEqual(
+                coverage["stability_metadata"]["selection_authority"], False
+            )
         self.assertIn("ExternalRiskEstimate", relationship["vif_by_feature"])
 
     def test_workspace_sections_reuse_one_contract_and_harmonized_predictor_ids(self) -> None:
@@ -691,6 +718,15 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             payload["requested_bins"],
             payload["requested_iv_bins"],
         )
+        class_boxplots = payload["class_boxplots"]
+        self.assertEqual(
+            [series["label"] for series in class_boxplots],
+            ["Event (1)", "Non-event (0)"],
+        )
+        self.assertTrue(all(series["count"] > 0 for series in class_boxplots))
+        self.assertTrue(
+            all(series["outlierCount"] >= 0 for series in class_boxplots)
+        )
 
     def test_target_directed_section_factory_receives_development_rows_only(self) -> None:
         store, _source_frame = _store()
@@ -730,7 +766,11 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         # positions before passing them to section factories, so downstream
         # joins cannot recover or conflate source-row labels.
         self.assertEqual(observed["indices"], list(range(DEVELOPMENT_ROWS)))
-        self.assertEqual(result["row_count"], SOURCE_ROWS)
+        self.assertEqual(result["row_count"], DEVELOPMENT_ROWS)
+        self.assertEqual(
+            result["population_counts"]["registered_population_rows"],
+            SOURCE_ROWS,
+        )
         self.assertEqual(
             result["analysis_scope"]["populationRows"], DEVELOPMENT_ROWS
         )
@@ -792,6 +832,27 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         )
         self.assertEqual(baseline_sample["points"], changed_sample["points"])
         self.assertEqual(baseline_sample["pair_metrics"], changed_sample["pair_metrics"])
+        self.assertEqual(
+            baseline_sample["render_signature"],
+            changed_sample["render_signature"],
+        )
+        self.assertEqual(
+            baseline_sample["render_scope"]["analytical_eligible_rows"],
+            baseline_sample["eligible_rows"],
+        )
+        self.assertEqual(
+            baseline_sample["render_scope"]["rendered_rows"],
+            baseline_sample["returned_rows"],
+        )
+        self.assertEqual(
+            baseline_sample["population_contract"]["primary"]["scope"],
+            "rendered_sample",
+        )
+        self.assertFalse(
+            baseline_sample["population_contract"]["holdout_truth"][
+                "final_holdout_target_accessed"
+            ]
+        )
         self.assertEqual(
             baseline_sample["analysis_scope"]["splitId"],
             store.meta["analysis_partition_id"],
@@ -1041,11 +1102,12 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "server.eda.workspace_service.assert_expected_active_identity",
             return_value=identity,
         ):
+            service = EDAWorkspaceService()
+            request = EDAWorkspaceRequest(**canonical_request)
             _frame_result, _target, _y, _problem, _event, authorization = (
-                EDAWorkspaceService().authorized_dataset(
-                    EDAWorkspaceRequest(**canonical_request)
-                )
+                service.authorized_dataset(request)
             )
+            target_payload = service.section("target", request)
 
         self.assertIn(
             "DevelopmentOnlyTargetSource",
@@ -1055,6 +1117,22 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "DevelopmentOnlyTargetSource",
             authorization["authorized_predictors"],
         )
+        quality = target_payload["target_quality"]
+        known_sources = quality[
+            "known_deterministic_sources_excluded_upstream"
+        ]
+        self.assertEqual(
+            [row["field"] for row in known_sources],
+            ["DevelopmentOnlyTargetSource"],
+        )
+        self.assertEqual(
+            quality["leakage_conclusion"],
+            "known_source_excluded_no_additional_authorized_candidates",
+        )
+        self.assertEqual(
+            quality["additional_authorized_predictor_candidate_count"], 0
+        )
+        self.assertFalse(quality["final_holdout_target_accessed"])
 
     def test_production_eda_sources_do_not_reference_holdout_objects_or_combined_accessor(self) -> None:
         root = Path(__file__).resolve().parents[1] / "server" / "eda"

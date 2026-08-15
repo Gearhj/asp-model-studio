@@ -275,7 +275,7 @@ assert.match(evaluation, /navigate\(projectWorkflowRoute\(projectId, `\/step09\?
 assert.match(interpretation, /requireLocalDatasetCanonicalIdentity/);
 assert.match(interpretation, /Promise\.allSettled/);
 assert.match(interpretation, /AnalysisScopeBadge/);
-assert.match(interpretation, /Computing partial dependence on the governed holdout/);
+assert.match(interpretation, /Computing partial dependence from the selected evidence scope/);
 assert.match(interpretation, /interpretation\/importance\?\$\{interpretationContextQuery\}/s);
 assert.match(interpretation, /interpretation\/pdp\?feature=.*interpretationContextQuery/s);
 assert.match(interpretation, /interpretation\/rfe\?keep=.*interpretationContextQuery/s);

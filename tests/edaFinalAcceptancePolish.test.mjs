@@ -461,7 +461,7 @@ test("8. Unique predictor dropdown options.", () => {
   }
   assert.deepEqual(
     predictorLimits.buildPredictorVisibleLimitOptions(21),
-    [12, 21],
+    Array.from({ length: 21 }, (_unused, index) => index + 1),
   );
   assert.match(
     sources.predictorLandscape,
@@ -514,6 +514,11 @@ test("11. Auto-generated findings.", () => {
     );
   }
   assert.match(sources.findingsWorkspace, /eda-findings-executive-summary/);
+  assert.match(sources.findingsWorkspace, /eda-findings-action-guide/);
+  assert.match(sources.findingsWorkspace, /What matters on this page/);
+  assert.match(sources.findingsWorkspace, /Start with unresolved/);
+  assert.match(sources.findingsWorkspace, /Pick a disposition/);
+  assert.match(sources.findingsWorkspace, /Save evidence/);
   assert.match(sources.findingsWorkspace, /eda-findings-inventory/);
 });
 

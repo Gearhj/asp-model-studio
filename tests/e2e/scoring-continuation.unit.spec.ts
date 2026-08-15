@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  buildExactScoringRequestQuery,
   buildExactScoringHistoryFilters,
   buildFinalModelStatusQuery,
   eligibleDurableScoringPartitions,
@@ -96,6 +97,32 @@ test.describe("Step 10 exact final-model status and durable continuation", () =>
     for (const field of ["projectId", "datasetId", "datasetVersionId", "target"] as const) {
       expect(() => buildFinalModelStatusQuery({ ...exactContext, [field]: "" })).toThrow(
         /exact project, dataset, immutable dataset version, and target/i,
+      );
+    }
+  });
+
+  test("builds the exact identity shared by upload and development-split scoring requests", () => {
+    const query = buildExactScoringRequestQuery(exactContext);
+    expect(Object.fromEntries(query.entries())).toEqual({
+      project_id: exactContext.projectId,
+      dataset_id: exactContext.datasetId,
+      dataset_version_id: exactContext.datasetVersionId,
+      target: exactContext.target,
+      model_version_id: exactContext.modelVersionId,
+    });
+    expect([...query.keys()]).toEqual([
+      "project_id",
+      "dataset_id",
+      "dataset_version_id",
+      "target",
+      "model_version_id",
+    ]);
+  });
+
+  test("fails closed instead of issuing a partial scoring request", () => {
+    for (const field of ["projectId", "datasetId", "datasetVersionId", "target", "modelVersionId"] as const) {
+      expect(() => buildExactScoringRequestQuery({ ...exactContext, [field]: "" })).toThrow(
+        /exact project, dataset, immutable dataset version, target, and promoted model version/i,
       );
     }
   });

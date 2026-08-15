@@ -379,6 +379,12 @@ export default function VifResolutionPlanPanel({
         {status === "generating" ? <LoaderCircle size={15} className="animate-spin" /> : <GitBranch size={15} />}
         {status === "generating" ? "Generating complete comparison…" : "Generate VIF Resolution Plan"}
       </button>
+      <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-700">
+        This creates recommendations only. It compares correlated clusters,
+        simulates one- and two-variable removal paths, and records evidence for
+        Feature Engineering. It does not drop predictors, mutate the dataset, or
+        use the sealed final holdout.
+      </p>
       <p
         className={`mt-2 min-h-5 text-[11px] ${status === "error" ? "text-rose-700" : "text-slate-600"}`}
         role="status"

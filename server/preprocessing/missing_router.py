@@ -17,6 +17,7 @@ from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.pretraining_invalidation import invalidate_downstream_training_state
+from ..core.result_store import RESULTS
 from ..core.session_checkpoint import save_checkpoint
 from ..datasets.dataset_identity import (
     assert_expected_active_identity,
@@ -34,25 +35,52 @@ from .predictor_authorization import (
     bureau_special_mask,
     bureau_special_summary,
 )
+from .preprocessing_contract import (
+    PREPROCESSING_CONTRACT_VERSION,
+    FIT_SCOPE_DEVELOPMENT_PREVIEW,
+    analytical_type,
+    apply_missing_recipe,
+    apply_outlier_recipe,
+    assert_mutation_expectations,
+    build_preprocessing_policy_record,
+    capture_preprocessing_mutation_state,
+    classify_preprocessing_record,
+    decode_typed_scalar,
+    fit_metadata,
+    fit_missing_recipe,
+    governed_special_mask,
+    governed_special_values_for_feature,
+    normalize_true_missing,
+    quarantine_preprocessing_state,
+    resolve_special_value_contract,
+    restore_preprocessing_mutation_state,
+    scope_lineage,
+    special_mask,
+)
 
 
 router = APIRouter()
-MISSING_STRINGS = {"", "na", "n/a", "null", "none", "nan", "missing"}
 
 
 def _state_locked_read(function):
+    """Authorize project scope before resolving and locking its store."""
+
     @wraps(function)
     def wrapped(*args, **kwargs):
+        project_id = kwargs.get("project_id")
+        if project_id is None and args:
+            project_id = args[0]
+        user = kwargs.get("user") or {}
+        authorize_modeling_scope(user, project_id, "view")
         scoped_store = DATASTORE.current()
         with scoped_store.state_lock:
             return function(*args, **kwargs)
 
     return wrapped
-
-
 class MissingRule(BaseModel):
     strategy: str = "None"
     constantValue: Optional[Any] = None
+    rationale: str = ""
 
 
 class MissingApplyRequest(BaseModel):
@@ -67,6 +95,12 @@ class MissingApplyRequest(BaseModel):
     dataset_version: str | None = None
     analysis_partition_id: str | None = None
     analysis_partition_revision: int | None = None
+    preprocessing_contract_version: int | None = None
+    expected_predictor_authorization_id: str | None = None
+    expected_special_value_review_id: str | None = None
+    expected_special_value_review_revision: int | None = None
+    analytical_types: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    missing_tokens: Dict[str, List[str]] = Field(default_factory=dict)
 
 
 class MissingValidateRequest(BaseModel):
@@ -80,6 +114,10 @@ class MissingValidateRequest(BaseModel):
     dataset_version: str | None = None
     analysis_partition_id: str | None = None
     analysis_partition_revision: int | None = None
+    preprocessing_contract_version: int | None = None
+    expected_predictor_authorization_id: str | None = None
+    expected_special_value_review_id: str | None = None
+    expected_special_value_review_revision: int | None = None
 
 
 def _active_request_identity(
@@ -161,61 +199,65 @@ def _record_matches_scope(
     identity: Dict[str, Any],
     scope: DevelopmentAnalysisScope,
 ) -> bool:
-    return bool(
-        _record_matches_identity(record, identity)
-        and record.get("analysis_partition_id")
-        == scope.partition.get("analysis_partition_id")
-        and int(record.get("analysis_partition_revision") or 0)
-        == int(scope.partition.get("revision") or 0)
+    special_contract = resolve_special_value_contract(
+        identity=identity,
+        scope=scope,
+        store=DATASTORE.current(),
     )
+    status, _ = classify_preprocessing_record(
+        record,
+        lineage=scope_lineage(scope, special_contract),
+    )
+    return status == "current"
 
 
 def _full_dataset_application_metadata(
     scope: DevelopmentAnalysisScope,
 ) -> Dict[str, Any]:
-    """Describe full-population materialization and development-only evidence."""
+    """Describe Development preview approval without holdout application."""
 
     return {
         **scope.metadata(),
-        "scope": "full_dataset",
-        "application_scope": "full_dataset",
-        "materialization_scope": "full_dataset",
-        "application_source_population": "full_governed_population",
+        "scope": "development_population",
+        "fit_scope": "development_preview",
+        "application_scope": "none_prelock",
+        "materialization_scope": "none",
+        "application_source_population": None,
+        "backend_materialization": False,
+        "processed_frame_materialized": False,
+        "sealed_holdout_transformed": False,
     }
 
 
 def _public_application(record: Any) -> Any:
-    """Normalize an older stored application at the response boundary."""
+    """Return persisted v2 state verbatim; legacy records are quarantined."""
 
-    if not isinstance(record, dict):
-        return record
-    return {
-        **record,
-        "scope": "full_dataset",
-        "application_scope": "full_dataset",
-        "materialization_scope": "full_dataset",
-        "application_source_population": "full_governed_population",
-    }
+    return deepcopy(record) if isinstance(record, dict) else record
 
 
 def _source_stage(identity: Dict[str, Any]) -> str:
     return (
-        "outlier_treated"
+        "outlier_policy_approved"
         if _record_matches_identity(
             DATASTORE.meta.get("outlier_application"),
             identity,
         )
+        and int(
+            (DATASTORE.meta.get("outlier_application") or {}).get(
+                "preprocessing_contract_version"
+            )
+            or 0
+        )
+        == PREPROCESSING_CONTRACT_VERSION
         else "registered_dataset"
     )
 
 
 def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:
-    work = df.copy()
-    for col in work.columns:
-        if pd.api.types.is_object_dtype(work[col]) or pd.api.types.is_string_dtype(work[col]):
-            text = work[col].astype("string")
-            work.loc[text.str.strip().str.lower().isin(MISSING_STRINGS), col] = np.nan
-    return work
+    # V2 does not globally reinterpret legitimate category labels such as
+    # "None" or "Missing". Feature-specific governed tokens are applied by
+    # the fitted recipe when explicitly present in approved policy.
+    return normalize_true_missing(df)
 
 
 def _feature_columns(
@@ -251,12 +293,74 @@ def _display_dtype(series: pd.Series) -> str:
 
 
 def _config_payload(config: Dict[str, MissingRule]) -> dict[str, dict[str, Any]]:
-    return {key: value.dict() for key, value in sorted(config.items())}
+    return {key: value.model_dump() for key, value in sorted(config.items())}
 
 
 def _config_signature(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _structural_missing_count(
+    frame: pd.DataFrame,
+    features: List[str],
+    *,
+    special_value_contract: dict[str, Any],
+    governed_tokens: dict[str, List[str]] | None = None,
+) -> int:
+    """Count governed null semantics without transforming the registered frame."""
+
+    total = 0
+    for feature in features:
+        series = frame[feature]
+        missing = series.isna().copy()
+        tokens = {
+            str(value).strip().casefold()
+            for value in (governed_tokens or {}).get(feature, [])
+        }
+        if tokens:
+            rendered = series.astype("string").str.strip().str.casefold()
+            token_missing = rendered.isin(tokens).fillna(False)
+            token_missing = token_missing & ~special_mask(
+                series, feature, special_value_contract
+            )
+            missing = missing | token_missing
+        total += int(missing.sum())
+    return total
+
+
+def _missingness_counts(
+    frame: pd.DataFrame,
+    features: List[str],
+) -> dict[str, Any]:
+    matrix = frame[features].isna() if features else None
+    affected = matrix.any(axis=1) if matrix is not None else None
+    maximum = (
+        int(matrix.sum(axis=1).max())
+        if matrix is not None and len(matrix)
+        else 0
+    )
+    return {
+        "flagged_cell_count": int(matrix.sum().sum())
+        if matrix is not None
+        else 0,
+        "affected_row_count": int(affected.sum())
+        if affected is not None
+        else 0,
+        "affected_row_rate": float(affected.mean())
+        if affected is not None and len(affected)
+        else 0.0,
+        "affected_predictor_count": int(matrix.any(axis=0).sum())
+        if matrix is not None
+        else 0,
+        "mean_flagged_features_per_affected_row": (
+            float(matrix.sum(axis=1)[affected].mean())
+            if matrix is not None and affected is not None and bool(affected.any())
+            else 0.0
+        ),
+        "max_flagged_features_per_row": maximum,
+        "maximum_flagged_features_on_one_row": maximum,
+    }
 
 
 def _pre_missing_df(
@@ -265,43 +369,12 @@ def _pre_missing_df(
     authorization: dict[str, Any],
     target: str,
 ) -> pd.DataFrame:
-    prior = DATASTORE.meta.get("outlier_application")
-    if DATASTORE.meta.get("processed_stage") == "outliers" and DATASTORE.processed_df is not None:
-        if not _record_matches_identity(prior, identity):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "The active outlier-treated frame is not bound to the exact "
-                    "active Dataset Library version."
-                ),
-            )
-        current = DATASTORE.get_active_df()
-        if current is not None and not current.empty:
-            return current
-
-    source = DATASTORE.get_raw_active_df()
+    source = DATASTORE.get_raw_active_df(include_target=False)
     if source is None or source.empty:
         raise HTTPException(status_code=400, detail="No full registered dataset is loaded.")
-    if isinstance(prior, dict) and not _record_matches_identity(prior, identity):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "The saved outlier treatment belongs to a different dataset "
-                "identity. Reconfirm outlier treatment for the active version."
-            ),
-        )
-    if _record_matches_identity(prior, identity) and isinstance(prior.get("config"), dict):
-        try:
-            source, _ = outlier_service.apply(
-                source,
-                config=prior["config"],
-                global_method=str(prior.get("global_method") or "IQR_1_5"),
-                target=target,
-                selected_columns=DATASTORE.get_selected_columns(),
-                predictor_authorization=authorization,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=f"The saved outlier treatment could not be reconstructed: {exc}") from exc
+    # Step04 policies do not globally materialize the sealed holdout. Missing
+    # preview fitting applies the Development outlier recipe only to the exact
+    # Development frame; the structural source remains immutable here.
     return source
 
 
@@ -355,7 +428,12 @@ def _number_label(value: float) -> str:
     return f"{value:.2f}"
 
 
-def _distribution_profile(values: pd.Series) -> dict[str, Any]:
+def _distribution_profile(
+    values: pd.Series,
+    *,
+    feature: str | None = None,
+    special_value_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a bounded, full-population distribution for the Missing Values UI.
 
     The histogram is aggregated on the backend rather than reconstructed from a
@@ -363,11 +441,20 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
     ordinary-value bins and reported as their own governed population.
     """
 
-    special_mask = bureau_special_mask(values)
-    ordinary_source = values.mask(special_mask)
+    protected_specials = (
+        special_mask(values, feature, special_value_contract)
+        if feature is not None and special_value_contract is not None
+        else bureau_special_mask(values)
+    )
+    governed_specials = (
+        governed_special_mask(values, feature, special_value_contract)
+        if feature is not None and special_value_contract is not None
+        else protected_specials
+    )
+    ordinary_source = values.mask(protected_specials)
     missing_count = int(values.isna().sum())
-    special_count = int(special_mask.sum())
-    observed_count = int((values.notna() & ~special_mask).sum())
+    special_count = int(governed_specials.sum())
+    observed_count = int((values.notna() & ~protected_specials).sum())
 
     if _is_numeric_like(values):
         numeric = pd.to_numeric(ordinary_source, errors="coerce")
@@ -381,6 +468,7 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
                 "ordinary_numeric_count": 0,
                 "missing_count": missing_count,
                 "special_value_count": special_count,
+                "protected_sentinel_excluded_count": int(protected_specials.sum()),
                 "parse_failure_count": parse_failure_count,
                 "reference_cutoffs": None,
                 "cutoff_semantics": "Ordinary-value cutoffs are unavailable because no numeric ordinary values were observed.",
@@ -408,6 +496,7 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
             "ordinary_numeric_count": int(len(clean)),
             "missing_count": missing_count,
             "special_value_count": special_count,
+            "protected_sentinel_excluded_count": int(protected_specials.sum()),
             "parse_failure_count": parse_failure_count,
             "reference_cutoffs": {
                 "lower": first_quartile - (1.5 * spread),
@@ -437,6 +526,7 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
         "ordinary_numeric_count": None,
         "missing_count": missing_count,
         "special_value_count": special_count,
+        "protected_sentinel_excluded_count": int(protected_specials.sum()),
         "parse_failure_count": 0,
         "reference_cutoffs": None,
         "cutoff_semantics": "Low/high numeric cutoffs are not applicable to categorical predictors.",
@@ -489,6 +579,23 @@ def missing_summary(
         actor=user.get("userId"),
     )
     authorization = dict(scope.predictor_authorization)
+    special_contract = resolve_special_value_contract(
+        identity=identity,
+        scope=scope,
+        store=scoped_store,
+    )
+    lineage = scope_lineage(scope, special_contract)
+    application = scoped_store.meta.get("missing_application")
+    validation = scoped_store.meta.get("missing_validation")
+    application_status, application_reasons = classify_preprocessing_record(
+        application,
+        lineage=lineage,
+    )
+    validation_status, validation_reasons = classify_preprocessing_record(
+        validation,
+        lineage=lineage,
+    )
+    stale_reasons = application_reasons or validation_reasons
     work = _normalize_missing(
         _pre_missing_df(
             identity,
@@ -499,6 +606,20 @@ def missing_summary(
     development = _normalize_missing(
         scope.materialize_aligned_features(work)
     ).reset_index(drop=True)
+    outlier_application = scoped_store.meta.get("outlier_application")
+    outlier_status, _ = classify_preprocessing_record(
+        outlier_application,
+        lineage=lineage,
+    )
+    if outlier_status == "current" and isinstance(
+        outlier_application.get("development_preview_fit"), dict
+    ):
+        development, _ = apply_outlier_recipe(
+            development,
+            recipe=outlier_application["development_preview_fit"],
+            target=None,
+            special_value_contract=special_contract,
+        )
     y = scope.development_target.reset_index(drop=True)
     resolved_problem = scope.problem_type
     resolved_event = scope.event_value
@@ -509,7 +630,8 @@ def missing_summary(
 
     stats: Dict[str, Any] = {}
     columns: List[Dict[str, Any]] = []
-    total = int(len(work))
+    registered_total = int(len(work))
+    total = int(len(development))
     feature_columns = _feature_columns(work, authorization)
     authorization = _authorization_with_full_source_exclusions(
         work,
@@ -518,18 +640,37 @@ def missing_summary(
     for col in feature_columns:
         feature = work[col]
         development_feature = development[col]
-        missing = int(feature.isna().sum())
+        missing = int(development_feature.isna().sum())
         relationship = _informative_missingness(
             development_feature,
             y,
             resolved_problem,
             resolved_event,
         )
-        special_mask = bureau_special_mask(feature)
-        numeric = pd.to_numeric(feature.mask(special_mask), errors="coerce")
+        protected_special_mask = special_mask(
+            feature, col, special_contract
+        )
+        development_protected_special_mask = special_mask(
+            development_feature, col, special_contract
+        )
+        governed_special_value_mask = governed_special_mask(
+            feature, col, special_contract
+        )
+        development_governed_special_mask = governed_special_mask(
+            development_feature, col, special_contract
+        )
+        numeric = pd.to_numeric(
+            development_feature.mask(development_protected_special_mask),
+            errors="coerce",
+        )
         ordinary_numeric = numeric.dropna().astype(float)
-        ordinary = feature.notna() & ~special_mask
-        ordinary_mode = feature.loc[ordinary].mode(dropna=True)
+        registered_ordinary = feature.notna() & ~protected_special_mask
+        development_ordinary = (
+            development_feature.notna() & ~development_protected_special_mask
+        )
+        ordinary_mode = development_feature.loc[
+            development_ordinary
+        ].mode(dropna=True)
         mode_value = ordinary_mode.iloc[0] if len(ordinary_mode) else None
         quantiles = (
             ordinary_numeric.quantile([0.25, 0.5, 0.75])
@@ -562,14 +703,35 @@ def missing_summary(
                 if pd.notna(correlation):
                     signal_metric = float(correlation)
                     association_status = "evaluated"
-        special_summary = bureau_special_summary(feature)
+        special_values = governed_special_values_for_feature(
+            col, special_contract
+        )
+        special_summary = {
+            "special_value_count": int(development_governed_special_mask.sum()),
+            "special_value_rate": int(development_governed_special_mask.sum())
+            / max(int(development_feature.notna().sum()), 1),
+            "protected_sentinel_excluded_count": int(
+                development_protected_special_mask.sum()
+            ),
+            "special_values": {
+                str(value): int(
+                    special_mask(
+                        development_feature,
+                        col,
+                        {"features": {col: {"values": [value]}}},
+                    ).sum()
+                )
+                for value in special_values
+            },
+        }
+        profile = analytical_type(development_feature)
         stats[col] = {
             "missing": missing,
             "missingPct": float((missing / total) * 100) if total else 0.0,
             "total": total,
-            "nonmissing_count": int(feature.notna().sum()),
-            "observed_count": int(ordinary.sum()),
-            "distinct_count": int(feature.nunique(dropna=True)),
+            "nonmissing_count": int(development_feature.notna().sum()),
+            "observed_count": int(development_ordinary.sum()),
+            "distinct_count": int(development_feature.nunique(dropna=True)),
             "mean": float(ordinary_numeric.mean()) if len(ordinary_numeric) else None,
             "mode": mode_value,
             "standard_deviation": (
@@ -593,19 +755,75 @@ def missing_summary(
                 signal_metric if resolved_problem == "regression" else None
             ),
             "association_status": association_status,
-            "distribution": _distribution_profile(feature),
+            "descriptive_scope": "development_preview_fit",
+            "structural_distribution_scope": "registered_structural_node",
+            "analytical_type": profile["analytical_type"],
+            "classification_source": profile["classification_source"],
+            "classification_requires_review": profile[
+                "classification_requires_review"
+            ],
+            "distribution": _distribution_profile(
+                development_feature,
+                feature=col,
+                special_value_contract=special_contract,
+            ),
+            "registered_structural": {
+                "scope": "registered_structural_population",
+                "row_count": registered_total,
+                "missing": int(feature.isna().sum()),
+                "missingPct": (
+                    float(feature.isna().mean() * 100)
+                    if registered_total
+                    else 0.0
+                ),
+                "nonmissing_count": int(feature.notna().sum()),
+                "observed_count": int(registered_ordinary.sum()),
+                "distinct_count": int(feature.nunique(dropna=True)),
+                "special_value_count": int(governed_special_value_mask.sum()),
+                "special_value_rate": int(governed_special_value_mask.sum())
+                / max(int(feature.notna().sum()), 1),
+                "protected_sentinel_excluded_count": int(
+                    protected_special_mask.sum()
+                ),
+                "special_values": {
+                    str(value): int(
+                        special_mask(
+                            feature,
+                            col,
+                            {"features": {col: {"values": [value]}}},
+                        ).sum()
+                    )
+                    for value in special_values
+                },
+                "distribution": _distribution_profile(
+                    feature,
+                    feature=col,
+                    special_value_contract=special_contract,
+                ),
+            },
             **special_summary,
             **relationship,
         }
         columns.append({"name": col, "dtype": _display_dtype(work[col]), "role": "feature"})
-    application = DATASTORE.meta.get("missing_application")
-    validation = DATASTORE.meta.get("missing_validation")
+    development_features = [
+        feature for feature in feature_columns if feature in development.columns
+    ]
+    counts = _missingness_counts(development, development_features)
+    registered_structural_counts = _missingness_counts(work, feature_columns)
     return json_safe({
         "ok": True,
         **_identity_fields(identity),
         **scope.metadata(),
         "rows": total,
+        "row_count": total,
         "development_rows": int(len(y)),
+        "registered_population_rows": registered_total,
+        "registered_structural_row_count": registered_total,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "preprocessing_lineage": lineage,
+        "special_value_contract": special_contract,
+        "counts": counts,
+        "registered_structural_counts": registered_structural_counts,
         "columns": columns,
         "stats": stats,
         "target": scope.target,
@@ -616,15 +834,25 @@ def missing_summary(
         "source_stage": _source_stage(identity),
         "application": (
             _public_application(application)
-            if _record_matches_scope(application, identity, scope)
+            if application_status == "current"
             else None
         ),
         "validation": (
             validation
-            if _record_matches_scope(validation, identity, scope)
+            if validation_status == "current"
             else None
         ),
+        "legacy_artifact_status": (
+            application_status
+            if application_status.startswith("stale")
+            else validation_status
+            if validation_status.startswith("stale")
+            else None
+        ),
+        "legacy_artifact_reasons": stale_reasons,
         "predictor_authorization": authorization,
+        "final_holdout_predictors_in_structural_profile": True,
+        "final_holdout_predictors_included_in_structural_profile": True,
     })
 
 
@@ -633,7 +861,7 @@ def validate_missing_values(
     request: MissingValidateRequest,
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
-    """Record a governed no-treatment decision without materializing a frame."""
+    """Approve an explicit active NONE policy when governed null count is zero."""
 
     authorize_modeling_scope(user, request.project_id, "edit")
     scoped_store = DATASTORE.current()
@@ -648,62 +876,204 @@ def validate_missing_values(
             analysis_partition_revision=request.analysis_partition_revision,
             actor=user.get("userId"),
         )
-        input_revision = int(scoped_store.data_revision)
-        work = _normalize_missing(
-            _pre_missing_df(
-                identity,
-                authorization=scope.predictor_authorization,
-                target=scope.target,
-            ).drop(columns=[scope.target], errors="ignore")
-        ).copy()
-        features = _feature_columns(work, scope.predictor_authorization)
-        source_stage = _source_stage(identity)
+        special_contract = resolve_special_value_contract(
+            identity=identity, scope=scope, store=scoped_store
+        )
+        lineage = scope_lineage(scope, special_contract)
+        try:
+            assert_mutation_expectations(request, lineage=lineage)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        source = _pre_missing_df(
+            identity,
+            authorization=scope.predictor_authorization,
+            target=scope.target,
+        ).drop(columns=[scope.target], errors="ignore")
+        features = _feature_columns(source, scope.predictor_authorization)
+        registered_row_count = int(len(source))
+        missing_cells = _structural_missing_count(
+            source,
+            features,
+            special_value_contract=special_contract,
+        )
+        outlier_application = deepcopy(
+            scoped_store.meta.get("outlier_application")
+        )
         prior_validation = deepcopy(
             scoped_store.meta.get("missing_validation")
         )
-    missing_cells = int(work[features].isna().sum().sum()) if features else 0
+        prior_application = deepcopy(
+            scoped_store.meta.get("missing_application")
+        )
+        previous_combined = deepcopy(
+            scoped_store.meta.get("preprocessing_policy")
+        )
+        input_revision = int(scoped_store.data_revision)
+
+    outlier_status, _ = classify_preprocessing_record(
+        outlier_application, lineage=lineage
+    )
+    if outlier_status != "current" or not isinstance(
+        (outlier_application or {}).get("development_preview_fit"), dict
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Approve the current preprocessing-v2 Outliers policy before "
+                "confirming Missing Values."
+            ),
+        )
     if missing_cells:
         raise HTTPException(
             status_code=409,
-            detail="Null values are present. Select and apply a governed treatment or explicitly preserve them.",
+            detail=(
+                f"{missing_cells} governed true-null predictor cell(s) are "
+                "present. Select and apply an executable treatment."
+            ),
         )
+
+    missing_policy = {
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "approved_missing_policy",
+        "status": "approved",
+        "mode": "active_none_zero_null",
+        "active_treatment": "NONE",
+        "default_strategy": "NONE",
+        "config": {},
+        "analytical_types": {},
+        "missing_tokens": {},
+        "zero_null_validated": True,
+        "true_null_cell_count": 0,
+        "materialization_required": False,
+        "processed_frame_created": False,
+        "registered_structural_missing_count": 0,
+    }
+    policy_signature = _config_signature(missing_policy)
+    missing_policy["missing_policy_id"] = f"mp-{policy_signature}"
+    previous_missing_policy = (
+        (previous_combined or {}).get("missing_policy")
+        if isinstance((previous_combined or {}).get("missing_policy"), dict)
+        else {}
+    )
+    missing_policy["missing_policy_revision"] = (
+        int(previous_missing_policy.get("missing_policy_revision") or 1)
+        if previous_missing_policy.get("missing_policy_id")
+        == missing_policy["missing_policy_id"]
+        else int(previous_missing_policy.get("missing_policy_revision") or 0)
+        + 1
+    )
+
+    prior_status, _ = classify_preprocessing_record(
+        prior_validation, lineage=lineage
+    )
+    combined_status, _ = classify_preprocessing_record(
+        previous_combined, lineage=lineage
+    )
     if (
-        _record_matches_scope(prior_validation, identity, scope)
-        and prior_validation.get("source_stage") == source_stage
-        and int(prior_validation.get("row_count") or -1) == int(len(work))
-        and int(prior_validation.get("predictor_count") or -1) == len(features)
-        and not DATASTORE.meta.get("missing_application")
+        prior_status == "current"
+        and not isinstance(prior_application, dict)
+        and prior_validation.get("missing_policy_id")
+        == missing_policy["missing_policy_id"]
+        and combined_status == "current"
+        and previous_combined.get("status") == "approved"
     ):
         with scoped_store.state_lock:
             if int(scoped_store.data_revision) != input_revision:
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        "The governed dataset or preparation state changed "
-                        "while missing values were being validated. Reload "
-                        "the current plan before continuing."
-                    ),
+                    detail="The preparation authority changed; reload and validate again.",
                 )
-        return json_safe({
-            "ok": True,
-            **_identity_fields(identity),
-            **scope.metadata(),
-            "validation": prior_validation,
-            "idempotent": True,
-        })
+        return json_safe(
+            {
+                "ok": True,
+                **_identity_fields(identity),
+                **_full_dataset_application_metadata(scope),
+                "validation": prior_validation,
+                "preprocessing_policy": previous_combined,
+                "idempotent": True,
+            }
+        )
+
+    try:
+        development_after_outliers, _ = apply_outlier_recipe(
+            scope.development_features,
+            recipe=outlier_application["development_preview_fit"],
+            special_value_contract=special_contract,
+        )
+        preview_fit = fit_missing_recipe(
+            development_after_outliers,
+            policy=missing_policy,
+            fit=fit_metadata(
+                fit_scope=FIT_SCOPE_DEVELOPMENT_PREVIEW,
+                population_id=str(
+                    scope.partition.get("development_partition_id")
+                ),
+                population_count=len(development_after_outliers),
+                lineage=lineage,
+                actor=str(user.get("userId") or "atlas-user"),
+                application_scope="development_population_preview",
+                application_population_id=str(
+                    scope.partition.get("development_partition_id")
+                ),
+                application_population_rows=len(development_after_outliers),
+                evidence_references=[],
+            ),
+            special_value_contract=special_contract,
+        )
+        _, preview = apply_missing_recipe(
+            development_after_outliers,
+            recipe=preview_fit,
+            special_value_contract=special_contract,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    validated_at = datetime.now(timezone.utc).isoformat()
     validation = {
-        "validated_at": datetime.now(timezone.utc).isoformat(),
+        "validated_at": validated_at,
         **_identity_fields(identity),
-        **scope.metadata(),
-        "source_stage": source_stage,
-        "row_count": int(len(work)),
+        **_full_dataset_application_metadata(scope),
+        **lineage,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "missing_policy_validation",
+        "state": "approved",
+        "status": "validated_no_treatment_required",
+        "source_stage": "outlier_policy_approved",
+        "row_count": int(len(development_after_outliers)),
+        "registered_population_row_count": registered_row_count,
         "predictor_count": len(features),
         "missing_cells": 0,
-        "strategy": "None",
-        "status": "validated_no_treatment_required",
+        "strategy": "NONE",
+        "missing_policy_id": missing_policy["missing_policy_id"],
+        "outlier_policy_id": outlier_application["approved_policy"].get(
+            "outlier_policy_id"
+        ),
+        "approved_policy": missing_policy,
+        "development_preview_fit": preview_fit,
+        "development_preview": preview,
+        "counts": preview["counts"],
         "backend_materialization": False,
-        "statement": "Validated, no treatment required.",
+        "processed_frame_materialized": False,
+        "sealed_holdout_transformed": False,
+        "final_holdout_predictors_in_structural_profile": True,
+        "final_holdout_predictors_included_in_structural_profile": True,
+        "final_holdout_used_for_fit": False,
+        "statement": "Active NONE policy validated: no governed true nulls.",
     }
+    combined_policy = build_preprocessing_policy_record(
+        lineage=lineage,
+        special_value_contract=special_contract,
+        actor=str(user.get("userId") or "atlas-user"),
+        outlier_policy=outlier_application["approved_policy"],
+        missing_policy=missing_policy,
+        outlier_development_preview_fit=outlier_application[
+            "development_preview_fit"
+        ],
+        missing_development_preview_fit=preview_fit,
+        previous=previous_combined,
+        approved_at=validated_at,
+    )
+
     with scoped_store.state_lock:
         assert_expected_active_identity(
             request.project_id,
@@ -715,31 +1085,58 @@ def validate_missing_values(
         if int(scoped_store.data_revision) != input_revision:
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "The governed dataset or preparation state changed while "
-                    "missing values were being validated. Reload and validate "
-                    "again."
-                ),
+                detail="The preparation authority changed; reload and validate again.",
             )
+        result_store = RESULTS.current()
+        rollback_snapshot = capture_preprocessing_mutation_state(
+            scoped_store, result_store
+        )
+        quarantine_preprocessing_state(
+            scoped_store,
+            keys=(
+                "missing_application",
+                "missing_validation",
+                "missing_policy",
+                "missing_config",
+                "preprocessing_policy",
+                "feature_manifest",
+                "feature_preview",
+                "materialized_feature_names",
+                "processed_stage",
+            ),
+            reason="A new governed missing-value NONE policy superseded dependent state.",
+        )
+        scoped_store.processed_df = None
+        scoped_store.meta["missing_policy"] = missing_policy
         scoped_store.meta["missing_validation"] = validation
-        scoped_store.meta.pop("missing_application", None)
-        scoped_store.meta.pop("missing_config", None)
+        scoped_store.meta["preprocessing_policy"] = combined_policy
+        scoped_store.meta["preprocessing_state_status"] = "current"
+        scoped_store.meta.pop("preprocessing_state_reason", None)
         invalidate_downstream_training_state(
             "The governed missing-value validation changed.",
             store=scoped_store,
             split_status="stale",
         )
-    if not save_checkpoint():
-        raise HTTPException(
-            status_code=500,
-            detail="Missing-value validation completed, but ATLAS could not persist the workflow checkpoint.",
-        )
-    return json_safe({
-        "ok": True,
-        **_identity_fields(identity),
-        **scope.metadata(),
-        "validation": validation,
-    })
+        if not save_checkpoint():
+            restore_preprocessing_mutation_state(
+                scoped_store, result_store, rollback_snapshot
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Missing-value NONE approval could not be persisted; "
+                    "the in-memory workflow state was rolled back."
+                ),
+            )
+    return json_safe(
+        {
+            "ok": True,
+            **_identity_fields(identity),
+            **_full_dataset_application_metadata(scope),
+            "validation": validation,
+            "preprocessing_policy": combined_policy,
+        }
+    )
 
 
 @router.post("/apply")
@@ -757,120 +1154,273 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
             analysis_partition_revision=request.analysis_partition_revision,
             actor=user.get("userId"),
         )
-        input_revision = int(scoped_store.data_revision)
-        source_with_target = _pre_missing_df(
+        special_contract = resolve_special_value_contract(
+            identity=identity, scope=scope, store=scoped_store
+        )
+        lineage = scope_lineage(scope, special_contract)
+        try:
+            assert_mutation_expectations(request, lineage=lineage)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        registered = _pre_missing_df(
             identity,
             authorization=scope.predictor_authorization,
             target=scope.target,
-        ).copy()
-        source = source_with_target.drop(
-            columns=[scope.target], errors="ignore"
+        ).drop(columns=[scope.target], errors="ignore")
+        feature_list = _feature_columns(
+            registered, scope.predictor_authorization
         )
-        source_stage = _source_stage(identity)
+        registered_row_count = int(len(registered))
+        outlier_application = deepcopy(
+            scoped_store.meta.get("outlier_application")
+        )
         prior_application = deepcopy(
             scoped_store.meta.get("missing_application")
         )
-    work = _normalize_missing(source)
-    features = set(_feature_columns(work, scope.predictor_authorization))
-    before = int(work[list(features)].isna().sum().sum()) if features else 0
-    if before == 0:
+        previous_combined = deepcopy(
+            scoped_store.meta.get("preprocessing_policy")
+        )
+        input_revision = int(scoped_store.data_revision)
+
+    outlier_status, _ = classify_preprocessing_record(
+        outlier_application, lineage=lineage
+    )
+    if outlier_status != "current" or not isinstance(
+        (outlier_application or {}).get("development_preview_fit"), dict
+    ):
         raise HTTPException(
             status_code=409,
-            detail="No null imputation is required for the current modeling population. Use validation instead of materialization.",
+            detail=(
+                "Approve the current preprocessing-v2 Outliers policy before "
+                "approving Missing Values."
+            ),
         )
-    payload = _config_payload(request.config)
-    config_signature = _config_signature(payload)
+
+    normalized_config = {
+        feature: (
+            request.config[feature].model_dump()
+            if feature in request.config
+            else MissingRule().model_dump()
+        )
+        for feature in feature_list
+    }
+    normalized_tokens = {
+        feature: [str(value) for value in request.missing_tokens.get(feature, [])]
+        for feature in feature_list
+        if request.missing_tokens.get(feature)
+    }
+    normalized_types = {
+        feature: dict(request.analytical_types.get(feature) or {})
+        for feature in feature_list
+        if isinstance(request.analytical_types.get(feature), dict)
+    }
+    registered_missing_before = _structural_missing_count(
+        registered,
+        feature_list,
+        special_value_contract=special_contract,
+        governed_tokens=normalized_tokens,
+    )
+    if registered_missing_before == 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No governed true-null treatment is active. Validate the "
+                "zero-null NONE policy instead."
+            ),
+        )
+    development_policy_null_count = _structural_missing_count(
+        scope.development_features,
+        [
+            feature
+            for feature in feature_list
+            if feature in scope.development_features.columns
+        ],
+        special_value_contract=special_contract,
+        governed_tokens=normalized_tokens,
+    )
+    if development_policy_null_count == 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Governed nulls exist outside Development, but no missing "
+                "estimator can be fit without holdout influence. Revise the "
+                "registered population and seal a new Analysis Partition."
+            ),
+        )
+
+    missing_policy = {
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "approved_missing_policy",
+        "status": "approved",
+        "mode": "fitted_imputation",
+        "active_treatment": "FEATURE_SPECIFIC",
+        "config": normalized_config,
+        "analytical_types": normalized_types,
+        "missing_tokens": normalized_tokens,
+        "zero_null_validated": False,
+        "true_null_cell_count": development_policy_null_count,
+        "materialization_required": False,
+        "processed_frame_created": False,
+        "execution_scope": "fold_and_final_fit_only",
+    }
+    config_signature = _config_signature(missing_policy)
+    missing_policy["missing_policy_id"] = f"mp-{config_signature}"
+    previous_missing_policy = (
+        (previous_combined or {}).get("missing_policy")
+        if isinstance((previous_combined or {}).get("missing_policy"), dict)
+        else {}
+    )
+    missing_policy["missing_policy_revision"] = (
+        int(previous_missing_policy.get("missing_policy_revision") or 1)
+        if previous_missing_policy.get("missing_policy_id")
+        == missing_policy["missing_policy_id"]
+        else int(previous_missing_policy.get("missing_policy_revision") or 0)
+        + 1
+    )
+    prior_status, _ = classify_preprocessing_record(
+        prior_application, lineage=lineage
+    )
     if (
-        _record_matches_scope(prior_application, identity, scope)
+        prior_status == "current"
         and prior_application.get("config_signature") == config_signature
-        and prior_application.get("source_stage") == source_stage
-        and DATASTORE.meta.get("processed_stage") == "missing_values"
-        and DATASTORE.processed_df is not None
+        and isinstance(previous_combined, dict)
+        and previous_combined.get("status") == "approved"
     ):
         with scoped_store.state_lock:
             if int(scoped_store.data_revision) != input_revision:
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        "The governed dataset or preparation state changed "
-                        "while the missing-value plan was being evaluated. "
-                        "Reload the current plan before continuing."
-                    ),
+                    detail="The preparation authority changed; reload the plan.",
                 )
-        return json_safe({
-            "ok": True,
-            **_identity_fields(identity),
-            **_full_dataset_application_metadata(scope),
-            "application": _public_application(prior_application),
-            "idempotent": True,
-        })
-    dropped_rows = 0
-    applied: List[Dict[str, Any]] = []
+        return json_safe(
+            {
+                "ok": True,
+                **_identity_fields(identity),
+                **_full_dataset_application_metadata(scope),
+                "application": _public_application(prior_application),
+                "preprocessing_policy": previous_combined,
+                "idempotent": True,
+            }
+        )
 
-    for col, rule in request.config.items():
-        if col not in work.columns or col not in features:
-            continue
-        strategy = str(rule.strategy or "None").strip().lower()
-        if strategy == "none":
-            continue
-        missing_before = int(work[col].isna().sum())
-        if missing_before == 0:
-            continue
-        if strategy == "drop row":
+    try:
+        development_after_outliers, _ = apply_outlier_recipe(
+            scope.development_features,
+            recipe=outlier_application["development_preview_fit"],
+            special_value_contract=special_contract,
+        )
+        development_missing_before = _structural_missing_count(
+            development_after_outliers,
+            [
+                feature
+                for feature in feature_list
+                if feature in development_after_outliers.columns
+            ],
+            special_value_contract=special_contract,
+            governed_tokens=normalized_tokens,
+        )
+        if development_missing_before != development_policy_null_count:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Row deletion is incompatible with the sealed Analysis Partition. "
-                    "Choose an imputation or preservation policy, or explicitly reset "
-                    "the Analysis Partition in Data Acquisition."
+                    "The Development missing-value decision population changed "
+                    "while the preview was being prepared. Reload the plan."
                 ),
             )
+        preview_fit = fit_missing_recipe(
+            development_after_outliers,
+            policy=missing_policy,
+            fit=fit_metadata(
+                fit_scope=FIT_SCOPE_DEVELOPMENT_PREVIEW,
+                population_id=str(
+                    scope.partition.get("development_partition_id")
+                ),
+                population_count=len(development_after_outliers),
+                lineage=lineage,
+                actor=str(user.get("userId") or "atlas-user"),
+                application_scope="development_population_preview",
+                application_population_id=str(
+                    scope.partition.get("development_partition_id")
+                ),
+                application_population_rows=len(development_after_outliers),
+                evidence_references=[],
+            ),
+            special_value_contract=special_contract,
+        )
+        preview_frame, preview = apply_missing_recipe(
+            development_after_outliers,
+            recipe=preview_fit,
+            special_value_contract=special_contract,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        series = work[col]
-        numeric = _is_numeric_like(series)
-        if numeric:
-            series = pd.to_numeric(series, errors="coerce")
-            work[col] = series
-        fill_value: Any = None
-        if strategy == "mean" and numeric:
-            fill_value = series.mean()
-        elif strategy == "median" and numeric:
-            fill_value = series.median()
-        elif strategy in {"mode", "mean", "median"}:
-            mode = series.dropna().mode()
-            fill_value = mode.iloc[0] if len(mode) else ""
-        elif strategy == "constant":
-            fill_value = rule.constantValue if rule.constantValue is not None else ""
-            if numeric:
-                fill_value = pd.to_numeric(pd.Series([fill_value]), errors="coerce").iloc[0]
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported missing-value strategy '{rule.strategy}' for {col}.")
-        if pd.isna(fill_value):
-            raise HTTPException(status_code=400, detail=f"The selected strategy for {col} did not produce a valid fill value.")
-        work[col] = series.fillna(fill_value)
-        applied.append({"feature": col, "strategy": rule.strategy, "filled": missing_before, "value": str(fill_value)})
+    remaining = int(
+        preview_frame[
+            [
+                feature
+                for feature in feature_list
+                if feature in preview_frame.columns
+            ]
+        ].isna().sum().sum()
+    )
+    if remaining:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{remaining} governed true-null Development cell(s) remain. "
+                "Every active null requires an executable fitted treatment."
+            ),
+        )
 
-    materialized = source_with_target.copy()
-    for column in work.columns:
-        # Preserve exact row order and duplicate indexes while returning the
-        # governed target unchanged. Only predictor columns were normalized or
-        # imputed above.
-        materialized[column] = work[column].to_numpy(copy=True)
-
+    applied_at = datetime.now(timezone.utc).isoformat()
     application = {
-        "applied_at": datetime.now(timezone.utc).isoformat(),
+        "applied_at": applied_at,
         **_identity_fields(identity),
         **_full_dataset_application_metadata(scope),
-        "config": payload,
+        **lineage,
+        "preprocessing_contract_version": PREPROCESSING_CONTRACT_VERSION,
+        "artifact_kind": "missing_policy_approval",
+        "state": "approved",
+        "source_stage": "outlier_policy_approved",
+        "config": normalized_config,
         "config_signature": config_signature,
-        "source_stage": source_stage,
-        "rows_before": int(len(source)),
-        "rows_after": int(len(work)),
-        "missing_before": before,
-        "missing_after": int(work[list(features)].isna().sum().sum()) if features else 0,
-        "dropped_rows": int(dropped_rows),
-        "treatments": applied,
+        "approved_policy": missing_policy,
+        "outlier_policy_id": outlier_application["approved_policy"].get(
+            "outlier_policy_id"
+        ),
+        "development_preview_fit": preview_fit,
+        "development_preview": preview,
+        "counts": preview["counts"],
+        "row_count": int(len(development_after_outliers)),
+        "registered_population_row_count": registered_row_count,
+        "registered_structural_missing_count": registered_missing_before,
+        "development_missing_before": development_missing_before,
+        "development_missing_after": remaining,
+        "dropped_rows": 0,
+        "backend_materialization": False,
+        "processed_frame_materialized": False,
+        "sealed_holdout_transformed": False,
+        "final_holdout_predictors_in_structural_profile": True,
+        "final_holdout_predictors_included_in_structural_profile": True,
+        "final_holdout_used_for_fit": False,
     }
+    combined_policy = build_preprocessing_policy_record(
+        lineage=lineage,
+        special_value_contract=special_contract,
+        actor=str(user.get("userId") or "atlas-user"),
+        outlier_policy=outlier_application["approved_policy"],
+        missing_policy=missing_policy,
+        outlier_development_preview_fit=outlier_application[
+            "development_preview_fit"
+        ],
+        missing_development_preview_fit=preview_fit,
+        previous=previous_combined,
+        approved_at=applied_at,
+    )
+
     with scoped_store.state_lock:
         assert_expected_active_identity(
             request.project_id,
@@ -882,27 +1432,56 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         if int(scoped_store.data_revision) != input_revision:
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "The governed dataset or preparation state changed while "
-                    "missing-value treatments were being calculated. Reload "
-                    "and apply the plan again."
-                ),
+                detail="The preparation authority changed; reload and apply again.",
             )
-        scoped_store.set_processed(materialized)
-        scoped_store.meta["processed_stage"] = "missing_values"
-        scoped_store.meta["missing_config"] = payload
+        result_store = RESULTS.current()
+        rollback_snapshot = capture_preprocessing_mutation_state(
+            scoped_store, result_store
+        )
+        quarantine_preprocessing_state(
+            scoped_store,
+            keys=(
+                "missing_application",
+                "missing_validation",
+                "missing_policy",
+                "missing_config",
+                "preprocessing_policy",
+                "feature_manifest",
+                "feature_preview",
+                "materialized_feature_names",
+                "processed_stage",
+            ),
+            reason="A new governed missing-value policy superseded dependent state.",
+        )
+        scoped_store.processed_df = None
+        scoped_store.meta["missing_config"] = normalized_config
+        scoped_store.meta["missing_policy"] = missing_policy
         scoped_store.meta["missing_application"] = application
-        scoped_store.meta.pop("missing_validation", None)
+        scoped_store.meta["preprocessing_policy"] = combined_policy
+        scoped_store.meta["preprocessing_state_status"] = "current"
+        scoped_store.meta.pop("preprocessing_state_reason", None)
         invalidate_downstream_training_state(
             "The governed missing-value treatment changed.",
             store=scoped_store,
             split_status="stale",
         )
-    if not save_checkpoint():
-        raise HTTPException(status_code=500, detail="Missing-value treatments were applied, but ATLAS could not persist the workflow checkpoint.")
-    return json_safe({
-        "ok": True,
-        **_identity_fields(identity),
-        **_full_dataset_application_metadata(scope),
-        "application": application,
-    })
+        if not save_checkpoint():
+            restore_preprocessing_mutation_state(
+                scoped_store, result_store, rollback_snapshot
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Missing-value policy approval could not be persisted; "
+                    "the in-memory workflow state was rolled back."
+                ),
+            )
+    return json_safe(
+        {
+            "ok": True,
+            **_identity_fields(identity),
+            **_full_dataset_application_metadata(scope),
+            "application": application,
+            "preprocessing_policy": combined_policy,
+        }
+    )

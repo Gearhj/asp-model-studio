@@ -10,16 +10,14 @@ from .predictor_authorization import (
     bureau_special_mask,
     bureau_special_summary,
 )
-
-
-OUTLIER_METHODS = (
-    "NONE",
-    "IQR_1_5",
-    "IQR_3_0",
-    "ZSCORE_3",
-    "ZSCORE_4",
-    "PCT_01_99",
-    "PCT_05_95",
+from .preprocessing_contract import (
+    OUTLIER_METHODS,
+    analytical_type,
+    apply_outlier_recipe,
+    fit_metadata,
+    fit_outlier_recipe,
+    special_mask,
+    special_values_for_feature,
 )
 
 
@@ -43,7 +41,7 @@ def _thresholds(values: pd.Series, method: str) -> tuple[float, float]:
         standard_deviation = float(clean.std(ddof=0))
         return mean - width * standard_deviation, mean + width * standard_deviation
     if method == "PCT_01_99":
-        return float(clean.quantile(0.005)), float(clean.quantile(0.995))
+        return float(clean.quantile(0.01)), float(clean.quantile(0.99))
     if method == "PCT_05_95":
         return float(clean.quantile(0.05)), float(clean.quantile(0.95))
     first_quartile = float(clean.quantile(0.25))
@@ -53,9 +51,15 @@ def _thresholds(values: pd.Series, method: str) -> tuple[float, float]:
     return first_quartile - multiplier * spread, third_quartile + multiplier * spread
 
 
-def _method_result(values: pd.Series, method: str) -> dict[str, Any]:
-    low, high = _thresholds(values, method)
-    clean = values.dropna().astype(float)
+def _method_result(
+    fit_values: pd.Series,
+    projected_values: pd.Series,
+    method: str,
+) -> dict[str, Any]:
+    """Fit and preview burden on Development ordinary values only."""
+
+    low, high = _thresholds(fit_values, method)
+    clean = projected_values.dropna().astype(float)
     count = 0 if method == "NONE" else int(((clean < low) | (clean > high)).sum())
     return {
         "method": method,
@@ -63,6 +67,9 @@ def _method_result(values: pd.Series, method: str) -> dict[str, Any]:
         "upper_threshold": high,
         "outlier_count": count,
         "outlier_rate": count / max(int(len(clean)), 1),
+        "fit_ordinary_count": int(fit_values.notna().sum()),
+        "projected_ordinary_count": int(len(clean)),
+        "fit_scope": "development_preview",
     }
 
 
@@ -86,6 +93,7 @@ class OutlierService:
         predictor_authorization: Mapping[str, Any] | None = None,
         target_analysis_features: pd.DataFrame | None = None,
         target_analysis_target: pd.Series | None = None,
+        special_value_contract: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if df is None or df.empty:
             raise ValueError("No full governed predictor population is loaded.")
@@ -123,13 +131,85 @@ class OutlierService:
             numeric = _numeric(df[column])
             if numeric is None:
                 continue
-            special_summary = bureau_special_summary(numeric)
-            special_mask = bureau_special_mask(numeric)
-            ordinary = numeric.mask(special_mask)
+            governed_special_mask = (
+                special_mask(
+                    df[column], str(column), special_value_contract
+                )
+                if special_value_contract is not None
+                else bureau_special_mask(numeric)
+            )
+            registered_ordinary = numeric.mask(governed_special_mask)
+            if special_value_contract is not None:
+                special_values = special_values_for_feature(
+                    str(column), special_value_contract
+                )
+                special_counts = {
+                    str(value): int(
+                        special_mask(
+                            df[column], str(column), {
+                                "features": {
+                                    str(column): {"values": [value]}
+                                }
+                            }
+                        ).sum()
+                    )
+                    for value in special_values
+                }
+                special_count = int(governed_special_mask.sum())
+                registered_special_summary = {
+                    "special_value_count": special_count,
+                    "special_value_rate": special_count
+                    / max(int(numeric.notna().sum()), 1),
+                    "special_values": special_counts,
+                }
+            else:
+                registered_special_summary = bureau_special_summary(numeric)
 
             signal = None
             association_status = "not_evaluated"
             development_series = target_analysis_features[column]
+            development_numeric = _numeric(development_series)
+            if development_numeric is None:
+                continue
+            development_special_mask = (
+                special_mask(
+                    development_series, str(column), special_value_contract
+                )
+                if special_value_contract is not None
+                else bureau_special_mask(development_numeric)
+            )
+            development_ordinary = development_numeric.mask(
+                development_special_mask
+            )
+            if special_value_contract is not None:
+                development_special_count = int(
+                    development_special_mask.sum()
+                )
+                special_summary = {
+                    "special_value_count": development_special_count,
+                    "special_value_rate": development_special_count
+                    / max(int(development_numeric.notna().sum()), 1),
+                    "special_values": {
+                        str(value): int(
+                            special_mask(
+                                development_series,
+                                str(column),
+                                {
+                                    "features": {
+                                        str(column): {"values": [value]}
+                                    }
+                                },
+                            ).sum()
+                        )
+                        for value in special_values_for_feature(
+                            str(column), special_value_contract
+                        )
+                    },
+                }
+            else:
+                special_summary = bureau_special_summary(
+                    development_numeric
+                )
             if resolved_problem == "classification":
                 try:
                     signal, resolved_event = information_value(
@@ -155,18 +235,31 @@ class OutlierService:
                         signal = float(correlation)
                         association_status = "evaluated"
 
-            clean = ordinary.dropna().astype(float)
+            clean = development_ordinary.dropna().astype(float)
+            registered_clean = registered_ordinary.dropna().astype(float)
+            profile = analytical_type(development_series)
             quantiles = clean.quantile([0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]) if len(clean) else None
             rows.append({
                 "feature": name,
-                "datatype": str(df[column].dtype),
-                "nonmissing_count": int(numeric.notna().sum()),
+                "datatype": str(development_series.dtype),
+                "nonmissing_count": int(development_numeric.notna().sum()),
                 "ordinary_nonmissing_count": int(len(clean)),
-                "missing_count": int(numeric.isna().sum()),
+                "missing_count": int(development_numeric.isna().sum()),
                 "signal_metric": signal,
                 "association_status": association_status,
-                "methods": {method: _method_result(ordinary, method) for method in OUTLIER_METHODS},
-                "rendered_sample": _rendered_sample(ordinary),
+                "analytical_type": profile["analytical_type"],
+                "outlier_eligible": profile["outlier_eligible"],
+                "safe_default_method": profile["safe_default_method"],
+                "eligibility_reason": profile["eligibility_reason"],
+                "methods": {
+                    method: _method_result(
+                        development_ordinary,
+                        development_ordinary,
+                        method,
+                    )
+                    for method in OUTLIER_METHODS
+                },
+                "rendered_sample": _rendered_sample(development_ordinary),
                 "rendered_sample_count": min(int(len(clean)), 600),
                 "distinct_count": int(clean.nunique()),
                 "mean": float(clean.mean()) if len(clean) else None,
@@ -177,6 +270,18 @@ class OutlierService:
                 "maximum": float(clean.max()) if len(clean) else None,
                 "skewness": float(clean.skew()) if len(clean) >= 3 and pd.notna(clean.skew()) else None,
                 **special_summary,
+                "registered_structural": {
+                    "scope": "registered_structural_population",
+                    "row_count": int(len(df)),
+                    "nonmissing_count": int(numeric.notna().sum()),
+                    "ordinary_nonmissing_count": int(len(registered_clean)),
+                    "missing_or_parse_failure_count": int(numeric.isna().sum()),
+                    **registered_special_summary,
+                    "rendered_sample": _rendered_sample(registered_ordinary),
+                    "rendered_sample_count": min(
+                        int(len(registered_clean)), 600
+                    ),
+                },
                 "quantiles": {
                     "p01": float(quantiles.loc[0.01]) if quantiles is not None else None,
                     "p05": float(quantiles.loc[0.05]) if quantiles is not None else None,
@@ -195,7 +300,11 @@ class OutlierService:
             "analysis_scope": "development_population",
             "target_directed_scope": "development_population",
             "structural_scope": "full_governed_population_predictors_only",
-            "row_count": int(len(df)),
+            "fit_scope": "development_preview",
+            "row_count": int(len(y)),
+            "rows": int(len(y)),
+            "registered_population_rows": int(len(df)),
+            "registered_structural_row_count": int(len(df)),
             "development_row_count": int(len(y)),
             "target": target,
             "problem_type": resolved_problem,
@@ -215,6 +324,12 @@ class OutlierService:
         selected_columns: list[str] | None = None,
         *,
         predictor_authorization: Mapping[str, Any] | None = None,
+        fitted_recipe: Mapping[str, Any] | None = None,
+        fit_frame: pd.DataFrame | None = None,
+        fit_population_id: str = "compatibility-fit",
+        special_value_contract: Mapping[str, Any] | None = None,
+        rationales: Mapping[str, str] | None = None,
+        analytical_types: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         if df is None or df.empty:
             raise ValueError("No full backend dataset is loaded.")
@@ -225,36 +340,52 @@ class OutlierService:
             raise ValueError(
                 "Exact durable predictor authorization is required for outlier treatment."
             )
-        work = df.copy()
         authorization = dict(predictor_authorization)
-        authorized = set(authorization["authorized_predictors"])
-        applied: list[dict[str, Any]] = []
-        for column, configured_value in config.items():
-            if column not in work.columns or column not in authorized or (target and column == target):
-                continue
-            configured = str(configured_value or "USE_GLOBAL")
-            method = global_method if configured == "USE_GLOBAL" else configured
-            if method not in OUTLIER_METHODS:
-                raise ValueError(f"Unsupported outlier method '{method}' for {column}.")
-            numeric = _numeric(work[column])
-            if numeric is None:
-                continue
-            special_mask = bureau_special_mask(numeric)
-            ordinary = numeric.mask(special_mask)
-            special_summary = bureau_special_summary(numeric)
-            result = _method_result(ordinary, method)
-            if method != "NONE":
-                treated = numeric.clip(result["lower_threshold"], result["upper_threshold"])
-                work[column] = treated.where(~special_mask, numeric)
-            applied.append({
-                "feature": column,
-                "configured_method": configured,
-                "applied_method": method,
-                "changed_values": result["outlier_count"],
-                "lower_threshold": result["lower_threshold"],
-                "upper_threshold": result["upper_threshold"],
-                "special_values_preserved": special_summary["special_value_count"],
-            })
+        policy = {
+            "global_method": global_method,
+            "config": {
+                feature: value
+                for feature, value in config.items()
+                if feature in set(authorization["authorized_predictors"])
+            },
+            "rationales": dict(rationales or {}),
+            "analytical_types": dict(analytical_types or {}),
+        }
+        recipe = dict(fitted_recipe or {})
+        if not recipe:
+            # Compatibility for non-route callers. Governed HTTP mutations
+            # always pass an exact Development-fitted recipe.
+            fitted = fit_frame if fit_frame is not None else df
+            recipe = fit_outlier_recipe(
+                fitted,
+                policy=policy,
+                fit=fit_metadata(
+                    fit_scope="development_preview",
+                    population_id=fit_population_id,
+                    population_count=len(fitted),
+                    actor="compatibility-service-call",
+                    application_scope="caller_supplied_frame",
+                    application_population_id="compatibility-application",
+                    application_population_rows=len(df),
+                ),
+                special_value_contract=special_value_contract,
+            )
+        work, report = apply_outlier_recipe(
+            df,
+            recipe=recipe,
+            target=target,
+            special_value_contract=special_value_contract,
+        )
+        applied = [
+            {
+                **row,
+                "changed_values": int(row.get("flagged_cell_count") or 0),
+                "special_values_preserved": len(
+                    row.get("special_values_preserved") or []
+                ),
+            }
+            for row in report["treatments"]
+        ]
         return work, applied
 
 

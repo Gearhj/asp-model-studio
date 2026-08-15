@@ -25,6 +25,18 @@ const helper = await import(
   `data:text/javascript;base64,${Buffer.from(compiledHelper).toString("base64")}`
 );
 
+test("findings page separates finding disposition from reviewer sign-off", () => {
+  for (const phrase of [
+    "Finding Disposition Workspace",
+    "Parent findings · Disposition · Bulk actions",
+    "EDA Reviewer Summary",
+    "Overall conclusion · Reviewer comments · Conditions · Overall status · Save to Evidence",
+    "The Continue button requires this summary",
+  ]) {
+    assert.match(workspaceSource, new RegExp(phrase));
+  }
+});
+
 const fixture = {
   overview: {
     target: "bad_flag",
@@ -277,11 +289,14 @@ test("workspace exposes filters, detail, transformations, queue, and reviewer co
     'data-testid="eda-suggested-transformations"',
     'data-testid="eda-carry-forward-queue"',
     'data-testid="eda-findings-reviewer-record"',
+    'data-testid="eda-accept-unresolved-parent-findings"',
   ]) {
     assert.match(workspaceSource, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(workspaceSource, /motion-reduce:transition-none/);
   assert.match(workspaceSource, /No treatment applied/);
+  assert.match(workspaceSource, /Apply summary to unresolved findings/);
+  assert.match(workspaceSource, /unresolved_required_parent_ids/);
 });
 
 test("legacy duplicate decision, commentary, and overall status remain present", () => {

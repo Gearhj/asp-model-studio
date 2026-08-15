@@ -43,6 +43,11 @@ from ..analytics.analysis_scope import (
 )
 from ..analytics import result_cache
 from ..core.dataset_store import DATASTORE
+from ..core.population_contract import (
+    build_duplicate_contract_from_counts,
+    build_population_contract,
+    calculate_duplicate_contract,
+)
 from ..datasets.dataset_registry import ARTIFACT_ROOT, require_dataset
 from ..persistence import service as persistence_service_module
 from .development_scope import resolve_development_analysis_scope
@@ -340,19 +345,47 @@ def _valid_target_predicate(target: str) -> str:
 
 
 def compute_quality(session: _Session, mapping: Dict[str, Any], target: str) -> Dict[str, Any]:
-    """Governed data quality over the complete artifact.
+    """Governed structural quality over registered predictors.
 
     Duplicate counting matches `pandas.DataFrame.duplicated().sum()` -- the count
     of rows that repeat a previous row, not the number of duplicate groups. Both
     were verified against the CLASS_TRAIN artifact (52).
     """
     row_count = int(session.one("SELECT COUNT(*) FROM src")[0])
-    columns = session.columns
-    quoted = ", ".join(_q(column) for column in columns)
-    duplicate_rows = int(
-        session.one(
-            f"SELECT COALESCE(SUM(n - 1), 0) FROM (SELECT COUNT(*) AS n FROM src GROUP BY {quoted} HAVING COUNT(*) > 1) t"
-        )[0]
+    # The target mapping is supplied by the caller. Once an Analysis Partition
+    # exists it comes from Development only, so every query below must remain
+    # predictor-only and can never inspect the sealed holdout target.
+    columns = [str(column) for column in session.columns if str(column) != target]
+    duplicate_columns = list(columns)
+    quoted = ", ".join(_q(column) for column in duplicate_columns)
+    if quoted:
+        duplicate_aggregate = session.one(
+            "SELECT COUNT(*), COALESCE(SUM(n), 0), COALESCE(SUM(n - 1), 0) "
+            f"FROM (SELECT COUNT(*) AS n FROM src GROUP BY {quoted} HAVING COUNT(*) > 1) t"
+        )
+        duplicate_group_count = int(duplicate_aggregate[0] or 0)
+        duplicate_participant_rows = int(duplicate_aggregate[1] or 0)
+        duplicate_rows = int(duplicate_aggregate[2] or 0)
+    else:
+        duplicate_group_count = 1 if row_count > 1 else 0
+        duplicate_participant_rows = row_count if row_count > 1 else 0
+        duplicate_rows = max(0, row_count - 1)
+    duplicate_contract = build_duplicate_contract_from_counts(
+        scope="registered_structural_population",
+        row_count=row_count,
+        comparison_columns=duplicate_columns,
+        duplicate_group_count=duplicate_group_count,
+        duplicate_participant_rows=duplicate_participant_rows,
+        redundant_duplicate_rows=duplicate_rows,
+        unique_rows_after_deduplication=row_count - duplicate_rows,
+        target_column=None,
+        target_included=False,
+        duplicate_participant_valid_target_rows=None,
+        duplicate_participant_missing_target_rows=None,
+        redundant_duplicate_valid_target_rows=None,
+        redundant_duplicate_missing_target_rows=None,
+        writable_authority=False,
+        purpose="governed_registered_structural_description",
     )
 
     # One pass for every column's missing count, distinct count, and blank count.
@@ -407,6 +440,7 @@ def compute_quality(session: _Session, mapping: Dict[str, Any], target: str) -> 
         "populationRows": row_count,
         "columnCount": len(columns),
         "duplicateRows": duplicate_rows,
+        "duplicateContract": duplicate_contract,
         "columnsWithMissingValues": columns_with_missing,
         "missingness": sorted(missingness, key=lambda row: row["percent"], reverse=True),
         "targetExcludedFromPredictorFindings": str(target),
@@ -800,12 +834,12 @@ def governed_target_profile(
     include_iv: bool = True,
     selected_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Full-population target distribution plus development-only WOE/IV.
+    """Registered predictor structure plus scope-correct target analysis.
 
-    The immutable artifact is read for the explicitly labeled Data Acquisition
-    target distribution and structural inventory only. Predictor/target
-    analysis is unavailable before the first Analysis Partition and is bound to
-    its exact durable development membership afterward.
+    Before partition sealing, Data Acquisition may profile the registered
+    target. After sealing, target distribution and WOE/IV are bound to exact
+    Development membership; registered predictors remain available only for
+    non-target structural inventory.
     """
     started = time.perf_counter()
     artifact = resolve_governed_artifact(dataset_id, version_id)
@@ -861,11 +895,49 @@ def governed_target_profile(
     with _QUERY_LOCK:
         session = _Session(artifact)
         development_session = None
+        development_duplicate_contract = None
         try:
-            # This is the sole full-target exception: Data Acquisition's
-            # labeled target distribution and target-quality contract.
-            mapping = resolve_target_mapping(session, target, event_value, non_event_value)
+            if development_scope is not None:
+                development_frame = development_scope.development_features.copy()
+                # Positional assignment avoids duplicate-index label alignment.
+                development_frame[development_scope.target] = (
+                    development_scope.development_target.to_numpy(copy=True)
+                )
+                development_duplicate_contract = calculate_duplicate_contract(
+                    development_frame,
+                    scope="development_population",
+                    target_column=development_scope.target,
+                    target_included=True,
+                    writable_authority=True,
+                    purpose="governed_target_profile_development_analysis",
+                )
+                development_session = _FrameSession(development_frame)
+                mapping = resolve_target_mapping(
+                    development_session,
+                    development_scope.target,
+                    development_scope.event_value,
+                    development_scope.non_event_value,
+                )
+                development_columns: set[str] = set(
+                    development_scope.authorized_predictors
+                )
+            else:
+                # Before the first partition is sealed, Data Acquisition may
+                # inspect the registered target to establish target readiness.
+                mapping = resolve_target_mapping(
+                    session, target, event_value, non_event_value
+                )
+                development_columns = set()
             quality = compute_quality(session, mapping, target)
+            quality["targetProfileRows"] = int(
+                mapping.get("validTargetCount", 0)
+                + mapping.get("missingTargetCount", 0)
+            )
+            quality["targetProfileScope"] = (
+                "development_population"
+                if development_scope is not None
+                else "registered_population_pre_partition"
+            )
 
             scope = governed_scope(
                 project_id=project_id, dataset_id=dataset_id,
@@ -902,24 +974,7 @@ def governed_target_profile(
                     },
                 )
             predictors: List[Dict[str, Any]] = []
-            development_mapping = None
-            development_columns: set[str] = set()
-            if development_scope is not None:
-                development_frame = development_scope.development_features.copy()
-                # Positional assignment avoids duplicate-index label alignment.
-                development_frame[development_scope.target] = (
-                    development_scope.development_target.to_numpy(copy=True)
-                )
-                development_session = _FrameSession(development_frame)
-                development_mapping = resolve_target_mapping(
-                    development_session,
-                    development_scope.target,
-                    development_scope.event_value,
-                    development_scope.non_event_value,
-                )
-                development_columns = set(
-                    development_scope.authorized_predictors
-                )
+            development_mapping = mapping if development_scope is not None else None
             if include_iv:
                 requested = set(selected_columns or [])
                 allowed = (
@@ -982,18 +1037,108 @@ def governed_target_profile(
             session.close()
 
     available = [item for item in predictors if item.get("ivStatus") == "available"]
+    development_rows = (
+        len(development_scope.development_target)
+        if development_scope is not None
+        else None
+    )
+    holdout_rows = (
+        quality["populationRows"] - int(development_rows)
+        if development_rows is not None
+        else None
+    )
+    population_contract = build_population_contract(
+        registered_rows=quality["populationRows"],
+        development_rows=development_rows,
+        holdout_rows=holdout_rows,
+        primary_scope="registered_structural_population",
+        primary_purpose="governed_target_profile_mixed_scope",
+        project_id=project_id,
+        dataset_id=dataset_id,
+        dataset_version_id=str(artifact["versionId"]),
+        target=target,
+        target_contract_id=(
+            development_scope.partition.get("target_contract_id")
+            if development_scope is not None
+            else None
+        ),
+        predictor_authorization_id=(
+            development_scope.predictor_authorization.get(
+                "predictor_authorization_id"
+            )
+            if development_scope is not None
+            else None
+        ),
+        analysis_partition_id=(
+            development_scope.partition.get("analysis_partition_id")
+            if development_scope is not None
+            else None
+        ),
+        analysis_partition_revision=(
+            development_scope.partition.get("revision")
+            if development_scope is not None
+            else None
+        ),
+        analysis_population_id=(
+            development_scope.partition.get("development_partition_id")
+            if development_scope is not None
+            else None
+        ),
+        population_policy_id="governed_target_profile_mixed_scope",
+        treatment_policy_id="non_mutating_profile",
+        special_value_policy_id=(
+            development_scope.partition.get("special_value_policy_id")
+            if development_scope is not None
+            else None
+        ),
+        analysis_rows=development_rows,
+        fit_rows=development_rows if include_iv else None,
+        application_rows=None,
+        materialization_rows=None,
+        registered_duplicate_contract=quality["duplicateContract"],
+        development_duplicate_contract=development_duplicate_contract,
+        descriptive_scope="registered_structural_population",
+        analysis_scope=(
+            "development_population"
+            if development_scope is not None
+            else "unavailable_analysis_partition_required"
+        ),
+        target_scope=(
+            "development_population"
+            if development_scope is not None
+            else "registered_population_pre_partition"
+        ),
+        fit_scope=(
+            "development_population"
+            if development_scope is not None and include_iv
+            else "not_applicable"
+        ),
+        application_scope="not_applicable_non_mutating_profile",
+        materialization_scope="not_applicable_non_mutating_profile",
+        render_scope="registered_and_development_aggregate_render",
+        registered_structural_predictors_accessed=True,
+        final_holdout_predictors_included_in_structural_profile=(
+            holdout_rows is not None
+        ),
+        final_holdout_target_accessed=False,
+        final_holdout_parameter_influence=False,
+        final_holdout_used_for_selection=False,
+        final_holdout_transformed_or_materialized_prelock=False,
+        final_holdout_opened_for_final_reporting=False,
+    )
     payload: Dict[str, Any] = {
         "ok": True,
         **(
             development_scope.metadata()
             if development_scope is not None
             else {
-                "scope": "full_governed_population_target_distribution_only",
+                "scope": "registered_population_pre_partition",
                 "analysis_scope": "structural_only_pre_partition",
                 "target_directed_scope": "unavailable_analysis_partition_required",
                 "structural_scope": "full_governed_population_predictors_only",
                 "final_holdout_accessed": False,
                 "final_holdout_used_for_selection": False,
+                "registered_target_accessed_pre_partition": True,
                 "raw_dataset_target_fallback_used": False,
                 "browser_target_semantics_used": False,
             }
@@ -1010,6 +1155,8 @@ def governed_target_profile(
         "target": target,
         "targetMapping": mapping,
         "quality": quality,
+        "populationContract": population_contract,
+        "populationCounts": population_contract["counts"],
         "problemType": problem_type,
         "predictors": predictors,
         "predictorSummary": {
@@ -1023,12 +1170,14 @@ def governed_target_profile(
         },
         "methodology": {
             "sourcePopulation": (
-                f"Target distribution: full registered dataset version {artifact['versionId']} "
-                f"({quality['populationRows']:,} rows); WOE/IV: "
-                + (
-                    f"sealed development population ({len(development_scope.development_target):,} rows)"
+                (
+                    f"Target distribution and WOE/IV: sealed development population "
+                    f"({len(development_scope.development_target):,} rows); registered "
+                    "predictors are used only for structural inventory."
                     if development_scope is not None
-                    else "unavailable until an Analysis Partition is created"
+                    else f"Target distribution: registered population before partition "
+                    f"sealing ({quality['populationRows']:,} rows); WOE/IV unavailable "
+                    "until an Analysis Partition is created."
                 )
             ),
             "targetMapping": f"event = {mapping['eventValue']}, non-event = {mapping['nonEventValue']}",

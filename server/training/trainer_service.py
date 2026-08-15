@@ -5,6 +5,10 @@ import re
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
+from ..preprocessing.execution_contract import (
+    duplicate_exclusion_blocker,
+    resolve_preprocessing_contract,
+)
 from .trainer import MODEL_CATALOG, train_models
 
 
@@ -53,7 +57,14 @@ class TrainerService:
         return frame.loc[:, keep].copy(), dropped
 
     def _current_dataset_and_target(self):
-        df = DATASTORE.get_active_df()
+        # Never let a globally materialized preparation frame become a model
+        # training authority.  Governed recipes are fitted inside CV instead.
+        scoped_store = DATASTORE.current()
+        df = (
+            scoped_store.raw_df.copy(deep=True)
+            if scoped_store.raw_df is not None
+            else None
+        )
         if df is None or df.empty:
             raise ValueError("No dataset is loaded. Return to Data Acquisition and load a dataset first.")
 
@@ -80,7 +91,7 @@ class TrainerService:
                 return str(col)
         return None
 
-    def _get_training_partition(self, k_folds: int) -> Tuple[Any, Any, List[str]]:
+    def _get_training_partition(self, k_folds: int) -> Tuple[Any, Any, List[str], Dict[str, Any]]:
         """Return only the governed development population used for selection."""
         scoped_store = DATASTORE.current()
         X_train = scoped_store.X_train
@@ -89,6 +100,36 @@ class TrainerService:
             raise ValueError("A governed training population has not been created. Return to Balance & Split.")
         if str(DATASTORE.meta.get("split_status") or "not_created") != "current":
             raise ValueError("The governed validation split is stale. Rebuild it in Balance & Split.")
+        if scoped_store.X_test is not None or scoped_store.y_test is not None:
+            raise ValueError(
+                "The sealed final holdout was materialized before candidate lock. Rebuild Validation Design before training."
+            )
+        duplicate_blocker = duplicate_exclusion_blocker(scoped_store.meta)
+        if duplicate_blocker:
+            raise ValueError(duplicate_blocker)
+        split_record = (
+            scoped_store.meta.get("split_record")
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        policy = resolve_preprocessing_contract(
+            scoped_store.meta,
+            {
+                "project_id": str(split_record.get("project_id") or ""),
+                "dataset_id": str(split_record.get("dataset_id") or ""),
+                "dataset_version_id": str(
+                    split_record.get("dataset_version_id")
+                    or split_record.get("dataset_version")
+                    or ""
+                ),
+                "analysis_partition_id": str(
+                    split_record.get("analysis_partition_id") or ""
+                ),
+                "analysis_partition_revision": int(
+                    split_record.get("analysis_partition_revision") or 0
+                ),
+            },
+        )
 
         active_target = str(DATASTORE.target or getattr(y_train, "name", "") or "")
         manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
@@ -111,7 +152,7 @@ class TrainerService:
         dropped = sorted(set(dropped_train))
         if dropped:
             raise ValueError("Target-derived fields reached the training contract: " + ", ".join(dropped))
-        return X_train, y_train.copy(), []
+        return X_train, y_train.copy(), [], policy
 
     def get_availability(self) -> Dict[str, Any]:
         availability: Dict[str, bool] = {}
@@ -145,7 +186,12 @@ class TrainerService:
         primary_metric: str = "",
         event_value: Any | None = None,
     ) -> Dict[str, Any]:
-        X_train, y_train, excluded_target_features = self._get_training_partition(k_folds)
+        (
+            X_train,
+            y_train,
+            excluded_target_features,
+            preprocessing_recipe,
+        ) = self._get_training_partition(k_folds)
         split_record = (
             DATASTORE.meta.get("split_record")
             if isinstance(DATASTORE.meta.get("split_record"), dict)
@@ -183,6 +229,8 @@ class TrainerService:
                     "selection_resampling_status", "not_applied"
                 )
             ),
+            preprocessing_recipe=preprocessing_recipe,
+            preprocessing_actor="backend_training_engine",
         )
         if not result.get("ok"):
             raise ValueError(result.get("error") or "No models were successfully trained.")

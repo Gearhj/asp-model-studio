@@ -220,6 +220,87 @@ def _hashes_match_split_evidence(payload: Dict[str, Any]) -> bool:
     )
 
 
+def _matches_promoted_model_completion(
+    payload: Dict[str, Any],
+    *,
+    step_id: str,
+    version: Dict[str, Any],
+) -> bool:
+    """Validate a late-stage completion against the exact current champion.
+
+    Canonical dataset identity alone is insufficient after promotion.  Every
+    completion grant must repeat the immutable registry lineage in both the
+    canonical lineage block and the step-specific payload so a browser cannot
+    unlock one model's workflow with another model's evidence.
+    """
+
+    lineage = payload.get("lineage") if isinstance(payload.get("lineage"), dict) else {}
+    artifact = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+    expected = {
+        "modelId": _text(version.get("model_id")),
+        "modelVersionId": _text(version.get("model_version_id")),
+        "candidateId": _text(version.get("candidate_id")),
+        "trainingRunId": _text(version.get("training_run_id")),
+        "featureManifestVersion": _text(version.get("feature_manifest_version")),
+        "validationDesignId": _text(version.get("validation_design_id")),
+        "splitId": _text(version.get("split_id")),
+        "artifactChecksum": _text(version.get("checksum")),
+        "artifactVerificationStatus": "verified",
+        "target": _text(version.get("target_name")),
+    }
+    if not all(expected.values()):
+        return False
+    if (
+        _text(lineage.get("workflowStep")) != step_id
+        or _text(artifact.get("stepId")) != step_id
+        or _text(artifact.get("workflowCompletionContract"))
+        != "predictive_workflow_completion_v1"
+    ):
+        return False
+    if any(
+        _text(container.get(key)) != value
+        for container in (lineage, artifact)
+        for key, value in expected.items()
+    ):
+        return False
+
+    if step_id == "step10":
+        partitions = artifact.get("scoredPartitions")
+        return bool(
+            isinstance(partitions, list)
+            and partitions
+            and all(_text(partition).casefold() in {"train", "test", "oot"} for partition in partitions)
+            and int(artifact.get("scoredOutputCount") or 0) == len(partitions)
+        )
+    if step_id == "step11":
+        return bool(
+            int(artifact.get("requiredSections") or 0) > 0
+            and _text(artifact.get("documentTitle"))
+            and _text(artifact.get("documentMode"))
+            and _text(artifact.get("generatedAt"))
+        )
+    if step_id == "step12":
+        return all(
+            key in artifact
+            for key in (
+                "implementationOwner",
+                "implementationTargetDate",
+                "implementationEnvironment",
+                "implementationNotesPresent",
+            )
+        )
+    if step_id == "step13":
+        metrics = artifact.get("monitoringMetrics")
+        return bool(
+            _text(artifact.get("monitoringCadence"))
+            and isinstance(metrics, list)
+            and any(_text(metric) for metric in metrics)
+            and "monitoringNotesPresent" in artifact
+            and "escalationCount" in artifact
+        )
+    return False
+
+
 class ProjectDatasetActivationRepository(BaseRepository):
     """Durable authority for project links and exact modeling activation.
 
@@ -696,6 +777,91 @@ class ProjectDatasetActivationRepository(BaseRepository):
                     else "No finalized checksum-verified model version matches the exact active lineage."
                 ),
                 [_text(version["model_version_id"])] if valid and version else [],
+            )
+
+        if step_id in {"step10", "step11", "step12", "step13"}:
+            version_row = connection.execute(
+                """
+                SELECT mv.*
+                FROM model_versions mv
+                JOIN models m
+                  ON m.model_id = mv.model_id
+                 AND m.project_id = mv.project_id
+                 AND m.current_version_id = mv.model_version_id
+                WHERE mv.project_id = ?
+                  AND mv.dataset_id = ?
+                  AND mv.dataset_version_id = ?
+                  AND mv.publication_status = 'finalized'
+                  AND mv.lineage_status = 'verified'
+                  AND mv.promotion_readiness_status = 'verified'
+                  AND mv.evaluation_package_integrity_status = 'verified'
+                  AND mv.artifact_verified_at IS NOT NULL
+                  AND mv.checksum IS NOT NULL
+                  AND mv.checksum <> ''
+                  AND COALESCE(m.archived, 0) = 0
+                ORDER BY mv.finalized_at DESC, mv.created_at DESC
+                LIMIT 1
+                """,
+                (project_id, dataset_id, dataset_version_id),
+            ).fetchone()
+            version = dict(version_row) if version_row is not None else None
+            if version is None:
+                return (
+                    False,
+                    "No current checksum-verified promoted model matches the exact active lineage.",
+                    [],
+                )
+
+            valid = [
+                (record, payload)
+                for record, payload in evidence
+                if _matches_promoted_model_completion(
+                    payload,
+                    step_id=step_id,
+                    version=version,
+                )
+            ]
+            if step_id == "step10" and valid:
+                scoring_run = connection.execute(
+                    """
+                    SELECT scoring_run_id
+                    FROM scoring_runs
+                    WHERE project_id = ?
+                      AND dataset_id = ?
+                      AND dataset_version_id = ?
+                      AND model_version_id = ?
+                      AND target = ?
+                      AND status = 'completed'
+                      AND archived_at IS NULL
+                      AND checksum IS NOT NULL
+                      AND checksum <> ''
+                      AND LOWER(partition) IN ('train', 'test', 'oot')
+                    ORDER BY completed_at DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (
+                        project_id,
+                        dataset_id,
+                        dataset_version_id,
+                        _text(version.get("model_version_id")),
+                        _text(version.get("target_name")),
+                    ),
+                ).fetchone()
+                if scoring_run is None:
+                    valid = []
+
+            return (
+                bool(valid),
+                (
+                    "The exact current promoted model and step-specific durable artifact are verified."
+                    if valid
+                    else (
+                        "No completed checksum-backed exact scoring run and completion artifact match the promoted model."
+                        if step_id == "step10"
+                        else "No step-specific completion artifact matches the exact promoted model lineage."
+                    )
+                ),
+                [_text(record.get("evidence_id")) for record, _ in valid],
             )
 
         # Later workflow steps require their own exact canonical artifact.  The

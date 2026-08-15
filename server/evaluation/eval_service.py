@@ -8,6 +8,8 @@ import re
 import numpy as np
 import pandas as pd
 
+from ..analysis_partition.service import analysis_partition_service
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.dataset_store import DATASTORE
 from ..core.result_store import RESULTS
 from ..features.feature_service import materialize_external_scoring_frame
@@ -18,6 +20,11 @@ from ..governance.selection_integrity import (
     assert_selection_integrity,
 )
 from ..persistence.service import PersistenceService, get_persistence_service
+from ..preprocessing.execution_contract import (
+    PreprocessingContractError,
+    extract_final_preprocessing_artifact,
+    validate_final_preprocessing_artifact,
+)
 from ..training.candidate_contract import (
     CandidateContractError,
     assert_candidate_contract_intact,
@@ -39,9 +46,18 @@ EXACT_EVALUATION_CONTEXT_FIELDS = (
     "problem_type",
 )
 
+SELECTION_REVIEW_EVIDENCE_SCOPE = "selection_review"
+
 
 def _lineage_value(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _selection_review_requested(context: Dict[str, Any] | None) -> bool:
+    return (
+        _lineage_value((context or {}).get("evidence_scope"))
+        == SELECTION_REVIEW_EVIDENCE_SCOPE
+    )
 
 
 def _utc_now_iso() -> str:
@@ -212,6 +228,18 @@ class EvaluationService:
             "feature_manifest_version": record.get("feature_manifest_hash"),
             "treatment_manifest_id": record.get("treatment_manifest_id"),
             "treatment_manifest_hash": record.get("treatment_manifest_hash"),
+            "preprocessing_contract_version": record.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": record.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": record.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": record.get(
+                "preprocessing_policy_hash"
+            ),
             "materialization_id": record.get("materialization_id"),
             "validation_design_id": record.get("validation_design_id"),
             "validation_design_version": record.get(
@@ -367,8 +395,13 @@ class EvaluationService:
             )
         if _lineage_value(meta.get("split_status")).casefold() != "current":
             return {}, "The governed split is stale. Recreate it and retrain before evaluation."
-        if not all(value is not None for value in (X_train, X_test, y_train, y_test)):
-            return {}, "The exact governed train/holdout split is not materialized. Retrain before evaluation."
+        if X_train is None or y_train is None:
+            return {}, "The exact governed Development Population is not materialized. Retrain before evaluation."
+        if X_test is not None or y_test is not None:
+            return {}, (
+                "The sealed final holdout was materialized before the governed "
+                "Evaluation boundary. Rebuild Validation Design and retrain."
+            )
         if _lineage_value(manifest.get("confirmation_status")).casefold() != "confirmed":
             return {}, "The active feature manifest is not confirmed. Confirm and retrain before evaluation."
         if _lineage_value(manifest.get("materialization_status")).casefold() != "current":
@@ -452,6 +485,37 @@ class EvaluationService:
         if len(canonical_contracts) != 1:
             return None, "The registered model version contains contradictory candidate-contract content."
         candidate_contract = copy.deepcopy(contract_candidates[0])
+        try:
+            executable_final_preprocessing = (
+                extract_final_preprocessing_artifact(artifact)
+            )
+            executable_final_preprocessing = (
+                validate_final_preprocessing_artifact(
+                    executable_final_preprocessing,
+                    candidate_contract,
+                    candidate_decision_id=_lineage_value(
+                        context.get("candidate_decision_id")
+                    )
+                    or None,
+                )
+            )
+        except PreprocessingContractError as exc:
+            return None, (
+                "The registered executable has no verified final Development "
+                f"preprocessing lineage: {exc}"
+            )
+        registered_final_preprocessing = model_contract.get(
+            "finalPreprocessingArtifact"
+        )
+        if (
+            not isinstance(registered_final_preprocessing, dict)
+            or registered_final_preprocessing
+            != executable_final_preprocessing
+        ):
+            return None, (
+                "The registered model contract does not exactly match the "
+                "final preprocessing artifact embedded in the executable."
+            )
 
         sources = (version, version_lineage, model_contract, candidate_contract)
         aliases = {
@@ -550,6 +614,28 @@ class EvaluationService:
             "candidate_contract": candidate_contract,
             "trained_feature_names": [str(value) for value in trained_feature_names],
             "registry_model_version_id": requested_version_id,
+            "final_preprocessing_artifact": copy.deepcopy(
+                executable_final_preprocessing
+            ),
+            "preprocessing_policy_id": executable_final_preprocessing.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": executable_final_preprocessing.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": executable_final_preprocessing.get(
+                "preprocessing_policy_hash"
+            ),
+            "final_preprocessing_artifact_checksum": (
+                executable_final_preprocessing.get("final_artifact_checksum")
+            ),
+            "fit_scope": executable_final_preprocessing.get("fit_scope"),
+            "fit_population_id": executable_final_preprocessing.get(
+                "fit_population_id"
+            ),
+            "fit_population_rows": executable_final_preprocessing.get(
+                "fit_population_rows"
+            ),
         }
         return {
             "lineage": requested,
@@ -569,6 +655,17 @@ class EvaluationService:
         model_name: str,
         context: Dict[str, Any] | None,
     ) -> tuple[Dict[str, Any] | None, str]:
+        evidence_scope = _lineage_value(
+            (context or {}).get("evidence_scope")
+        )
+        if evidence_scope not in {"", SELECTION_REVIEW_EVIDENCE_SCOPE}:
+            return None, (
+                "The requested evidence_scope is unsupported. Use the governed "
+                "reporting path or explicit selection_review."
+            )
+        selection_review = (
+            evidence_scope == SELECTION_REVIEW_EVIDENCE_SCOPE
+        )
         requested = {
             field: _lineage_value((context or {}).get(field))
             for field in EXACT_EVALUATION_CONTEXT_FIELDS
@@ -610,6 +707,12 @@ class EvaluationService:
                 assert_selection_integrity(guarded_candidate)
             except SelectionIntegrityError as exc:
                 return None, str(exc)
+            if selection_review:
+                resolved["lineage"] = dict(resolved["lineage"])
+                resolved["evidence_scope"] = (
+                    SELECTION_REVIEW_EVIDENCE_SCOPE
+                )
+                return resolved, ""
             decision, decision_error = self._locked_decision_for_candidate(
                 guarded_candidate,
                 context,
@@ -776,20 +879,8 @@ class EvaluationService:
         if _lineage_value(metadata.get("model_key")) != algorithm_id:
             return None, "The candidate artifact does not match the frozen algorithm_id."
 
-        guarded_candidate = {**candidate_contract, **candidate}
-        decision, decision_error = self._locked_decision_for_candidate(
-            guarded_candidate,
-            context,
-        )
-        if decision_error:
-            return None, decision_error
         resolved = {
-            "lineage": {
-                **requested,
-                "candidate_decision_id": _lineage_value(
-                    decision.get("decision_id")
-                ),
-            },
+            "lineage": dict(requested),
             "active_lineage": active,
             "summary": summary,
             "candidate": candidate,
@@ -798,7 +889,24 @@ class EvaluationService:
             "raw_result": raw_result,
             "artifact": artifact,
             "artifact_metadata": metadata,
-            "candidate_decision": decision,
+        }
+        if selection_review:
+            resolved["evidence_scope"] = SELECTION_REVIEW_EVIDENCE_SCOPE
+            return resolved, ""
+
+        guarded_candidate = {**candidate_contract, **candidate}
+        decision, decision_error = self._locked_decision_for_candidate(
+            guarded_candidate,
+            context,
+        )
+        if decision_error:
+            return None, decision_error
+        resolved["candidate_decision"] = decision
+        resolved["lineage"] = {
+            **requested,
+            "candidate_decision_id": _lineage_value(
+                decision.get("decision_id")
+            ),
         }
         return self._attach_final_holdout(resolved, context)
 
@@ -911,24 +1019,20 @@ class EvaluationService:
                         "The governed split has no exact final-holdout "
                         "partition identity."
                     )
-                _, live_holdout, _, live_target = scoped_store.get_splits()
-                if (
-                    live_holdout is None
-                    or live_target is None
-                    or len(live_target) == 0
-                ):
+                if scoped_store.X_test is not None or scoped_store.y_test is not None:
                     return None, (
-                        "The exact final holdout is unavailable. Recreate the "
-                        "governed split."
+                        "The sealed final holdout was materialized before the "
+                        "governed Evaluation boundary. Rebuild Validation Design."
                     )
-                X_holdout = live_holdout.copy(deep=True)
-                y_holdout = pd.Series(live_target).copy(deep=True)
                 snapshot_revision = int(scoped_store.data_revision)
 
                 if registered_candidate:
                     artifact = resolved.get("artifact")
                     metadata = copy.deepcopy(
                         resolved.get("artifact_metadata") or {}
+                    )
+                    final_preprocessing_artifact = copy.deepcopy(
+                        metadata.get("final_preprocessing_artifact") or {}
                     )
                 else:
                     current_summary = scoped_results.last_training_summary
@@ -975,28 +1079,62 @@ class EvaluationService:
                             "The ranked candidate contract changed before "
                             "final-holdout exposure. Retrain the candidate."
                         )
-                    artifact = scoped_results.model_artifacts.get(algorithm_id)
+                    artifact = scoped_results.final_model
                     metadata = copy.deepcopy(
-                        scoped_results.model_artifact_metadata.get(
-                            algorithm_id
-                        )
+                        scoped_results.final_model_metadata
                         or {}
                     )
-                    current_contract = metadata.get("candidate_contract")
+                    final_preprocessing_artifact = copy.deepcopy(
+                        scoped_store.meta.get("final_preprocessing_artifact")
+                        or {}
+                    )
                     if (
                         artifact is None
-                        or not isinstance(current_contract, dict)
-                        or _lineage_value(current_contract.get("contract_hash"))
+                        or _lineage_value(
+                            metadata.get("selected_candidate_contract_hash")
+                        )
                         != _lineage_value(candidate_contract.get("contract_hash"))
+                        or _lineage_value(
+                            metadata.get("candidate_decision_id")
+                        )
+                        != decision_id
                     ):
                         return None, (
-                            "The exact candidate artifact changed before "
-                            "final-holdout exposure. Retrain the candidate."
+                            "The exact post-lock final Development model is unavailable "
+                            "or does not match the selected candidate. Re-lock or retrain it."
                         )
                 if artifact is None:
                     return None, (
-                        "The exact candidate artifact is unavailable for "
+                        "The exact final Development-fitted artifact is unavailable for "
                         "final-holdout evaluation."
+                    )
+                try:
+                    embedded_final_preprocessing = (
+                        extract_final_preprocessing_artifact(artifact)
+                    )
+                    embedded_final_preprocessing = (
+                        validate_final_preprocessing_artifact(
+                            embedded_final_preprocessing,
+                            candidate_contract,
+                            candidate_decision_id=decision_id,
+                        )
+                    )
+                    final_preprocessing_artifact = (
+                        validate_final_preprocessing_artifact(
+                            final_preprocessing_artifact,
+                            candidate_contract,
+                            candidate_decision_id=decision_id,
+                        )
+                    )
+                except PreprocessingContractError:
+                    return None, (
+                        "The exact final Development-fitted preprocessing artifact "
+                        "is missing, stale, or influenced by final-holdout values."
+                    )
+                if embedded_final_preprocessing != final_preprocessing_artifact:
+                    return None, (
+                        "The final preprocessing lineage embedded in the model "
+                        "conflicts with the governed artifact record."
                     )
 
                 try:
@@ -1053,6 +1191,23 @@ class EvaluationService:
                     ),
                     "treatment_manifest_hash": candidate_contract.get(
                         "treatment_manifest_hash"
+                    ),
+                    "preprocessing_contract_version": candidate_contract.get(
+                        "preprocessing_contract_version"
+                    ),
+                    "preprocessing_policy_id": candidate_contract.get(
+                        "preprocessing_policy_id"
+                    ),
+                    "preprocessing_policy_revision": candidate_contract.get(
+                        "preprocessing_policy_revision"
+                    ),
+                    "preprocessing_policy_hash": candidate_contract.get(
+                        "preprocessing_policy_hash"
+                    ),
+                    "final_preprocessing_artifact_checksum": (
+                        final_preprocessing_artifact.get(
+                            "final_artifact_checksum"
+                        )
                     ),
                     "materialization_id": candidate_contract.get(
                         "materialization_id"
@@ -1153,6 +1308,53 @@ class EvaluationService:
             str(value)
             for value in metadata.get("trained_feature_names") or []
         ]
+        if not trained_features:
+            return None, (
+                "The final model is missing its exact trained feature order; "
+                "the holdout was not materialized."
+            )
+        authorization = (
+            scoped_store.meta.get("predictor_authorization")
+            if isinstance(
+                scoped_store.meta.get("predictor_authorization"), dict
+            )
+            else {}
+        )
+        authorization_id = _lineage_value(
+            authorization.get("predictor_authorization_id")
+            or authorization.get("authorization_id")
+            or authorization.get("manifest_id")
+            or authorization.get("manifest_version")
+        )
+        try:
+            with scoped_store.state_lock:
+                governed_partition = analysis_partition_service.current(
+                    lineage["project_id"],
+                    lineage["dataset_id"],
+                    lineage["dataset_version_id"],
+                    target=lineage["target"],
+                    target_contract_id=_lineage_value(
+                        scoped_store.meta.get("target_contract_id")
+                    ),
+                    predictor_authorization_id=authorization_id,
+                    require_documentation_ready=False,
+                )
+                X_holdout, y_holdout = (
+                    analysis_partition_service.materialize_final_holdout(
+                        scoped_store,
+                        governed_partition,
+                        trained_features,
+                        candidate_decision_id=decision_id,
+                        final_preprocessing_artifact=(
+                            final_preprocessing_artifact
+                        ),
+                    )
+                )
+        except AnalysisPartitionError as exc:
+            return None, (
+                "The exact final holdout could not be materialized at the "
+                f"reporting boundary: {exc}"
+            )
         if trained_features:
             missing = [name for name in trained_features if name not in X_holdout.columns]
             if missing:
@@ -1234,6 +1436,28 @@ class EvaluationService:
             "threshold_source": threshold_source,
             "threshold_locked_at": threshold_locked_at,
             "recommendations_derived_from_final_holdout": False,
+            "preprocessing_contract_version": candidate_contract.get("preprocessing_contract_version"),
+            "preprocessing_policy_id": candidate_contract.get("preprocessing_policy_id"),
+            "preprocessing_policy_revision": candidate_contract.get("preprocessing_policy_revision"),
+            "preprocessing_policy_hash": candidate_contract.get("preprocessing_policy_hash"),
+            "final_preprocessing_artifact_checksum": final_preprocessing_artifact.get("final_artifact_checksum"),
+            "fit_scope": final_preprocessing_artifact.get("fit_scope"),
+            "fit_population_id": final_preprocessing_artifact.get("fit_population_id"),
+            "fit_population_rows": final_preprocessing_artifact.get("fit_population_rows"),
+            "application_scope": "final_holdout_fixed_application",
+            "application_population_id": partition_id,
+            "application_population_rows": int(len(holdout_frame)),
+            "final_holdout_target_accessed": True,
+            "final_holdout_predictors_included_in_structural_profile": bool(
+                (candidate_contract.get("preprocessing_policy") or {}).get(
+                    "final_holdout_predictors_included_in_structural_profile"
+                )
+            ),
+            "final_holdout_parameter_influence": False,
+            "final_holdout_used_for_selection": False,
+            "final_holdout_transformed_or_materialized_prelock": False,
+            "final_holdout_opened_for_final_reporting": True,
+            "refit_during_application": False,
             "holdout_prediction_digest": prediction_digest,
             "metrics": metrics,
             "y_true": y_true.tolist(),
@@ -1262,11 +1486,10 @@ class EvaluationService:
                     )
                 if (
                     not registered_candidate
-                    and scoped_results.model_artifacts.get(algorithm_id)
-                    is not artifact
+                    and scoped_results.final_model is not artifact
                 ):
                     return None, (
-                        "The candidate artifact changed during final-holdout "
+                        "The final Development-fitted model changed during final-holdout "
                         "evaluation. The result was discarded."
                     )
                 if not registered_candidate:
@@ -1320,6 +1543,64 @@ class EvaluationService:
                 exposure["evaluation_package_id"] = (
                     durable_latest or {}
                 ).get("evaluation_package_id")
+                if not registered_candidate:
+                    preprocessor = (
+                        artifact.named_steps.get("preprocess")
+                        if hasattr(artifact, "named_steps")
+                        else None
+                    )
+                    application_record = {
+                        "preprocessing_contract_version": candidate_contract.get(
+                            "preprocessing_contract_version"
+                        ),
+                        "preprocessing_policy_id": candidate_contract.get(
+                            "preprocessing_policy_id"
+                        ),
+                        "preprocessing_policy_revision": candidate_contract.get(
+                            "preprocessing_policy_revision"
+                        ),
+                        "preprocessing_policy_hash": candidate_contract.get(
+                            "preprocessing_policy_hash"
+                        ),
+                        "final_preprocessing_artifact_checksum": (
+                            final_preprocessing_artifact.get(
+                                "final_artifact_checksum"
+                            )
+                        ),
+                        "candidate_decision_id": decision_id,
+                        "candidate_id": candidate_id,
+                        "fit_scope": final_preprocessing_artifact.get("fit_scope"),
+                        "fit_population_id": final_preprocessing_artifact.get(
+                            "fit_population_id"
+                        ),
+                        "fit_population_rows": final_preprocessing_artifact.get(
+                            "fit_population_rows"
+                        ),
+                        "application_scope": "final_holdout_fixed_application",
+                        "application_population_id": partition_id,
+                        "application_population_rows": int(len(holdout_frame)),
+                        "application": copy.deepcopy(
+                            getattr(preprocessor, "last_application_", {})
+                        ),
+                        "final_holdout_target_accessed": True,
+                        "final_holdout_parameter_influence": False,
+                        "final_holdout_used_for_selection": False,
+                        "final_holdout_transformed_or_materialized_prelock": False,
+                        "final_holdout_opened_for_final_reporting": True,
+                        "refit_during_application": False,
+                        "applied_at": opened_at,
+                    }
+                    scoped_store.meta["final_preprocessing_application"] = (
+                        application_record
+                    )
+                    final_metadata = copy.deepcopy(
+                        scoped_results.final_model_metadata or {}
+                    )
+                    final_metadata.update(copy.deepcopy(application_record))
+                    final_metadata["final_preprocessing_artifact"] = copy.deepcopy(
+                        final_preprocessing_artifact
+                    )
+                    scoped_results.final_model_metadata = final_metadata
                 persisted, _ = scoped_results.set_holdout_evaluation_if_absent(
                     candidate_id,
                     exposure,
@@ -1335,6 +1616,20 @@ class EvaluationService:
         if error or not exposure:
             return None, error
         attached = dict(resolved)
+        if not isinstance(resolved.get("registered_version"), dict):
+            final_model = RESULTS.get_final_model()
+            final_metadata = RESULTS.get_final_model_metadata() or {}
+            if (
+                final_model is None
+                or _lineage_value(final_metadata.get("candidate_decision_id"))
+                != _lineage_value(exposure.get("candidate_decision_id"))
+            ):
+                return None, (
+                    "The final Development-fitted model no longer matches the "
+                    "governed holdout exposure."
+                )
+            attached["artifact"] = final_model
+            attached["artifact_metadata"] = final_metadata
         attached["holdout_exposure"] = exposure
         attached["raw_result"] = {
             **(resolved.get("raw_result") or {}),
@@ -1472,6 +1767,18 @@ class EvaluationService:
             ),
             "treatment_manifest_hash": _lineage_value(
                 candidate_contract.get("treatment_manifest_hash")
+            ),
+            "preprocessing_contract_version": candidate_contract.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": _lineage_value(
+                candidate_contract.get("preprocessing_policy_id")
+            ),
+            "preprocessing_policy_revision": candidate_contract.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": _lineage_value(
+                candidate_contract.get("preprocessing_policy_hash")
             ),
             "selection_metric": copy.deepcopy(
                 candidate_contract.get("selection_metric") or {}
@@ -1648,6 +1955,21 @@ class EvaluationService:
             "treatment_manifest_hash": candidate_contract.get(
                 "treatment_manifest_hash"
             ),
+            "preprocessing_contract_version": exposure.get(
+                "preprocessing_contract_version"
+            ),
+            "preprocessing_policy_id": exposure.get(
+                "preprocessing_policy_id"
+            ),
+            "preprocessing_policy_revision": exposure.get(
+                "preprocessing_policy_revision"
+            ),
+            "preprocessing_policy_hash": exposure.get(
+                "preprocessing_policy_hash"
+            ),
+            "final_preprocessing_artifact_checksum": exposure.get(
+                "final_preprocessing_artifact_checksum"
+            ),
             "materialization_id": candidate_contract.get("materialization_id")
             or decision.get("materialization_id"),
             "evaluation_package_id": package_id,
@@ -1716,6 +2038,25 @@ class EvaluationService:
                 "holdout_exposed_at": holdout_exposed_at,
                 "recommendations_derived_from_final_holdout": False,
                 "ranking_or_tuning_consumed_final_holdout": False,
+                "fit_scope": exposure.get("fit_scope"),
+                "fit_population_id": exposure.get("fit_population_id"),
+                "fit_population_rows": exposure.get("fit_population_rows"),
+                "application_scope": exposure.get("application_scope"),
+                "application_population_id": exposure.get(
+                    "application_population_id"
+                ),
+                "application_population_rows": exposure.get(
+                    "application_population_rows"
+                ),
+                "final_holdout_target_accessed": True,
+                "final_holdout_predictors_included_in_structural_profile": exposure.get(
+                    "final_holdout_predictors_included_in_structural_profile"
+                ),
+                "final_holdout_parameter_influence": False,
+                "final_holdout_used_for_selection": False,
+                "final_holdout_transformed_or_materialized_prelock": False,
+                "final_holdout_opened_for_final_reporting": True,
+                "refit_during_application": False,
             },
             "canonical_lineage_json": canonical_lineage,
             "holdout_isolation_status": "verified",
@@ -2514,7 +2855,12 @@ class EvaluationService:
         validation_design = split_record.get("validation_design")
         validation_design = validation_design if isinstance(validation_design, dict) else {}
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        split_materialized = all(value is not None for value in (X_train, X_test, y_train, y_test))
+        split_materialized = bool(
+            X_train is not None
+            and y_train is not None
+            and X_test is None
+            and y_test is None
+        )
 
         dataset_version_id = _lineage_value(DATASTORE.meta.get("dataset_version_id"))
 
@@ -2703,6 +3049,116 @@ class EvaluationService:
         resolved, error = self._resolve_candidate_lineage(model_name, context)
         return None if error else resolved["raw_result"]
 
+    @staticmethod
+    def _selection_review_arrays(
+        resolved: Dict[str, Any],
+    ) -> tuple[np.ndarray | None, np.ndarray | None, str]:
+        """Return only persisted training-time OOF evidence."""
+
+        raw_result = resolved.get("raw_result")
+        raw_result = raw_result if isinstance(raw_result, dict) else {}
+        raw_true = raw_result.get("oof_y_true")
+        raw_score = raw_result.get("oof_y_score")
+        if raw_true is None or raw_score is None:
+            return None, None, (
+                "Persisted out-of-fold labels and scores are unavailable for "
+                "this exact candidate. Retrain it before selection review."
+            )
+        try:
+            y_true = np.asarray(raw_true, dtype=float).reshape(-1)
+            y_score = np.asarray(raw_score, dtype=float).reshape(-1)
+        except (TypeError, ValueError):
+            return None, None, (
+                "Persisted out-of-fold labels or scores are malformed for "
+                "this exact candidate."
+            )
+        if (
+            len(y_true) == 0
+            or len(y_true) != len(y_score)
+            or not bool(np.all(np.isfinite(y_true)))
+            or not bool(np.all(np.isfinite(y_score)))
+        ):
+            return None, None, (
+                "Persisted out-of-fold labels and scores are incomplete or "
+                "non-finite for this exact candidate."
+            )
+        return y_true, y_score, ""
+
+    def bind_selection_review(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+        payload: Dict[str, Any],
+        analysis_type: str,
+        evaluation_population: str,
+    ) -> Dict[str, Any]:
+        """Bind one read-only analysis to exact development evidence only."""
+
+        if not _selection_review_requested(context):
+            return self._lineage_error(
+                "Selection-review binding requires explicit "
+                "evidence_scope=selection_review.",
+                model_name,
+            )
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error or not resolved:
+            return self._lineage_error(error, model_name)
+
+        bound = copy.deepcopy(payload)
+        for forbidden in (
+            "candidate_decision_id",
+            "evaluation_package_id",
+            "evaluation_package",
+            "final_holdout_partition_id",
+            "final_holdout_role",
+            "final_holdout_evidence",
+            "holdout_exposure",
+            "holdout_prediction_digest",
+            "test_status",
+        ):
+            bound.pop(forbidden, None)
+
+        lineage = {
+            field: _lineage_value(resolved["lineage"].get(field))
+            for field in EXACT_EVALUATION_CONTEXT_FIELDS
+        }
+        metadata = resolved.get("artifact_metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        candidate_contract = resolved.get("candidate_contract")
+        candidate_contract = (
+            candidate_contract if isinstance(candidate_contract, dict) else {}
+        )
+        artifact_binding: Dict[str, Any] = {
+            "algorithm_id": _lineage_value(resolved.get("algorithm_id")),
+            "candidate_contract_hash": _lineage_value(
+                candidate_contract.get("contract_hash")
+            ),
+            "training_job_id": lineage["training_job_id"],
+            "training_run_id": lineage["training_run_id"],
+        }
+        artifact_digest = _lineage_value(
+            metadata.get("artifact_digest")
+            or metadata.get("artifact_checksum")
+            or metadata.get("checksum")
+        )
+        if artifact_digest:
+            artifact_binding["artifact_digest"] = artifact_digest
+
+        bound.update(
+            {
+                **lineage,
+                "lineage": lineage,
+                "evidence_scope": SELECTION_REVIEW_EVIDENCE_SCOPE,
+                "evaluation_population": _lineage_value(
+                    evaluation_population
+                ),
+                "analysis_binding": "exact_selection_review",
+                "analysis_type": _lineage_value(analysis_type),
+                "artifact_binding": artifact_binding,
+            }
+        )
+        return bound
+
     def get_curves(
         self,
         model_name: str,
@@ -2712,11 +3168,35 @@ class EvaluationService:
         if error:
             return self._lineage_error(error, model_name)
         result = resolved["raw_result"]
-
-        metrics = result.get("metrics") or {}
         task = result.get("task") or resolved["lineage"]["problem_type"]
-        y_true = np.asarray(result.get("y_true") or [], dtype=float)
-        y_score = np.asarray(result.get("y_score") or [], dtype=float)
+        if _selection_review_requested(context):
+            y_true, y_score, evidence_error = self._selection_review_arrays(
+                resolved
+            )
+            if evidence_error or y_true is None or y_score is None:
+                return {"ok": False, "error": evidence_error}
+            try:
+                threshold, _ = _frozen_candidate_threshold_policy(
+                    resolved["candidate_contract"]
+                )
+                metrics = self._holdout_metrics(
+                    str(task),
+                    y_true,
+                    y_score,
+                    n_features=len(
+                        resolved["artifact_metadata"].get(
+                            "trained_feature_names"
+                        )
+                        or []
+                    ),
+                    threshold=threshold,
+                )
+            except (CandidateContractError, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
+        else:
+            metrics = result.get("metrics") or {}
+            y_true = np.asarray(result.get("y_true") or [], dtype=float)
+            y_score = np.asarray(result.get("y_score") or [], dtype=float)
 
         if task == "regression":
             response: Dict[str, Any] = {
@@ -2792,9 +3272,15 @@ class EvaluationService:
         if error:
             return {**self._lineage_error(error, model_name), "deciles": []}
         result = resolved["raw_result"]
-
-        y_true = np.asarray(result.get("y_true") or [], dtype=float)
-        y_score = np.asarray(result.get("y_score") or [], dtype=float)
+        if _selection_review_requested(context):
+            y_true, y_score, evidence_error = self._selection_review_arrays(
+                resolved
+            )
+            if evidence_error or y_true is None or y_score is None:
+                return {"ok": False, "error": evidence_error, "deciles": []}
+        else:
+            y_true = np.asarray(result.get("y_true") or [], dtype=float)
+            y_score = np.asarray(result.get("y_score") or [], dtype=float)
         if not len(y_true) or not len(y_score):
             return {"ok": True, "deciles": []}
 
@@ -2826,20 +3312,36 @@ class EvaluationService:
         review_capacity: float = 0.1,
         context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Build reporting-only diagnostics from the fitted final holdout.
+        """Build governed reporting or explicit read-only selection review.
 
-        Threshold recommendations never use final-holdout labels or scores.
-        The supplied threshold is an already governed/user-selected deployment
-        threshold used only to report the final-holdout operating result.
+        The ordinary path remains final-holdout reporting after an immutable
+        candidate lock. Explicit ``selection_review`` instead consumes only
+        persisted training-time OOF labels and scores and never creates a
+        holdout exposure or Evaluation package.
         """
         resolved, error = self._resolve_candidate_lineage(model_name, context)
         if error:
             return self._lineage_error(error, model_name)
         result = resolved["raw_result"]
-        y_true = np.asarray(result.get("y_true") or [], dtype=float)
-        y_score = np.asarray(result.get("y_score") or [], dtype=float)
+        selection_review = _selection_review_requested(context)
+        if selection_review:
+            y_true, y_score, evidence_error = self._selection_review_arrays(
+                resolved
+            )
+            if evidence_error or y_true is None or y_score is None:
+                return {"ok": False, "error": evidence_error}
+        else:
+            y_true = np.asarray(result.get("y_true") or [], dtype=float)
+            y_score = np.asarray(result.get("y_score") or [], dtype=float)
         if not len(y_true) or not len(y_score) or len(y_true) != len(y_score):
-            return {"ok": False, "error": "Persisted holdout labels and scores are unavailable for this model."}
+            population = "out-of-fold" if selection_review else "holdout"
+            return {
+                "ok": False,
+                "error": (
+                    f"Persisted {population} labels and scores are unavailable "
+                    "for this model."
+                ),
+            }
 
         task = _lineage_value(result.get("task") or resolved["lineage"]["problem_type"]).casefold()
         selection_metric = copy.deepcopy(
@@ -2850,7 +3352,7 @@ class EvaluationService:
                 "holdout_prediction_digest"
             )
         )
-        if not holdout_prediction_digest:
+        if not selection_review and not holdout_prediction_digest:
             return {
                 "ok": False,
                 "error": "The final-holdout exposure has no immutable prediction digest.",
@@ -2863,20 +3365,15 @@ class EvaluationService:
                 n_features=feature_count,
             )
             residuals = y_true - y_score
-            return {
+            response = {
                 "ok": True,
                 "model": model_name,
                 "problem_type": "regression",
-                "evaluation_role": "TEST",
-                "final_holdout_role": "reporting_only",
-                "test_status": "Available - final holdout (reporting only)",
                 "oot_status": "Not loaded",
                 "observation_count": int(len(y_true)),
                 "evaluation_configuration": {
                     "problem_type": "regression",
-                    "final_holdout_role": "reporting_only",
                 },
-                "holdout_prediction_digest": holdout_prediction_digest,
                 "residual_diagnostics": {
                     "mean": float(np.mean(residuals)),
                     "standard_deviation": float(np.std(residuals)),
@@ -2896,10 +3393,42 @@ class EvaluationService:
                     "internal_validation_status": "Available - verified training-only selection",
                     "internal_validation_score": selection_metric.get("value", selection_metric.get("mean")),
                     "selection_metric": selection_metric,
-                    "test_metrics": metrics,
+                    (
+                        "development_metrics"
+                        if selection_review
+                        else "test_metrics"
+                    ): metrics,
                     "oot_metrics": None,
                 },
             }
+            if selection_review:
+                response.update(
+                    {
+                        "evaluation_role": "DEVELOPMENT",
+                        "review_role": "read_only_selection_evidence",
+                    }
+                )
+                response["evaluation_configuration"].update(
+                    {
+                        "evidence_scope": SELECTION_REVIEW_EVIDENCE_SCOPE,
+                        "evaluation_population": "development_out_of_fold",
+                    }
+                )
+            else:
+                response.update(
+                    {
+                        "evaluation_role": "TEST",
+                        "final_holdout_role": "reporting_only",
+                        "test_status": (
+                            "Available - final holdout (reporting only)"
+                        ),
+                        "holdout_prediction_digest": holdout_prediction_digest,
+                    }
+                )
+                response["evaluation_configuration"][
+                    "final_holdout_role"
+                ] = "reporting_only"
+            return response
         if task != "classification":
             return {"ok": False, "error": "The selected candidate has an unsupported supervised task."}
 
@@ -2916,7 +3445,11 @@ class EvaluationService:
         active_threshold_source = (
             governed_threshold_source
             if threshold is None
-            else "user_supplied_reporting_value"
+            else (
+                "user_supplied_selection_review_value"
+                if selection_review
+                else "user_supplied_reporting_value"
+            )
         )
         capacity = float(np.clip(review_capacity, 0.001, 1.0))
 
@@ -3010,15 +3543,26 @@ class EvaluationService:
             calibration_slope = None
             calibration_intercept = None
 
-        metrics = result.get("metrics") or {}
+        if selection_review:
+            metrics = self._holdout_metrics(
+                "classification",
+                y_true,
+                y_score,
+                n_features=len(
+                    resolved["artifact_metadata"].get(
+                        "trained_feature_names"
+                    )
+                    or []
+                ),
+                threshold=active_threshold,
+            )
+        else:
+            metrics = result.get("metrics") or {}
         ranked_row = resolved["candidate"]
-        return {
+        response = {
             "ok": True,
             "model": model_name,
             "problem_type": "classification",
-            "evaluation_role": "TEST",
-            "final_holdout_role": "reporting_only",
-            "test_status": "Available - final holdout (reporting only)",
             "oot_status": "Not loaded",
             "observation_count": int(len(y_true)),
             "event_count": positives,
@@ -3028,9 +3572,7 @@ class EvaluationService:
                 "threshold": active_threshold,
                 "review_capacity": capacity,
                 "threshold_source": active_threshold_source,
-                "final_holdout_role": "reporting_only",
             },
-            "holdout_prediction_digest": holdout_prediction_digest,
             "threshold": threshold_row(active_threshold),
             "presets": {
                 "current_governed": governed_threshold,
@@ -3040,7 +3582,6 @@ class EvaluationService:
                 "active_source": active_threshold_source,
                 "governed_threshold": governed_threshold,
                 "governed_source": governed_threshold_source,
-                "final_holdout_role": "reporting_only",
                 "recommendations_derived_from_final_holdout": False,
             },
             "lift": {
@@ -3060,7 +3601,11 @@ class EvaluationService:
                 "internal_validation_status": "Available - verified training-only selection",
                 "internal_validation_score": selection_metric.get("value", selection_metric.get("mean")),
                 "selection_metric": selection_metric,
-                "test_metrics": {
+                (
+                    "development_metrics"
+                    if selection_review
+                    else "test_metrics"
+                ): {
                     "roc_auc": metrics.get("auc"),
                     "pr_auc": metrics.get("pr_auc"),
                     "precision": metrics.get("precision"),
@@ -3070,6 +3615,37 @@ class EvaluationService:
                 "oot_metrics": None,
             },
         }
+        if selection_review:
+            response.update(
+                {
+                    "evaluation_role": "DEVELOPMENT",
+                    "review_role": "read_only_selection_evidence",
+                }
+            )
+            response["evaluation_configuration"].update(
+                {
+                    "evidence_scope": SELECTION_REVIEW_EVIDENCE_SCOPE,
+                    "evaluation_population": "development_out_of_fold",
+                }
+            )
+        else:
+            response.update(
+                {
+                    "evaluation_role": "TEST",
+                    "final_holdout_role": "reporting_only",
+                    "test_status": (
+                        "Available - final holdout (reporting only)"
+                    ),
+                    "holdout_prediction_digest": holdout_prediction_digest,
+                }
+            )
+            response["evaluation_configuration"][
+                "final_holdout_role"
+            ] = "reporting_only"
+            response["threshold_policy"][
+                "final_holdout_role"
+            ] = "reporting_only"
+        return response
 
     def _artifact(self, model_name: str, expected: Dict[str, Any] | None = None):
         # Scoring/export still pass their already-governed internal algorithm
@@ -3082,11 +3658,108 @@ class EvaluationService:
             return None
         return resolved["artifact"]
 
-    def _test_data(self):
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if X_test is None or y_test is None:
-            raise ValueError("No evaluation split is available. Train models first.")
-        return X_train, X_test, y_train, y_test
+    def _test_data(self, context: Dict[str, Any] | None = None):
+        """Materialize holdout rows only for an already-open exact exposure."""
+
+        candidate_id = _lineage_value((context or {}).get("candidate_id"))
+        decision_id = _lineage_value(
+            (context or {}).get("candidate_decision_id")
+        )
+        if not candidate_id or not decision_id:
+            raise ValueError(
+                "Exact candidate and locked-decision identifiers are required for final-holdout diagnostics."
+            )
+        exposure = RESULTS.get_holdout_evaluation(candidate_id)
+        if (
+            not isinstance(exposure, dict)
+            or _lineage_value(exposure.get("candidate_decision_id"))
+            != decision_id
+            or _lineage_value(exposure.get("status")).casefold()
+            not in {"opened", "evaluated"}
+        ):
+            raise ValueError(
+                "The exact final-holdout exposure has not been opened for this locked candidate."
+            )
+        scoped_store = DATASTORE.current()
+        active, error = self._active_evaluation_lineage()
+        if error:
+            raise ValueError(error)
+        final_artifact = scoped_store.meta.get("final_preprocessing_artifact")
+        final_artifact = (
+            final_artifact if isinstance(final_artifact, dict) else {}
+        )
+        final_metadata = RESULTS.get_final_model_metadata() or {}
+        features = [
+            str(value)
+            for value in final_metadata.get("trained_feature_names") or []
+        ]
+        if not features:
+            raise ValueError("The final model has no exact trained feature order.")
+        authorization = (
+            scoped_store.meta.get("predictor_authorization")
+            if isinstance(
+                scoped_store.meta.get("predictor_authorization"), dict
+            )
+            else {}
+        )
+        authorization_id = _lineage_value(
+            authorization.get("predictor_authorization_id")
+            or authorization.get("authorization_id")
+            or authorization.get("manifest_id")
+            or authorization.get("manifest_version")
+        )
+        try:
+            with scoped_store.state_lock:
+                partition = analysis_partition_service.current(
+                    active["project_id"],
+                    active["dataset_id"],
+                    active["dataset_version_id"],
+                    target=active["target"],
+                    target_contract_id=_lineage_value(
+                        scoped_store.meta.get("target_contract_id")
+                    ),
+                    predictor_authorization_id=authorization_id,
+                    require_documentation_ready=False,
+                )
+                X_holdout, y_holdout = (
+                    analysis_partition_service.materialize_final_holdout(
+                        scoped_store,
+                        partition,
+                        features,
+                        candidate_decision_id=decision_id,
+                        final_preprocessing_artifact=final_artifact,
+                    )
+                )
+        except AnalysisPartitionError as exc:
+            raise ValueError(str(exc)) from exc
+        return (
+            scoped_store.X_train,
+            X_holdout,
+            scoped_store.y_train,
+            y_holdout,
+        )
+
+    def _diagnostic_data(
+        self,
+        context: Dict[str, Any] | None,
+    ) -> tuple[pd.DataFrame, pd.Series, str]:
+        """Choose the only population permitted for model diagnostics."""
+
+        if _selection_review_requested(context):
+            X_train = DATASTORE.X_train
+            y_train = DATASTORE.y_train
+            if X_train is None or y_train is None:
+                raise ValueError(
+                    "No development training population is available. Train "
+                    "models before selection review."
+                )
+            return X_train, pd.Series(y_train, index=X_train.index), (
+                "development_population"
+            )
+        _, X_test, _, y_test = self._test_data(context)
+        return X_test, pd.Series(y_test, index=X_test.index), (
+            "governed_holdout"
+        )
 
     def _prepare_final_feature_frame(self, model: Dict[str, Any], X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], List[str]]:
         features = [str(feature) for feature in model["features"]]
@@ -3120,23 +3793,60 @@ class EvaluationService:
         prepared = (prepared - model["means"]) / model["stds"]
         return prepared[features], matched, missing
 
-    def _predict_score(self, model: Any, X: pd.DataFrame) -> np.ndarray:
+    def _predict_score(
+        self,
+        model: Any,
+        X: pd.DataFrame,
+        positive_class: Any = None,
+    ) -> np.ndarray:
+        def probability_column(estimator: Any) -> int:
+            classes = getattr(estimator, "classes_", None)
+            if positive_class is not None and classes is not None:
+                for index, value in enumerate(list(classes)):
+                    if str(value) == str(positive_class):
+                        return index
+            return 1
+
         if isinstance(model, dict) and model.get("kind") in {"rfe_logistic", "rfe_classifier"}:
             prepared, _, _ = self._prepare_final_feature_frame(model, X)
-            return np.asarray(model["model"].predict_proba(prepared)[:, 1], dtype=float)
+            estimator = model["model"]
+            probabilities = estimator.predict_proba(prepared)
+            return np.asarray(
+                probabilities[:, probability_column(estimator)], dtype=float
+            )
         if isinstance(model, dict) and model.get("kind") in {"rfe_regression", "rfe_regressor"}:
             prepared, _, _ = self._prepare_final_feature_frame(model, X)
             return np.asarray(model["model"].predict(prepared), dtype=float)
         if hasattr(model, "predict_proba"):
-            return np.asarray(model.predict_proba(X)[:, 1], dtype=float)
+            probabilities = model.predict_proba(X)
+            return np.asarray(
+                probabilities[:, probability_column(model)], dtype=float
+            )
         if hasattr(model, "decision_function"):
             raw = np.asarray(model.decision_function(X), dtype=float)
-            return (raw - np.min(raw)) / (np.max(raw) - np.min(raw) + 1e-9)
+            if raw.ndim > 1:
+                raw = raw[:, probability_column(model)]
+            elif positive_class is not None and probability_column(model) == 0:
+                # sklearn's binary decision function is oriented toward
+                # classes_[1]. Reverse it when the governed event is classes_[0].
+                raw = -raw
+            # A per-request min/max transform changes an observation's score
+            # when unrelated rows are added to the same batch.  The logistic
+            # link is deterministic per observation and preserves the decision
+            # function's ordering without any batch-derived state.
+            bounded = np.clip(raw, -709.0, 709.0)
+            return 1.0 / (1.0 + np.exp(-bounded))
         return np.asarray(model.predict(X), dtype=float)
 
-    def _predict_label(self, model: Any, X: pd.DataFrame) -> np.ndarray:
-        scores = self._predict_score(model, X)
-        return (scores >= 0.5).astype(int)
+    def _predict_label(
+        self,
+        model: Any,
+        X: pd.DataFrame,
+        positive_class: Any = None,
+        threshold: float = 0.5,
+    ) -> np.ndarray:
+        scores = self._predict_score(model, X, positive_class=positive_class)
+        return (scores >= float(threshold)).astype(int)
 
     def feature_importance(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         mismatch = self._artifact_context_mismatch(model_name, context)
@@ -3145,21 +3855,28 @@ class EvaluationService:
         model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
-        _, X_test, _, y_test = self._test_data()
-        if X_test is None or X_test.empty:
-            return {"ok": False, "error": "No governed holdout data is available for feature importance."}
+        X_analysis, y_analysis, population = self._diagnostic_data(context)
+        if X_analysis is None or X_analysis.empty:
+            return {
+                "ok": False,
+                "error": "No permitted data is available for feature importance.",
+            }
 
-        sample = X_test.sample(n=5_000, random_state=42) if len(X_test) > 5_000 else X_test
-        y_series = pd.Series(np.asarray(y_test), index=X_test.index)
+        sample = (
+            X_analysis.sample(n=5_000, random_state=42)
+            if len(X_analysis) > 5_000
+            else X_analysis
+        )
+        y_series = pd.Series(np.asarray(y_analysis), index=X_analysis.index)
         y_sample = y_series.loc[sample.index]
         estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
         preprocess = model.named_steps.get("preprocess") if hasattr(model, "named_steps") else None
         transformed_names = (
             list(preprocess.get_feature_names_out())
             if preprocess is not None and hasattr(preprocess, "get_feature_names_out")
-            else list(X_test.columns)
+            else list(X_analysis.columns)
         )
-        raw_columns = [str(column) for column in X_test.columns]
+        raw_columns = [str(column) for column in X_analysis.columns]
 
         def original_feature(name: Any) -> str:
             cleaned = str(name).replace("num__", "").replace("cat__", "")
@@ -3201,20 +3918,30 @@ class EvaluationService:
                 n_jobs=1,
                 scoring=scoring,
             )
+            source = (
+                "development permutation importance"
+                if population == "development_population"
+                else "holdout permutation importance"
+            )
             rows = [
                 {
                     "feature": str(feature),
                     "importance": abs(float(value)),
                     "direction": float(value),
-                    "source": "holdout permutation importance",
+                    "source": source,
                 }
                 for feature, value in zip(sample.columns, result.importances_mean)
             ]
-            method = "holdout permutation importance"
+            method = source
 
         rows = _filter_target_derived_rows(rows)
         rows.sort(key=lambda row: row["importance"], reverse=True)
-        return {"ok": True, "rows": rows[:30], "method": method, "sample_count": int(len(sample))}
+        return {
+            "ok": True,
+            "rows": rows[:30],
+            "method": method,
+            "sample_count": int(len(sample)),
+        }
 
     def hyperparameters(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         resolved, error = self._resolve_candidate_lineage(model_name, context)
@@ -3307,7 +4034,8 @@ class EvaluationService:
 
     def _linear_regression_inference(self, model: Any, estimator: Any, names: Any) -> Dict[str, Any]:
         try:
-            X_train, _, y_train, _ = self._test_data()
+            X_train = DATASTORE.X_train
+            y_train = DATASTORE.y_train
             if X_train is None or y_train is None:
                 return {"ok": False, "message": "Statistical inference unavailable because training data is unavailable."}
             preprocess = model.named_steps.get("preprocess") if hasattr(model, "named_steps") else None
@@ -3507,9 +4235,12 @@ class EvaluationService:
             estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
             if "kneighbors" not in estimator.__class__.__name__.lower() and not hasattr(estimator, "kneighbors"):
                 return {"ok": False, "error": "The selected model is not a KNN model."}
-            _, X_test, _, y_test = self._test_data()
+            X_test, y_test, _ = self._diagnostic_data(context)
             if X_test is None or X_test.empty:
-                return {"ok": False, "error": "No holdout data is available for KNN visualization."}
+                return {
+                    "ok": False,
+                    "error": "No permitted data is available for KNN visualization.",
+                }
             if PCA is None or NearestNeighbors is None:
                 return {"ok": False, "error": "PCA is unavailable for KNN visualization."}
 
@@ -3690,7 +4421,7 @@ class EvaluationService:
         model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
-        _, X_test, _, _ = self._test_data()
+        X_test, _, _ = self._diagnostic_data(context)
         if feature not in X_test.columns:
             return {"ok": False, "error": f"Feature '{feature}' was not found."}
 
@@ -3727,7 +4458,7 @@ class EvaluationService:
         model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
-        _, X_test, _, _ = self._test_data()
+        X_test, _, _ = self._diagnostic_data(context)
         if feature not in X_test.columns:
             return {"ok": False, "error": f"Feature '{feature}' was not found."}
         sample = X_test.sample(n=2_500, random_state=42).copy() if len(X_test) > 2_500 else X_test.copy()
@@ -3763,9 +4494,9 @@ class EvaluationService:
             for feature in (resolved["artifact_metadata"].get("trained_feature_names") or [])
             if str(feature).lower() not in excluded_sensitivity_features
         ]
-        _, X_test, _, _ = self._test_data()
+        X_test, _, _ = self._diagnostic_data(context)
         if X_test is None or X_test.empty:
-            return {"ok": False, "error": "No holdout data is available."}
+            return {"ok": False, "error": "No permitted data is available."}
 
         baseline = float(np.mean(self._predict_score(model, X_test)))
         if artifact_features:
@@ -3934,9 +4665,35 @@ class EvaluationService:
         resolved, lineage_error = self._resolve_candidate_lineage(model_name, context)
         if lineage_error:
             return self._lineage_error(lineage_error, model_name)
-        X_train, X_test, _, _ = DATASTORE.get_splits()
-        if X_train is None or X_test is None:
-            return {"ok": False, "error": "No train/holdout split is available."}
+        if _selection_review_requested(context):
+            development = DATASTORE.X_train
+            if development is None or len(development) < 4:
+                return {
+                    "ok": False,
+                    "error": (
+                        "VSI selection review requires at least four "
+                        "development rows."
+                    ),
+                }
+            # A deterministic development-only comparison supports visual
+            # review without consulting the final holdout.
+            X_train = development.iloc[::2].copy()
+            X_test = development.iloc[1::2].copy()
+            reference_label = "development_internal_reference"
+            comparison_label = "development_internal_comparison"
+        else:
+            X_train = DATASTORE.X_train
+            try:
+                X_test, _, _ = self._diagnostic_data(context)
+            except ValueError as exc:
+                return {
+                    "ok": False,
+                    "error": str(exc),
+                }
+            if X_train is None:
+                return {"ok": False, "error": "No Development Population is available."}
+            reference_label = "development_train"
+            comparison_label = "development_holdout"
 
         metadata_features = resolved["artifact_metadata"].get("trained_feature_names") or []
         features = [
@@ -3964,7 +4721,12 @@ class EvaluationService:
             if len(rows) >= max(1, min(int(top_n or 40), 100)):
                 break
         rows.sort(key=lambda row: row["value"], reverse=True)
-        return {"ok": True, "reference": "development_train", "comparison": "development_holdout", "rows": rows}
+        return {
+            "ok": True,
+            "reference": reference_label,
+            "comparison": comparison_label,
+            "rows": rows,
+        }
 
     def shap_summary(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         mismatch = self._artifact_context_mismatch(model_name, context)
@@ -3973,9 +4735,14 @@ class EvaluationService:
         model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
-        _, X_test, _, _ = self._test_data()
+        X_test, _, _ = self._diagnostic_data(context)
         if X_test.empty:
-            return {"ok": True, "method": "Holdout replacement impact", "rows": []}
+            method = (
+                "Development replacement impact"
+                if _selection_review_requested(context)
+                else "Holdout replacement impact"
+            )
+            return {"ok": True, "method": method, "rows": []}
 
         sample = X_test
         if len(sample) > 1000:
@@ -4006,7 +4773,11 @@ class EvaluationService:
         rows.sort(key=lambda row: abs(row["importance"]), reverse=True)
         return {
             "ok": True,
-            "method": "Holdout replacement impact",
+            "method": (
+                "Development replacement impact"
+                if _selection_review_requested(context)
+                else "Holdout replacement impact"
+            ),
             "sample_count": int(len(sample)),
             "rows": rows[:30],
         }
@@ -4947,14 +5718,82 @@ class EvaluationService:
         correction_method: str = "none",
         original_prior: float | None = None,
         model_prior: float | None = None,
+        model_artifact: Any = None,
+        model_metadata: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         if df is None or df.empty:
             return {"ok": False, "error": "Uploaded scoring dataset is empty."}
+        if model_artifact is not None and isinstance(model_metadata, dict):
+            # Exact durable scoring supplies both values from one verified
+            # ModelVersion.  Do not consult RESULTS (or infer a current/final
+            # model) on this path; that state is intentionally restart-volatile.
+            model = model_artifact
+            metadata = copy.deepcopy(model_metadata)
+        elif model_artifact is not None or model_metadata is not None:
+            return {
+                "ok": False,
+                "error": (
+                    "Exact scoring requires both a verified registry artifact "
+                    "and its immutable model-version metadata."
+                ),
+                "stale_model": True,
+            }
+        else:
+            # Retained for non-HTTP/internal callers.  The public scoring
+            # routes always supply the exact registry artifact and metadata.
+            try:
+                model, metadata = self._resolve_scoring_model(model_name)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc), "stale_model": True}
+        candidate_contract = (
+            metadata.get("candidate_contract")
+            if isinstance(metadata.get("candidate_contract"), dict)
+            else {}
+        )
         try:
-            model, metadata = self._resolve_scoring_model(model_name)
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc), "stale_model": True}
-        target = DATASTORE.target
+            final_preprocessing_artifact = (
+                extract_final_preprocessing_artifact(model)
+            )
+            final_preprocessing_artifact = (
+                validate_final_preprocessing_artifact(
+                    final_preprocessing_artifact,
+                    candidate_contract,
+                    candidate_decision_id=_lineage_value(
+                        metadata.get("candidate_decision_id")
+                        or metadata.get("candidateDecisionId")
+                    )
+                    or None,
+                )
+            )
+        except PreprocessingContractError as exc:
+            return {
+                "ok": False,
+                "error": (
+                    "Scoring is blocked because the model has no verified "
+                    f"final Development-fitted preprocessing artifact: {exc}"
+                ),
+                "stale_model": True,
+                "preprocessing_lineage_status": "blocked",
+            }
+        metadata_final_artifact = metadata.get("final_preprocessing_artifact")
+        if isinstance(metadata_final_artifact, dict) and (
+            metadata_final_artifact != final_preprocessing_artifact
+        ):
+            return {
+                "ok": False,
+                "error": (
+                    "Scoring is blocked because model metadata conflicts with "
+                    "the final preprocessing artifact embedded in the executable."
+                ),
+                "stale_model": True,
+                "preprocessing_lineage_status": "blocked",
+            }
+        target = (
+            metadata.get("target")
+            or metadata.get("target_name")
+            or metadata.get("targetName")
+            or DATASTORE.target
+        )
         y_true = None
         original_df = df.reset_index(drop=True).copy()
         X = df.copy()
@@ -4962,19 +5801,45 @@ class EvaluationService:
             y_true = X[target].copy()
             X = X.drop(columns=[target])
 
-        task = "regression" if self._is_regression_problem() else "classification"
-        model_features = [str(feature) for feature in (metadata.get("features") or [])]
+        declared_problem_type = str(
+            metadata.get("problem_type")
+            or metadata.get("problemType")
+            or ""
+        ).strip().casefold()
+        task = (
+            declared_problem_type
+            if declared_problem_type in {"classification", "regression"}
+            else ("regression" if self._is_regression_problem() else "classification")
+        )
+        model_features = [
+            str(feature)
+            for feature in (
+                metadata.get("features")
+                or metadata.get("trained_feature_names")
+                or metadata.get("trainedFeatureNames")
+                or []
+            )
+        ]
+        positive_class = (
+            metadata.get("positive_class")
+            if metadata.get("positive_class") is not None
+            else metadata.get("positiveClass")
+        )
+        locked_threshold = (
+            metadata.get("locked_threshold")
+            if metadata.get("locked_threshold") is not None
+            else metadata.get("lockedThreshold")
+        )
+        try:
+            classification_threshold = float(locked_threshold)
+        except (TypeError, ValueError):
+            classification_threshold = 0.5
         feature_materialization = {
             "feature_manifest_hash": None,
             "applied_engineered_features": [],
             "holdout_accessed": False,
             "state_mutated": False,
         }
-        candidate_contract = (
-            metadata.get("candidate_contract")
-            if isinstance(metadata.get("candidate_contract"), dict)
-            else {}
-        )
         expected_manifest_hash = str(
             metadata.get("feature_manifest_version")
             or metadata.get("feature_manifest_hash")
@@ -5009,7 +5874,7 @@ class EvaluationService:
                     "feature_manifest_status": "blocked",
                     "feature_manifest_version": expected_manifest_hash or None,
                     "feature_manifest_replay_scope": "engineered_features_only",
-                    "upstream_treatment_replay_status": "not_verified_by_this_boundary",
+                    "upstream_treatment_replay_status": "fixed_final_preprocessing_artifact_verified",
                     "holdout_accessed": False,
                 }
         matched_features: List[str] = []
@@ -5024,7 +5889,32 @@ class EvaluationService:
                     matched_features.append(feature)
                 else:
                     missing_features.append(feature)
-        scores = self._predict_score(model, X)
+            if missing_features:
+                return {
+                    "ok": False,
+                    "error": (
+                        "The scoring population is missing exact model predictors: "
+                        + ", ".join(missing_features)
+                    ),
+                    "preprocessing_lineage_status": "blocked",
+                    "missing_features": missing_features,
+                    "holdout_accessed": False,
+                }
+            if model_features:
+                # Preserve the immutable fitted feature order.  Column-name
+                # matching is case-insensitive for upload ergonomics, but the
+                # governed preprocessor receives the exact training names and
+                # never infers or refits a schema from the scoring batch.
+                ordered = pd.DataFrame(index=X.index)
+                for feature in model_features:
+                    source = (
+                        feature
+                        if feature in X.columns
+                        else normalized_columns[feature.strip().lower()]
+                    )
+                    ordered[feature] = X[source]
+                X = ordered
+        scores = self._predict_score(model, X, positive_class=positive_class)
         priors = self._default_priors()
         if original_prior is None:
             original_prior = priors.get("original_prior")
@@ -5035,7 +5925,11 @@ class EvaluationService:
             if task == "regression"
             else self._prior_correct_scores(scores, correction_method, original_prior, model_prior)
         )
-        labels = (adjusted_scores >= 0.5).astype(int) if task == "classification" else adjusted_scores
+        labels = (
+            (adjusted_scores >= classification_threshold).astype(int)
+            if task == "classification"
+            else adjusted_scores
+        )
         scored_df = build_full_scored_output_frame(
             original_df=original_df,
             target=str(target) if target else None,
@@ -5070,7 +5964,43 @@ class EvaluationService:
                 "applied_engineered_features": feature_materialization["applied_engineered_features"],
                 "holdout_accessed_for_feature_materialization": False,
                 "feature_manifest_replay_scope": "engineered_features_only",
-                "upstream_treatment_replay_status": "not_verified_by_this_boundary",
+                "upstream_treatment_replay_status": "fixed_final_preprocessing_artifact_applied",
+                "preprocessing_contract_version": final_preprocessing_artifact.get(
+                    "preprocessing_contract_version"
+                ),
+                "preprocessing_policy_id": final_preprocessing_artifact.get(
+                    "preprocessing_policy_id"
+                ),
+                "preprocessing_policy_revision": final_preprocessing_artifact.get(
+                    "preprocessing_policy_revision"
+                ),
+                "preprocessing_policy_hash": final_preprocessing_artifact.get(
+                    "preprocessing_policy_hash"
+                ),
+                "final_preprocessing_artifact_checksum": final_preprocessing_artifact.get(
+                    "final_artifact_checksum"
+                ),
+                "preprocessing_fit_scope": final_preprocessing_artifact.get(
+                    "fit_scope"
+                ),
+                "preprocessing_fit_population_id": final_preprocessing_artifact.get(
+                    "fit_population_id"
+                ),
+                "preprocessing_fit_population_rows": final_preprocessing_artifact.get(
+                    "fit_population_rows"
+                ),
+                "preprocessing_application_scope": str(
+                    dataset_type or "external_scoring"
+                ).lower(),
+                "preprocessing_application_population_rows": int(len(X)),
+                "preprocessing_refit_during_application": False,
+                "final_holdout_parameter_influence": False,
+                "model_version_id": metadata.get("modelVersionId")
+                or metadata.get("model_version_id"),
+                "classification_threshold": (
+                    classification_threshold if task == "classification" else None
+                ),
+                "positive_class": positive_class,
             },
             "adjusted_score_summary": {
                 "min": float(np.min(adjusted_scores)) if len(adjusted_scores) else None,
@@ -5124,9 +6054,15 @@ class EvaluationService:
             response["metrics"] = self._regression_metrics(y_true, adjusted_scores, n_features=X.shape[1])
         elif y_true is not None and LabelEncoder is not None:
             try:
+                y_values = pd.Series(y_true).astype(str)
                 encoder = LabelEncoder()
-                y_arr = encoder.fit_transform(pd.Series(y_true).astype(str))
+                encoded = encoder.fit_transform(y_values)
                 if len(encoder.classes_) == 2:
+                    y_arr = (
+                        (y_values == str(positive_class)).astype(int).to_numpy()
+                        if positive_class is not None
+                        else encoded
+                    )
                     response["metrics"] = {
                         "auc": float(roc_auc_score(y_arr, adjusted_scores)) if roc_auc_score is not None else None,
                         "pr_auc": float(average_precision_score(y_arr, adjusted_scores)) if average_precision_score is not None else None,
@@ -5141,7 +6077,9 @@ class EvaluationService:
                     if roc_curve is not None:
                         fpr, tpr, _ = roc_curve(y_arr, adjusted_scores)
                         response["metrics"]["ks"] = float(np.max(tpr - fpr)) if len(fpr) else None
-                    response["lift"] = self._lift_table(y_true, adjusted_scores)
+                    response["lift"] = self._lift_table(
+                        pd.Series(y_arr), adjusted_scores
+                    )
             except Exception as exc:
                 response["metrics_error"] = str(exc)
 
@@ -5152,7 +6090,9 @@ class EvaluationService:
             reference = DATASTORE.current().X_train
             if reference is not None:
                 ref_scores = self._prior_correct_scores(
-                    self._predict_score(model, reference),
+                    self._predict_score(
+                        model, reference, positive_class=positive_class
+                    ),
                     correction_method,
                     original_prior,
                     model_prior,
@@ -5188,7 +6128,47 @@ class EvaluationService:
         correction_method: str = "none",
         original_prior: float | None = None,
         model_prior: float | None = None,
+        model_artifact: Any = None,
+        model_metadata: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
+        if model_artifact is not None and isinstance(model_metadata, dict):
+            active_meta = DATASTORE.meta if isinstance(DATASTORE.meta, dict) else {}
+            expected_context = {
+                "project_id": str(model_metadata.get("project_id") or ""),
+                "dataset_id": str(model_metadata.get("dataset_id") or ""),
+                "dataset_version_id": str(
+                    model_metadata.get("dataset_version_id") or ""
+                ),
+                "target": str(
+                    model_metadata.get("target")
+                    or model_metadata.get("target_name")
+                    or ""
+                ),
+            }
+            active_context = {
+                "project_id": str(active_meta.get("project_id") or ""),
+                "dataset_id": str(active_meta.get("dataset_id") or ""),
+                "dataset_version_id": str(
+                    active_meta.get("dataset_version_id")
+                    or active_meta.get("dataset_version")
+                    or ""
+                ),
+                "target": str(DATASTORE.target or ""),
+            }
+            mismatched = [
+                field
+                for field, expected in expected_context.items()
+                if not expected or active_context[field] != expected
+            ]
+            if mismatched:
+                return {
+                    "ok": False,
+                    "error": (
+                        "The active development split does not match the exact "
+                        "registered model context: " + ", ".join(mismatched) + "."
+                    ),
+                    "stale_model": True,
+                }
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         split_key = str(dataset_type or "train").lower()
         if split_key == "test":
@@ -5199,7 +6179,13 @@ class EvaluationService:
         if X is None or y is None:
             return {"ok": False, "error": f"No {split_key.upper()} development split is available. Train models first."}
         df = X.copy()
-        target = DATASTORE.target or getattr(y, "name", None) or "target"
+        target = (
+            (model_metadata or {}).get("target")
+            or (model_metadata or {}).get("target_name")
+            or DATASTORE.target
+            or getattr(y, "name", None)
+            or "target"
+        )
         df[str(target)] = pd.Series(y).reset_index(drop=True).values
         result = self.score_dataset(
             df=df,
@@ -5208,6 +6194,8 @@ class EvaluationService:
             correction_method=correction_method,
             original_prior=original_prior,
             model_prior=model_prior,
+            model_artifact=model_artifact,
+            model_metadata=model_metadata,
         )
         if result.get("ok"):
             result["dataset_identity"] = f"Governed development {split_key.upper()} split"
@@ -5228,7 +6216,7 @@ class EvaluationService:
         model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
-        _, X_test, _, y_test = self._test_data()
+        X_test, y_test, _ = self._diagnostic_data(context)
         numeric_cols = [col for col in X_test.columns if pd.api.types.is_numeric_dtype(X_test[col])]
         if len(numeric_cols) < 2:
             return {"ok": False, "error": "Decision boundary requires at least two numeric features."}
@@ -5268,7 +6256,13 @@ class EvaluationService:
             except Exception:
                 y_test_arr = np.zeros(len(X_test), dtype=int)
             points = [
-                {"x": float(px), "y": float(py), "class": int(y_test_arr[i]) if i < len(y_test_arr) else 0}
+                {
+                    "x": float(np.clip(px, x_min, x_max)),
+                    "y": float(np.clip(py, y_min, y_max)),
+                    "class": int(y_test_arr[i])
+                    if i < len(y_test_arr)
+                    else 0,
+                }
                 for i, (px, py) in enumerate(coords[:500])
             ]
             return {
@@ -5335,8 +6329,8 @@ class EvaluationService:
             pos = list(work.index).index(idx) if idx in work.index else 0
             points.append(
                 {
-                    "x": float(row[x_name]),
-                    "y": float(row[y_name]),
+                    "x": float(np.clip(row[x_name], x_min, x_max)),
+                    "y": float(np.clip(row[y_name], y_min, y_max)),
                     "class": int(y_test_arr[pos]) if pos < len(y_test_arr) else 0,
                 }
             )

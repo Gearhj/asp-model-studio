@@ -12,8 +12,6 @@ export const PREDICTOR_VISUAL_MAX_MARKS = 60;
 export const PREDICTOR_GALLERY_MAX = 10;
 export const PREDICTOR_MATRIX_MAX_ROWS = 30;
 
-const ALWAYS_EXCLUDED = new Set(["bad_flag", "riskperformance"]);
-
 function normalizedName(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -371,7 +369,6 @@ export function buildAuthorizedPredictorVisualData(
     [
       input.target,
       ...(input.targetSourceExcluded ?? []),
-      ...ALWAYS_EXCLUDED,
     ].map(normalizedName)
   );
   const authorized = new Set(

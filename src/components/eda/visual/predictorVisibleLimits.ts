@@ -1,6 +1,4 @@
-export const PREDICTOR_VISIBLE_LIMIT_BREAKPOINTS = [
-  12, 24, 40, 60,
-] as const;
+export const PREDICTOR_VISIBLE_LIMIT_MAXIMUM = 60;
 
 export const DEFAULT_PREDICTOR_VISIBLE_LIMIT = 24;
 
@@ -15,25 +13,19 @@ function normalizedCount(value: number) {
 }
 
 /**
- * Builds a strictly increasing set of selector values. The final value is the
- * exact available predictor count (bounded at 60), so capped labels can never
- * collapse into duplicate options such as Top 21 / Top 21 / Top 21.
+ * Builds one option for every available predictor count, bounded at 60. The
+ * user controls the exact number shown instead of choosing from coarse presets.
  */
 export function buildPredictorVisibleLimitOptions(
   predictorCount: number,
-  maximum = 60,
+  maximum = PREDICTOR_VISIBLE_LIMIT_MAXIMUM,
 ) {
   const boundedCount = Math.min(
     normalizedCount(predictorCount),
     normalizedCount(maximum),
   );
   if (boundedCount === 0) return [];
-  return [
-    ...PREDICTOR_VISIBLE_LIMIT_BREAKPOINTS.filter(
-      (value) => value < boundedCount && value <= maximum,
-    ),
-    boundedCount,
-  ];
+  return Array.from({ length: boundedCount }, (_unused, index) => index + 1);
 }
 
 export function resolvePredictorVisibleLimit(

@@ -198,11 +198,29 @@ test("confirmation, MDD approval, and stale draft remain separate", async ({
   }
   await page.getByLabel("Finding status").selectOption("accepted");
   await page.getByRole("button", { name: "Save to Evidence Center" }).click();
-  const confirmButton = page.locator('[data-step-next-button="true"]');
+  const step02Path = new URL(page.url()).pathname;
+  const scopedStep02 = step02Path.match(/^\/projects\/([^/]+)\/step02$/);
+  expect(scopedStep02).not.toBeNull();
+  const routeProjectId = scopedStep02![1];
+  const confirmButton = page.getByTestId("eda-final-continue-button");
   await expect(confirmButton).toBeEnabled();
+  const durableCompletion = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname ===
+        `/api/projects/${routeProjectId}/workflow-state`,
+    { timeout: 30_000 },
+  );
   await confirmButton.click();
+  expect((await durableCompletion).ok()).toBe(true);
+  await expect
+    .poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
+    .toBe(`/projects/${routeProjectId}/step03`);
 
-  await page.goto("/step02");
+  await page.goBack();
+  await expect
+    .poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
+    .toBe(`/projects/${routeProjectId}/step02`);
   await expect(page.getByTestId("eda-confirmation-status")).toHaveAttribute(
     "data-confirmation-state",
     "confirmed",

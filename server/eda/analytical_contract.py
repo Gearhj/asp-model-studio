@@ -37,6 +37,7 @@ WOE_SMOOTHING_CONSTANT = 0.5
 DEFAULT_REQUESTED_BINS = 10
 MONOTONICITY_TOLERANCE = 0.005
 MINIMUM_BAND_POPULATION = 20
+DEFAULT_VIF_LOW_COVERAGE_THRESHOLD = 0.80
 
 
 class EDAAnalyticalContractError(ValueError):
@@ -1113,13 +1114,16 @@ def _vif(work: pd.DataFrame) -> list[dict[str, Any]]:
 
 def _relationship_artifact(
     development: pd.DataFrame,
+    development_target: pd.Series,
     predictor_artifacts: dict[str, dict[str, Any]],
     *,
+    event_value: Any,
     population_identity: str,
     meta: dict[str, Any],
     governed_lineage_base: dict[str, Any],
 ) -> dict[str, Any]:
     numeric: dict[str, pd.Series] = {}
+    value_class_masks: dict[str, dict[str, pd.Series]] = {}
     for feature in predictor_artifacts:
         if feature not in development.columns:
             continue
@@ -1127,6 +1131,7 @@ def _relationship_artifact(
         classification = classify_feature_values(feature, series, meta=meta)
         if not classification["is_numeric"]:
             continue
+        value_class_masks[feature] = classification["masks"]
         numeric[feature] = classification["numeric"].where(
             classification["masks"]["ordinary_valid_value"]
         )
@@ -1153,7 +1158,56 @@ def _relationship_artifact(
         pairwise_counts = [value for row in pair_counts for value in row]
     rows_used_min = min(pairwise_counts, default=0)
     rows_used_max = max(pairwise_counts, default=0)
-    complete = frame.dropna()
+    complete_mask = frame.notna().all(axis=1) if not frame.empty else pd.Series(
+        False, index=development.index
+    )
+    complete = frame.loc[complete_mask]
+    aligned_target = pd.Series(
+        development_target.to_numpy(copy=True),
+        index=development.index,
+        name=development_target.name,
+    )
+    complete_target = aligned_target.loc[complete_mask]
+    valid_target = aligned_target.notna()
+    event_mask = (
+        aligned_target.astype(str).eq(str(event_value)) & valid_target
+        if event_value is not None
+        else pd.Series(False, index=aligned_target.index)
+    )
+    non_event_mask = valid_target & ~event_mask
+    complete_event_mask = event_mask.loc[complete_mask]
+    complete_non_event_mask = non_event_mask.loc[complete_mask]
+    excluded_mask = ~complete_mask
+    excluded_event_mask = event_mask & excluded_mask
+    excluded_non_event_mask = non_event_mask & excluded_mask
+    false_mask = pd.Series(False, index=development.index, dtype=bool)
+
+    def _any_reason(reason: str) -> pd.Series:
+        masks = [
+            values.get(reason, false_mask).reindex(development.index, fill_value=False)
+            for values in value_class_masks.values()
+        ]
+        if not masks:
+            return false_mask.copy()
+        return pd.concat(masks, axis=1).any(axis=1)
+
+    true_null_any = _any_reason("true_null")
+    bureau_special_any = _any_reason("bureau_special_value")
+    parse_failure_any = _any_reason("parse_failure")
+    reason_count = (
+        true_null_any.astype(int)
+        + bureau_special_any.astype(int)
+        + parse_failure_any.astype(int)
+    )
+    vif_coverage_rate = len(complete) / max(len(development), 1)
+    configured_threshold = meta.get(
+        "vif_low_coverage_threshold", DEFAULT_VIF_LOW_COVERAGE_THRESHOLD
+    )
+    try:
+        low_coverage_threshold = min(max(float(configured_threshold), 0.0), 1.0)
+    except (TypeError, ValueError):
+        low_coverage_threshold = DEFAULT_VIF_LOW_COVERAGE_THRESHOLD
+    low_coverage = vif_coverage_rate < low_coverage_threshold
     vif_rows = _vif(complete)
     vif_by_feature = {row["feature"]: row for row in vif_rows}
     base = {
@@ -1181,19 +1235,183 @@ def _relationship_artifact(
             "rows_excluded_max": int(len(development) - rows_used_min),
             "scalar_compatibility_semantics": "conservative_minimum_pairwise_rows_and_maximum_pairwise_exclusions",
             "exclusion_reasons": ["true_null", "bureau_special_value", "parse_failure", "non_finite"],
+            "pairwise_coverage": [
+                {
+                    "feature_a": left,
+                    "feature_b": right,
+                    "n": int(pair_counts[left_index][right_index]),
+                    "pairwise_eligible_row_count": int(
+                        pair_counts[left_index][right_index]
+                    ),
+                    "population_rows": int(len(development)),
+                    "rows_excluded": int(
+                        len(development) - pair_counts[left_index][right_index]
+                    ),
+                    "coverage_rate": (
+                        pair_counts[left_index][right_index]
+                        / max(len(development), 1)
+                    ),
+                    "pairwise_coverage_rate": (
+                        pair_counts[left_index][right_index]
+                        / max(len(development), 1)
+                    ),
+                    "complete_case_policy": "pairwise_complete",
+                    "association_methods": ["pearson", "spearman"],
+                    "confidence_metadata": {
+                        "interval_estimated": False,
+                        "reason": "descriptive_eda_association_only",
+                    },
+                    "stability_metadata": {
+                        "status": (
+                            "low_coverage_review"
+                            if pair_counts[left_index][right_index]
+                            / max(len(development), 1)
+                            < low_coverage_threshold
+                            else "descriptive_only"
+                        ),
+                        "coverage_threshold": low_coverage_threshold,
+                        "selection_authority": False,
+                    },
+                }
+                for left_index, left in enumerate(columns)
+                for right_index, right in enumerate(columns)
+                if right_index > left_index
+            ],
         },
         "vif": vif_rows,
         "vif_by_feature": vif_by_feature,
         "vif_scope": {
             "analysis_population": "development_population",
             "population_rows": int(len(development)),
+            "development_population_rows": int(len(development)),
             "rows_used": int(len(complete)),
+            "vif_eligible_rows": int(len(complete)),
             "rows_excluded": int(len(development) - len(complete)),
+            "excluded_rows": int(len(development) - len(complete)),
             "exclusion_reasons": ["incomplete_case_after_special_value_exclusion"],
             "special_value_representation": "excluded_from_ordinary_numeric_matrix",
             "missing_value_treatment": "complete_case",
             "calculation_method": "ordinary_numeric_complete_case_ols_r_squared",
             "predictors_used": [str(column) for column in complete.columns],
+            "coverage_rate": len(complete) / max(len(development), 1),
+            "vif_coverage_rate": vif_coverage_rate,
+            "low_coverage_threshold": low_coverage_threshold,
+            "low_coverage": low_coverage,
+            "low_coverage_warning": (
+                "Complete-case VIF coverage is below the configured review threshold; "
+                "do not use this diagnostic to authorize automatic exclusion."
+                if low_coverage
+                else None
+            ),
+            "calculation_stage": "eda_pre_feature_engineering",
+            "preliminary_or_final": "preliminary",
+            "intended_model_family_relevance": {
+                "directly_relevant": [
+                    "linear_regression",
+                    "logistic_regression",
+                    "generalized_linear_models",
+                ],
+                "context_only": [
+                    "distance_based_models",
+                    "neural_networks",
+                ],
+                "generally_not_directly_actionable": [
+                    "decision_trees",
+                    "random_forests",
+                    "gradient_boosted_trees",
+                ],
+            },
+            "may_authorize_automatic_exclusion": False,
+            "event_coverage": {
+                "event_value": _json_scalar(event_value),
+                "population_event_rows": int(event_mask.sum()),
+                "population_non_event_rows": int(non_event_mask.sum()),
+                "population_missing_target_rows": int(aligned_target.isna().sum()),
+                "complete_case_event_rows": int(complete_event_mask.sum()),
+                "complete_case_non_event_rows": int(
+                    complete_non_event_mask.sum()
+                ),
+                "complete_case_missing_target_rows": int(
+                    complete_target.isna().sum()
+                ),
+                "included_event_rows": int(complete_event_mask.sum()),
+                "included_non_event_rows": int(complete_non_event_mask.sum()),
+                "included_event_rate": (
+                    int(complete_event_mask.sum())
+                    / max(
+                        int(complete_event_mask.sum())
+                        + int(complete_non_event_mask.sum()),
+                        1,
+                    )
+                    if event_value is not None
+                    else None
+                ),
+                "excluded_event_rows": int(excluded_event_mask.sum()),
+                "excluded_non_event_rows": int(excluded_non_event_mask.sum()),
+                "excluded_event_rate": (
+                    int(excluded_event_mask.sum())
+                    / max(
+                        int(excluded_event_mask.sum())
+                        + int(excluded_non_event_mask.sum()),
+                        1,
+                    )
+                    if event_value is not None
+                    else None
+                ),
+                "event_coverage_rate": (
+                    int(complete_event_mask.sum()) / max(int(event_mask.sum()), 1)
+                    if event_value is not None
+                    else None
+                ),
+                "non_event_coverage_rate": (
+                    int(complete_non_event_mask.sum())
+                    / max(int(non_event_mask.sum()), 1)
+                    if event_value is not None
+                    else None
+                ),
+            },
+            "exclusion_breakdown": {
+                "incomplete_any_predictor_rows": int(
+                    len(development) - len(complete)
+                ),
+                "per_predictor_unavailable_rows": {
+                    str(column): int(frame[column].isna().sum())
+                    for column in frame.columns
+                },
+                "rows_with_true_null": int(true_null_any.sum()),
+                "rows_with_bureau_special_value": int(
+                    bureau_special_any.sum()
+                ),
+                "rows_with_parse_failure_or_non_finite": int(
+                    parse_failure_any.sum()
+                ),
+                "rows_with_multiple_exclusion_reasons": int(
+                    (reason_count > 1).sum()
+                ),
+                "exclusive_reason_priority": [
+                    "true_null",
+                    "bureau_special_value",
+                    "parse_failure_or_non_finite",
+                ],
+                "exclusive_true_null_rows": int(true_null_any.sum()),
+                "exclusive_bureau_special_value_rows": int(
+                    (bureau_special_any & ~true_null_any).sum()
+                ),
+                "exclusive_parse_failure_or_non_finite_rows": int(
+                    (
+                        parse_failure_any
+                        & ~true_null_any
+                        & ~bureau_special_any
+                    ).sum()
+                ),
+                "counts_may_overlap": True,
+            },
+            "preliminary": {
+                "status": "diagnostic_only",
+                "selection_authority": False,
+                "automatic_exclusion": False,
+                "requires_feature_engineering_confirmation": True,
+            },
         },
     }
     artifact_hash = _stable_hash(base)
@@ -1585,7 +1803,9 @@ def build_governed_eda_contract(
     }
     relationship = _relationship_artifact(
         development,
+        development_target,
         predictor_artifacts,
+        event_value=positive_value,
         population_identity=scope["analysis_population_id"],
         meta=store.meta,
         governed_lineage_base=governed_lineage_base,

@@ -28,9 +28,12 @@ export type SelectionCandidateEvidence = {
   training_run_id?: string;
   key?: string;
   name?: string;
+  algorithm_id?: string;
+  champion_eligible?: boolean;
   selection_metric?: unknown;
   selection_integrity_status?: unknown;
   holdout_isolation_status?: unknown;
+  candidate_contract?: unknown;
 };
 
 export type LockedSelectionDecision = {
@@ -163,19 +166,71 @@ export function parseSelectionMetric(
   };
 }
 
+export function normalizeSelectionMetricName(value: unknown): string {
+  const name = text(value).toLowerCase();
+  const aliases: Record<string, string> = {
+    auc: "roc_auc",
+    roc_auc: "roc_auc",
+    average_precision: "pr_auc",
+    pr_auc: "pr_auc",
+  };
+  return aliases[name] ?? name;
+}
+
+export function selectionMetricNamesMatch(left: unknown, right: unknown): boolean {
+  return normalizeSelectionMetricName(left) === normalizeSelectionMetricName(right);
+}
+
+export function normalizeSelectionCandidateEvidence<
+  T extends SelectionCandidateEvidence,
+>(candidate: T): T {
+  const contract = record(candidate.candidate_contract);
+  if (!contract) return candidate;
+
+  const normalized: Record<string, unknown> = { ...candidate };
+  const fillTextField = (field: keyof SelectionCandidateEvidence) => {
+    if (!text(normalized[field])) normalized[field] = contract[field];
+  };
+  fillTextField("candidate_id");
+  fillTextField("training_run_id");
+  fillTextField("key");
+  fillTextField("algorithm_id");
+  if (!text(normalized.key)) normalized.key = contract.algorithm_id;
+  if (!text(normalized.name)) normalized.name = contract.name ?? contract.algorithm_id;
+  if (normalized.selection_metric == null) {
+    normalized.selection_metric = contract.selection_metric;
+  }
+  if (normalized.selection_integrity_status == null) {
+    normalized.selection_integrity_status = contract.selection_integrity_status;
+  }
+  if (normalized.holdout_isolation_status == null) {
+    normalized.holdout_isolation_status = contract.holdout_isolation_status;
+  }
+  if (normalized.champion_eligible == null) {
+    normalized.champion_eligible = contract.champion_eligible;
+  }
+  return normalized as T;
+}
+
 export function verifiedSelectionMetric(
   candidate: SelectionCandidateEvidence,
   expectedName?: string,
 ): SelectionMetricEvidence | null {
+  const normalized = normalizeSelectionCandidateEvidence(candidate);
   if (
-    candidate.selection_integrity_status !== "verified" ||
-    candidate.holdout_isolation_status !== "verified"
+    normalized.selection_integrity_status !== "verified" ||
+    normalized.holdout_isolation_status !== "verified"
   ) {
     return null;
   }
-  const metric = parseSelectionMetric(candidate.selection_metric);
+  const metric = parseSelectionMetric(normalized.selection_metric);
   if (!metric) return null;
-  if (expectedName && metric.name !== expectedName) return null;
+  if (
+    expectedName &&
+    !selectionMetricNamesMatch(metric.name, expectedName)
+  ) {
+    return null;
+  }
   return metric;
 }
 
@@ -183,10 +238,11 @@ export function isVerifiedSelectionCandidate(
   candidate: SelectionCandidateEvidence,
   expectedName?: string,
 ): boolean {
+  const normalized = normalizeSelectionCandidateEvidence(candidate);
   return Boolean(
-    text(candidate.candidate_id) &&
-      text(candidate.training_run_id) &&
-      verifiedSelectionMetric(candidate, expectedName),
+    text(normalized.candidate_id) &&
+      text(normalized.training_run_id) &&
+      verifiedSelectionMetric(normalized, expectedName),
   );
 }
 
@@ -194,6 +250,7 @@ export function rankVerifiedSelectionCandidates<
   T extends SelectionCandidateEvidence,
 >(rows: T[], metricName: string, lowerIsBetter: boolean): T[] {
   return rows
+    .map((row) => normalizeSelectionCandidateEvidence(row))
     .filter((row) => isVerifiedSelectionCandidate(row, metricName))
     .slice()
     .sort((left, right) => {

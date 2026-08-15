@@ -11,6 +11,7 @@ from sklearn.model_selection import StratifiedKFold
 
 from server.training import trainer as trainer_module
 from server.training import training_job_service as job_module
+from server.preprocessing.execution_contract import default_no_treatment_contract
 from server.training.trainer import train_models
 from server.training.training_job_service import (
     TrainingJobService,
@@ -51,6 +52,12 @@ def _policy(**changes: object) -> dict[str, object]:
     return result
 
 
+def _preprocessing_recipe() -> dict[str, object]:
+    return default_no_treatment_contract(
+        feature_names=["numeric", "category"]
+    )
+
+
 def _train(
     *,
     policy: dict[str, object],
@@ -68,6 +75,7 @@ def _train(
         fold_definition_id="governed-folds-v1",
         model_params=model_params,
         validation_policy=policy,
+        preprocessing_recipe=_preprocessing_recipe(),
     )
 
 
@@ -75,19 +83,28 @@ def test_fold_local_preprocessing_fits_each_training_fold_and_never_a_holdout() 
     observed_fit_values: list[set[float]] = []
 
     class SpyPreprocessor(BaseEstimator, TransformerMixin):
+        def __init__(self, **kwargs: object):
+            self.kwargs = kwargs
+
         def fit(self, X: pd.DataFrame, y: object = None):
             observed_fit_values.append(set(pd.to_numeric(X["numeric"])))
+            self.preprocessing_artifact_ = {
+                "artifact_checksum": f"mock-{len(observed_fit_values)}"
+            }
             return self
 
         def transform(self, X: pd.DataFrame) -> np.ndarray:
             return pd.to_numeric(X["numeric"]).to_numpy(dtype=float).reshape(-1, 1)
+
+        def fitted_artifact(self, **kwargs: object) -> dict[str, object]:
+            return {**self.preprocessing_artifact_, **kwargs}
 
     development, _target, folds = _development_data()
     holdout_sentinel = 999_999.0
     with patch.object(
         trainer_module,
         "_make_preprocessor",
-        side_effect=lambda _frame: SpyPreprocessor(),
+        side_effect=lambda *_args, **kwargs: SpyPreprocessor(**kwargs),
     ):
         result = _train(policy=_policy())
 
@@ -153,13 +170,32 @@ def test_governed_class_weight_overrides_browser_model_parameter() -> None:
     assert unweighted_model.named_steps["model"].class_weight is None
 
 
-def test_model_native_policy_skips_shared_preprocessor_in_every_fold() -> None:
+def test_model_native_policy_executes_governed_recipe_without_encoding_or_scaling() -> None:
     frame, target, folds = _development_data()
     numeric_frame = frame[["numeric"]]
+    observed: list[dict[str, object]] = []
+
+    class NativeSpy(BaseEstimator, TransformerMixin):
+        def __init__(self, **kwargs: object):
+            self.kwargs = kwargs
+
+        def fit(self, X: pd.DataFrame, y: object = None):
+            observed.append(dict(self.kwargs))
+            self.preprocessing_artifact_ = {
+                "artifact_checksum": f"native-{len(observed)}"
+            }
+            return self
+
+        def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+            return X.copy()
+
+        def fitted_artifact(self, **kwargs: object) -> dict[str, object]:
+            return {**self.preprocessing_artifact_, **kwargs}
+
     with patch.object(
         trainer_module,
         "_make_preprocessor",
-        side_effect=AssertionError("shared preprocessor must not run"),
+        side_effect=lambda *_args, **kwargs: NativeSpy(**kwargs),
     ):
         result = train_models(
             X_train=numeric_frame,
@@ -173,14 +209,19 @@ def test_model_native_policy_skips_shared_preprocessor_in_every_fold() -> None:
             validation_policy=_policy(
                 fold_local_preprocessing="model_native_per_fold"
             ),
+            preprocessing_recipe=default_no_treatment_contract(
+                feature_names=["numeric"]
+            ),
         )
 
     assert result["ok"] is True
     execution = result["summary"]["ranked"][0]["validation_policy_execution"]
     assert all(
-        fold["preprocessing_execution"] == "model_native_training_rows"
+        fold["preprocessing_execution"] == "governed_recipe_model_native_matrix"
         for fold in execution["folds"]
     )
+    assert len(observed) == len(folds) + 1
+    assert all(item.get("encode_and_scale") is False for item in observed)
     assert execution["final_holdout_access"] == "none"
 
 

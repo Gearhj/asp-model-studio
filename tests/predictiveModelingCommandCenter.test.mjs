@@ -104,7 +104,7 @@ test("Feature Engineering makes the seven-stage execution pipeline and hash gate
   );
 });
 
-test("Validation Design owns all five strategies, folds, protections, and visuals", () => {
+test("Validation Design owns the two user-facing approaches, folds, protections, and visuals", () => {
   const normalizedValidationUi = validationUi.replace(/\s+/g, " ");
   assert.match(validationUi, /title="Training and Validation Design"/);
   for (const testId of [
@@ -119,22 +119,16 @@ test("Validation Design owns all five strategies, folds, protections, and visual
     );
   }
   for (const strategy of [
-    "Holdout from Current Development Dataset",
-    "Separate TEST Dataset",
-    "Separate TEST and OOT Datasets",
-    "Cross-Validation Strategy",
-    "Hybrid Holdout plus Cross-Validation",
+    "K-fold cross-validation",
+    "Traditional TRAIN / TEST / OOT setup",
+    "TEST and OOT datasets are selected later",
   ]) {
     assert.ok(normalizedValidationUi.includes(strategy), `missing validation strategy: ${strategy}`);
   }
   for (const control of [
-    "Fold method",
+    "Validation approach",
     "Number of folds",
-    "Repeats",
-    "Governed group field",
-    "Governed time field",
     "Shuffle before folding",
-    "Inner tuning folds",
   ]) {
     assert.ok(validationUi.includes(control), `missing CV control: ${control}`);
   }

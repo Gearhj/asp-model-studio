@@ -208,9 +208,17 @@ class DatasetStore:
         if self.raw_df is None or self.raw_df.empty:
             return self.raw_df
 
-        selected = [column for column in self.get_selected_columns() if column in self.raw_df.columns]
+        selected = [
+            column
+            for column in self.get_selected_columns()
+            if column in self.raw_df.columns
+            and (include_target or column != self.target)
+        ]
         if not selected:
-            return self.raw_df.copy()
+            fallback = self.raw_df.copy()
+            if not include_target and self.target in fallback.columns:
+                fallback = fallback.drop(columns=[self.target])
+            return fallback
 
         keep = list(selected)
         if include_target and self.target and self.target in self.raw_df.columns and self.target not in keep:
@@ -231,7 +239,10 @@ class DatasetStore:
 
         selected = [column for column in self.get_selected_columns() if column in df.columns]
         if not selected:
-            return df.copy()
+            fallback = df.copy()
+            if not include_target and self.target in fallback.columns:
+                fallback = fallback.drop(columns=[self.target])
+            return fallback
 
         keep = list(selected)
         if include_target and self.target and self.target in df.columns and self.target not in keep:

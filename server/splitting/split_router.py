@@ -504,7 +504,14 @@ def _compatibility_matrix(
 
 
 def _require_full_dataset(store: Any = DATASTORE):
-    frame = store.get_base_df()
+    # A governed feature-engineering materialization may add approved predictor
+    # columns.  Outlier/missing applications are recipes only and must never
+    # become a globally fitted split authority.
+    processed_stage = str(store.meta.get("processed_stage") or "")
+    if processed_stage == "feature_engineering" and store.processed_df is not None:
+        frame = store.processed_df.copy(deep=True)
+    else:
+        frame = store.raw_df.copy(deep=True) if store.raw_df is not None else None
     if frame is None or frame.empty:
         raise HTTPException(status_code=400, detail="No full backend dataset is loaded.")
     target = str(store.target or "")
@@ -1127,8 +1134,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             if isinstance(scoped_store.meta.get("split_record"), dict)
             else {}
         )
-        existing_has_split = all(
-            part is not None for part in scoped_store.get_splits()
+        existing_has_split = (
+            scoped_store.X_train is not None
+            and scoped_store.y_train is not None
+            and scoped_store.X_test is None
+            and scoped_store.y_test is None
         )
         existing_split_status = str(
             scoped_store.meta.get("split_status") or ""
@@ -1370,15 +1380,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                     ]
                 )
             )
-            (
-                development_X,
-                sealed_holdout_X,
-                development_y,
-                sealed_holdout_y,
-            ) = analysis_partition_service.materialize_validation(
-                scoped_store,
-                current_partition,
-                partition_materialization_fields,
+            development_X, development_y = (
+                analysis_partition_service.materialize_training_development(
+                    scoped_store,
+                    current_partition,
+                    selected_features=partition_materialization_fields,
+                )
             )
         except AnalysisPartitionError as exc:
             raise HTTPException(
@@ -1513,9 +1520,10 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             ),
             external_test_target=test_target,
             prepartitioned_development=development_X,
-            prepartitioned_holdout=sealed_holdout_X,
             prepartitioned_development_target=development_y,
-            prepartitioned_holdout_target=sealed_holdout_y,
+            sealed_holdout_row_count=int(
+                safe_partition.get("holdout_count") or 0
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1755,7 +1763,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                 or []
             )
         ),
-        "populations_created": bool(len(result.y_train)) and bool(len(result.y_test)),
+        "populations_created": bool(len(result.y_train))
+        and int(result.sealed_holdout_rows) > 0,
         "event_coverage_sufficient": event_coverage_sufficient,
         "holdout_protection_confirmed": payload.holdout_protection_confirmed,
         "cv_design_approved": (
@@ -1966,16 +1975,16 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "confirmation_time": approved_at,
         "evaluation_population_role": result.evaluation_population_role,
         "n_train": int(len(result.y_train)),
-        "n_test": int(len(result.y_test)),
+        "n_test": int(result.sealed_holdout_rows),
         "original_train_rows": result.original_train_rows,
         "duration_ms": int((time.perf_counter() - started) * 1000),
     }
     record["execution_ms"] = record["duration_ms"]
     committed_splits = (
         result.X_train.copy(deep=True),
-        result.X_test.copy(deep=True),
+        None,
         result.y_train.copy(deep=True),
-        result.y_test.copy(deep=True),
+        None,
     )
     with scoped_store.state_lock:
         current_identity = assert_expected_active_identity(
@@ -2049,8 +2058,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                 "Validation Design revision transition was not monotonic."
             )
 
-        # Publish the four arrays and every matching metadata record together.
-        # No consumer can observe a new split with an old design (or vice versa).
+        # Publish Development arrays and the sealed-holdout reference together.
+        # Final-holdout rows remain absent until the Evaluation reporting boundary.
         scoped_store.meta["selected_columns"] = list(selected)
         (
             scoped_store.X_train,

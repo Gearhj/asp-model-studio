@@ -5928,6 +5928,7 @@ function AnalysisPartitionWorkspace(props: {
         MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH);
   const createdBy = recordOrEmpty(partition?.created_by);
   const createdByLabel = String(createdBy.display_name ?? createdBy.user_id ?? partition?.created_by ?? partition?.actor_user_id ?? "Unavailable");
+  const registeredRows = optionalFiniteNumber(partition?.population_count);
   const developmentRows = optionalFiniteNumber(partition?.development_rows ?? partition?.development_count);
   const holdoutRows = optionalFiniteNumber(partition?.sealed_holdout_rows ?? partition?.holdout_rows ?? partition?.holdout_count);
   const evidenceId = String(partition?.evidence_id ?? partition?.evidence_ref ?? partition?.partition_evidence_id ?? "");
@@ -6083,8 +6084,9 @@ function AnalysisPartitionWorkspace(props: {
               <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <SummaryDatum label="Partition ID" value={partition?.analysis_partition_id ?? "Unavailable"} mono />
                 <SummaryDatum label="Revision" value={partition?.revision ?? "Unavailable"} />
-                <SummaryDatum label="Development rows" value={developmentRows == null ? "Unavailable" : developmentRows.toLocaleString()} />
-                <SummaryDatum label="Final holdout rows" value={holdoutRows == null ? "Unavailable" : holdoutRows.toLocaleString()} />
+                <SummaryDatum label="Registered Population" value={registeredRows == null ? "Unavailable" : registeredRows.toLocaleString()} />
+                <SummaryDatum label="Development Population" value={developmentRows == null ? "Unavailable" : developmentRows.toLocaleString()} />
+                <SummaryDatum label="Sealed Final Holdout" value={holdoutRows == null ? "Unavailable" : holdoutRows.toLocaleString()} />
                 <SummaryDatum label="Partition method" value={partition?.partition_method ?? "Unavailable"} />
                 <SummaryDatum label="Random seed" value={partition?.random_seed ?? "Unavailable"} />
                 <SummaryDatum label="Stratification" value={partition?.stratification_policy === "target" ? `Target · ${partition?.stratification_field ?? "field unavailable"}` : partition?.stratification_policy ?? "Unavailable"} />
@@ -6663,6 +6665,18 @@ function TargetSetup(props: {
   setNonEventValue: (value: unknown) => void;
   problemType: "classification" | "regression";
 }) {
+  const [targetSearch, setTargetSearch] = useState("");
+  const allTargetOptions = props.headers.filter(Boolean);
+  const normalizedTargetSearch = targetSearch.trim().toLowerCase();
+  const filteredTargetOptions = normalizedTargetSearch
+    ? allTargetOptions.filter((header) =>
+        header.toLowerCase().includes(normalizedTargetSearch),
+      )
+    : allTargetOptions;
+  const visibleTargetOptions =
+    props.target && !filteredTargetOptions.includes(props.target)
+      ? [props.target, ...filteredTargetOptions]
+      : filteredTargetOptions;
   const targetSelected = Boolean(props.target);
   const targetConfirmed = targetSelected && props.contractConfirmed;
   return (
@@ -6725,10 +6739,19 @@ function TargetSetup(props: {
         <p id="data-acquisition-target-help" className="mt-1 text-xs leading-5 text-slate-600">
           Choose the outcome to predict. Your loaded dataset stays selected while this draft target contract is reviewed.
         </p>
+        <input
+          type="search"
+          className="atlas-input mt-3"
+          value={targetSearch}
+          onChange={(event) => setTargetSearch(event.target.value)}
+          placeholder="Search target columns"
+          aria-label="Search target columns"
+          data-testid="target-column-search"
+        />
         <select
           id="data-acquisition-target-column"
           data-testid="target-column-select"
-          className="mt-3 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200"
+          className="mt-2 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200"
           value={props.target}
           onChange={(event) => props.setTarget(event.target.value)}
           required
@@ -6736,10 +6759,14 @@ function TargetSetup(props: {
           aria-describedby="data-acquisition-target-help"
         >
           <option value="" disabled>Select a target column</option>
-          {props.headers.filter(Boolean).map((header) => (
+          {visibleTargetOptions.map((header) => (
             <option key={header} value={header}>{header}</option>
           ))}
         </select>
+        <p className="mt-1 text-xs text-slate-600">
+          Showing {visibleTargetOptions.length.toLocaleString()} of{" "}
+          {allTargetOptions.length.toLocaleString()} columns.
+        </p>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {props.problemType === "classification" ? (
@@ -7093,6 +7120,10 @@ function DataPreview(props: {
 function DataQualityPanel({ quality }: { quality: DataQualitySummary | null }) {
   if (!quality) return <div className="atlas-empty-state text-sm text-slate-600">Quality profiling has not been generated.</div>;
   const actualOr = (values: string[], empty = "None detected") => values.length ? values.join(", ") : empty;
+  const duplicateContract = quality.duplicateContract;
+  const duplicateDefinition = duplicateContract
+    ? `${duplicateContract.redundant_duplicate_rows.toLocaleString()} redundant rows beyond the retained ${duplicateContract.keep_semantics} occurrence; ${duplicateContract.duplicate_participant_rows.toLocaleString()} participant rows across ${duplicateContract.duplicate_group_count.toLocaleString()} exact groups; Registered Population; ${duplicateContract.comparison_column_count.toLocaleString()} comparison columns; target ${duplicateContract.target_included ? "included" : "excluded"}.`
+    : `${quality.duplicateRows.toLocaleString()} redundant rows in the browser ${quality.profileScope === "preview_profile" ? "preview sample" : "working copy"}; non-authoritative until the backend duplicate contract is available.`;
   return (
     <div className="space-y-4">
       {!!quality.warnings?.length && (
@@ -7106,7 +7137,7 @@ function DataQualityPanel({ quality }: { quality: DataQualitySummary | null }) {
           is reserved for genuinely neutral information. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <QualityGroup title="Row and column health" tone={quality.duplicateRows || quality.constantColumns.length || quality.nearZeroVarianceColumns.length ? "warning" : "success"}>
-          <QualityLine label="Duplicate rows" value={quality.duplicateRows.toLocaleString()} />
+          <QualityLine label="Exact duplicate definition" value={duplicateDefinition} />
           <QualityLine label="Duplicate ID candidates" value={actualOr(quality.duplicateIdCandidates)} />
           <QualityLine label="Constant columns" value={actualOr(quality.constantColumns)} />
           <QualityLine label="Near-zero variance" value={actualOr(quality.nearZeroVarianceColumns)} />

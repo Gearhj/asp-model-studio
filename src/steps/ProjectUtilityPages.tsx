@@ -484,10 +484,12 @@ export function OpenProject({ onSessionExpired }: OpenProjectProps = {}) {
       }
 
       const effective = projectEffectiveWorkflow(authorizedProject);
-      const relativeRoute = currentWorkflowStage(
-        effective.effectiveWorkflowSteps,
-        effective.effectiveCurrentStepId,
-      )?.route || (authorizedProject.projectType === "predictive-modeling" ? "/step00" : "/project-overview");
+      const relativeRoute = authorizedProject.projectType === "predictive-modeling"
+        ? "/step00"
+        : currentWorkflowStage(
+            effective.effectiveWorkflowSteps,
+            effective.effectiveCurrentStepId,
+          )?.route || "/project-overview";
       if (authorizedProject.projectType !== "predictive-modeling") {
         // Compatibility only: non-predictive workflows do not yet have the
         // project-scoped provider. Predictive routes never hydrate from this

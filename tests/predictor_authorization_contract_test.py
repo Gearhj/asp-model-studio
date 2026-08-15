@@ -3,7 +3,15 @@ from __future__ import annotations
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
+import pandas as pd
+
+from server.core.metadata_router import _persist_predictor_authorization
+from server.preprocessing.predictor_authorization import (
+    verify_durable_predictor_authorization,
+)
 from server.persistence.db import Database
 from server.persistence.repositories.predictor_authorization_repository import (
     PredictorAuthorizationRepository,
@@ -99,6 +107,74 @@ class PredictorAuthorizationContractTest(unittest.TestCase):
                     "DELETE FROM predictor_authorization_manifests WHERE predictor_authorization_id = ?",
                     (record["predictor_authorization_id"],),
                 )
+
+    def test_data_acquisition_persists_deterministic_target_source_evidence(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "ordinary_predictor": [10, 10, 20, 20, 30, 30],
+                "status_source": ["Good", "Bad", "Good", "Bad", "Good", "Bad"],
+                "bad_flag": [0, 1, 0, 1, 0, 1],
+            }
+        )
+        predictor_repository = Mock()
+        evidence_repository = Mock()
+        persistence = SimpleNamespace(
+            ensure_project=Mock(),
+            predictor_authorizations=predictor_repository,
+            evidence=evidence_repository,
+        )
+        identity = {
+            "dataset_id": "dataset-a",
+            "dataset_version_id": "version-a",
+        }
+        with patch(
+            "server.core.metadata_router.get_persistence_service",
+            return_value=persistence,
+        ):
+            manifest = _persist_predictor_authorization(
+                project_id="project-a",
+                identity=identity,
+                target="bad_flag",
+                event_value=1,
+                non_event_value=0,
+                frame=frame,
+                selected_columns=["ordinary_predictor", "status_source"],
+                user={"userId": "reviewer-a"},
+            )
+
+        self.assertEqual(
+            manifest["target_source_detection_scope"],
+            "registered_population_pre_partition",
+        )
+        self.assertEqual(manifest["target_source_excluded"], ["status_source"])
+        self.assertEqual(manifest["authorized_predictors"], ["ordinary_predictor"])
+        self.assertEqual(
+            manifest["target_source_evidence_ref"],
+            manifest["predictor_authorization_id"],
+        )
+        evidence = manifest["target_source_fields"][0]
+        self.assertEqual(evidence["field"], "status_source")
+        self.assertEqual(evidence["compared_rows"], 6)
+        self.assertEqual(evidence["coverage_rate"], 1.0)
+        self.assertEqual(
+            {(row["sourceValue"], row["targetValue"], row["rowCount"]) for row in evidence["mapping"]},
+            {("Good", 0, 3), ("Bad", 1, 3)},
+        )
+        predictor_repository.set_current.assert_called_once_with(manifest)
+        evidence_repository.upsert.assert_called_once()
+
+        durable_record = {
+            **manifest,
+            "target_column": "bad_flag",
+            "manifest_json": manifest,
+        }
+        verified = verify_durable_predictor_authorization(
+            durable_record,
+            project_id="project-a",
+            dataset_id="dataset-a",
+            dataset_version_id="version-a",
+        )
+        self.assertEqual(verified["target_source_fields"], [evidence])
 
 
 if __name__ == "__main__":

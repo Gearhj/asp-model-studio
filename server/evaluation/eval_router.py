@@ -15,7 +15,7 @@ from ..core.session_checkpoint import flush_checkpoint, schedule_checkpoint_save
 from ..model_registry import model_registry_service as REGISTRY
 from ..security.security_store import audit_event, require_user
 from ..scoring_runs.scoring_run_service import create_failed_scoring_run, create_scoring_run
-from .eval_service import EVAL
+from .eval_service import EVAL, SELECTION_REVIEW_EVIDENCE_SCOPE
 
 
 router = APIRouter()
@@ -66,10 +66,32 @@ def _lineage_context(
     split_id: str = Query(...),
     target: str = Query(...),
     problem_type: str = Query(...),
-    candidate_decision_id: str = Query(...),
+    candidate_decision_id: str = Query(""),
     evaluation_package_id: str = Query(""),
+    evidence_scope: str = Query(""),
     user: Dict[str, Any] = Depends(require_user),
 ) -> dict:
+    normalized_scope = str(evidence_scope or "").strip()
+    if normalized_scope not in {"", SELECTION_REVIEW_EVIDENCE_SCOPE}:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Unsupported evidence_scope. Use the governed reporting path "
+                "or explicit selection_review."
+            ),
+        )
+    normalized_decision_id = str(candidate_decision_id or "").strip()
+    if (
+        normalized_scope != SELECTION_REVIEW_EVIDENCE_SCOPE
+        and not normalized_decision_id
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Exact Evaluation lineage is required: "
+                "candidate_decision_id"
+            ),
+        )
     return {
         **_context(
         project_id=project_id,
@@ -84,9 +106,10 @@ def _lineage_context(
         split_id=split_id,
         target=target,
         problem_type=problem_type,
-        candidate_decision_id=candidate_decision_id,
+        candidate_decision_id=normalized_decision_id,
         ),
         "evaluation_package_id": str(evaluation_package_id).strip(),
+        "evidence_scope": normalized_scope,
         "_actor_user_id": str(user.get("userId") or ""),
     }
 
@@ -163,6 +186,12 @@ def _prepare_interpretation_context(
         "evaluation_package_id": ("evaluationPackageId", "evaluation_package_id"),
         "candidate_decision_id": ("candidateDecisionId", "candidate_decision_id"),
     }
+    if (
+        str(context.get("evidence_scope") or "").strip()
+        == SELECTION_REVIEW_EVIDENCE_SCOPE
+    ):
+        aliases.pop("evaluation_package_id", None)
+        aliases.pop("candidate_decision_id", None)
     for field, field_aliases in aliases.items():
         expected = str(context.get(field) or "").strip()
         values = _version_bound_value(version, field_aliases)
@@ -189,17 +218,30 @@ def _prepare_interpretation_context(
 
 
 def _interpretation_context(
-    evaluation_package_id: str = Query(...),
+    evaluation_package_id: str = Query(""),
     model_version_id: str = Query(""),
     context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ) -> dict:
     authorize_modeling_scope(user, context["project_id"], "view")
+    normalized_package_id = str(evaluation_package_id or "").strip()
+    if (
+        str(context.get("evidence_scope") or "").strip()
+        != SELECTION_REVIEW_EVIDENCE_SCOPE
+        and not normalized_package_id
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Exact Interpretation lineage is required: "
+                "evaluation_package_id"
+            ),
+        )
     return _prepare_interpretation_context(
         user,
         {
             **context,
-            "evaluation_package_id": str(evaluation_package_id).strip(),
+            "evaluation_package_id": normalized_package_id,
             "model_version_id": str(model_version_id).strip(),
         },
     )
@@ -248,6 +290,24 @@ def _evaluation_response(
     analysis_type: str,
     actor_user_id: str,
 ) -> Dict[str, Any]:
+    if (
+        str(context.get("evidence_scope") or "").strip()
+        == SELECTION_REVIEW_EVIDENCE_SCOPE
+    ):
+        population = (
+            "development_out_of_fold"
+            if analysis_type in {"curves", "deciles", "command_center"}
+            else "development_population"
+        )
+        return _lineage_response(
+            EVAL.bind_selection_review(
+                model,
+                context,
+                payload,
+                analysis_type,
+                population,
+            )
+        )
     bound = EVAL.bind_evaluation_package(
         model,
         context,
@@ -289,6 +349,19 @@ def _interpretation_response(
     payload: Dict[str, Any],
     analysis_type: str,
 ) -> Dict[str, Any]:
+    if (
+        str(context.get("evidence_scope") or "").strip()
+        == SELECTION_REVIEW_EVIDENCE_SCOPE
+    ):
+        return _lineage_response(
+            EVAL.bind_selection_review(
+                model,
+                context,
+                payload,
+                analysis_type,
+                "development_population",
+            )
+        )
     return _lineage_response(
         EVAL.bind_interpretation_artifact(
             model,
@@ -323,6 +396,18 @@ def _publish_final_version(
             status_code=409,
             detail="The exact resolved candidate artifact is unavailable for durable publication.",
         )
+    promotion_metadata = handoff.get("promotion_metadata")
+    promotion_metadata = (
+        promotion_metadata if isinstance(promotion_metadata, dict) else {}
+    )
+    candidate_model_name = str(
+        promotion_metadata.get("model_name") or ""
+    ).strip()
+    if not candidate_model_name:
+        raise HTTPException(
+            status_code=409,
+            detail="The exact candidate has no durable human-readable model name.",
+        )
 
     metrics_summary = metadata.get("metrics") or {
         key: metadata.get(key)
@@ -341,6 +426,7 @@ def _publish_final_version(
             f"ATLAS::{context['dataset_id']}::"
             f"{context['dataset_version_id']}::{context['target']}"
         ),
+        candidate_model_name=candidate_model_name,
         problem_type=context["problem_type"],
         algorithm=str(handoff["algorithm_id"]),
         algorithm_version=str(handoff.get("algorithm_version") or metadata.get("source_estimator_class") or "unknown"),
@@ -523,7 +609,7 @@ def get_curves(
     context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    """Return curves computed from the persisted governed holdout predictions."""
+    """Return governed holdout curves or explicit persisted-OOF review curves."""
     authorize_modeling_scope(user, context["project_id"], "view")
     candidate_id = context["candidate_id"]
     return _evaluation_response(candidate_id, context, EVAL.get_curves(candidate_id, context), "curves", str(user.get("userId") or ""))
@@ -534,7 +620,7 @@ def get_deciles(
     context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    """Return deciles computed from the persisted governed holdout predictions."""
+    """Return governed holdout deciles or explicit persisted-OOF review deciles."""
     authorize_modeling_scope(user, context["project_id"], "view")
     candidate_id = context["candidate_id"]
     return _evaluation_response(candidate_id, context, EVAL.get_deciles(candidate_id, context), "deciles", str(user.get("userId") or ""))
@@ -547,10 +633,10 @@ def get_evaluation_command_center(
     context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    """Return final-holdout reporting at an already selected threshold.
+    """Return governed reporting or explicit read-only selection review.
 
-    The endpoint does not optimize or recommend thresholds from final-holdout
-    labels or scores.
+    The endpoint never optimizes or recommends thresholds from final-holdout
+    labels or scores. Selection review uses persisted OOF evidence only.
     """
     authorize_modeling_scope(user, context["project_id"], "view")
     candidate_id = context["candidate_id"]
@@ -811,6 +897,7 @@ def get_final_model_status(
         }
     model_version_id = str(resolved.get("modelVersionId") or version.get("modelVersionId") or "")
     lineage = version.get("lineage") if isinstance(version.get("lineage"), dict) else {}
+    model_name = str(resolved.get("modelName") or "").strip()
     metadata = {
         **version,
         "project_id": project_id,
@@ -827,6 +914,9 @@ def get_final_model_status(
         "validation_design_version": lineage.get("validationDesignVersion"),
         "split_id": version.get("splitId") or lineage.get("splitId"),
         "model_id": resolved.get("modelId"),
+        "name": model_name,
+        "model_name": model_name,
+        "modelName": model_name,
         "model_version_id": model_version_id,
         "modelId": resolved.get("modelId"),
         "modelVersionId": model_version_id,
@@ -923,28 +1013,239 @@ def export_model(
     )
 
 
+def _resolve_exact_scoring_version(
+    user: Dict[str, Any],
+    *,
+    project_id: str,
+    model_version_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    target: str,
+) -> tuple[Any, Dict[str, Any]]:
+    """Resolve one immutable registry version for scoring, never a champion.
+
+    The caller authorizes ``project_id`` before entering this helper.  The
+    registry independently authorizes the version's owning project, and the
+    explicit comparisons below prevent a caller who can access two projects
+    from combining one project's version with the other's scoring context.
+    """
+
+    requested = {
+        "projectId": str(project_id or "").strip(),
+        "modelVersionId": str(model_version_id or "").strip(),
+        "datasetId": str(dataset_id or "").strip(),
+        "datasetVersionId": str(dataset_version_id or "").strip(),
+        "targetName": str(target or "").strip(),
+    }
+    missing = [key for key, value in requested.items() if not value]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Exact scoring context is required: " + ", ".join(missing),
+        )
+
+    version = REGISTRY.get_version(user, requested["modelVersionId"])
+    for field in ("modelVersionId", "projectId", "datasetId", "datasetVersionId", "targetName"):
+        if str(version.get(field) or "").strip() != requested[field]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The exact registered model version does not match {field}.",
+            )
+    if (
+        str(version.get("publicationStatus") or "").casefold() != "finalized"
+        or str(version.get("lineageStatus") or "").casefold() != "verified"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The exact registered model version is not finalized with "
+                "verified lineage."
+            ),
+        )
+
+    lineage = version.get("lineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    candidate_contract = lineage.get("candidateContract")
+    if not isinstance(candidate_contract, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="The exact registered model version has no frozen candidate contract.",
+        )
+    model_contract = (
+        version.get("modelContract")
+        if isinstance(version.get("modelContract"), dict)
+        else {}
+    )
+    target_definition = candidate_contract.get("target_definition")
+    target_definition = target_definition if isinstance(target_definition, dict) else {}
+    problem_type = str(
+        candidate_contract.get("problem_type")
+        or target_definition.get("problem_type")
+        or ""
+    ).strip().casefold()
+    if problem_type not in {"classification", "regression"}:
+        raise HTTPException(
+            status_code=409,
+            detail="The exact registered model version has no valid frozen problem type.",
+        )
+
+    # This is the only executable-artifact load in either scoring route.  The
+    # registry verifies checksum, immutable lineage, and project ownership as
+    # part of deserialization; there is deliberately no RESULTS/latest/final
+    # recovery branch.
+    artifact = REGISTRY.load_version_artifact(
+        user,
+        requested["modelVersionId"],
+        expected_project_id=requested["projectId"],
+    )
+
+    interpretation = version.get("interpretationSummary")
+    interpretation = interpretation if isinstance(interpretation, dict) else {}
+    features = interpretation.get("selectedFeatures")
+    if not isinstance(features, list):
+        features = [
+            *list(candidate_contract.get("selected_original_features") or []),
+            *list(candidate_contract.get("selected_engineered_features") or []),
+        ]
+    threshold_configuration = candidate_contract.get("threshold_configuration")
+    threshold_configuration = (
+        threshold_configuration
+        if isinstance(threshold_configuration, dict)
+        else {}
+    )
+    locked_threshold = version.get("lockedThreshold")
+    if locked_threshold is None:
+        locked_threshold = threshold_configuration.get("locked_threshold")
+    positive_class = lineage.get("positiveClass")
+    if positive_class is None:
+        positive_class = candidate_contract.get("positive_class")
+
+    metadata = {
+        "modelId": version.get("modelId"),
+        "modelVersionId": requested["modelVersionId"],
+        "modelVersion": version.get("versionNumber"),
+        "model_key": str(
+            version.get("algorithm")
+            or candidate_contract.get("algorithm_id")
+            or requested["modelVersionId"]
+        ),
+        "name": str(
+            version.get("algorithm")
+            or candidate_contract.get("algorithm_id")
+            or requested["modelVersionId"]
+        ),
+        "project_id": requested["projectId"],
+        "projectId": requested["projectId"],
+        "dataset_id": requested["datasetId"],
+        "datasetId": requested["datasetId"],
+        "dataset_version_id": requested["datasetVersionId"],
+        "datasetVersionId": requested["datasetVersionId"],
+        "target": requested["targetName"],
+        "target_name": requested["targetName"],
+        "targetName": requested["targetName"],
+        "problem_type": problem_type,
+        "problemType": problem_type,
+        "features": [str(value) for value in features],
+        "trained_feature_names": [str(value) for value in features],
+        "feature_manifest_version": version.get("featureManifestVersion"),
+        "featureManifestVersion": version.get("featureManifestVersion"),
+        "candidate_contract": candidate_contract,
+        "candidateContract": candidate_contract,
+        "candidate_decision_id": model_contract.get("candidateDecisionId"),
+        "candidateDecisionId": model_contract.get("candidateDecisionId"),
+        "final_preprocessing_artifact": model_contract.get(
+            "finalPreprocessingArtifact"
+        ),
+        "preprocessing_contract_version": model_contract.get(
+            "preprocessingContractVersion"
+        ),
+        "preprocessing_policy_id": model_contract.get(
+            "preprocessingPolicyId"
+        ),
+        "preprocessing_policy_revision": model_contract.get(
+            "preprocessingPolicyRevision"
+        ),
+        "preprocessing_policy_hash": model_contract.get(
+            "preprocessingPolicyHash"
+        ),
+        "final_preprocessing_artifact_checksum": model_contract.get(
+            "finalPreprocessingArtifactChecksum"
+        ),
+        "preprocessing_fit_scope": model_contract.get(
+            "preprocessingFitScope"
+        ),
+        "preprocessing_fit_population_id": model_contract.get(
+            "preprocessingFitPopulationId"
+        ),
+        "preprocessing_fit_population_rows": model_contract.get(
+            "preprocessingFitPopulationRows"
+        ),
+        "locked_threshold": locked_threshold,
+        "lockedThreshold": locked_threshold,
+        "threshold_source": version.get("thresholdSource")
+        or threshold_configuration.get("threshold_source"),
+        "positive_class": positive_class,
+        "positiveClass": positive_class,
+        "publication_status": "finalized",
+        "publicationStatus": "finalized",
+        "lineage_status": "verified",
+        "lineageStatus": "verified",
+        "artifactVerified": True,
+        "artifactChecksum": version.get("checksum"),
+        "trainingTimestamp": version.get("trainingTimestamp"),
+        "lineage": lineage,
+    }
+    return artifact, metadata
+
+
 @router.post("/score/upload")
 async def score_upload(
     file: UploadFile = File(...),
     project_id: str = Query(...),
+    model_version_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    target: str = Query(...),
     dataset_type: str = "test",
-    model: str = "final",
     correction_method: str = "none",
     original_prior: float | None = None,
     model_prior: float | None = None,
     user: Dict[str, Any] = Depends(require_user),
 ):
     authorize_modeling_scope(user, project_id, "edit")
+    artifact, model_metadata = _resolve_exact_scoring_version(
+        user,
+        project_id=project_id,
+        model_version_id=model_version_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        target=target,
+    )
     content = await file.read()
     df = pd.read_csv(io.BytesIO(content))
     result = EVAL.score_dataset(
         df=df,
         dataset_type=dataset_type,
-        model_name=model,
         correction_method=correction_method,
         original_prior=original_prior,
         model_prior=model_prior,
+        model_artifact=artifact,
+        model_metadata=model_metadata,
     )
+    result.setdefault("model", model_metadata)
+    exact_context = {
+        "datasetIdentity": file.filename or f"{dataset_type.upper()} upload",
+        "source": "csv_upload",
+        "projectId": project_id,
+        "datasetId": dataset_id,
+        "datasetVersionId": dataset_version_id,
+        "target": target,
+        "modelId": model_metadata.get("modelId"),
+        "modelVersion": model_metadata.get("modelVersion"),
+        "modelVersionId": model_version_id,
+        "featureManifestVersion": model_metadata.get("featureManifestVersion"),
+        "problemType": model_metadata.get("problemType"),
+    }
     if result.get("ok"):
         result["dataset_identity"] = file.filename or f"{dataset_type.upper()} upload"
         result["dataset_version"] = f"sha256:{hashlib.sha256(content).hexdigest()[:16]}"
@@ -963,52 +1264,106 @@ async def score_upload(
                 break
         scoring_run = create_scoring_run(
             user, project_id, dataset_type, result,
-            dataset_context={"datasetIdentity": result.get("dataset_identity"), "source": "csv_upload"},
+            dataset_context=exact_context,
         )
-        if scoring_run:
-            result["scoringRunId"] = scoring_run["scoringRunId"]
+        if not scoring_run:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Scoring completed, but its exact durable scoring-run "
+                    "record could not be persisted. No success was returned."
+                ),
+            )
+        result["scoringRunId"] = scoring_run["scoringRunId"]
         schedule_checkpoint_save()
     else:
         failed_run = create_failed_scoring_run(
             user, project_id, dataset_type, str(result.get("error") or "Scoring failed."),
-            dataset_context={"datasetIdentity": file.filename or f"{dataset_type.upper()} upload", "source": "csv_upload"},
+            dataset_context=exact_context,
         )
-        if failed_run:
-            result["scoringRunId"] = failed_run["scoringRunId"]
+        if not failed_run:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Scoring failed and its exact durable failure record could "
+                    "not be persisted."
+                ),
+            )
+        result["scoringRunId"] = failed_run["scoringRunId"]
     return result
 
 
 @router.post("/score/development-split")
 def score_development_split(
     project_id: str = Query(...),
+    model_version_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    target: str = Query(...),
     dataset_type: str = "train",
-    model: str = "final",
     correction_method: str = "none",
     original_prior: float | None = None,
     model_prior: float | None = None,
     user: Dict[str, Any] = Depends(require_user),
 ):
     authorize_modeling_scope(user, project_id, "edit")
+    artifact, model_metadata = _resolve_exact_scoring_version(
+        user,
+        project_id=project_id,
+        model_version_id=model_version_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        target=target,
+    )
     result = EVAL.score_development_split(
         dataset_type=dataset_type,
-        model_name=model,
         correction_method=correction_method,
         original_prior=original_prior,
         model_prior=model_prior,
+        model_artifact=artifact,
+        model_metadata=model_metadata,
     )
+    result.setdefault("model", model_metadata)
+    exact_context = {
+        "datasetIdentity": result.get("dataset_identity"),
+        "source": "development_split",
+        "projectId": project_id,
+        "datasetId": dataset_id,
+        "datasetVersionId": dataset_version_id,
+        "target": target,
+        "modelId": model_metadata.get("modelId"),
+        "modelVersion": model_metadata.get("modelVersion"),
+        "modelVersionId": model_version_id,
+        "featureManifestVersion": model_metadata.get("featureManifestVersion"),
+        "problemType": model_metadata.get("problemType"),
+    }
     if result.get("ok"):
         scoring_run = create_scoring_run(
             user, project_id, result.get("dataset_type", dataset_type), result,
-            dataset_context={"datasetIdentity": result.get("dataset_identity"), "source": "development_split"},
+            dataset_context=exact_context,
         )
-        if scoring_run:
-            result["scoringRunId"] = scoring_run["scoringRunId"]
+        if not scoring_run:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Scoring completed, but its exact durable scoring-run "
+                    "record could not be persisted. No success was returned."
+                ),
+            )
+        result["scoringRunId"] = scoring_run["scoringRunId"]
         schedule_checkpoint_save()
     else:
         failed_run = create_failed_scoring_run(
             user, project_id, dataset_type, str(result.get("error") or "Scoring failed."),
-            dataset_context={"source": "development_split"},
+            dataset_context=exact_context,
         )
-        if failed_run:
-            result["scoringRunId"] = failed_run["scoringRunId"]
+        if not failed_run:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Scoring failed and its exact durable failure record could "
+                    "not be persisted."
+                ),
+            )
+        result["scoringRunId"] = failed_run["scoringRunId"]
     return result

@@ -20,6 +20,16 @@ test("temporary simulator renders an actionable current-versus-proposed comparis
   assert.match(explorer, /Current<\/th>.*Proposed<\/th>.*Delta<\/th>/s);
 });
 
+test("VIF simulator candidate is isolated from generic correlation selection", () => {
+  assert.match(step, /selectedVariable=\{vifVariable\}/);
+  assert.doesNotMatch(
+    step,
+    /<VifExplorer[\s\S]{0,300}selectedVariable=\{selectedVariable\}/,
+  );
+  assert.match(explorer, /resolveVifSimulatorCandidate/);
+  assert.match(explorer, /temporarilyExcludedVariables: \[activeVariable\]/);
+});
+
 
 test("resolution plan exposes every governed input", () => {
   for (const phrase of [
@@ -34,6 +44,20 @@ test("resolution plan exposes every governed input", () => {
     "Production availability",
   ]) {
     assert.match(panel, new RegExp(phrase));
+  }
+});
+
+test("vif review explains thresholds, tree-model relevance, and non-mutating planning", () => {
+  for (const phrase of [
+    "How to read VIF",
+    "Values under 3 are usually low concern",
+    "5–10 suggests redundancy",
+    "10\\+ needs material review",
+    "tree-based models tolerate correlated predictors",
+    "This creates recommendations only",
+    "It does not drop predictors, mutate the dataset, or",
+  ]) {
+    assert.match(explorer + panel, new RegExp(phrase));
   }
 });
 

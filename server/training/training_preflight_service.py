@@ -19,6 +19,11 @@ from ..datasets.dataset_identity import (
     resolve_registered_version,
 )
 from ..persistence.service import get_persistence_service
+from ..preprocessing.execution_contract import (
+    PreprocessingContractError,
+    resolve_preprocessing_contract,
+)
+from ..preprocessing.preprocessing_contract import duplicate_exclusion_blockers
 from ..security.security_store import active_user
 from .candidate_contract import canonical_contract_hash
 from .trainer import MODEL_CATALOG
@@ -1124,6 +1129,8 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     blocking: list[str] = []
     warnings: list[str] = []
     identity: dict[str, Any] = {}
+    governed_preprocessing_contract: dict[str, Any] = {}
+    preprocessing_contract_errors: list[dict[str, Any]] = []
     try:
         identity = assert_expected_active_identity(
             request.project_id,
@@ -1234,6 +1241,128 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         if isinstance(scoped_store.meta.get("analysis_partition"), dict)
         else {}
     )
+    preprocessing_identity = {
+        "project_id": str(identity.get("project_id") or request.project_id or ""),
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "target_contract_id": str(
+            analysis_partition.get("target_contract_id") or ""
+        ),
+        "predictor_authorization_id": str(
+            (scoped_store.meta.get("predictor_authorization") or {}).get(
+                "predictor_authorization_id"
+            )
+            or (scoped_store.meta.get("predictor_authorization") or {}).get(
+                "authorization_id"
+            )
+            or ""
+        ),
+        "partition_creation_predictor_authorization_id": str(
+            analysis_partition.get("predictor_authorization_id") or ""
+        ),
+        "analysis_partition_id": str(
+            analysis_partition.get("analysis_partition_id")
+            or split_record.get("analysis_partition_id")
+            or ""
+        ),
+        "analysis_partition_revision": int(
+            analysis_partition.get("revision")
+            or split_record.get("analysis_partition_revision")
+            or 0
+        ),
+        "source_checksum": str(
+            analysis_partition.get("source_checksum")
+            or identity.get("dataset_content_hash")
+            or ""
+        ),
+    }
+    try:
+        governed_preprocessing_contract = resolve_preprocessing_contract(
+            scoped_store.meta,
+            preprocessing_identity,
+        )
+    except PreprocessingContractError as exc:
+        detail = {
+            "ok": False,
+            "code": exc.code,
+            "message": str(exc),
+            "recovery": (
+                "Return to Outliers and Missing Values, reconfirm the current "
+                "governed recipe, and rebuild Validation Design."
+            ),
+        }
+        preprocessing_contract_errors.append(detail)
+        blocking.append(str(exc))
+
+    processed_stage = str(scoped_store.meta.get("processed_stage") or "")
+    if getattr(scoped_store, "processed_df", None) is not None and processed_stage not in {
+        "",
+        "feature_engineering",
+    }:
+        message = (
+            "A globally materialized preparation frame is present and cannot "
+            "enter cross-validation. Reconfirm the v2 recipe so the legacy "
+            "frame is quarantined, then rebuild Validation Design."
+        )
+        blocking.append(message)
+        preprocessing_contract_errors.append(
+            {
+                "ok": False,
+                "code": "global_preprocessing_frame_prohibited",
+                "message": message,
+            }
+        )
+    # Inspect resident storage directly.  Do not invoke a lazy/sentinel
+    # holdout accessor merely to prove that no pre-lock materialization exists.
+    resident_state = vars(scoped_store)
+    if resident_state.get("X_test") is not None or resident_state.get("y_test") is not None:
+        message = (
+            "Sealed final-holdout rows were materialized before candidate lock. "
+            "Rebuild Validation Design; training may store Development rows only."
+        )
+        blocking.append(message)
+        preprocessing_contract_errors.append(
+            {
+                "ok": False,
+                "code": "prelock_holdout_materialization_detected",
+                "message": message,
+            }
+        )
+
+    try:
+        from ..eda.documentation_service import eda_documentation_service
+
+        eda_state = eda_documentation_service.get_state(
+            str(identity.get("project_id") or request.project_id or ""),
+            expected_dataset_id=dataset_id or None,
+            expected_dataset_version_id=dataset_version_id or None,
+        )
+        approved_eda_record = (
+            eda_state.get("current_approved")
+            if isinstance(eda_state, dict)
+            else None
+        )
+        for duplicate_blocker in duplicate_exclusion_blockers(
+            approved_eda_record
+        ):
+            blocking.append(str(duplicate_blocker.get("message") or ""))
+            preprocessing_contract_errors.append(dict(duplicate_blocker))
+    except Exception as exc:
+        # EDA authority is already checked by its completion/feature gates. A
+        # failed authoritative read is nevertheless fail-closed for a possible
+        # population-membership decision.
+        message = (
+            "ATLAS could not verify the authoritative EDA duplicate disposition "
+            f"before training ({type(exc).__name__})."
+        )
+        blocking.append(message)
+        preprocessing_contract_errors.append(
+            {
+                "ok": False,
+                "code": "duplicate_authority_unavailable",
+                "message": message,
+            }
+        )
     target_authority_errors: list[dict[str, Any]] = []
     try:
         target_semantics_authority = _governed_training_target_semantics(
@@ -1496,7 +1625,37 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         warnings.append("High-cardinality categorical predictors may expand memory use: " + ", ".join(high_cardinality[:8]))
     missing_value_columns = [str(column) for column in X_train.columns if X_train[column].isna().any()] if X_train is not None else []
     if missing_value_columns:
-        warnings.append(f"Training-only imputation will be fitted for {len(missing_value_columns)} predictor(s) with missing values.")
+        missing_policy = (
+            governed_preprocessing_contract.get("missing_policy")
+            if isinstance(
+                governed_preprocessing_contract.get("missing_policy"), dict
+            )
+            else {}
+        )
+        missing_config = (
+            missing_policy.get("config")
+            if isinstance(missing_policy.get("config"), dict)
+            else {}
+        )
+        uncovered_missing = [
+            column
+            for column in missing_value_columns
+            if not isinstance(missing_config.get(column), dict)
+            or str(
+                (missing_config.get(column) or {}).get("strategy") or "None"
+            ).strip().casefold()
+            in {"", "none", "drop row"}
+        ]
+        if uncovered_missing:
+            blocking.append(
+                "The approved missing-value policy does not provide an "
+                "executable treatment for true-null predictors: "
+                + ", ".join(uncovered_missing)
+            )
+        else:
+            warnings.append(
+                f"Approved missing-value estimators will be fitted independently inside each fold for {len(missing_value_columns)} predictor(s)."
+            )
 
     min_class_count = 0
     if y_train is not None and problem_type == "classification" and len(y_train.value_counts()) >= 2:
@@ -1850,6 +2009,14 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         and durable_holdout_exposure is None
         and durable_holdout_exposure_check != "verification_failed"
     )
+    preprocessing_ready = bool(
+        governed_preprocessing_contract
+        and not preprocessing_contract_errors
+        # Reuse the resident-state snapshot above. A guarded/lazy holdout
+        # accessor must never be opened merely to assert pre-lock absence.
+        and resident_state.get("X_test") is None
+        and resident_state.get("y_test") is None
+    )
     checks = [
         readiness_check(
             "canonical_identity",
@@ -1956,6 +2123,15 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
             warning=request.max_parallel > max(1, recommended_parallel),
         ),
         readiness_check(
+            "governed_preprocessing_recipe",
+            preprocessing_ready,
+            (
+                "Approved preprocessing contract v2 will be fitted independently inside each Development fold."
+                if preprocessing_ready
+                else "A current complete preprocessing contract v2 is required; legacy/global fitted preparation is prohibited."
+            ),
+        ),
+        readiness_check(
             "final_holdout_sealed",
             final_holdout_sealed,
             "The final holdout remains sealed; preflight read development data only."
@@ -2056,6 +2232,15 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "final_holdout_status": final_holdout_status,
         "holdout_isolation_status": holdout_isolation_status,
         "validation_execution_policy": validation_execution_policy,
+        "preprocessing_policy_id": governed_preprocessing_contract.get(
+            "preprocessing_policy_id"
+        ),
+        "preprocessing_policy_revision": governed_preprocessing_contract.get(
+            "preprocessing_policy_revision"
+        ),
+        "preprocessing_policy_hash": governed_preprocessing_contract.get(
+            "preprocessing_policy_hash"
+        ),
     }
     state_hash = canonical_contract_hash(state_payload)
     preflight_id = f"training-preflight-{state_hash[:20]}"
@@ -2065,7 +2250,10 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "ready": ready,
         "readiness_status": "ready" if ready else "blocked",
         "blocking_errors": unique_blocking,
-        "blocking_details": target_authority_errors,
+        "blocking_details": [
+            *target_authority_errors,
+            *preprocessing_contract_errors,
+        ],
         "warnings": unique_warnings,
         "checks": checks,
         "preflight_id": preflight_id,
@@ -2119,6 +2307,10 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         ),
         "selection_resampling_status": selection_resampling_status,
         "validation_execution_policy": validation_execution_policy,
+        "governed_preprocessing_contract": governed_preprocessing_contract,
+        "preprocessing_contract_status": (
+            "current" if preprocessing_ready else "blocked"
+        ),
         "split_status": split_status,
         "validation_design": validation_design,
         "validation_design_id": validation_design_id,

@@ -14,6 +14,7 @@ from server.analytics import target_intelligence_router
 from server.analysis_partition.service import analysis_partition_service
 from server.core.dataset_store import DatasetStore
 from server.eda import eda_router
+import server.eda.workspace_service as workspace_service_module
 from server.eda.analytical_contract import EDAAnalyticalContractError
 from server.eda.workspace_service import (
     _predictor_authorization,
@@ -637,19 +638,15 @@ class EDAStrictPredictorAuthorityAndCacheTest(unittest.TestCase):
             "target_source_excluded": [],
             "target_source_fields": [],
         }
-        with patch(
-            "server.eda.workspace_service._detect_frame_target_sources",
-            side_effect=AssertionError(
-                "EDA must not recompute target sources under a durable authorization ID."
-            ),
-        ) as detector:
-            authorization = _predictor_authorization(
-                frame,
-                TARGET,
-                durable_manifest=manifest,
-            )
-
-        detector.assert_not_called()
+        self.assertFalse(
+            hasattr(workspace_service_module, "_detect_frame_target_sources"),
+            "Target-source discovery belongs to Data Acquisition, not EDA.",
+        )
+        authorization = _predictor_authorization(
+            frame,
+            TARGET,
+            durable_manifest=manifest,
+        )
         self.assertEqual(
             authorization["authorized_predictors"],
             ["risk", "upstream_signal"],

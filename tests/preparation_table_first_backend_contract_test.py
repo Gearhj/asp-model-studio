@@ -76,6 +76,32 @@ def configure(frame: pd.DataFrame) -> None:
             **canonical_identity(),
             "dataset_version": DATASET_VERSION_ID,
             "selected_columns": ["signal_driver", "secondary"],
+            "special_value_review": {
+                "special_value_review_id": "svr-table-first-contract-v1",
+                "revision": 1,
+                "status": "completed",
+                "detection_fingerprint": "table-first-special-lineage-v1",
+                "detection_json": {
+                    "variables": [
+                        {
+                            "variable": "signal_driver",
+                            "likely_bureau": True,
+                            "special_values": [
+                                {"value": -9.0},
+                                {"value": -8.0},
+                                {"value": -7.0},
+                            ],
+                        }
+                    ]
+                },
+                "decisions_json": [
+                    {
+                        "variable": "signal_driver",
+                        "policy": "preserve_informative",
+                        "rationale": "Synthetic governed bureau-code fixture.",
+                    }
+                ],
+            },
         }
     )
 
@@ -230,6 +256,14 @@ class TableFirstBackendContractTests(unittest.TestCase):
             target="bad_flag",
             selected_columns=DATASTORE.get_selected_columns(),
             predictor_authorization=_test_authorization(),
+            analytical_types={
+                "signal_driver": {
+                    "analytical_type": "numeric_continuous",
+                    "source": "data_dictionary",
+                    "authoritative_support": "test provider definition",
+                    "reason": "Continuous synthetic test signal.",
+                }
+            },
         )
 
         applied = {row["feature"]: row for row in applications}
