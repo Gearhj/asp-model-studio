@@ -2,7 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
-const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8001";
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8101";
+const frontendPort = Number(process.env.ASP_MODEL_STUDIO_FRONTEND_PORT || "5274");
+const previewPort = Number(process.env.ASP_MODEL_STUDIO_PREVIEW_PORT || "4274");
 
 export default defineConfig({
   plugins: [react()],
@@ -15,10 +17,10 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5174,
+    port: frontendPort,
     strictPort: true,
     proxy: {
-      // Allow fetch('/api/...') during local dev; proxied to FastAPI on 8001
+      // Allow fetch('/api/...') during local dev; proxied to the isolated backend.
       "/api": {
         target: apiProxyTarget,
         changeOrigin: true,
@@ -29,7 +31,7 @@ export default defineConfig({
   },
   preview: {
     host: "127.0.0.1",
-    port: 4174,
+    port: previewPort,
     strictPort: true,
   },
 });

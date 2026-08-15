@@ -1,0 +1,138 @@
+[
+    {
+        "relative_path":  "ATLAS_ANALYTICAL_SCOPE_AND_PREPROCESSING_INTEGRITY_REPAIR_REPORT.md",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  29220,
+        "sha256":  "d2b9108fd28b33e9f7740965e61a59bdcbba8fcaea5827055cb7849b6004a11f"
+    },
+    {
+        "relative_path":  "server/core/population_contract.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  27828,
+        "sha256":  "8af2b2ba6d3aa4e4f52b8d11c29121e76ce40dcfdcf3dd0f71de43515dbd79e0"
+    },
+    {
+        "relative_path":  "server/preprocessing/execution_contract.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  40317,
+        "sha256":  "7d51ba47c8deb2c5ffa95547f9830c48fea3decb19ad15d5a3437b744b459a66"
+    },
+    {
+        "relative_path":  "server/preprocessing/preprocessing_contract.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  54941,
+        "sha256":  "b4cab2082697608ab57e76c6a07aeb3a2eb551d949db669889929e3fcbed105b"
+    },
+    {
+        "relative_path":  "server/scoring_runs/treatment_replay.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  21708,
+        "sha256":  "3c408ca5a072b66b490d4ac46221d76cf80330a187adbd537d561c4ffa3d49a9"
+    },
+    {
+        "relative_path":  "src/lib/predictiveWorkflowCompletionEvidence.ts",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  4188,
+        "sha256":  "57927e39a373e95c2a51a5b0dbbecf7016ee1c515821edb0e06bb0b5042cabea"
+    },
+    {
+        "relative_path":  "src/lib/vifSimulatorSelection.ts",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  796,
+        "sha256":  "5b9bd67cf8026631cb84e743c1f1ba68e55dee0897de9eda32be1cea48f8fcbb"
+    },
+    {
+        "relative_path":  "tests/analytical_scope_preprocessing_integrity_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  10812,
+        "sha256":  "33c8081805fe1589af04c2fa5bf88b55800b86d3e62d35db17be7210202e38d7"
+    },
+    {
+        "relative_path":  "tests/e2e/analytical-scope-preprocessing-integrity-isolated.spec.ts",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  44379,
+        "sha256":  "f4a5f99691672fda79e7b71ad81df2531043ed0031fc67a85e4c3798425c1e04"
+    },
+    {
+        "relative_path":  "tests/eda_population_contract_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  6985,
+        "sha256":  "2d0cc15e85fb036fca5579d4ac0684ffb848c2b8e8d68aef5bac448f0904e8c0"
+    },
+    {
+        "relative_path":  "tests/exact_registry_scoring_contract_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  19896,
+        "sha256":  "fdac2acf130becde8b9eeeff22ea82144a897ab63d560e37a93b09982b6efc13"
+    },
+    {
+        "relative_path":  "tests/external_scoring_treatment_replay_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  9953,
+        "sha256":  "80efe0357ce6b6eb1c18e4c13302b88b37bbeec31d8edf87df5e9048d5962bdf"
+    },
+    {
+        "relative_path":  "tests/interpretationModelSelection.test.mjs",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  4260,
+        "sha256":  "3d3470212b3d14ed9abde4bfa2f738859c3f4a46b711d10364d115945a3bc184"
+    },
+    {
+        "relative_path":  "tests/predictiveWorkflowLateCompletion.test.mjs",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  7763,
+        "sha256":  "112c20d04f4a3654e06e282892bbd2cb7e95ac12dc23622389644553db6dea6b"
+    },
+    {
+        "relative_path":  "tests/predictive_workflow_late_completion_reconciliation_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  15173,
+        "sha256":  "dbde8256e1158191a011f40190f029b9d9703a9dfa5faada70eb9c93a10d0576"
+    },
+    {
+        "relative_path":  "tests/preprocessing_v2_contract_test.py",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  13492,
+        "sha256":  "4cfb0c2b93507c5b0089701c1aecedd2f2f932a884c2960d80454f23b468401f"
+    },
+    {
+        "relative_path":  "tests/vifSimulatorSelectionState.test.mjs",
+        "classification":  "INCLUDE",
+        "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+        "file_type":  "file",
+        "size_bytes":  1391,
+        "sha256":  "d13eccc5c285ce6773c3b1eb910175adc521164449a16ee14020237446b02119"
+    }
+]

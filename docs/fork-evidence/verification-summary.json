@@ -1,0 +1,95 @@
+{
+  "schema": "asp-model-studio.target-verification.v1",
+  "services_started": false,
+  "checks": {
+    "launcher_validation": {
+      "result": "passed",
+      "launch_requested": false,
+      "python_ready": true,
+      "node_ready": true,
+      "frontend_port": 5274,
+      "backend_port": 8101,
+      "preview_port": 4274,
+      "cookie_name": "asp_model_studio_session",
+      "application_name": "ASP Model Studio API",
+      "instance_id": "asp-model-studio-local",
+      "remotes": []
+    },
+    "backend_import": {
+      "result": "passed",
+      "application_title": "ASP Model Studio API",
+      "route_count": 495
+    },
+    "python_compileall": "passed",
+    "pip_check": "passed",
+    "typescript_no_emit": "passed",
+    "static_storage_isolation_guard": {
+      "result": "passed",
+      "python_test_sources_inspected": 135
+    },
+    "runtime_reference_audit": {
+      "result": "passed",
+      "financial_source_runtime_references": "launcher refusal guard only",
+      "direct_vite_ports": "5274 development, 4274 preview, 8101 API proxy",
+      "atlas_sync_entrypoint": "fail-closed",
+      "e2e_seed_fixture_roots": "target-relative"
+    },
+    "frontend_tests": {
+      "project_types": { "passed": 1, "failed": 0 },
+      "workflow_library": { "passed": 3, "failed": 0 },
+      "monitoring_center": { "node_passed": 8, "python_passed": 1, "failed": 0 },
+      "regression": { "passed": 18, "failed": 0 },
+      "experiment_canonical_identity": {
+        "passed": 3,
+        "failed": 3,
+        "classification": "inherited/pre-existing captured-working-tree inconsistency",
+        "failures": [
+          "new training experiments store canonical identity and explicit artifact IDs",
+          "preparation state is exact-version scoped and ignores global and other-version values",
+          "documentation sources select and render only canonical experiment identity"
+        ]
+      }
+    },
+    "backend_hermetic_suites": {
+      "result": "passed",
+      "run_id": "atlas-hrt-20260815-221140-96fa71b409",
+      "passed": 9,
+      "failed": 0,
+      "suites": [
+        "security_containment_test",
+        "canonical_dataset_identity_test",
+        "project_access_consolidation_test",
+        "test_storage_isolation_guard_test",
+        "model_registry_durability_test",
+        "training_holdout_isolation_test",
+        "persistence_authorization_test",
+        "monitoring_backend_test",
+        "project_dataset_activation_persistence_test"
+      ]
+    },
+    "frontend_production_build": {
+      "result": "passed",
+      "modules_transformed": 3451,
+      "initial_vite_build_seconds": 53.91,
+      "final_isolation_rerun_seconds": 26.73,
+      "warnings": [
+        "Browserslist/baseline-browser data is stale.",
+        "Several post-minification chunks exceed 500 kB.",
+        "One module is both statically and dynamically imported."
+      ]
+    }
+  },
+  "superseded_diagnostic": {
+    "description": "A single-process combined pytest collection produced module-cache and test-authority contamination.",
+    "result": "15 failed, 123 passed",
+    "disposition": "Superseded by nine fresh-process hermetic suites, all passing. One real fork regression revealed by the diagnostic (non-minimal public health response) was repaired before the passing hermetic run."
+  },
+  "intentionally_not_run": [
+    "Live frontend/backend startup",
+    "Playwright end-to-end tests against a live stack",
+    "The full security inventory because it includes a Uvicorn/loopback service test",
+    "Provider or external-network tests"
+  ],
+  "fork_copy_defects_remaining": 0,
+  "runtime_isolation_defects_remaining": 0
+}

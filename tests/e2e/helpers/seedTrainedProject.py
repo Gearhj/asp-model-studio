@@ -5,15 +5,18 @@ Interpretation quickly while still exercising the real UI for the behavior under
 test. Prints one JSON line to stdout: {project_id, cookies, dataset_version, ...}.
 """
 import json
+import os
 import sys
 import time
 import uuid
+from pathlib import Path
 
 import pandas as pd
 import httpx
 
-BASE = "http://127.0.0.1:8001/api"
-DATA_FILE = r"C:\Users\james\ds-workflow-starter\tests\e2e\data\e2e_audit_classification_dev.csv"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+BASE = os.getenv("ASP_MODEL_STUDIO_API_BASE", "http://127.0.0.1:8101/api").rstrip("/")
+DATA_FILE = REPO_ROOT / "tests" / "e2e" / "data" / "e2e_audit_classification_dev.csv"
 
 s = httpx.Client(timeout=120.0)
 

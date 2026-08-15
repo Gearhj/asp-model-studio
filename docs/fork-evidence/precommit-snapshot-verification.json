@@ -1,0 +1,175 @@
+{
+    "schema":  "asp-model-studio.snapshot-verification.v1",
+    "created_at":  "2026-08-15T21:38:17.6007513Z",
+    "manifest_sha256":  "fb2f949cb6b376c37495b4b6de92e82fc1a76fdde2a25415e012676695d37b01",
+    "matching_files":  2277,
+    "matching_deleted_paths":  1,
+    "matching_bytes":  537231899,
+    "intentional_exclusions":  32,
+    "mismatches":  0,
+    "mismatch_details":  [
+
+                         ],
+    "exclusions":  [
+                       {
+                           "relative_path":  "server/artifacts/datasets/.dataset-library-recovery-journal.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/datasets/project_links.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/datasets/registry.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/eda_documentation/1af2077e8d97253bc3c7510c8766ca7d02b3c0592a0228f7ebe6b76e7e4fff9e.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/evidence_registry.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-credit-bureau-detection-and-special-value--ac08bb3ac499c4a8.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-governed-feature-manifest-7a80399a072f0da4.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-governed-model-training-run-50ee637ba8a49ea7.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-governed-outlier-treatment-and-special-val-6f54f85fc59d909d.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-missing-value-validation-no-treatment-requ-56830e6baf0a8852.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/feature_manifests/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/current.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/model_documentation/doc-atlas-mrzpau4t-1785363288.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/model_documentation/document_index.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "test-results/.last-run.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "test-results/e2e/html-report/index.html",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "test-results/e2e/results.json",
+                           "tracking":  "tracked",
+                           "reason":  "Tracked runtime/generated working-tree modification excluded; target retains source HEAD bytes"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-2a5502a1.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-427b6094.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-8f0b71b7.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-9fe0c6f7.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-a27856a6.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-b70349d0.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-cedaa715.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-dc438f1a.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-e618ad7f.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-f60ae037.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-f6deb621.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-created-validation-design-5e288848cb028ff6.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/evidence/items/ev-target-intel-71976e99d9b542beb67c.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/feature_manifests/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/versions/fm-87be3634f865076f.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/vif_resolution_plans/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/plans/vif-plan-4fa5047519ab33ed.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       },
+                       {
+                           "relative_path":  "server/artifacts/vif_resolution_plans/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/plans/vif-plan-bc5dbfd335267336.json",
+                           "tracking":  "untracked",
+                           "reason":  "Generated runtime/evidence artifact under server/artifacts"
+                       }
+                   ]
+}

@@ -1,0 +1,863 @@
+{
+    "schema":  "asp-model-studio.source-change-inventory.v1",
+    "created_at":  "2026-08-15T21:46:18.6793600Z",
+    "source_head":  "e13ac139ec1d684935f50272f2c9cd3ef693ad9d",
+    "included_tracked_changes":  [
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "docs/PREDICTIVE_MODELING_FULL_WORKFLOW_VALIDATION_REPORT_2026-08-08.md"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "scripts/run_isolated_full_workflow_acceptance.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "scripts/run_security_tests.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/analysis_partition/service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/core/dataset_state_keys.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/core/dataset_store.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/core/metadata_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/core/session_checkpoint.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/eda/analytical_contract.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/eda/documentation_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/eda/documentation_types.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/eda/workspace_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/evaluation/eval_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/evaluation/eval_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/model_registry/model_registry_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/persistence/repositories/project_dataset_activation_repository.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/development_scope.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/feature_profile_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/governed_profile_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/missing_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/outlier_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/outlier_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/predictor_authorization.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/preparation_documentation_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/preprocessing/quality_profile_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/scoring_runs/scoring_run_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/splitting/split_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/splitting/split_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/candidate_contract.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/trainer.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/trainer_router.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/trainer_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/training_job_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "server/training/training_preflight_service.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/StepShell.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/documentation/PreparationDocumentationLiveLink.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/FindingsDecisionWorkspace.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/TargetByPredictorPanel.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/TargetIntelligenceWorkspace.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/PredictorDistributionExplorer.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/PredictorSecondaryInsights.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/PredictorSignalLandscape.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/RelationshipWebGL.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/VifExplorer.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/VifResolutionPlanPanel.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/predictorVisibleLimits.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/components/eda/visual/predictorVisualData.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/dataAcquisitionEdaHandoff.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/dataScope.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/edaDocumentationApi.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/edaDocumentationPayload.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/edaFindingGovernance.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/edaFindings.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/enterpriseDataAccess.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/experimentTracking.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/governanceReport.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/modelDevelopmentDocument.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/outlierPremium.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/preparationGovernance.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/scoringContinuation.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/selectionProvenance.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/lib/serverPersistence.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/ProjectUtilityPages.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step01_DataAcquisition.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step02_EDA.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step04_MissingValues.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step04_Outliers.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step05_EncodingScaling.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step06_BalancingSplit.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step06_Train.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step08_Evaluation.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step09_Interpretation.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step10_Scoring.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step11_ModelDevelopmentDocument.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step12_ModelImplementation.tsx"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "src/steps/Step13_ModelMonitoring.tsx"
+                                     },
+                                     {
+                                         "status":  " D",
+                                         "relative_path":  "test-results/e2e/artifacts/.last-run.json"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/analysisPartitionProductCompletionFrontend.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/analysis_partition_fixture.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/canonical_dataset_identity_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/creditRiskStudio.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/dataAcquisitionFinalAcceptanceRepair.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/dataAcquisitionUx.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/dataAcquisitionValidationSimplification.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/e2e/eda-final-polish.spec.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/e2e/predictive-modeling-strict-isolated-stage-a.spec.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/e2e/predictive-modeling-strict-isolated-stage-b.spec.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/e2e/scoring-continuation.unit.spec.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/e2e/selection-provenance.unit.spec.ts"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaAnalyticalScopeLabels.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaFinalAcceptancePolish.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaFinalPolish.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaFindingsGovernance.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaFindingsWorkspace.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaPredictorVisibleLimits.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/edaPredictorVisualSuite.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/eda_governed_analytical_contract_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/eda_governed_completion_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/eda_http_transport_contract_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/eda_phase1_predictor_authorization_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/evaluationScoringCommandCenter.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/evaluation_exact_lineage_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/featureEngineeringCompletionContract.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/holdoutIsolationFrontend.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/isolated_full_workflow_acceptance_harness_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/missing_table_first_backend_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/model_registry_durability_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/model_training_preflight_authority_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/openProjectRoute.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/phase2b1FrontendLineage.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/predictiveGoldStandardWorkflow.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/predictiveModelingCommandCenter.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/predictiveModelingRepair.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/predictor_authorization_contract_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preparationPremiumWorkflow.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preparationTableFirstContract.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preparationWorkflowCorrections.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preparation_premium_backend_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preparation_table_first_backend_contract_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/preprocessing_development_scope_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/pretraining_artifact_invalidation_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/sqlitePersistence.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/targetIntelligence.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/training_holdout_isolation_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/training_job_scope_identity_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/training_validation_policy_execution_test.py"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/vifResolutionPlan.test.mjs"
+                                     },
+                                     {
+                                         "status":  " M",
+                                         "relative_path":  "tests/workflowCompletionNavigation.test.mjs"
+                                     }
+                                 ],
+    "excluded_tracked_runtime_changes":  [
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/datasets/.dataset-library-recovery-journal.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/datasets/project_links.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/datasets/registry.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/eda_documentation/1af2077e8d97253bc3c7510c8766ca7d02b3c0592a0228f7ebe6b76e7e4fff9e.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/evidence_registry.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/items/ev-credit-bureau-detection-and-special-value--ac08bb3ac499c4a8.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/items/ev-governed-feature-manifest-7a80399a072f0da4.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/items/ev-governed-model-training-run-50ee637ba8a49ea7.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/items/ev-governed-outlier-treatment-and-special-val-6f54f85fc59d909d.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/evidence/items/ev-missing-value-validation-no-treatment-requ-56830e6baf0a8852.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/feature_manifests/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/current.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/model_documentation/doc-atlas-mrzpau4t-1785363288.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "server/artifacts/model_documentation/document_index.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "test-results/.last-run.json"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "test-results/e2e/html-report/index.html"
+                                             },
+                                             {
+                                                 "status":  " M",
+                                                 "relative_path":  "test-results/e2e/results.json"
+                                             }
+                                         ],
+    "included_untracked":  [
+                               {
+                                   "relative_path":  "ATLAS_ANALYTICAL_SCOPE_AND_PREPROCESSING_INTEGRITY_REPAIR_REPORT.md",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  29220,
+                                   "sha256":  "d2b9108fd28b33e9f7740965e61a59bdcbba8fcaea5827055cb7849b6004a11f"
+                               },
+                               {
+                                   "relative_path":  "server/core/population_contract.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  27828,
+                                   "sha256":  "8af2b2ba6d3aa4e4f52b8d11c29121e76ce40dcfdcf3dd0f71de43515dbd79e0"
+                               },
+                               {
+                                   "relative_path":  "server/preprocessing/execution_contract.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  40317,
+                                   "sha256":  "7d51ba47c8deb2c5ffa95547f9830c48fea3decb19ad15d5a3437b744b459a66"
+                               },
+                               {
+                                   "relative_path":  "server/preprocessing/preprocessing_contract.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  54941,
+                                   "sha256":  "b4cab2082697608ab57e76c6a07aeb3a2eb551d949db669889929e3fcbed105b"
+                               },
+                               {
+                                   "relative_path":  "server/scoring_runs/treatment_replay.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  21708,
+                                   "sha256":  "3c408ca5a072b66b490d4ac46221d76cf80330a187adbd537d561c4ffa3d49a9"
+                               },
+                               {
+                                   "relative_path":  "src/lib/predictiveWorkflowCompletionEvidence.ts",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  4188,
+                                   "sha256":  "57927e39a373e95c2a51a5b0dbbecf7016ee1c515821edb0e06bb0b5042cabea"
+                               },
+                               {
+                                   "relative_path":  "src/lib/vifSimulatorSelection.ts",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  796,
+                                   "sha256":  "5b9bd67cf8026631cb84e743c1f1ba68e55dee0897de9eda32be1cea48f8fcbb"
+                               },
+                               {
+                                   "relative_path":  "tests/analytical_scope_preprocessing_integrity_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  10812,
+                                   "sha256":  "33c8081805fe1589af04c2fa5bf88b55800b86d3e62d35db17be7210202e38d7"
+                               },
+                               {
+                                   "relative_path":  "tests/e2e/analytical-scope-preprocessing-integrity-isolated.spec.ts",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  44379,
+                                   "sha256":  "f4a5f99691672fda79e7b71ad81df2531043ed0031fc67a85e4c3798425c1e04"
+                               },
+                               {
+                                   "relative_path":  "tests/eda_population_contract_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  6985,
+                                   "sha256":  "2d0cc15e85fb036fca5579d4ac0684ffb848c2b8e8d68aef5bac448f0904e8c0"
+                               },
+                               {
+                                   "relative_path":  "tests/exact_registry_scoring_contract_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  19896,
+                                   "sha256":  "fdac2acf130becde8b9eeeff22ea82144a897ab63d560e37a93b09982b6efc13"
+                               },
+                               {
+                                   "relative_path":  "tests/external_scoring_treatment_replay_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  9953,
+                                   "sha256":  "80efe0357ce6b6eb1c18e4c13302b88b37bbeec31d8edf87df5e9048d5962bdf"
+                               },
+                               {
+                                   "relative_path":  "tests/interpretationModelSelection.test.mjs",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  4260,
+                                   "sha256":  "3d3470212b3d14ed9abde4bfa2f738859c3f4a46b711d10364d115945a3bc184"
+                               },
+                               {
+                                   "relative_path":  "tests/predictiveWorkflowLateCompletion.test.mjs",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  7763,
+                                   "sha256":  "112c20d04f4a3654e06e282892bbd2cb7e95ac12dc23622389644553db6dea6b"
+                               },
+                               {
+                                   "relative_path":  "tests/predictive_workflow_late_completion_reconciliation_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  15173,
+                                   "sha256":  "dbde8256e1158191a011f40190f029b9d9703a9dfa5faada70eb9c93a10d0576"
+                               },
+                               {
+                                   "relative_path":  "tests/preprocessing_v2_contract_test.py",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  13492,
+                                   "sha256":  "4cfb0c2b93507c5b0089701c1aecedd2f2f932a884c2960d80454f23b468401f"
+                               },
+                               {
+                                   "relative_path":  "tests/vifSimulatorSelectionState.test.mjs",
+                                   "classification":  "INCLUDE",
+                                   "reason":  "Safe application source, test, schema, script, UI asset, or project documentation",
+                                   "file_type":  "file",
+                                   "size_bytes":  1391,
+                                   "sha256":  "d13eccc5c285ce6773c3b1eb910175adc521164449a16ee14020237446b02119"
+                               }
+                           ],
+    "excluded_untracked":  [
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-2a5502a1.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  169822,
+                                   "sha256":  "ae24fd84f4e7bfc628b0c4b4089a39824c8efbac7ef285687fe92fc2fb596d4d"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-427b6094.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  165374,
+                                   "sha256":  "d83d0be9292c30fb2f82d76d6fcdce83facefce6e8cdf68917a7dc4a12517e0d"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-8f0b71b7.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  151439,
+                                   "sha256":  "5ab68d075120834da44d7bc255fc6b4bc019360dd5ad93c5fbf8fd393bf538eb"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-9fe0c6f7.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  151414,
+                                   "sha256":  "2ad1165636a0d17ca15798d89b04abb5a8f66e205e0cd5af024febf8ab55679c"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-a27856a6.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  151845,
+                                   "sha256":  "1178e7dc3ae87ba6c851ff6151314c477b40ba12dbb4ec4fa298ee8a27d1e6bd"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-b70349d0.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  151439,
+                                   "sha256":  "509953cc0a4f19095f2b947a2aaf172e05646d59da42abb9e517f4f697c20c75"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-cedaa715.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  167271,
+                                   "sha256":  "564537abfabfc59b7c773af3b85a3225b32f73ca5e53e47d50371189135b98e5"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-dc438f1a.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  151910,
+                                   "sha256":  "013b3f0b8e11a09bdf3fb748844454e12a43750b06338c626ecdcda71313f89a"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-e618ad7f.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  169799,
+                                   "sha256":  "2d5eedcb0d3fa22c0aa783637ebf76dbb345f5579010e7707ad37c5ac1e5740c"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-f60ae037.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  169822,
+                                   "sha256":  "a862a7874f498b30179724d9148038df7c01c1402f3b5eed2eab5546ab4c6255"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/eda-evidence-atlas-mrzpau4t-eda-f6deb621.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  166930,
+                                   "sha256":  "c6b8b7e036f825651fc14744516c1110ca2247a62e539c0be99290b32ba8b59e"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/ev-created-validation-design-5e288848cb028ff6.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  23930,
+                                   "sha256":  "2049aba9001ac70d658375517700c701c0abc2d0f8baec7c909acaa08a346f02"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/evidence/items/ev-target-intel-71976e99d9b542beb67c.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  13270,
+                                   "sha256":  "4b5d833a2142fa85a5ac58c583c7a063ab6fab169e80639f06c7429b620ea463"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/feature_manifests/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/versions/fm-87be3634f865076f.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  16887,
+                                   "sha256":  "e43953dde36a76785f44989e077581183f2a84e63d296820cc1b76afe6ea861b"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/vif_resolution_plans/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/plans/vif-plan-4fa5047519ab33ed.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  41032,
+                                   "sha256":  "a795a30cd682fbe36ba8d5d2462e88ad3cdfd61d6575be4444a4a15b6c45abb1"
+                               },
+                               {
+                                   "relative_path":  "server/artifacts/vif_resolution_plans/atlas-mrzpau4t/ds_heloc_train_6bdb184b_05905/v_1785186305905_6bdb184b/plans/vif-plan-bc5dbfd335267336.json",
+                                   "classification":  "EXCLUDE_RUNTIME_OR_GENERATED",
+                                   "reason":  "Generated runtime/evidence artifact under server/artifacts",
+                                   "file_type":  "file",
+                                   "size_bytes":  47034,
+                                   "sha256":  "d9d50abfa72870a2d48cf12c2f9ad8c7a04187260329886b7a07891a3efd55fc"
+                               }
+                           ],
+    "ambiguous":  [
+
+                  ],
+    "counts":  {
+                   "included_tracked":  128,
+                   "excluded_tracked":  16,
+                   "included_untracked":  17,
+                   "excluded_untracked":  16,
+                   "ambiguous":  0
+               }
+}

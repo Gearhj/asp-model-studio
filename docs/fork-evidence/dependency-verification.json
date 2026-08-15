@@ -1,0 +1,38 @@
+{
+  "schema": "asp-model-studio.dependency-verification.v1",
+  "python": {
+    "version": "3.12.6",
+    "pip_version": "24.2",
+    "environment": ".venv",
+    "creation": "fresh target-only py -3.12 virtual environment",
+    "root_requirements_result": "failed_resolution",
+    "root_requirements_failure": "pyarrow==25.0.0 conflicts with mlflow==2.17.0, which requires pyarrow>=4,<18",
+    "focused_requirements": "server/requirements.txt",
+    "focused_requirements_result": "installed",
+    "declared_supplemental_pins": [
+      "pyarrow==25.0.0",
+      "duckdb==1.5.5",
+      "polars==1.43.0",
+      "joblib==1.4.2",
+      "httpx==0.27.0",
+      "pytest==8.3.2"
+    ],
+    "supplemental_reason": "Production server.main eagerly imports the three analytical engines and Joblib; the focused tests require HTTPX and pytest.",
+    "pip_check": "passed",
+    "full_lock_available": false
+  },
+  "node": {
+    "version": "24.3.0",
+    "npm_version": "11.6.4",
+    "install_command": "npm ci",
+    "install_result": "passed",
+    "direct_dependency_graph_result": "passed",
+    "ci_version_difference": "Repository CI declares Node 20; this host supplied Node 24.3.0."
+  },
+  "manifests": {
+    "package_lock_sha256": "4f144831f4c2e15c9167b27dbda94ca61c45ce51a7075bbdf90b9b18d218f0fb",
+    "requirements_sha256": "64ab6883503d75b87e320b9a3074fabd51259f4c5d198d36dbb2dd508b373f4f",
+    "server_requirements_sha256": "6e47a04a03c95ee066e56d69de41c31113ad9b33827ac145d70281d540f2a370",
+    "files_changed_by_rebuild": false
+  }
+}

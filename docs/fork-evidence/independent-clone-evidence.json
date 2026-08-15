@@ -1,0 +1,19 @@
+{
+    "schema":  "asp-model-studio.independent-clone-evidence.v1",
+    "method":  "git clone --no-hardlinks",
+    "source":  "C:\\Users\\james\\ds-workflow-starter",
+    "target":  "C:\\Users\\james\\asp-model-studio",
+    "source_head":  "e13ac139ec1d684935f50272f2c9cd3ef693ad9d",
+    "initial_target_head":  "e13ac139ec1d684935f50272f2c9cd3ef693ad9d",
+    "git_directory_is_directory":  true,
+    "git_common_dir":  ".git",
+    "alternates_absent":  true,
+    "worktree_link_absent":  true,
+    "remote_removed":  true,
+    "target_pack":  "pack-1df4d92a7989a4718c05d6346a62e7d61a252618.pack",
+    "target_file_id":  "0x000000000000000000020000001c7585",
+    "source_file_id":  "0x0000000000000000003b0000000d12ee",
+    "distinct_file_ids":  true,
+    "target_hardlink_listing":  "\\Users\\james\\asp-model-studio\\.git\\objects\\pack\\pack-1df4d92a7989a4718c05d6346a62e7d61a252618.pack",
+    "source_hardlink_listing":  "\\Users\\james\\ds-workflow-starter\\.git\\objects\\pack\\pack-1df4d92a7989a4718c05d6346a62e7d61a252618.pack"
+}

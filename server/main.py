@@ -143,8 +143,10 @@ def create_app() -> FastAPI:
       - CSV upload endpoint
       - router wiring
     """
+    application_name = os.getenv("ATLAS_APPLICATION_NAME", "ATLAS API").strip() or "ATLAS API"
+
     app = FastAPI(
-        title="ATLAS API",
+        title=application_name,
         version="0.1.0",
         description="Backend API for ATLAS regulated AI/ML model development.",
     )

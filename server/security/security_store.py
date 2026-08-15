@@ -22,7 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 DEFAULT_SECURITY_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "security"
 SECURITY_ROOT = Path(os.getenv("ATLAS_SECURITY_ROOT", str(DEFAULT_SECURITY_ROOT))).expanduser().resolve()
 DB_PATH = Path(os.getenv("ATLAS_SECURITY_DB_PATH", str(SECURITY_ROOT / "atlas_security.db"))).expanduser().resolve()
-SESSION_COOKIE_NAME = "atlas_session"
+SESSION_COOKIE_NAME = os.getenv("ATLAS_SESSION_COOKIE_NAME", "atlas_session").strip() or "atlas_session"
 ATLAS_AUTH_ENABLED = os.getenv("ATLAS_AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
 ATLAS_LOCAL_DEV = os.getenv("ATLAS_LOCAL_DEV", "false").lower() in {"1", "true", "yes"}
 ATLAS_HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "false").lower() in {"1", "true", "yes"}
