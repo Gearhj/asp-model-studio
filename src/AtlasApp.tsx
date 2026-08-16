@@ -3,7 +3,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function AtlasApp() {
   return (
-    <ErrorBoundary title="ATLAS could not render the application workspace safely.">
+    <ErrorBoundary title="ASP Model Studio could not render the application workspace safely.">
       <ModelingApp />
     </ErrorBoundary>
   );

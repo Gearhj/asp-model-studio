@@ -21,18 +21,16 @@ const analytics = read("src/steps/AnalyticsWorkbench.tsx");
 assert.equal(packageJson.scripts["test:model-documentation"], "node tests/modelDocumentationStudio.test.mjs");
 
 assert.match(app, /ModelDocumentationStudio/, "Model Documentation Studio must be imported.");
-assert.match(app, /path="\/model-document-studio"/, "Model Documentation Studio route must be registered.");
-assert.match(app, /path="\/model-document"[\s\S]*Navigate to="\/model-document-studio"/, "Old Model Document route must redirect to Studio.");
-assert.match(app, /path="\/model-development-document"[\s\S]*Navigate to="\/model-document-studio"/, "Old Model Development Document route must redirect to Studio.");
-assert.match(sidebar, /Model Documentation Studio/, "Sidebar must expose Model Documentation Studio.");
-assert.match(sidebar, /to="\/model-document-studio"/, "Sidebar route must point to Model Documentation Studio.");
-assert.equal((sidebar.match(/Model Documentation Studio/g) ?? []).length, 1, "Sidebar should expose one primary Model Documentation Studio entry.");
+assert.match(app, /path="\/model-documentation"[\s\S]*<ModelDocumentationStudio/, "The canonical Model Documentation route must expose the working studio.");
+assert.match(app, /path="\/model-document-studio"[\s\S]*Navigate to="\/model-documentation"/, "The legacy Model Documentation Studio route must redirect to the canonical route.");
+assert.match(app, /path="\/model-development-document"[\s\S]*Navigate to="\/model-documentation"/, "The legacy Model Development Document route must redirect to the canonical route.");
+assert.match(sidebar, /to: "\/model-documentation", label: "Model Documentation"/, "Sidebar must expose Model Documentation on its canonical route.");
+assert.equal((sidebar.match(/label: "Model Documentation"/g) ?? []).length, 1, "Sidebar should expose one primary Model Documentation entry.");
 assert.doesNotMatch(sidebar, />Model Document</, "Sidebar must not expose duplicate Model Document entry.");
 assert.doesNotMatch(sidebar, />Model Development Document</, "Sidebar must not expose duplicate Model Development Document entry.");
-assert.match(sidebar, /workflowSteps\.map/, "Workflow documentation checkpoint should come from workflow step metadata, not a duplicate sidebar product.");
 
 for (const term of [
-  "Model Documentation Studio",
+  "Sports Model Documentation",
   "Project",
   "Template",
   "Document Outline",
@@ -40,9 +38,9 @@ for (const term of [
   "Evidence Library",
   "Document Quality",
   "Export Package",
-  "Model Development Document",
-  "Model Validation Evidence Pack",
-  "Model Monitoring Handoff",
+  "Sports Model Methodology & Validation Package",
+  "Sports Model Validation Evidence Pack",
+  "Forecast Monitoring Handoff",
   "Executive Summary",
   "Technical Appendix",
   "Use Auto Draft",
@@ -58,7 +56,7 @@ for (const term of [
   "Pull Latest Project Evidence",
   "Pull Dataset Evidence",
   "Pull Model Diagnostics Evidence",
-  "Pull Chart Studio Evidence",
+  "Pull Visualization Studio Evidence",
   "Pull Analytics Workbench Evidence",
   "Pull Governance Notes",
   "Evidence Coverage Summary",
@@ -77,7 +75,7 @@ for (const term of [
   "attached",
   "available",
   "critical gap",
-  "Needs Evidence means ATLAS could not find or attach required supporting artifacts",
+  "Needs Evidence means ASP Model Studio could not find or attach required supporting artifacts",
   "Needs Evidence",
   "Ready for Review",
   "Your session is not authenticated. Sign in again to create a documentation workspace.",
@@ -96,6 +94,17 @@ assert.match(studio, /sectionEvidenceReadiness/, "Studio outline must show evide
 assert.match(studio, /recommendedEvidenceForSection/, "Studio must map recommended evidence to selected sections.");
 assert.doesNotMatch(studio, /Legacy Model Development Document/, "Studio should not link to a legacy duplicate document product.");
 assert.match(studio, /Documentation Review Checkpoint/, "Studio source pages should link to the workflow documentation checkpoint.");
+assert.match(studio, /to="\/visualization-studio">Visualization Studio/, "Documentation source pages must use the canonical Visualization Studio route.");
+for (const sportsTerm of [
+  "Sports Modeling Evidence",
+  "Research Objective & Forecast Use",
+  "Operational Model Selection",
+  "Sports Modeling Governance & Source Rights",
+  "What ASP Model Studio found",
+]) {
+  assert.match(studio, new RegExp(sportsTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Sports-native documentation UI missing ${sportsTerm}.`);
+}
+assert.doesNotMatch(studio, /Credit Risk Evidence|Fair Lending review|What ATLAS found|Needs Evidence means ATLAS|from ATLAS projects/, "Documentation UI must not expose inherited finance-era product copy.");
 assert.match(lib, /credentials: "include"/, "Documentation requests must include auth credentials.");
 assert.match(lib, /response\.status === 401/, "Documentation client must map 401s to friendly inline auth guidance.");
 

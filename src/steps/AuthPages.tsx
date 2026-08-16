@@ -23,7 +23,7 @@ import { safeAuthReturnPath } from "../lib/authReturnPath";
 import { auditExportUrl, searchAuditLog, type AuditEvent } from "../lib/adminSharing";
 
 const roles = ["admin", "data_scientist", "validator", "manager", "viewer", "data_steward", "model_owner", "model_manager", "auditor"];
-const KEEP_SIGNED_IN_EMAIL_KEY = "atlas-keep-signed-in-email";
+const KEEP_SIGNED_IN_EMAIL_KEY = "asp-model-studio-keep-signed-in-email";
 
 type AuthPageProps = {
   onAuthenticated?: (user: AtlasUser) => void;
@@ -32,7 +32,7 @@ type AuthPageProps = {
 export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState(() => localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY) || "admin@atlas.local");
+  const [email, setEmail] = useState(() => localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY) || "admin@aspmodelstudio.local");
   const [password, setPassword] = useState("");
   const [keepSignedIn, setKeepSignedIn] = useState(() => Boolean(localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY)));
   const [message, setMessage] = useState("");
@@ -55,7 +55,7 @@ export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
   }
 
   return (
-    <AuthShell title="Sign in to ATLAS" icon={<LockKeyhole size={21} />} message={message}>
+    <AuthShell title="Sign in to ASP Model Studio" icon={<LockKeyhole size={21} />} message={message}>
       <Input label="Email" value={email} onChange={setEmail} />
       <Input label="Password" type="password" value={password} onChange={setPassword} />
       <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
@@ -63,7 +63,7 @@ export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
         Keep me Signed In
       </label>
       <button onClick={submit} className="w-full rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">Sign In</button>
-      <p className="text-center text-sm text-slate-600">Need access? <Link to="/register" className="font-semibold text-blue-700">Create an account</Link></p>
+      <p className="text-center text-sm leading-6 text-slate-500">Access is provisioned by a workspace administrator. Public registration is disabled.</p>
     </AuthShell>
   );
 }
@@ -89,12 +89,12 @@ export function RegisterPage({ onAuthenticated }: AuthPageProps = {}) {
       const returnTo = safeAuthReturnPath(new URLSearchParams(location.search).get("returnTo"));
       navigate(returnTo || "/dashboard", { replace: true });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not create this account.");
+      setMessage(error instanceof Error ? error.message : "ASP Model Studio could not create this account.");
     }
   }
 
   return (
-    <AuthShell title="Create ATLAS Account" icon={<UserPlus size={21} />} message={message}>
+    <AuthShell title="Create ASP Model Studio Account" icon={<UserPlus size={21} />} message={message}>
       <Input label="Display Name" value={displayName} onChange={setDisplayName} />
       <Input label="Email" value={email} onChange={setEmail} />
       <Input label="Password" type="password" value={password} onChange={setPassword} helper="Use at least 8 characters. Longer passphrases are recommended." />
@@ -124,7 +124,7 @@ export function AccountPage() {
       setProjectDatasets(await listProjectDatasets(projectId));
       setProjectCount(loadLocalProjects().length);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS account details are unavailable.");
+      setMessage(error instanceof Error ? error.message : "ASP Model Studio account details are unavailable.");
     }
   }
 
@@ -134,7 +134,7 @@ export function AccountPage() {
 
   return (
     <div className="w-full space-y-5">
-      <Header title="Account" icon={<ShieldCheck size={21} />} description="Your ATLAS identity, role, owned assets, shared assets, and password controls." />
+      <Header title="Account" icon={<ShieldCheck size={21} />} description="Your ASP Model Studio identity, role, owned assets, shared assets, and password controls." />
       {message && <Banner message={message} />}
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Display Name" value={user?.displayName ?? "-"} />
@@ -217,11 +217,11 @@ export function AdminUsersPage() {
 
   return (
     <div className="w-full space-y-5">
-      <Header title="User Administration" icon={<Users size={21} />} description="Admin-only ATLAS user management for local authentication, role assignment, status controls, and lockout remediation." />
+      <Header title="User Administration" icon={<Users size={21} />} description="Admin-only ASP Model Studio user management for local authentication, role assignment, status controls, and lockout remediation." />
       {message && <Banner message={message} />}
       <Card title="Create User">
         <p className="mb-3 text-sm text-slate-600">
-          The selected role changes this user&apos;s permissions. ATLAS records the signed-in administrator,
+          The selected role changes this user&apos;s permissions. ASP Model Studio records the signed-in administrator,
           selected role, and outcome in the security audit trail.
         </p>
         <div className="grid gap-3 lg:grid-cols-4">
@@ -242,7 +242,7 @@ export function AdminUsersPage() {
               setNewUser({ email: "", displayName: "", password: "", role: "data_scientist" });
               await refresh();
             } catch (error) {
-              setMessage(error instanceof Error ? error.message : "ATLAS could not create this user.");
+              setMessage(error instanceof Error ? error.message : "ASP Model Studio could not create this user.");
             }
           }}
           className="mt-3 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white"
@@ -387,15 +387,29 @@ function formatTimestamp(value?: string) {
 
 function AuthShell({ title, icon, message, children }: { title: string; icon: React.ReactNode; message: string; children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-[70vh] max-w-md items-center">
-      <section className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <BrandLogo size="md" variant="light" showSubtitle className="mb-4" />
-        <div className="flex items-center gap-2">
-          {icon}
-          <h1 className="text-xl font-semibold text-slate-950">{title}</h1>
+    <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,.14)] lg:grid-cols-[1.15fr_.85fr]">
+      <section className="sports-hero-panel hidden rounded-none border-0 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+        <BrandLogo size="md" variant="dark" showSubtitle />
+        <div className="relative z-10 max-w-xl py-10">
+          <div className="sports-eyebrow text-cyan-300">Sports model intelligence</div>
+          <h2 className="mt-4 text-5xl font-semibold leading-[1.05] tracking-tight">Build the models behind the game.</h2>
+          <p className="mt-5 text-base leading-7 text-slate-300">Player state, participation, event and drive models, simulation, temporal validation, calibration, and governed export in one analytical studio.</p>
         </div>
-        <div className="mt-5 grid gap-3">{children}</div>
-        {message && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
+        <div className="relative z-10 grid grid-cols-3 gap-2 text-xs font-semibold text-slate-300">
+          {["PLAYER STATE", "GAME SIMULATION", "MODEL GRAPH"].map((label) => <span key={label} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center">{label}</span>)}
+        </div>
+      </section>
+      <section className="grid place-items-center p-6 sm:p-10">
+        <div className="w-full max-w-md">
+          <BrandLogo size="md" variant="light" showSubtitle className="mb-8 lg:hidden" />
+          <div className="flex items-center gap-3 text-teal-700">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50">{icon}</span>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{title}</h1>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-500">Authenticated local access to the isolated sports-model-development workspace.</p>
+          <div className="mt-6 grid gap-4">{children}</div>
+          {message && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>}
+        </div>
       </section>
     </div>
   );
@@ -420,7 +434,7 @@ function Input({ label, value, onChange, type = "text", helper }: { label: strin
     <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
       {label}
       <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
-      {helper && <span className="text-[11px] font-normal normal-case text-slate-500">{helper}</span>}
+      {helper && <span className="text-xs font-normal normal-case text-slate-500">{helper}</span>}
     </label>
   );
 }

@@ -179,7 +179,7 @@ const workflowPaths: Record<StepId, string> = {
   step13: "/step13",
 };
 
-const defaultWorkflow = getWorkflowDefinition("predictive-modeling");
+const defaultWorkflow = getWorkflowDefinition("mlb-forecasting");
 
 const defaultProjectTools: ProjectToolState = {
   experimentsEnabled: true,
@@ -218,7 +218,7 @@ function mergeWorkflowStepsWithDefinition(persistedSteps: WorkflowStep[] | undef
 }
 
 function projectId() {
-  return `atlas-${Date.now().toString(36)}`;
+  return `asp-${Date.now().toString(36)}`;
 }
 
 function normalizedDatasetIdentity(value: unknown, expectedProjectId: string) {
@@ -287,7 +287,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       const initialWorkflowSteps = workflowStepsWithStatus(defaultWorkflow.steps);
       const initialEffective = effectiveView(
         initialWorkflowSteps,
-        "predictive-modeling",
+        "custom-workflow",
         null,
       );
       return ({
@@ -295,8 +295,8 @@ export const useWorkflowStore = create<WorkflowState>()(
       datasetIdentity: null,
       projectId: projectId(),
       modelId: "",
-      projectName: "Untitled ATLAS Project",
-      projectType: "predictive-modeling",
+      projectName: "Untitled Sports Project",
+      projectType: "custom-workflow",
       workflowId: defaultWorkflow.id,
       workflowSteps: initialWorkflowSteps,
       currentStepId: defaultWorkflow.steps[0]?.id ?? "step00",
@@ -378,7 +378,7 @@ export const useWorkflowStore = create<WorkflowState>()(
               hasDataset: false,
               datasetIdentity: null,
               modelId: modelId?.trim() ?? state.modelId,
-              projectName: projectName?.trim() || "Untitled ATLAS Project",
+              projectName: projectName?.trim() || "Untitled Sports Project",
               projectType,
               workflowId: workflow.id,
               workflowSteps: nextWorkflowSteps,
@@ -407,7 +407,7 @@ export const useWorkflowStore = create<WorkflowState>()(
               projectId: snapshot.projectId || projectId(),
               datasetIdentity,
               modelId: snapshot.modelId ?? "",
-              projectName: snapshot.projectName?.trim() || "Untitled ATLAS Project",
+              projectName: snapshot.projectName?.trim() || "Untitled Sports Project",
               projectType: snapshot.projectType ?? workflow.projectType,
               workflowId: workflow.id,
               workflowSteps,
@@ -666,14 +666,14 @@ export const useWorkflowStore = create<WorkflowState>()(
           datasetIdentity: null,
           projectId: projectId(),
           modelId: "",
-          projectName: "Untitled ATLAS Project",
-          projectType: "predictive-modeling",
+          projectName: "Untitled Sports Project",
+          projectType: "custom-workflow",
           workflowId: defaultWorkflow.id,
           workflowSteps,
           currentStepId: defaultWorkflow.steps[0]?.id ?? "step00",
           restoreWarnings: [],
           steps: { ...initialSteps },
-          ...effectiveStateFields(effectiveView(workflowSteps, "predictive-modeling", null)),
+          ...effectiveStateFields(effectiveView(workflowSteps, "custom-workflow", null)),
           });
         },
     });
@@ -700,18 +700,18 @@ export const useWorkflowStore = create<WorkflowState>()(
           persisted?.projectId ?? "",
         ),
         modelId: persisted?.modelId ?? "",
-        projectName: persisted?.projectName ?? "Untitled ATLAS Project",
-        projectType: persisted?.projectType ?? "predictive-modeling",
-        workflowId: persisted?.workflowId ?? "predictive-modeling",
+        projectName: persisted?.projectName ?? "Untitled Sports Project",
+        projectType: persisted?.projectType ?? "custom-workflow",
+        workflowId: persisted?.workflowId ?? "mlb-forecasting",
         steps: { ...initialSteps, ...(persisted?.steps ?? {}) },
         order: workflowOrder,
         paths: workflowPaths,
         workflowSteps:
           Array.isArray(persisted?.workflowSteps) && persisted.workflowSteps.length
-            ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "predictive-modeling", persisted?.steps ?? {})
+            ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "mlb-forecasting", persisted?.steps ?? {})
             : workflowStepsWithStatus(defaultWorkflow.steps, persisted?.steps ?? {}),
         currentStepId: normalizeLegacyStepId(persisted?.currentStepId, Array.isArray(persisted?.workflowSteps) && persisted.workflowSteps.length
-          ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "predictive-modeling", persisted?.steps ?? {})
+          ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "mlb-forecasting", persisted?.steps ?? {})
           : workflowStepsWithStatus(defaultWorkflow.steps, persisted?.steps ?? {})),
         restoreWarnings: [],
         projectTools: { ...defaultProjectTools, ...(persisted?.projectTools ?? {}) },

@@ -43,18 +43,18 @@ import {
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 type SourceType = "dataset_library_preview" | "saved_query" | "external_metadata";
-type AssistantTab = "templates" | "financial" | "mapping" | "governance" | "help";
+type AssistantTab = "templates" | "sports" | "mapping" | "governance" | "help";
 type BottomTab = "results" | "schema" | "profile" | "messages" | "history" | "lineage";
 type ObjectExplorerTab = "tables" | "saved" | "results" | "connectors";
 type TemplateCategory =
-  | "Customer / Account Analytics"
-  | "Credit Risk"
-  | "Fraud / AML"
-  | "Marketing / Campaigns"
+  | "Sports Data Profiling"
+  | "Game & Team Analysis"
+  | "Player & Participation"
+  | "Event & Drive Analysis"
+  | "Temporal Integrity"
   | "Model Development"
-  | "Monitoring"
-  | "Data Quality"
-  | "Demo Dataset Examples";
+  | "Forward Monitoring"
+  | "Data Quality";
 
 type SqlTemplate = {
   name: string;
@@ -84,85 +84,102 @@ const SQL_SNIPPETS = [
   { label: "Insert GROUP BY", sql: "\nGROUP BY {column}\nORDER BY COUNT(*) DESC" },
   { label: "Insert LEFT JOIN", sql: "\nLEFT JOIN {table2} b\n    ON a.{key} = b.{key}" },
   { label: "Insert CASE WHEN", sql: "CASE\n    WHEN {column} IS NULL THEN 'Missing'\n    ELSE 'Populated'\nEND AS {column}_flag" },
-  { label: "Insert date filter", sql: "\nWHERE {date_column} >= '2026-01-01'" },
-  { label: "Insert count distinct", sql: "COUNT(DISTINCT {customer_id}) AS distinct_customers" },
-  { label: "Insert window rank", sql: "ROW_NUMBER() OVER (PARTITION BY {customer_id} ORDER BY {date_column} DESC) AS recency_rank" },
+  { label: "Insert forecast-cutoff filter", sql: "\nWHERE {source_timestamp} <= {forecast_timestamp}" },
+  { label: "Insert count distinct games", sql: "COUNT(DISTINCT {game_id}) AS distinct_games" },
+  { label: "Insert event sequence", sql: "ROW_NUMBER() OVER (PARTITION BY {game_id} ORDER BY {date_column}) AS event_sequence" },
 ];
 
-const FINANCIAL_TEMPLATES: SqlTemplate[] = [
-  template("Customer 360 summary", "Customer / Account Analytics", "Summarize account and transaction footprint by customer.", ["customer_id", "account_id", "amount"], "SELECT\n    customer_id,\n    COUNT(DISTINCT account_id) AS account_count,\n    COUNT(*) AS record_count,\n    SUM(amount) AS total_amount\nFROM {table}\nGROUP BY customer_id\nORDER BY total_amount DESC\nLIMIT 100;", ["customer", "account"]),
-  template("Account balance snapshot", "Customer / Account Analytics", "Latest balance by account.", ["account_id", "date_column", "amount"], "SELECT\n    account_id,\n    MAX(date_column) AS latest_snapshot_date,\n    AVG(amount) AS average_balance\nFROM {table}\nGROUP BY account_id\nLIMIT 100;", ["account"]),
-  template("Active customer flag", "Customer / Account Analytics", "Create an active/inactive customer flag from recent activity.", ["customer_id", "date_column"], "SELECT\n    customer_id,\n    MAX(date_column) AS last_activity_date,\n    CASE WHEN MAX(date_column) >= '2026-01-01' THEN 1 ELSE 0 END AS active_customer_flag\nFROM {table}\nGROUP BY customer_id\nLIMIT 100;", ["customer"]),
-  template("New vs existing customer", "Customer / Account Analytics", "Classify customers by first observed activity.", ["customer_id", "date_column"], "SELECT\n    customer_id,\n    MIN(date_column) AS first_seen_date,\n    CASE WHEN MIN(date_column) >= '2026-01-01' THEN 'New' ELSE 'Existing' END AS customer_status\nFROM {table}\nGROUP BY customer_id\nLIMIT 100;", ["customer"]),
-  template("Customer tenure bands", "Customer / Account Analytics", "Bucket customer tenure for segmentation.", ["customer_id", "date_column"], "SELECT\n    customer_id,\n    CASE\n        WHEN MIN(date_column) >= '2026-01-01' THEN '0-6 months'\n        WHEN MIN(date_column) >= '2025-01-01' THEN '6-18 months'\n        ELSE '18+ months'\n    END AS tenure_band\nFROM {table}\nGROUP BY customer_id\nLIMIT 100;", ["customer"]),
-  template("Householding summary", "Customer / Account Analytics", "Summarize customers by household identifier.", ["customer_id", "household_id"], "SELECT\n    household_id,\n    COUNT(DISTINCT customer_id) AS customers_in_household\nFROM {table}\nGROUP BY household_id\nORDER BY customers_in_household DESC\nLIMIT 100;", ["householding"]),
-  template("Delinquency rate by segment", "Credit Risk", "Calculate delinquency prevalence by risk segment.", ["segment_column", "target_column"], "SELECT\n    segment_column,\n    COUNT(*) AS accounts,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS delinquency_rate\nFROM {table}\nGROUP BY segment_column\nORDER BY delinquency_rate DESC\nLIMIT 100;", ["risk"]),
-  template("Charge-off rate by vintage", "Credit Risk", "Review charge-off rates by origination vintage.", ["date_column", "target_column"], "SELECT\n    SUBSTR(date_column, 1, 7) AS vintage_month,\n    COUNT(*) AS accounts,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS charge_off_rate\nFROM {table}\nGROUP BY vintage_month\nORDER BY vintage_month\nLIMIT 100;", ["risk", "vintage"]),
-  template("Utilization bands", "Credit Risk", "Create utilization bands for credit exposure review.", ["amount_column"], "SELECT\n    CASE\n        WHEN amount_column < 0.30 THEN 'Low utilization'\n        WHEN amount_column < 0.70 THEN 'Moderate utilization'\n        ELSE 'High utilization'\n    END AS utilization_band,\n    COUNT(*) AS account_count\nFROM {table}\nGROUP BY utilization_band\nLIMIT 100;", ["risk"]),
-  template("Credit line exposure", "Credit Risk", "Summarize total exposure by segment.", ["segment_column", "amount_column"], "SELECT\n    segment_column,\n    COUNT(*) AS accounts,\n    SUM(amount_column) AS total_exposure,\n    AVG(amount_column) AS average_exposure\nFROM {table}\nGROUP BY segment_column\nORDER BY total_exposure DESC\nLIMIT 100;", ["risk"]),
-  template("Risk score distribution", "Credit Risk", "Profile score distribution by segment.", ["score_column", "segment_column"], "SELECT\n    segment_column,\n    COUNT(*) AS n,\n    AVG(score_column) AS avg_score,\n    MIN(score_column) AS min_score,\n    MAX(score_column) AS max_score\nFROM {table}\nGROUP BY segment_column\nLIMIT 100;", ["risk", "score"]),
-  template("Vintage performance table", "Credit Risk", "Build a vintage performance table.", ["date_column", "target_column"], "SELECT\n    SUBSTR(date_column, 1, 7) AS vintage_month,\n    COUNT(*) AS booked_accounts,\n    SUM(CASE WHEN target_column = 1 THEN 1 ELSE 0 END) AS bad_accounts\nFROM {table}\nGROUP BY vintage_month\nORDER BY vintage_month\nLIMIT 100;", ["risk", "vintage"]),
-  template("Roll-rate matrix", "Credit Risk", "Prepare delinquency roll-rate counts.", ["account_id", "segment_column"], "SELECT\n    segment_column AS prior_status,\n    segment_column AS current_status,\n    COUNT(DISTINCT account_id) AS accounts\nFROM {table}\nGROUP BY prior_status, current_status\nLIMIT 100;", ["risk"]),
-  template("High-risk transaction review", "Fraud / AML", "Rank large or high-risk transactions.", ["customer_id", "date_column", "amount_column"], "SELECT\n    customer_id,\n    date_column,\n    amount_column\nFROM {table}\nWHERE amount_column IS NOT NULL\nORDER BY amount_column DESC\nLIMIT 100;", ["fraud", "aml"]),
-  template("Velocity rules", "Fraud / AML", "Count transaction velocity by customer and day.", ["customer_id", "date_column"], "SELECT\n    customer_id,\n    date_column,\n    COUNT(*) AS daily_transaction_count\nFROM {table}\nGROUP BY customer_id, date_column\nORDER BY daily_transaction_count DESC\nLIMIT 100;", ["fraud"]),
-  template("Duplicate transaction detection", "Fraud / AML", "Find repeated customer/date/amount combinations.", ["customer_id", "date_column", "amount_column"], "SELECT\n    customer_id,\n    date_column,\n    amount_column,\n    COUNT(*) AS duplicate_count\nFROM {table}\nGROUP BY customer_id, date_column, amount_column\nHAVING COUNT(*) > 1\nORDER BY duplicate_count DESC\nLIMIT 100;", ["fraud", "data quality"]),
-  template("Dormant account reactivation", "Fraud / AML", "Find activity after long dormant periods.", ["account_id", "date_column"], "SELECT\n    account_id,\n    MIN(date_column) AS first_activity,\n    MAX(date_column) AS latest_activity,\n    COUNT(*) AS activity_count\nFROM {table}\nGROUP BY account_id\nHAVING COUNT(*) > 1\nLIMIT 100;", ["fraud", "aml"]),
-  template("Unusual merchant activity", "Fraud / AML", "Summarize high-frequency merchant activity.", ["merchant_id", "amount_column"], "SELECT\n    merchant_id,\n    COUNT(*) AS transaction_count,\n    SUM(amount_column) AS total_amount\nFROM {table}\nGROUP BY merchant_id\nORDER BY transaction_count DESC\nLIMIT 100;", ["fraud"]),
-  template("Structuring / threshold activity", "Fraud / AML", "Find transactions near reporting thresholds.", ["amount_column"], "SELECT\n    COUNT(*) AS near_threshold_transactions,\n    SUM(amount_column) AS near_threshold_amount\nFROM {table}\nWHERE amount_column BETWEEN 9000 AND 10000;", ["aml"]),
-  template("KYC missingness review", "Fraud / AML", "Profile missing KYC fields.", ["customer_id"], "SELECT\n    COUNT(*) AS total_records,\n    SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) AS missing_customer_id\nFROM {table};", ["kyc", "data quality"]),
-  template("Campaign population waterfall", "Marketing / Campaigns", "Build campaign eligibility counts.", ["customer_id"], "SELECT\n    'Initial population' AS step,\n    COUNT(DISTINCT customer_id) AS customers\nFROM {table}\nUNION ALL\nSELECT\n    'Eligible population' AS step,\n    COUNT(DISTINCT customer_id) AS customers\nFROM {table}\nLIMIT 100;", ["marketing"]),
-  template("Response rate by campaign", "Marketing / Campaigns", "Compare response rates by campaign.", ["campaign_column", "target_column"], "SELECT\n    campaign_column,\n    COUNT(*) AS customers,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS response_rate\nFROM {table}\nGROUP BY campaign_column\nORDER BY response_rate DESC\nLIMIT 100;", ["marketing"]),
-  template("Offer exposure summary", "Marketing / Campaigns", "Summarize offers by exposure group.", ["campaign_column"], "SELECT\n    campaign_column,\n    COUNT(*) AS exposures\nFROM {table}\nGROUP BY campaign_column\nORDER BY exposures DESC\nLIMIT 100;", ["marketing"]),
-  template("Test/control comparison", "Marketing / Campaigns", "Compare treatment and control outcomes.", ["segment_column", "target_column"], "SELECT\n    segment_column AS test_group,\n    COUNT(*) AS customers,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS outcome_rate\nFROM {table}\nGROUP BY test_group\nLIMIT 100;", ["marketing", "testing"]),
-  template("Channel performance", "Marketing / Campaigns", "Compare response by channel.", ["campaign_column", "target_column"], "SELECT\n    campaign_column AS channel,\n    COUNT(*) AS customers,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS response_rate\nFROM {table}\nGROUP BY channel\nORDER BY response_rate DESC\nLIMIT 100;", ["marketing"]),
-  template("Suppression waterfall", "Marketing / Campaigns", "Summarize suppression reasons.", ["segment_column"], "SELECT\n    segment_column AS suppression_reason,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY suppression_reason\nORDER BY records DESC\nLIMIT 100;", ["marketing"]),
-  template("Train/Test/OOT population summary", "Model Development", "Summarize modeling populations by source split.", ["target_column"], "SELECT\n    COUNT(*) AS total_rows,\n    SUM(CASE WHEN target_column = 1 THEN 1 ELSE 0 END) AS events,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS event_rate\nFROM {table};", ["modeling"]),
-  template("Target event rate by split", "Model Development", "Calculate target event rate for classification data.", ["target_column"], "SELECT\n    target_column,\n    COUNT(*) AS row_count,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM {table}\nGROUP BY target_column\nORDER BY target_column;", ["modeling"]),
-  template("Feature missingness summary", "Model Development", "Count missingness for key modeling fields.", ["amount_column", "score_column"], "SELECT\n    COUNT(*) AS total_rows,\n    SUM(CASE WHEN amount_column IS NULL THEN 1 ELSE 0 END) AS missing_amount,\n    SUM(CASE WHEN score_column IS NULL THEN 1 ELSE 0 END) AS missing_score\nFROM {table};", ["modeling", "data quality"]),
-  template("Feature stability summary", "Model Development", "Prepare segment-level feature stability inputs.", ["segment_column", "amount_column"], "SELECT\n    segment_column,\n    COUNT(*) AS n,\n    AVG(amount_column) AS avg_value\nFROM {table}\nGROUP BY segment_column\nORDER BY n DESC\nLIMIT 100;", ["modeling", "monitoring"]),
-  template("Score distribution", "Model Development", "Summarize model score distribution.", ["score_column"], "SELECT\n    CASE\n        WHEN score_column < 0.2 THEN '0.0-0.2'\n        WHEN score_column < 0.4 THEN '0.2-0.4'\n        WHEN score_column < 0.6 THEN '0.4-0.6'\n        WHEN score_column < 0.8 THEN '0.6-0.8'\n        ELSE '0.8-1.0'\n    END AS score_band,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY score_band\nORDER BY score_band;", ["modeling", "score"]),
-  template("Prediction band summary", "Model Development", "Summarize predictions by band.", ["score_column", "target_column"], "SELECT\n    CASE WHEN score_column >= 0.5 THEN 'High' ELSE 'Low' END AS prediction_band,\n    COUNT(*) AS records,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS actual_rate\nFROM {table}\nGROUP BY prediction_band;", ["modeling"]),
-  template("Lift table input query", "Model Development", "Create score and target inputs for lift tables.", ["score_column", "target_column"], "SELECT\n    score_column AS score,\n    target_column AS actual\nFROM {table}\nWHERE score_column IS NOT NULL\nLIMIT 100;", ["modeling", "lift"]),
-  template("Calibration table input query", "Model Development", "Prepare calibration inputs by score band.", ["score_column", "target_column"], "SELECT\n    CASE\n        WHEN score_column < 0.2 THEN '0.0-0.2'\n        WHEN score_column < 0.4 THEN '0.2-0.4'\n        WHEN score_column < 0.6 THEN '0.4-0.6'\n        WHEN score_column < 0.8 THEN '0.6-0.8'\n        ELSE '0.8-1.0'\n    END AS score_band,\n    COUNT(*) AS records,\n    AVG(score_column) AS avg_score,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS actual_rate\nFROM {table}\nGROUP BY score_band\nORDER BY score_band;", ["modeling", "calibration"]),
-  template("Monthly score distribution", "Monitoring", "Monitor score movement by month.", ["date_column", "score_column"], "SELECT\n    SUBSTR(date_column, 1, 7) AS score_month,\n    COUNT(*) AS records,\n    AVG(score_column) AS avg_score\nFROM {table}\nGROUP BY score_month\nORDER BY score_month\nLIMIT 100;", ["monitoring"]),
-  template("PSI input table", "Monitoring", "Prepare binned score counts for PSI.", ["score_column"], "SELECT\n    CASE\n        WHEN score_column < 0.2 THEN '0.0-0.2'\n        WHEN score_column < 0.4 THEN '0.2-0.4'\n        WHEN score_column < 0.6 THEN '0.4-0.6'\n        WHEN score_column < 0.8 THEN '0.6-0.8'\n        ELSE '0.8-1.0'\n    END AS score_band,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY score_band\nORDER BY score_band;", ["monitoring", "psi"]),
-  template("Prediction drift summary", "Monitoring", "Track mean prediction by segment.", ["segment_column", "score_column"], "SELECT\n    segment_column,\n    COUNT(*) AS records,\n    AVG(score_column) AS avg_prediction\nFROM {table}\nGROUP BY segment_column\nORDER BY records DESC\nLIMIT 100;", ["monitoring"]),
-  template("Outcome drift summary", "Monitoring", "Track actual outcomes over time.", ["date_column", "target_column"], "SELECT\n    SUBSTR(date_column, 1, 7) AS outcome_month,\n    COUNT(*) AS records,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS outcome_rate\nFROM {table}\nGROUP BY outcome_month\nORDER BY outcome_month\nLIMIT 100;", ["monitoring"]),
-  template("Performance by month", "Monitoring", "Calculate monthly performance rates.", ["date_column", "target_column", "score_column"], "SELECT\n    SUBSTR(date_column, 1, 7) AS performance_month,\n    COUNT(*) AS records,\n    AVG(score_column) AS avg_score,\n    AVG(CASE WHEN target_column = 1 THEN 1.0 ELSE 0.0 END) AS event_rate\nFROM {table}\nGROUP BY performance_month\nORDER BY performance_month\nLIMIT 100;", ["monitoring"]),
-  template("Segment stability", "Monitoring", "Profile segment population stability.", ["segment_column"], "SELECT\n    segment_column,\n    COUNT(*) AS records,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM {table}\nGROUP BY segment_column\nORDER BY records DESC\nLIMIT 100;", ["monitoring"]),
-  template("Champion vs challenger comparison", "Monitoring", "Compare two prediction columns.", ["score_column"], "SELECT\n    COUNT(*) AS records,\n    AVG(score_column) AS champion_avg_score,\n    AVG(score_column) AS challenger_avg_score\nFROM {table};", ["monitoring"]),
-  template("Null rate by column", "Data Quality", "Template for null-rate checks on key columns.", ["customer_id", "amount_column"], "SELECT\n    COUNT(*) AS total_rows,\n    SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) AS null_customer_id,\n    SUM(CASE WHEN amount_column IS NULL THEN 1 ELSE 0 END) AS null_amount\nFROM {table};", ["data quality"]),
-  template("Duplicate key check", "Data Quality", "Find duplicate business keys.", ["customer_id"], "SELECT\n    customer_id,\n    COUNT(*) AS duplicate_count\nFROM {table}\nGROUP BY customer_id\nHAVING COUNT(*) > 1\nORDER BY duplicate_count DESC\nLIMIT 100;", ["data quality"]),
-  template("Referential integrity check", "Data Quality", "Identify missing join keys after a left join.", ["account_id"], "SELECT\n    account_id,\n    COUNT(*) AS records\nFROM {table}\nWHERE account_id IS NULL\nGROUP BY account_id\nLIMIT 100;", ["data quality"]),
-  template("Out-of-range values", "Data Quality", "Find values outside expected range.", ["amount_column"], "SELECT\n    COUNT(*) AS out_of_range_records\nFROM {table}\nWHERE amount_column < 0;", ["data quality"]),
-  template("Unexpected category values", "Data Quality", "Review category counts.", ["segment_column"], "SELECT\n    segment_column,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY segment_column\nORDER BY records DESC\nLIMIT 100;", ["data quality"]),
-  template("Row count reconciliation", "Data Quality", "Summarize row count controls.", [], "SELECT\n    COUNT(*) AS source_row_count\nFROM {table};", ["data quality"]),
-  template("Source-to-target control totals", "Data Quality", "Calculate source control totals.", ["amount_column"], "SELECT\n    COUNT(*) AS row_count,\n    SUM(amount_column) AS amount_control_total\nFROM {table};", ["data quality"]),
-  template("REG_TRAIN income band profile", "Demo Dataset Examples", "California housing demo query that works with REG_TRAIN.", ["MedInc", "MedHouseVal", "Population"], "SELECT\n    CASE\n        WHEN MedInc < 0.6 THEN 'Low income band'\n        WHEN MedInc < 0.8 THEN 'Middle income band'\n        ELSE 'High income band'\n    END AS income_band,\n    COUNT(*) AS row_count,\n    AVG(MedHouseVal) AS avg_home_value,\n    AVG(Population) AS avg_population\nFROM REG_TRAIN\nGROUP BY income_band\nORDER BY avg_home_value DESC\nLIMIT 100;", ["demo", "regression"]),
-  template("CLASS_TRAIN class distribution", "Demo Dataset Examples", "Fraud/classification demo class distribution.", ["Class"], "SELECT\n    Class,\n    COUNT(*) AS row_count,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM CLASS_TRAIN\nGROUP BY Class\nORDER BY Class;", ["demo", "classification"]),
-  template("CLASS_TRAIN rare-event summary", "Demo Dataset Examples", "Rare-event summary for binary classification demos.", ["Class"], "SELECT\n    COUNT(*) AS total_rows,\n    SUM(CASE WHEN Class = 1 THEN 1 ELSE 0 END) AS events,\n    SUM(CASE WHEN Class = 0 THEN 1 ELSE 0 END) AS non_events,\n    AVG(CASE WHEN Class = 1 THEN 1.0 ELSE 0.0 END) AS event_rate\nFROM CLASS_TRAIN;", ["demo", "rare event"]),
+const SPORTS_TEMPLATES: SqlTemplate[] = [
+  template("Dataset row count", "Sports Data Profiling", "Count the rows in the selected immutable dataset version.", [], "SELECT\n    COUNT(*) AS source_row_count\nFROM {table};", ["sports", "profiling"]),
+  template("Sports identity overview", "Sports Data Profiling", "Count distinct games, teams, and players without assuming a particular sport grain.", ["game_id", "team_id", "player_id"], "SELECT\n    COUNT(*) AS record_count,\n    COUNT(DISTINCT {game_id}) AS distinct_games,\n    COUNT(DISTINCT {team_id}) AS distinct_teams,\n    COUNT(DISTINCT {player_id}) AS distinct_players\nFROM {table};", ["sports", "identity", "coverage"]),
+  template("Sport and league coverage", "Sports Data Profiling", "Inspect the observed sports and leagues represented in the selected dataset.", ["sport_column", "league_column"], "SELECT\n    {sport_column} AS sport,\n    {league_column} AS league,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {sport_column}, {league_column}\nORDER BY records DESC\nLIMIT 100;", ["sports", "league", "coverage"]),
+  template("Season coverage", "Sports Data Profiling", "Summarize observed games and records by season.", ["season_column", "game_id"], "SELECT\n    {season_column} AS season,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {season_column}\nORDER BY {season_column};", ["season", "coverage"]),
+  template("Observed time range", "Sports Data Profiling", "Inspect the earliest and latest observed timestamps in the registered version.", ["date_column"], "SELECT\n    MIN({date_column}) AS earliest_observation,\n    MAX({date_column}) AS latest_observation,\n    COUNT(*) AS records\nFROM {table};", ["time", "coverage"]),
+  template("Forecast target distribution", "Sports Data Profiling", "Profile the observed distribution of the selected forecast target.", ["target_column"], "SELECT\n    {target_column} AS forecast_target,\n    COUNT(*) AS records,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM {table}\nGROUP BY {target_column}\nORDER BY records DESC\nLIMIT 100;", ["target", "distribution"]),
+  template("Games by team", "Game & Team Analysis", "Count observed games and records for each team identity.", ["team_id", "game_id"], "SELECT\n    {team_id} AS team,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {team_id}\nORDER BY games DESC\nLIMIT 100;", ["team", "game", "coverage"]),
+  template("Home and away identity coverage", "Game & Team Analysis", "Review home and away team identity coverage by game.", ["game_id", "home_team_id", "away_team_id"], "SELECT\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(DISTINCT {home_team_id}) AS home_teams,\n    COUNT(DISTINCT {away_team_id}) AS away_teams,\n    SUM(CASE WHEN {home_team_id} IS NULL OR {away_team_id} IS NULL THEN 1 ELSE 0 END) AS records_missing_team_identity\nFROM {table};", ["team", "game", "identity"]),
+  template("Team outcomes by season", "Game & Team Analysis", "Summarize the observed target by team and season.", ["team_id", "season_column", "target_column"], "SELECT\n    {season_column} AS season,\n    {team_id} AS team,\n    COUNT(*) AS records,\n    AVG({target_column}) AS average_observed_target\nFROM {table}\nGROUP BY {season_column}, {team_id}\nORDER BY {season_column}, records DESC\nLIMIT 100;", ["team", "season", "target"]),
+  template("Venue coverage", "Game & Team Analysis", "Count games and records by observed venue identity.", ["venue_column", "game_id"], "SELECT\n    {venue_column} AS venue,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {venue_column}\nORDER BY games DESC\nLIMIT 100;", ["venue", "game", "coverage"]),
+  template("Game score completeness", "Game & Team Analysis", "Count missing home and away final-score fields without inferring results.", ["game_id", "home_score", "away_score"], "SELECT\n    COUNT(DISTINCT {game_id}) AS games,\n    SUM(CASE WHEN {home_score} IS NULL THEN 1 ELSE 0 END) AS missing_home_scores,\n    SUM(CASE WHEN {away_score} IS NULL THEN 1 ELSE 0 END) AS missing_away_scores\nFROM {table};", ["game", "score", "completeness"]),
+  template("Schedule density", "Game & Team Analysis", "Count observed games by date for schedule and rest analysis.", ["date_column", "game_id"], "SELECT\n    {date_column} AS game_date,\n    COUNT(DISTINCT {game_id}) AS games\nFROM {table}\nGROUP BY {date_column}\nORDER BY {date_column}\nLIMIT 100;", ["game", "schedule", "time"]),
+  template("Player appearance coverage", "Player & Participation", "Count observed games and records for each player identity.", ["player_id", "game_id"], "SELECT\n    {player_id} AS player,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {player_id}\nORDER BY games DESC\nLIMIT 100;", ["player", "participation", "coverage"]),
+  template("Players per game", "Player & Participation", "Inspect distinct player coverage at the game grain.", ["game_id", "player_id"], "SELECT\n    {game_id} AS game,\n    COUNT(DISTINCT {player_id}) AS observed_players,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {game_id}\nORDER BY observed_players DESC\nLIMIT 100;", ["player", "game", "coverage"]),
+  template("Participation missingness", "Player & Participation", "Measure missing participation state for observed player records.", ["player_id", "participation_column"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {player_id} IS NULL THEN 1 ELSE 0 END) AS missing_player_identity,\n    SUM(CASE WHEN {participation_column} IS NULL THEN 1 ELSE 0 END) AS missing_participation_state\nFROM {table};", ["player", "participation", "data quality"]),
+  template("Player usage summary", "Player & Participation", "Summarize observed usage by player without projecting future participation.", ["player_id", "usage_column"], "SELECT\n    {player_id} AS player,\n    COUNT(*) AS records,\n    AVG({usage_column}) AS average_observed_usage,\n    MIN({usage_column}) AS minimum_observed_usage,\n    MAX({usage_column}) AS maximum_observed_usage\nFROM {table}\nGROUP BY {player_id}\nORDER BY records DESC\nLIMIT 100;", ["player", "usage"]),
+  template("Starter coverage", "Player & Participation", "Inspect observed starter designations and missingness.", ["starter_column"], "SELECT\n    {starter_column} AS starter_state,\n    COUNT(*) AS records,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM {table}\nGROUP BY {starter_column}\nORDER BY records DESC;", ["starter", "participation"]),
+  template("Player-team history", "Player & Participation", "Count observed player-team combinations by season.", ["player_id", "team_id", "season_column"], "SELECT\n    {season_column} AS season,\n    {player_id} AS player,\n    {team_id} AS team,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {season_column}, {player_id}, {team_id}\nORDER BY {season_column}, records DESC\nLIMIT 100;", ["player", "team", "identity"]),
+  template("Event taxonomy", "Event & Drive Analysis", "Inspect the observed event outcome vocabulary and frequency.", ["event_type"], "SELECT\n    {event_type} AS event_type,\n    COUNT(*) AS events,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS event_share\nFROM {table}\nGROUP BY {event_type}\nORDER BY events DESC\nLIMIT 100;", ["event", "taxonomy"]),
+  template("Events per game", "Event & Drive Analysis", "Count distinct events and records for each game.", ["game_id", "event_id"], "SELECT\n    {game_id} AS game,\n    COUNT(DISTINCT {event_id}) AS events,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {game_id}\nORDER BY events DESC\nLIMIT 100;", ["event", "game"]),
+  template("Plate-appearance outcome coverage", "Event & Drive Analysis", "Profile observed player event outcomes for plate-appearance research.", ["game_id", "player_id", "event_type"], "SELECT\n    {event_type} AS plate_appearance_outcome,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(DISTINCT {player_id}) AS players,\n    COUNT(*) AS plate_appearances\nFROM {table}\nGROUP BY {event_type}\nORDER BY plate_appearances DESC\nLIMIT 100;", ["mlb", "plate appearance", "event"]),
+  template("Drive outcome distribution", "Event & Drive Analysis", "Profile observed drive outcomes without asserting a model or simulation result.", ["drive_outcome"], "SELECT\n    {drive_outcome} AS drive_outcome,\n    COUNT(*) AS drives,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS drive_share\nFROM {table}\nGROUP BY {drive_outcome}\nORDER BY drives DESC\nLIMIT 100;", ["nfl", "drive", "outcome"]),
+  template("Drives per game", "Event & Drive Analysis", "Count distinct observed drives for each game.", ["game_id", "drive_id"], "SELECT\n    {game_id} AS game,\n    COUNT(DISTINCT {drive_id}) AS drives,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {game_id}\nORDER BY drives DESC\nLIMIT 100;", ["nfl", "drive", "game"]),
+  template("State-transition coverage", "Event & Drive Analysis", "Count observed transitions between sport-specific game states.", ["state_column", "next_state_column"], "SELECT\n    {state_column} AS prior_state,\n    {next_state_column} AS next_state,\n    COUNT(*) AS transitions\nFROM {table}\nGROUP BY {state_column}, {next_state_column}\nORDER BY transitions DESC\nLIMIT 100;", ["event", "state", "transition"]),
+  template("Forecast cutoff integrity", "Temporal Integrity", "Identify evidence recorded after its forecast cutoff.", ["source_timestamp", "forecast_timestamp"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {source_timestamp} > {forecast_timestamp} THEN 1 ELSE 0 END) AS records_after_cutoff,\n    SUM(CASE WHEN {source_timestamp} IS NULL OR {forecast_timestamp} IS NULL THEN 1 ELSE 0 END) AS records_missing_timestamps\nFROM {table};", ["time integrity", "leakage", "forecast cutoff"]),
+  template("Outcome availability integrity", "Temporal Integrity", "Identify outcomes timestamped at or before the forecast was issued.", ["forecast_timestamp", "outcome_timestamp"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {outcome_timestamp} <= {forecast_timestamp} THEN 1 ELSE 0 END) AS outcomes_not_strictly_after_forecast,\n    SUM(CASE WHEN {outcome_timestamp} IS NULL THEN 1 ELSE 0 END) AS outcomes_not_yet_available\nFROM {table};", ["time integrity", "outcome", "leakage"]),
+  template("Duplicate game identity", "Temporal Integrity", "Find repeated game identifiers in data expected at one row per game.", ["game_id"], "SELECT\n    {game_id} AS game,\n    COUNT(*) AS duplicate_count\nFROM {table}\nGROUP BY {game_id}\nHAVING COUNT(*) > 1\nORDER BY duplicate_count DESC\nLIMIT 100;", ["identity", "game", "data quality"]),
+  template("Duplicate event identity", "Temporal Integrity", "Find repeated event identifiers within games.", ["game_id", "event_id"], "SELECT\n    {game_id} AS game,\n    {event_id} AS event,\n    COUNT(*) AS duplicate_count\nFROM {table}\nGROUP BY {game_id}, {event_id}\nHAVING COUNT(*) > 1\nORDER BY duplicate_count DESC\nLIMIT 100;", ["identity", "event", "data quality"]),
+  template("Evidence timing by season", "Temporal Integrity", "Summarize observed source and forecast timestamps by season.", ["season_column", "source_timestamp", "forecast_timestamp"], "SELECT\n    {season_column} AS season,\n    MIN({source_timestamp}) AS earliest_source_time,\n    MAX({source_timestamp}) AS latest_source_time,\n    MIN({forecast_timestamp}) AS earliest_forecast_time,\n    MAX({forecast_timestamp}) AS latest_forecast_time,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {season_column}\nORDER BY {season_column};", ["season", "time integrity"]),
+  template("Historical development population", "Model Development", "Summarize forecast targets across observed seasons for temporal development planning.", ["season_column", "target_column"], "SELECT\n    {season_column} AS season,\n    {target_column} AS forecast_target,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {season_column}, {target_column}\nORDER BY {season_column}, records DESC\nLIMIT 100;", ["modeling", "temporal validation"]),
+  template("Temporal fold summary", "Model Development", "Count games and records in each declared temporal fold.", ["fold_column", "game_id"], "SELECT\n    {fold_column} AS temporal_fold,\n    COUNT(DISTINCT {game_id}) AS games,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {fold_column}\nORDER BY {fold_column};", ["modeling", "fold", "validation"]),
+  template("Calibration table input", "Model Development", "Prepare observed outcome rates by forecast-probability band.", ["score_column", "target_column"], "SELECT\n    CASE\n        WHEN {score_column} < 0.2 THEN '0.0-0.2'\n        WHEN {score_column} < 0.4 THEN '0.2-0.4'\n        WHEN {score_column} < 0.6 THEN '0.4-0.6'\n        WHEN {score_column} < 0.8 THEN '0.6-0.8'\n        ELSE '0.8-1.0'\n    END AS probability_band,\n    COUNT(*) AS forecasts,\n    AVG({score_column}) AS average_forecast_probability,\n    AVG({target_column}) AS observed_outcome_rate\nFROM {table}\nWHERE {score_column} IS NOT NULL\nGROUP BY probability_band\nORDER BY probability_band;", ["modeling", "calibration", "probability"]),
+  template("Forecast completeness", "Model Development", "Count missing forecast probabilities and target outcomes.", ["score_column", "target_column"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {score_column} IS NULL THEN 1 ELSE 0 END) AS missing_forecasts,\n    SUM(CASE WHEN {target_column} IS NULL THEN 1 ELSE 0 END) AS missing_outcomes\nFROM {table};", ["modeling", "missingness"]),
+  template("Subgroup forecast stability", "Model Development", "Summarize forecast probability by an observed team, player, venue, or lifecycle subgroup.", ["segment_column", "score_column"], "SELECT\n    {segment_column} AS subgroup,\n    COUNT(*) AS forecasts,\n    AVG({score_column}) AS average_forecast_probability,\n    MIN({score_column}) AS minimum_forecast_probability,\n    MAX({score_column}) AS maximum_forecast_probability\nFROM {table}\nGROUP BY {segment_column}\nORDER BY forecasts DESC\nLIMIT 100;", ["modeling", "stability", "subgroup"]),
+  template("Strict versus enhanced evidence", "Model Development", "Compare declared evidence populations without mixing their validation results.", ["evidence_mode", "target_column"], "SELECT\n    {evidence_mode} AS evidence_population,\n    COUNT(*) AS records,\n    AVG({target_column}) AS observed_target_rate\nFROM {table}\nGROUP BY {evidence_mode}\nORDER BY records DESC;", ["modeling", "evidence", "population"]),
+  template("Forecast volume over time", "Forward Monitoring", "Count recorded forecasts by issue time.", ["forecast_timestamp"], "SELECT\n    SUBSTR({forecast_timestamp}, 1, 10) AS forecast_date,\n    COUNT(*) AS forecasts\nFROM {table}\nGROUP BY forecast_date\nORDER BY forecast_date\nLIMIT 100;", ["monitoring", "forecast", "time"]),
+  template("Outcome maturity over time", "Forward Monitoring", "Count outcomes available and still pending by forecast date.", ["forecast_timestamp", "outcome_timestamp"], "SELECT\n    SUBSTR({forecast_timestamp}, 1, 10) AS forecast_date,\n    COUNT(*) AS forecasts,\n    SUM(CASE WHEN {outcome_timestamp} IS NOT NULL THEN 1 ELSE 0 END) AS matured_outcomes,\n    SUM(CASE WHEN {outcome_timestamp} IS NULL THEN 1 ELSE 0 END) AS pending_outcomes\nFROM {table}\nGROUP BY forecast_date\nORDER BY forecast_date\nLIMIT 100;", ["monitoring", "outcome maturity"]),
+  template("Forecast drift by season", "Forward Monitoring", "Track the observed forecast-probability distribution by season.", ["season_column", "score_column"], "SELECT\n    {season_column} AS season,\n    COUNT(*) AS forecasts,\n    AVG({score_column}) AS average_forecast_probability,\n    MIN({score_column}) AS minimum_forecast_probability,\n    MAX({score_column}) AS maximum_forecast_probability\nFROM {table}\nGROUP BY {season_column}\nORDER BY {season_column};", ["monitoring", "drift", "season"]),
+  template("Operational and research challenger", "Forward Monitoring", "Compare observed operational and research-challenger predictions without implying promotion.", ["operational_score", "challenger_score"], "SELECT\n    COUNT(*) AS forecasts,\n    AVG({operational_score}) AS average_operational_prediction,\n    AVG({challenger_score}) AS average_research_challenger_prediction,\n    AVG(ABS({operational_score} - {challenger_score})) AS average_absolute_difference\nFROM {table};", ["monitoring", "operational model", "research challenger"]),
+  template("OOD status distribution", "Forward Monitoring", "Count declared in-distribution and out-of-distribution states.", ["ood_column"], "SELECT\n    {ood_column} AS ood_status,\n    COUNT(*) AS records,\n    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER () AS population_share\nFROM {table}\nGROUP BY {ood_column}\nORDER BY records DESC;", ["monitoring", "ood"]),
+  template("Required identity missingness", "Data Quality", "Count missing game, team, and player identifiers.", ["game_id", "team_id", "player_id"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {game_id} IS NULL THEN 1 ELSE 0 END) AS missing_game_identity,\n    SUM(CASE WHEN {team_id} IS NULL THEN 1 ELSE 0 END) AS missing_team_identity,\n    SUM(CASE WHEN {player_id} IS NULL THEN 1 ELSE 0 END) AS missing_player_identity\nFROM {table};", ["data quality", "identity"]),
+  template("Unexpected event categories", "Data Quality", "Review observed event categories and frequency before defining a taxonomy.", ["event_type"], "SELECT\n    {event_type} AS observed_event_category,\n    COUNT(*) AS records\nFROM {table}\nGROUP BY {event_type}\nORDER BY records DESC\nLIMIT 100;", ["data quality", "event taxonomy"]),
+  template("Missing event time", "Data Quality", "Count event or game records without an observed timestamp.", ["date_column"], "SELECT\n    COUNT(*) AS records,\n    SUM(CASE WHEN {date_column} IS NULL THEN 1 ELSE 0 END) AS missing_observation_time\nFROM {table};", ["data quality", "time"]),
+  template("Source-version control total", "Data Quality", "Produce a row-count control for the selected immutable dataset version.", [], "SELECT\n    COUNT(*) AS registered_version_row_count\nFROM {table};", ["data quality", "reconciliation"]),
 ];
 
 const TEMPLATE_CATEGORIES: TemplateCategory[] = [
-  "Customer / Account Analytics",
-  "Credit Risk",
-  "Fraud / AML",
-  "Marketing / Campaigns",
+  "Sports Data Profiling",
+  "Game & Team Analysis",
+  "Player & Participation",
+  "Event & Drive Analysis",
+  "Temporal Integrity",
   "Model Development",
-  "Monitoring",
+  "Forward Monitoring",
   "Data Quality",
-  "Demo Dataset Examples",
 ];
 
 const COLUMN_MAPPINGS = [
-  { key: "customer_id", label: "Customer ID", candidates: ["customer_id", "cust_id", "cid", "party_id"] },
-  { key: "account_id", label: "Account ID", candidates: ["account_id", "acct_id", "account_number"] },
-  { key: "date_column", label: "Date column", candidates: ["date", "transaction_date", "post_date", "open_date", "Time"] },
-  { key: "amount_column", label: "Amount column", candidates: ["amount", "transaction_amount", "balance", "Amount", "MedHouseVal"] },
-  { key: "target_column", label: "Target column", candidates: ["target", "actual", "response", "default_ind", "fraud_ind", "Class"] },
-  { key: "score_column", label: "Score column", candidates: ["score", "model_score", "predicted_value", "probability"] },
-  { key: "segment_column", label: "Segment column", candidates: ["segment", "risk_band", "region", "V1", "MedInc"] },
-  { key: "campaign_column", label: "Campaign column", candidates: ["campaign", "channel", "offer", "ContactChannel"] },
+  { key: "sport_column", label: "Sport", candidates: ["sport", "sport_code", "sport_name"] },
+  { key: "league_column", label: "League", candidates: ["league", "league_id", "competition"] },
+  { key: "season_column", label: "Season", candidates: ["season", "season_id", "season_year", "year"] },
+  { key: "game_id", label: "Game ID", candidates: ["game_id", "gameid", "match_id", "event_game_id"] },
+  { key: "team_id", label: "Team ID", candidates: ["team_id", "teamid", "club_id", "franchise_id"] },
+  { key: "home_team_id", label: "Home team ID", candidates: ["home_team_id", "home_team", "home_id"] },
+  { key: "away_team_id", label: "Away team ID", candidates: ["away_team_id", "away_team", "visitor_team_id", "away_id"] },
+  { key: "player_id", label: "Player ID", candidates: ["player_id", "playerid", "athlete_id", "batter_id", "pitcher_id"] },
+  { key: "event_id", label: "Event / play ID", candidates: ["event_id", "play_id", "plate_appearance_id", "pa_id"] },
+  { key: "drive_id", label: "Drive ID", candidates: ["drive_id", "possession_id", "series_id"] },
+  { key: "date_column", label: "Game / event time", candidates: ["game_date", "event_time", "play_time", "start_time", "game_datetime", "date", "timestamp"] },
+  { key: "event_type", label: "Event outcome", candidates: ["event_type", "event_outcome", "play_type", "pa_result", "result"] },
+  { key: "drive_outcome", label: "Drive outcome", candidates: ["drive_outcome", "drive_result", "possession_result"] },
+  { key: "participation_column", label: "Participation state", candidates: ["participation", "active_status", "appearance", "played", "snap_share"] },
+  { key: "usage_column", label: "Usage", candidates: ["usage", "usage_rate", "snap_share", "minutes", "plate_appearances", "opportunities"] },
+  { key: "starter_column", label: "Starter state", candidates: ["is_starter", "starter", "started", "starting_lineup"] },
+  { key: "venue_column", label: "Venue", candidates: ["venue_id", "venue", "stadium_id", "park_id"] },
+  { key: "home_score", label: "Home score", candidates: ["home_score", "home_runs", "home_points", "score_home"] },
+  { key: "away_score", label: "Away score", candidates: ["away_score", "away_runs", "away_points", "score_away"] },
+  { key: "target_column", label: "Forecast target", candidates: ["target", "actual", "outcome", "home_win", "win_flag", "margin", "total_runs", "total_points"] },
+  { key: "score_column", label: "Forecast probability / score", candidates: ["forecast_probability", "win_probability", "home_win_probability", "prediction", "predicted_value", "probability", "score"] },
+  { key: "forecast_timestamp", label: "Forecast timestamp", candidates: ["forecast_timestamp", "forecast_time", "prediction_time", "as_of_time", "cutoff_time"] },
+  { key: "source_timestamp", label: "Source-available timestamp", candidates: ["source_timestamp", "available_at", "recorded_at", "published_at", "ingested_at"] },
+  { key: "outcome_timestamp", label: "Outcome timestamp", candidates: ["outcome_timestamp", "outcome_time", "finalized_at", "result_time"] },
+  { key: "fold_column", label: "Temporal fold", candidates: ["temporal_fold", "fold", "validation_fold", "split"] },
+  { key: "segment_column", label: "Team / player / lifecycle subgroup", candidates: ["team_id", "player_id", "venue_id", "lifecycle", "season", "league"] },
+  { key: "state_column", label: "Prior game state", candidates: ["state", "prior_state", "base_out_state", "field_position_state"] },
+  { key: "next_state_column", label: "Next game state", candidates: ["next_state", "result_state", "next_base_out_state", "next_field_position_state"] },
+  { key: "evidence_mode", label: "Evidence population", candidates: ["evidence_mode", "evidence_population", "strict_enhanced", "population_type"] },
+  { key: "operational_score", label: "Operational prediction", candidates: ["operational_prediction", "operational_score", "production_prediction"] },
+  { key: "challenger_score", label: "Research challenger prediction", candidates: ["challenger_prediction", "research_prediction", "challenger_score"] },
+  { key: "ood_column", label: "OOD status", candidates: ["ood_status", "is_ood", "distribution_status"] },
 ];
 
 export default function SqlDataStudio() {
@@ -173,9 +190,9 @@ export default function SqlDataStudio() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<Record<string, DatasetProfile>>({});
   const [savedQueries, setSavedQueries] = useState<SavedSqlQuery[]>([]);
-  const [queryName, setQueryName] = useState("Home Price Summary by Income Band");
+  const [queryName, setQueryName] = useState("Sports Dataset Preview");
   const [description, setDescription] = useState("");
-  const [sql, setSql] = useState("SELECT *\nFROM REG_TRAIN\nLIMIT 100;");
+  const [sql, setSql] = useState("SELECT *\nFROM SPORTS_DATASET\nLIMIT 100;");
   const [validation, setValidation] = useState<{ status: string; warnings: string[]; error?: string } | null>(null);
   const [preview, setPreview] = useState<SqlPreviewResult | null>(null);
   const [registeredDataset, setRegisteredDataset] = useState<DatasetSummary | null>(null);
@@ -183,11 +200,11 @@ export default function SqlDataStudio() {
   const [working, setWorking] = useState(false);
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
   const [objectExplorerTab, setObjectExplorerTab] = useState<ObjectExplorerTab>("tables");
-  const [assistantTab, setAssistantTab] = useState<AssistantTab>("financial");
+  const [assistantTab, setAssistantTab] = useState<AssistantTab>("sports");
   const [bottomTab, setBottomTab] = useState<BottomTab>("results");
-  const [expandedCategory, setExpandedCategory] = useState<TemplateCategory>("Demo Dataset Examples");
+  const [expandedCategory, setExpandedCategory] = useState<TemplateCategory>("Sports Data Profiling");
   const [templateSearch, setTemplateSearch] = useState("");
-  const [selectedTemplateName, setSelectedTemplateName] = useState("REG_TRAIN income band profile");
+  const [selectedTemplateName, setSelectedTemplateName] = useState("Dataset row count");
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [queryHistory, setQueryHistory] = useState<QueryHistoryEntry[]>(() => readHistory());
   const [focusMode, setFocusMode] = useState(false);
@@ -208,13 +225,13 @@ export default function SqlDataStudio() {
     [selectedDatasets]
   );
   const selectedProfile = selectedDatasets[0] ? profiles[selectedDatasets[0].datasetId] : null;
-  const selectedTemplate = FINANCIAL_TEMPLATES.find((item) => item.name === selectedTemplateName) ?? FINANCIAL_TEMPLATES[0];
+  const selectedTemplate = SPORTS_TEMPLATES.find((item) => item.name === selectedTemplateName) ?? SPORTS_TEMPLATES[0];
   const availableColumns = useMemo(() => selectedDatasets.flatMap((dataset) => profiles[dataset.datasetId]?.schema?.map((column) => column.name) ?? []), [profiles, selectedDatasets]);
   const detectedMap = useMemo(() => autoDetectColumnMap(availableColumns), [availableColumns]);
   const activeColumnMap = { ...detectedMap, ...columnMap };
   const mappedTemplateSql = applyTemplate(selectedTemplate, datasetRefs, activeColumnMap);
   const templateIssues = selectedTemplate.requiredColumns.filter((field) => !activeColumnMap[field]);
-  const filteredTemplates = FINANCIAL_TEMPLATES.filter((item) => {
+  const filteredTemplates = SPORTS_TEMPLATES.filter((item) => {
     const needle = templateSearch.trim().toLowerCase();
     if (!needle) return true;
     return [item.name, item.category, item.description, item.tags.join(" ")].join(" ").toLowerCase().includes(needle);
@@ -238,7 +255,7 @@ export default function SqlDataStudio() {
       }
       setSavedQueries((await listSavedSqlQueries()).queries);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not load SQL Data Studio.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not load SQL Lab."));
     } finally {
       setWorking(false);
     }
@@ -270,7 +287,7 @@ export default function SqlDataStudio() {
       setValidation(result);
       setBottomTab("messages");
     } catch (error) {
-      setValidation({ status: "error", warnings: [], error: error instanceof Error ? error.message : "Validation failed." });
+      setValidation({ status: "error", warnings: [], error: sqlLabError(error, "Validation failed.") });
       setBottomTab("messages");
     } finally {
       setWorking(false);
@@ -298,7 +315,7 @@ export default function SqlDataStudio() {
       });
       setBottomTab("results");
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Preview failed.";
+      const errorMessage = sqlLabError(error, "Preview failed.");
       setPreview(null);
       setValidation({ status: "error", warnings: [], error: errorMessage });
       recordHistory({
@@ -331,7 +348,7 @@ export default function SqlDataStudio() {
       setMessage(`Saved SQL query "${saved.query.name}".`);
       setSavedQueries((await listSavedSqlQueries()).queries);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save this SQL query.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not save this SQL query."));
     } finally {
       setWorking(false);
     }
@@ -365,7 +382,7 @@ export default function SqlDataStudio() {
       setMessage(`Registered SQL Result dataset "${payload.dataset.name}".`);
       setBottomTab("lineage");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not register this SQL result.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not register this SQL result."));
     } finally {
       setWorking(false);
     }
@@ -385,11 +402,11 @@ export default function SqlDataStudio() {
         schemaProfile: preview.schemaProfile ?? [],
         datasetRefs,
         warnings: preview.warnings,
-        lineage: { createdBy: "SQL Data Studio", sourceType, linkedProjectId: projectId },
+        lineage: { createdBy: "ASP Model Studio SQL Lab", sourceType, linkedProjectId: projectId },
       });
-      downloadBlob(blob, "atlas-sql-data-studio-result.xlsx");
+      downloadBlob(blob, "asp-model-studio-sql-lab-result.xlsx");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not export the SQL result.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not export the SQL result."));
     }
   }
 
@@ -401,22 +418,22 @@ export default function SqlDataStudio() {
         evidenceType: "sql_query",
         title: `SQL Query: ${queryName}`,
         summary: description || `Governed SQL query using ${datasetRefs.length} source dataset(s).`,
-        sourcePage: "SQL Data Studio",
-        sourceRoute: "/sql-data-studio",
+        sourcePage: "SQL Lab",
+        sourceRoute: "/sql-lab",
         artifactType: "sql_query",
         artifactId: queryName,
         datasetIds: datasetRefs.map((ref) => ref.datasetId),
         supportsSections: ["Lineage", "Appendix"],
-        tags: ["governance", "model_risk", ...inferTags(sql, selectedTemplate)],
+        tags: ["governance", "sports_modeling", ...inferTags(sql, selectedTemplate)],
         status: validation?.status === "valid" ? "ready" : "needs_review",
         importance: "high",
         lineage: { datasetRefs, sourceType, validationStatus: validation?.status ?? "not_validated" },
         payload: { sqlPreview: sql.slice(0, 4000) },
-        governance: { note: "SQL query text is captured for lineage review. Result rows are not duplicated in Model Evidence Center." },
+        governance: { note: "SQL query text is captured for lineage review. Result rows are not duplicated in Model Graph evidence." },
       });
-      setMessage("SQL query saved to Model Evidence Center.");
+      setMessage("SQL query saved to Model Graph evidence.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save SQL query evidence.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not save SQL query evidence."));
     }
   }
 
@@ -432,22 +449,22 @@ export default function SqlDataStudio() {
         evidenceType: "sql_result",
         title: `SQL Result: ${queryName}`,
         summary: `Preview returned ${preview.returnedRows} row(s), ${preview.columns.length} column(s), and ${preview.warnings?.length ?? 0} warning(s).`,
-        sourcePage: "SQL Data Studio",
-        sourceRoute: "/sql-data-studio",
+        sourcePage: "SQL Lab",
+        sourceRoute: "/sql-lab",
         artifactType: "sql_result_preview",
         artifactId: registeredDataset?.datasetId || queryName,
         datasetIds: [...datasetRefs.map((ref) => ref.datasetId), registeredDataset?.datasetId].filter(Boolean) as string[],
         supportsSections: ["Lineage", "Data Quality"],
-        tags: ["governance", "model_risk", ...inferTags(sql, selectedTemplate)],
+        tags: ["governance", "sports_modeling", ...inferTags(sql, selectedTemplate)],
         status: preview.ok ? "ready" : "needs_review",
         importance: "high",
         lineage: { datasetRefs, registeredDatasetId: registeredDataset?.datasetId, runtimeMs: preview.runtimeMs, returnedRows: preview.returnedRows },
         payload: { columns: preview.columns, warningCount: preview.warnings?.length ?? 0 },
-        governance: { note: "SQL result evidence stores compact schema and lineage only; preview rows remain in SQL Data Studio output artifacts." },
+        governance: { note: "SQL result evidence stores compact schema and lineage only; preview rows remain in SQL Lab output artifacts." },
       });
-      setMessage("SQL result saved to Model Evidence Center.");
+      setMessage("SQL result saved to Model Graph evidence.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save SQL result evidence.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not save SQL result evidence."));
     }
   }
 
@@ -507,7 +524,7 @@ export default function SqlDataStudio() {
       setSavedQueries((await listSavedSqlQueries()).queries);
       setMessage(`Renamed SQL query "${query.name}" to "${nextName}".`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not rename this SQL query.");
+      setMessage(sqlLabError(error, "ASP Model Studio could not rename this SQL query."));
     } finally {
       setWorking(false);
     }
@@ -537,8 +554,8 @@ export default function SqlDataStudio() {
             <div>
               <div className="flex items-center gap-2">
                 <Database size={18} className="text-teal-200" />
-                <h1 className="text-base font-semibold text-white">SQL Data Studio</h1>
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-teal-50">Compact IDE shell</span>
+                <h1 className="text-base font-semibold text-white">SQL Lab</h1>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-teal-50">Sports research IDE</span>
               </div>
               <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-teal-50/80">
                 <span>Source: {sourceType === "dataset_library_preview" ? "Dataset Preview SQL" : sourceType}</span>
@@ -556,13 +573,13 @@ export default function SqlDataStudio() {
             <ToolbarButton icon={<Database size={14} />} label="Register Result" onClick={() => setShowRegisterPanel(true)} />
             <ToolbarButton icon={<Download size={14} />} label="Export" onClick={exportPreview} />
             <ToolbarButton icon={<Copy size={14} />} label="Copy SQL" onClick={() => navigator.clipboard?.writeText(sql)} />
-            <Link to={`/notebook-studio?datasetId=${selectedDatasets[0]?.datasetId || ""}&versionId=${selectedDatasets[0]?.latestVersion?.versionId || ""}`} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-800">
-              Send Query to Notebook Studio
+            <Link to={`/research-tools?datasetId=${selectedDatasets[0]?.datasetId || ""}&versionId=${selectedDatasets[0]?.latestVersion?.versionId || ""}`} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-800">
+              Open Research Tools
             </Link>
-            <ToolbarButton icon={<ShieldAlert size={14} />} label="Save Query to Model Evidence Center" onClick={saveQueryAsEvidence} />
-            <ToolbarButton icon={<ShieldAlert size={14} />} label="Save SQL Result to Model Evidence Center" onClick={saveSqlResultAsEvidence} />
-            <Link to="/model-evidence-center" className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100">
-              Open Model Evidence Center
+            <ToolbarButton icon={<ShieldAlert size={14} />} label="Save Query Evidence" onClick={saveQueryAsEvidence} />
+            <ToolbarButton icon={<ShieldAlert size={14} />} label="Save Result Evidence" onClick={saveSqlResultAsEvidence} />
+            <Link to="/model-graph" className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100">
+              Open Model Graph
             </Link>
             <button type="button" onClick={() => setFocusMode((current) => !current)} className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${focusMode ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-300 bg-white text-slate-700"}`}>
               Focus Mode
@@ -676,7 +693,7 @@ export default function SqlDataStudio() {
                 {objectExplorerTab === "connectors" && (
                   <details className="rounded-lg border border-slate-200 bg-white p-2 text-xs" open>
                     <summary className="cursor-pointer font-semibold text-slate-800">External Connectors</summary>
-                    <p className="mt-2 leading-5 text-slate-500">Connector not configured in this local build. Use Dataset Library Preview SQL until governed warehouse connections are enabled.</p>
+                    <p className="mt-2 leading-5 text-slate-500">No external sports warehouse is connected. Use registered target-local dataset versions until immutable manifest connections are enabled.</p>
                     <div className="mt-2 space-y-1">
                       {EXTERNAL_CONNECTORS.map((connector) => (
                         <div key={connector} className="flex justify-between rounded bg-slate-50 px-2 py-1 text-slate-600">
@@ -723,11 +740,11 @@ export default function SqlDataStudio() {
 
           {!focusMode && (
             <aside className="col-start-3 row-start-1 grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
-              <PaneHeader icon={<Sparkles size={15} />} title="SQL Assistant" subtitle="Templates, financial tasks, mapping, governance" />
+              <PaneHeader icon={<Sparkles size={15} />} title="Sports SQL Assistant" subtitle="Profiling, game, player, event, drive, time-integrity, and governance patterns" />
               <div className="flex border-b border-slate-200 bg-white">
                 {[
                   ["templates", "Templates"],
-                  ["financial", "Financial"],
+                  ["sports", "Sports"],
                   ["mapping", "Mapping"],
                   ["governance", "Governance"],
                   ["help", "Help"],
@@ -750,11 +767,11 @@ export default function SqlDataStudio() {
                     </div>
                   </Panel>
                 )}
-                {assistantTab === "financial" && (
+                {assistantTab === "sports" && (
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                       <Search size={13} className="text-slate-500" />
-                      <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} placeholder="Search financial SQL tasks..." className="w-full bg-transparent text-xs outline-none" />
+                      <input value={templateSearch} onChange={(event) => setTemplateSearch(event.target.value)} placeholder="Search sports SQL patterns..." className="w-full bg-transparent text-xs outline-none" />
                     </label>
                     <Panel title="Selected Template Preview">
                       <div className="space-y-2 text-xs">
@@ -768,7 +785,7 @@ export default function SqlDataStudio() {
                         </div>
                       </div>
                     </Panel>
-                    <Panel title="Financial Services SQL Tasks">
+                    <Panel title="Sports Research SQL Patterns">
                       <div className="space-y-1">
                         {TEMPLATE_CATEGORIES.map((category) => {
                           const items = filteredTemplates.filter((item) => item.category === category);
@@ -776,7 +793,7 @@ export default function SqlDataStudio() {
                           const open = expandedCategory === category;
                           return (
                             <div key={category} className="rounded-lg border border-slate-200 bg-white">
-                              <button type="button" onClick={() => setExpandedCategory(open ? "Demo Dataset Examples" : category)} className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold text-slate-800">
+                              <button type="button" onClick={() => setExpandedCategory(open ? "Sports Data Profiling" : category)} className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs font-semibold text-slate-800">
                                 {category}
                                 {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                               </button>
@@ -829,9 +846,9 @@ export default function SqlDataStudio() {
                       <ul className="space-y-1 text-xs leading-5 text-slate-700">
                         <li>Read-only SELECT only.</li>
                         <li>Preview/sample-row execution only.</li>
-                        <li>No production warehouse execution.</li>
-                        <li>Dataset lineage required before registration.</li>
-                        <li>Review PII and sensitive data.</li>
+                        <li>No external sports warehouse execution.</li>
+                        <li>Immutable dataset lineage is required before registration.</li>
+                        <li>Review source rights, identity coverage, and point-in-time integrity.</li>
                       </ul>
                     </Panel>
                     <Panel title="Current query lineage">
@@ -840,7 +857,7 @@ export default function SqlDataStudio() {
                   </div>
                 )}
                 {assistantTab === "help" && (
-                  <Panel title="How to use SQL Data Studio">
+                  <Panel title="How to use SQL Lab">
                     <ol className="list-decimal space-y-1 pl-5 text-xs leading-5 text-slate-700">
                       <li>Select Dataset Library tables.</li>
                       <li>Insert a template or write SQL.</li>
@@ -864,8 +881,8 @@ export default function SqlDataStudio() {
                         <div className="grid gap-1">
                           <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to={`/datasets/${registeredDataset.datasetId}`}>Open Dataset Detail</Link>
                           <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to={`/analytics?datasetId=${registeredDataset.datasetId}`}>Open Analytics Workbench</Link>
-                          <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to={`/chart-studio?datasetId=${registeredDataset.datasetId}`}>Open Chart Studio</Link>
-                          <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to="/model-document-studio">Open Model Documentation Studio</Link>
+                          <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to={`/visualization-studio?datasetId=${registeredDataset.datasetId}`}>Open Visualization Studio</Link>
+                          <Link className="rounded bg-slate-950 px-2 py-1.5 text-center text-xs font-semibold text-white" to="/model-documentation">Open Model Documentation</Link>
                         </div>
                       )}
                     </div>
@@ -1087,6 +1104,13 @@ function SmallButton({ label, onClick }: { label: string; onClick: () => void })
   return <button type="button" onClick={onClick} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">{label}</button>;
 }
 
+function sqlLabError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  return message
+    .replace(/\bATLAS\b/g, "ASP Model Studio")
+    .replace(/SQL Data Studio/g, "SQL Lab");
+}
+
 function fmt(value: unknown) {
   const num = Number(value);
   return Number.isFinite(num) ? num.toFixed(4) : "-";
@@ -1097,13 +1121,15 @@ function generateSelectTemplate(refs: SqlDatasetRef[]) {
 }
 
 function firstAlias(refs: SqlDatasetRef[]) {
-  return refs[0]?.alias || "REG_TRAIN";
+  return refs[0]?.alias || "SPORTS_DATASET";
 }
 
 function applyTemplate(item: SqlTemplate, refs: SqlDatasetRef[], mapping: Record<string, string>) {
   let next = item.sql.replaceAll("{table}", firstAlias(refs));
   Object.entries(mapping).forEach(([key, value]) => {
-    if (value) next = next.replaceAll(key, value).replaceAll(`{${key}}`, value);
+    if (!value) return;
+    next = next.replaceAll(`{${key}}`, value);
+    next = next.replace(new RegExp(`\\b${key}\\b`, "g"), value);
   });
   return next;
 }
@@ -1113,7 +1139,7 @@ function resolveSnippet(value: string, refs: SqlDatasetRef[], mapping: Record<st
   Object.entries(mapping).forEach(([key, mapped]) => {
     if (mapped) next = next.replaceAll(`{${key}}`, mapped).replaceAll(key, mapped);
   });
-  return next.replaceAll("{column}", mapping.segment_column ?? "column_name").replaceAll("{key}", mapping.customer_id ?? "id");
+  return next.replaceAll("{column}", mapping.segment_column ?? mapping.event_type ?? "column_name").replaceAll("{key}", mapping.game_id ?? mapping.player_id ?? "id");
 }
 
 function autoDetectColumnMap(columns: string[]) {
@@ -1156,9 +1182,9 @@ function buildMessages(validation: { status: string; warnings: string[]; error?:
 }
 
 function inferTags(sql: string, templateItem: SqlTemplate) {
-  const tags = new Set(["sql-data-studio", ...templateItem.tags]);
+  const tags = new Set(["sql-lab", "sports", ...templateItem.tags]);
   const text = sql.toLowerCase();
-  ["risk", "fraud", "marketing", "monitoring", "data quality", "modeling"].forEach((tag) => {
+  ["game", "team", "player", "participation", "event", "drive", "time integrity", "monitoring", "data quality", "modeling"].forEach((tag) => {
     if (text.includes(tag.replace(" ", "_")) || text.includes(tag)) tags.add(tag);
   });
   return Array.from(tags);
@@ -1192,7 +1218,7 @@ function writeHistory(entries: QueryHistoryEntry[]) {
 function exportSqlDefinition(queryName: string, sql: string, refs: SqlDatasetRef[]) {
   const payload = { queryName, sql, sourceDatasets: refs, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
-  downloadBlob(blob, "atlas-sql-definition-lineage.json");
+  downloadBlob(blob, "asp-model-studio-sql-definition-lineage.json");
 }
 
 function isSqlResultDataset(dataset: DatasetSummary) {

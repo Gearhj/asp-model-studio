@@ -154,7 +154,7 @@ export default function ChartStudio() {
   const [codeTab, setCodeTab] = useState<CodeTab>("Python");
   const [showDataTable, setShowDataTable] = useState(true);
   const [binning, setBinning] = useState<BinningConfig>({ enabled: true, bins: 5, method: "quantile" });
-  const [businessQuestion, setBusinessQuestion] = useState("What pattern should this chart help validate?");
+  const [businessQuestion, setBusinessQuestion] = useState("What sports modeling pattern should this chart help validate?");
   const [roles, setRoles] = useState<ChartStudioRoleAssignments>({
     category: "",
     measure: "",
@@ -183,7 +183,7 @@ export default function ChartStudio() {
         const first = payload.datasets[0];
         if (first) setPrimaryDatasetId((current) => current || first.datasetId);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "ATLAS could not load Dataset Library assets."));
+      .catch((err) => setError(sportsNativeErrorMessage(err, "ASP Model Studio could not load Dataset Library assets.")));
   }, []);
 
   useEffect(() => {
@@ -197,7 +197,7 @@ export default function ChartStudio() {
         setPrimaryDataset(dataset);
         setPrimaryVersionId((current) => current || versionId);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "ATLAS could not load the selected dataset."));
+      .catch((err) => setError(sportsNativeErrorMessage(err, "ASP Model Studio could not load the selected dataset.")));
     return () => {
       alive = false;
     };
@@ -213,7 +213,7 @@ export default function ChartStudio() {
         setPreview(previewPayload);
         setSavedCharts(insightsPayload.insights);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "ATLAS could not load chart preview context."));
+      .catch((err) => setError(sportsNativeErrorMessage(err, "ASP Model Studio could not load chart preview context.")));
     return () => {
       alive = false;
     };
@@ -277,13 +277,13 @@ export default function ChartStudio() {
           secondaryVersionId,
           joinKey,
           previewRowCount: preview.rows.length,
-          createdIn: "ATLAS Chart Studio",
+          createdIn: "ASP Model Studio Visualization Studio",
         },
       });
       setSavedCharts((current) => [insight, ...current.filter((item) => item.insightId !== insight.insightId)]);
       setStatus("Chart insight saved.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not save this chart insight.");
+      setError(sportsNativeErrorMessage(err, "ASP Model Studio could not save this chart insight."));
     }
   }
 
@@ -309,7 +309,7 @@ export default function ChartStudio() {
       downloadBlob(exported.blob, exported.filename);
       setStatus("Chart data Excel export created.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not export chart data.");
+      setError(sportsNativeErrorMessage(err, "ASP Model Studio could not export chart data."));
     }
   }
 
@@ -360,7 +360,7 @@ export default function ChartStudio() {
           ok: false,
           status: "error",
           stdout: "",
-          stderr: err instanceof Error ? err.message : `${codeTab} execution failed.`,
+          stderr: sportsNativeErrorMessage(err, `${codeTab} execution failed.`),
           runtimeMs: 0,
         } as CodeRunResult,
       }));
@@ -400,7 +400,7 @@ export default function ChartStudio() {
       setSavedCharts((current) => [insight, ...current.filter((item) => item.insightId !== insight.insightId)]);
       setStatus(`${codeTab} code snippet saved.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not save this code snippet.");
+      setError(sportsNativeErrorMessage(err, "ASP Model Studio could not save this code snippet."));
     }
   }
 
@@ -425,7 +425,7 @@ export default function ChartStudio() {
       downloadBlob(exported.blob, exported.filename);
       setStatus(`${codeTab} execution result exported to Excel.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not export this execution result.");
+      setError(sportsNativeErrorMessage(err, "ASP Model Studio could not export this execution result."));
     }
   }
 
@@ -438,10 +438,10 @@ export default function ChartStudio() {
             <BrandLogo size="md" variant="dark" showSubtitle className="mb-3" />
             <div className="flex items-center gap-2">
               <BarChart3 size={22} className="text-cyan-200" />
-              <h1 className="text-2xl font-semibold text-white">ATLAS Chart Studio</h1>
+              <h1 className="text-2xl font-semibold text-white">Visualization Studio</h1>
             </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-cyan-50/90">
-              SAS ODS Graphics Designer-inspired workspace for building governed analytical charts from Dataset Library assets.
+              Build governed sports-modeling charts, diagnostics, and forecast visuals from registered Dataset Library assets.
             </p>
           </div>
           <div className="grid gap-2 md:grid-cols-4 2xl:min-w-[720px]">
@@ -454,7 +454,7 @@ export default function ChartStudio() {
         </div>
         <div className="atlas-studio-hero__nav">
           <div className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs leading-5 text-cyan-950">
-          Chart Studio v1 uses Dataset Library preview/sample rows. Full dataset and warehouse-scale charting will be added later.
+          Visualization Studio uses Dataset Library preview/sample rows. Full-dataset and warehouse-scale charting remain a future capability.
           </div>
           <Link to={`/notebook-studio?datasetId=${primaryDatasetId}&versionId=${primaryVersionId}`} className="atlas-studio-chip">
             Send Chart Evidence to Notebook Studio
@@ -470,7 +470,7 @@ export default function ChartStudio() {
             <Field label="Dataset Type">
               <select className="atlas-input" value={datasetTypeFilter} onChange={(event) => setDatasetTypeFilter(event.target.value as "all" | "scored_outputs")}>
                 <option value="all">All Dataset Library assets</option>
-                <option value="scored_outputs">Scored Outputs</option>
+                <option value="scored_outputs">Forecast / Scored Outputs</option>
               </select>
             </Field>
             <Field label="Primary dataset">
@@ -480,17 +480,17 @@ export default function ChartStudio() {
             </Field>
             {selectedDatasetIsScored ? (
               <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
-                Scored output detected. ATLAS recommends lift/decile, residual diagnostics, score distributions, calibration, and stability charts.
+                Forecast or scored output detected. ASP Model Studio recommends lift/decile, residual diagnostics, score distributions, calibration, and stability charts.
                 <Link to={`/model-diagnostics?datasetId=${primaryDatasetId}&versionId=${primaryVersionId}`} className="mt-2 block font-semibold underline">
                   Open in Model Diagnostics
                 </Link>
-                <Link to="/model-document-studio" className="mt-2 block font-semibold underline">
+                <Link to="/model-documentation" className="mt-2 block font-semibold underline">
                   Add Chart to Model Documentation
                 </Link>
               </div>
             ) : (
               <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
-                Scored outputs appear here when a scoring workflow registers actual scored rows to the Dataset Library.
+                Forecast or scored outputs appear here only after a workflow registers actual result rows to the Dataset Library.
               </div>
             )}
             <Field label="Dataset version">
@@ -527,7 +527,7 @@ export default function ChartStudio() {
                   <option value="equal_width">Equal width</option>
                 </select>
               </Field>
-              <p className="text-xs leading-5 text-blue-900">Recommended for all-numeric datasets. Binned roles create fields such as MedInc_band for grouped charts.</p>
+              <p className="text-xs leading-5 text-blue-900">Recommended for all-numeric datasets. Binned roles create fields such as player_workload_band for grouped charts.</p>
             </div>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
               <input type="checkbox" checked={showDataTable} onChange={(event) => setShowDataTable(event.target.checked)} />
@@ -678,8 +678,8 @@ export default function ChartStudio() {
         </main>
 
         <aside className="space-y-4">
-          <DesignerPanel title="ATLAS Chart Interpretation" icon={<Sparkles size={17} />}>
-            <Field label="Business question">
+          <DesignerPanel title="Sports Chart Interpretation" icon={<Sparkles size={17} />}>
+            <Field label="Research question">
               <textarea className="atlas-input min-h-[92px]" value={businessQuestion} onChange={(event) => setBusinessQuestion(event.target.value)} />
             </Field>
             <InterpretationPanel interpretation={interpretation} chartType={chartType} />
@@ -1366,6 +1366,16 @@ function EditableCodeBlock({ label, code, onChange }: { label: string; code: str
   );
 }
 
+function sportsNativeErrorMessage(error: unknown, fallback: string) {
+  return (error instanceof Error ? error.message : fallback)
+    .replace(/\bATLAS\b/g, "ASP Model Studio")
+    .replace(/\bcredit bureau\b/gi, "external sports data source")
+    .replace(/\bcredit[- ]risk\b/gi, "sports forecasting")
+    .replace(/\bfinancial services?\b/gi, "sports analytics")
+    .replace(/\bbanking\b/gi, "sports modeling")
+    .replace(/\blending\b/gi, "forecasting");
+}
+
 function runLabelForTab(tab: CodeTab) {
   if (tab === "SQL") return "Run SQL on Preview";
   if (tab === "R") return "Run R / Validate R Template";
@@ -1375,14 +1385,14 @@ function runLabelForTab(tab: CodeTab) {
 
 function runnablePython(code: string) {
   return [
-    "# ATLAS Chart Studio local-development execution prelude.",
+    "# ASP Model Studio Visualization Studio local-development execution prelude.",
     "try:",
     "    import matplotlib",
     "    matplotlib.use('Agg')",
     "except BaseException:",
     "    pass",
     code,
-    "print('ATLAS Chart Studio Python execution completed.')",
+    "print('ASP Model Studio Visualization Studio Python execution completed.')",
   ].join("\n");
 }
 
@@ -1712,7 +1722,7 @@ function flowRows(rows: ChartRow[], sourceKey: string, targetKey: string, weight
 
 function interpretChart(chartType: ChartTypeId, data: ChartRow[], roles: ChartStudioRoleAssignments, datasetName: string) {
   const caution = "This interpretation is based on Dataset Library preview/sample rows.";
-  if (!data.length) return `Assign valid roles to generate an ATLAS chart interpretation. ${caution}`;
+  if (!data.length) return `Assign valid roles to generate an ASP Model Studio chart interpretation. ${caution}`;
   if (chartType === "correlation_heatmap") {
     const strongest = data.filter((row) => row.x !== row.y).sort((a, b) => Math.abs(toNumber(b.value)) - Math.abs(toNumber(a.value)))[0];
     return `The strongest preview-row relationship is ${strongest?.x} vs ${strongest?.y} with correlation ${formatNumber(toNumber(strongest?.value))}. Review full-dataset results before drawing production conclusions. ${caution}`;
@@ -1753,7 +1763,7 @@ function generateChartCode(chartType: ChartTypeId, datasetName: string, versionI
     ? `df["${category}"] = pd.qcut(df["${sourceCategory}"], q=${binning.bins}, duplicates="drop")\n`
     : "";
   const sqlBinning = isBinnedRole(categoryRole)
-    ? `-- ATLAS binned ${sourceCategory} into ${binning.method === "quantile" ? "quantile" : "equal-width"} bands for the preview chart.\n-- Exact ${binning.method === "quantile" ? "quantile" : "equal-width"} syntax depends on the production SQL engine.\n`
+    ? `-- ASP Model Studio binned ${sourceCategory} into ${binning.method === "quantile" ? "quantile" : "equal-width"} bands for the preview chart.\n-- Exact ${binning.method === "quantile" ? "quantile" : "equal-width"} syntax depends on the production SQL engine.\n`
     : "";
   const sqlCategoryExpr = isBinnedRole(categoryRole) ? `"${sourceCategory}"` : `"${category}"`;
   const rBinning = isBinnedRole(categoryRole)
@@ -1767,10 +1777,10 @@ function generateChartCode(chartType: ChartTypeId, datasetName: string, versionI
     const actual = String(roles.actual || "actual");
     const predicted = String(roles.predicted || "predicted");
     return {
-      python: `# ATLAS Residual Diagnostics\nimport pandas as pd\nimport numpy as np\n\ndf["residual"] = df["${actual}"] - df["${predicted}"]\ndf["abs_residual"] = df["residual"].abs()\ndf["squared_residual"] = df["residual"] ** 2\nfit_summary = {\n    "n": len(df),\n    "mae": df["abs_residual"].mean(),\n    "rmse": np.sqrt(df["squared_residual"].mean()),\n    "mse": df["squared_residual"].mean(),\n    "mean_residual": df["residual"].mean(),\n    "median_residual": df["residual"].median(),\n    "residual_std": df["residual"].std()\n}\nprint(fit_summary)\n`,
-      sql: `-- ATLAS Residual Diagnostics\nSELECT *,\n  "${actual}" - "${predicted}" AS residual,\n  ABS("${actual}" - "${predicted}") AS abs_residual,\n  POWER("${actual}" - "${predicted}", 2) AS squared_residual\nFROM ${dataRef};`,
-      r: `# ATLAS Residual Diagnostics\ndf$residual <- df$${actual} - df$${predicted}\ndf$abs_residual <- abs(df$residual)\ndf$squared_residual <- df$residual ^ 2\nsummary(df[, c("residual", "abs_residual", "squared_residual")])\n`,
-      sas: `/* ATLAS Residual Diagnostics */\ndata work.diagnostics;\n    set work.${table};\n    residual = ${actual} - ${predicted};\n    abs_residual = abs(residual);\n    squared_residual = residual * residual;\nrun;\n\nproc means data=work.diagnostics n mean median std min max;\n    var residual abs_residual squared_residual;\nrun;\n\nproc corr data=work.diagnostics;\n    var ${actual} ${predicted} residual;\nrun;\n`,
+      python: `# ASP Model Studio Residual Diagnostics\nimport pandas as pd\nimport numpy as np\n\ndf["residual"] = df["${actual}"] - df["${predicted}"]\ndf["abs_residual"] = df["residual"].abs()\ndf["squared_residual"] = df["residual"] ** 2\nfit_summary = {\n    "n": len(df),\n    "mae": df["abs_residual"].mean(),\n    "rmse": np.sqrt(df["squared_residual"].mean()),\n    "mse": df["squared_residual"].mean(),\n    "mean_residual": df["residual"].mean(),\n    "median_residual": df["residual"].median(),\n    "residual_std": df["residual"].std()\n}\nprint(fit_summary)\n`,
+      sql: `-- ASP Model Studio Residual Diagnostics\nSELECT *,\n  "${actual}" - "${predicted}" AS residual,\n  ABS("${actual}" - "${predicted}") AS abs_residual,\n  POWER("${actual}" - "${predicted}", 2) AS squared_residual\nFROM ${dataRef};`,
+      r: `# ASP Model Studio Residual Diagnostics\ndf$residual <- df$${actual} - df$${predicted}\ndf$abs_residual <- abs(df$residual)\ndf$squared_residual <- df$residual ^ 2\nsummary(df[, c("residual", "abs_residual", "squared_residual")])\n`,
+      sas: `/* ASP Model Studio Residual Diagnostics */\ndata work.diagnostics;\n    set work.${table};\n    residual = ${actual} - ${predicted};\n    abs_residual = abs(residual);\n    squared_residual = residual * residual;\nrun;\n\nproc means data=work.diagnostics n mean median std min max;\n    var residual abs_residual squared_residual;\nrun;\n\nproc corr data=work.diagnostics;\n    var ${actual} ${predicted} residual;\nrun;\n`,
     };
   }
   if (chartType === "lift_decile") {
@@ -1779,42 +1789,50 @@ function generateChartCode(chartType: ChartTypeId, datasetName: string, versionI
     const positive = String(roles.positiveClass ?? "1");
     const deciles = Number(roles.deciles || 10);
     return {
-      python: `# ATLAS Lift / Decile\nimport pandas as pd\n\ndf = df.sort_values("${score}", ascending=False).copy()\ndf["score_decile"] = pd.qcut(df["${score}"].rank(method="first", ascending=False), q=${deciles}, labels=False, duplicates="drop") + 1\ndf["positive"] = (df["${outcome}"].astype(str) == "${positive}").astype(int)\nchart_data = df.groupby("score_decile")["positive"].agg(["count", "sum", "mean"]).reset_index()\nchart_data["lift"] = chart_data["mean"] / df["positive"].mean()\nprint(chart_data)\n`,
-      sql: `-- ATLAS Lift / Decile\nWITH ranked AS (\n  SELECT *, NTILE(${deciles}) OVER (ORDER BY "${score}" DESC) AS score_decile\n  FROM ${dataRef}\n)\nSELECT score_decile, COUNT(*) AS count,\n  SUM(CASE WHEN CAST("${outcome}" AS VARCHAR) = '${positive}' THEN 1 ELSE 0 END) AS positives\nFROM ranked\nGROUP BY score_decile\nORDER BY score_decile;`,
-      r: `# ATLAS Lift / Decile\ndf <- df[order(-df$${score}), ]\ndf$score_decile <- dplyr::ntile(-df$${score}, ${deciles})\ndf$positive <- as.integer(as.character(df$${outcome}) == "${positive}")\naggregate(positive ~ score_decile, data = df, FUN = mean)\n`,
-      sas: `/* ATLAS Lift / Decile */\nproc rank data=work.${table} groups=${deciles} out=work.deciles descending;\n    var ${score};\n    ranks score_decile;\nrun;\n\nproc means data=work.deciles n mean sum;\n    class score_decile;\n    var ${outcome};\nrun;\n`,
+      python: `# ASP Model Studio Lift / Decile\nimport pandas as pd\n\ndf = df.sort_values("${score}", ascending=False).copy()\ndf["score_decile"] = pd.qcut(df["${score}"].rank(method="first", ascending=False), q=${deciles}, labels=False, duplicates="drop") + 1\ndf["positive"] = (df["${outcome}"].astype(str) == "${positive}").astype(int)\nchart_data = df.groupby("score_decile")["positive"].agg(["count", "sum", "mean"]).reset_index()\nchart_data["lift"] = chart_data["mean"] / df["positive"].mean()\nprint(chart_data)\n`,
+      sql: `-- ASP Model Studio Lift / Decile\nWITH ranked AS (\n  SELECT *, NTILE(${deciles}) OVER (ORDER BY "${score}" DESC) AS score_decile\n  FROM ${dataRef}\n)\nSELECT score_decile, COUNT(*) AS count,\n  SUM(CASE WHEN CAST("${outcome}" AS VARCHAR) = '${positive}' THEN 1 ELSE 0 END) AS positives\nFROM ranked\nGROUP BY score_decile\nORDER BY score_decile;`,
+      r: `# ASP Model Studio Lift / Decile\ndf <- df[order(-df$${score}), ]\ndf$score_decile <- dplyr::ntile(-df$${score}, ${deciles})\ndf$positive <- as.integer(as.character(df$${outcome}) == "${positive}")\naggregate(positive ~ score_decile, data = df, FUN = mean)\n`,
+      sas: `/* ASP Model Studio Lift / Decile */\nproc rank data=work.${table} groups=${deciles} out=work.deciles descending;\n    var ${score};\n    ranks score_decile;\nrun;\n\nproc means data=work.deciles n mean sum;\n    class score_decile;\n    var ${outcome};\nrun;\n`,
     };
   }
   if (chartType === "forecast") {
     return {
-      python: `# ATLAS Simple Forecast Preview\nchart_data = df.groupby("${String(roles.x || "time")}")["${measure}"].${pandasAgg}().reset_index()\nchart_data["moving_average"] = chart_data["${measure}"].rolling(3, min_periods=1).mean()\n# ATLAS renders a simple linear-trend forecast preview for ${Number(roles.horizon || 6)} periods.\n`,
-      sql: `-- ATLAS Simple Forecast data prep\nSELECT "${String(roles.x || "time")}" AS time_order, ${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE)) AS value\nFROM ${dataRef}\nGROUP BY "${String(roles.x || "time")}"\nORDER BY time_order;`,
-      r: `# ATLAS Simple Forecast Preview\nchart_data <- aggregate(${measure} ~ ${String(roles.x || "time")}, data = df, FUN = ${aggregation})\nchart_data$moving_average <- stats::filter(chart_data$${measure}, rep(1/3, 3), sides = 1)\n`,
-      sas: `/* ATLAS Simple Forecast data prep. Chart rendering is handled by ATLAS. */\nproc means data=work.${table} n mean sum median;\n    class ${String(roles.x || "time")};\n    var ${measure};\nrun;\n`,
+      python: `# ASP Model Studio Simple Forecast Preview\nchart_data = df.groupby("${String(roles.x || "time")}")["${measure}"].${pandasAgg}().reset_index()\nchart_data["moving_average"] = chart_data["${measure}"].rolling(3, min_periods=1).mean()\n# ASP Model Studio renders a simple linear-trend forecast preview for ${Number(roles.horizon || 6)} periods.\n`,
+      sql: `-- ASP Model Studio Simple Forecast data prep\nSELECT "${String(roles.x || "time")}" AS time_order, ${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE)) AS value\nFROM ${dataRef}\nGROUP BY "${String(roles.x || "time")}"\nORDER BY time_order;`,
+      r: `# ASP Model Studio Simple Forecast Preview\nchart_data <- aggregate(${measure} ~ ${String(roles.x || "time")}, data = df, FUN = ${aggregation})\nchart_data$moving_average <- stats::filter(chart_data$${measure}, rep(1/3, 3), sides = 1)\n`,
+      sas: `/* ASP Model Studio Simple Forecast data prep. Chart rendering is handled by ASP Model Studio. */\nproc means data=work.${table} n mean sum median;\n    class ${String(roles.x || "time")};\n    var ${measure};\nrun;\n`,
     };
   }
   if (chartType === "survival") {
     return {
-      python: `# ATLAS Basic Kaplan-Meier style survival preview\n# duration=${String(roles.duration || "duration")}; event=${String(roles.event || "event")}\n# Sort by duration, update survival *= (1 - events / at_risk) at each event time.\n`,
-      sql: `-- ATLAS survival data prep\nSELECT "${String(roles.duration || "duration")}" AS duration, "${String(roles.event || "event")}" AS event_indicator, COUNT(*) AS records\nFROM ${dataRef}\nGROUP BY "${String(roles.duration || "duration")}", "${String(roles.event || "event")}"\nORDER BY duration;`,
-      r: `# ATLAS Basic survival preview\n# For production survival analysis, use survival::survfit(Surv(${String(roles.duration || "duration")}, ${String(roles.event || "event")}) ~ 1, data=df)\n`,
-      sas: `/* ATLAS survival data prep. Full survival modeling can use PROC LIFETEST in licensed SAS. */\nproc freq data=work.${table};\n    tables ${String(roles.duration || "duration")} * ${String(roles.event || "event")};\nrun;\n`,
+      python: `# ASP Model Studio Basic Kaplan-Meier style survival preview\n# duration=${String(roles.duration || "duration")}; event=${String(roles.event || "event")}\n# Sort by duration, update survival *= (1 - events / at_risk) at each event time.\n`,
+      sql: `-- ASP Model Studio survival data prep\nSELECT "${String(roles.duration || "duration")}" AS duration, "${String(roles.event || "event")}" AS event_indicator, COUNT(*) AS records\nFROM ${dataRef}\nGROUP BY "${String(roles.duration || "duration")}", "${String(roles.event || "event")}"\nORDER BY duration;`,
+      r: `# ASP Model Studio Basic survival preview\n# For production survival analysis, use survival::survfit(Surv(${String(roles.duration || "duration")}, ${String(roles.event || "event")}) ~ 1, data=df)\n`,
+      sas: `/* ASP Model Studio survival data prep. Full survival modeling can use PROC LIFETEST in licensed SAS. */\nproc freq data=work.${table};\n    tables ${String(roles.duration || "duration")} * ${String(roles.event || "event")};\nrun;\n`,
     };
   }
   if (chartType === "data_profile" || chartType === "data_profile_matrix") {
     const vars = ((roles.numericVariables as string[]) || []).join(" ") || measure;
     return {
-      python: `# ATLAS Data Profile\nprofile = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].describe().T\nprofile["missing_pct"] = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].isna().mean() * 100\nprint(profile)\n`,
-      sql: `-- ATLAS Data Profile: use engine-specific summary statistics for selected variables.\nSELECT COUNT(*) AS rows FROM ${dataRef};`,
-      r: `# ATLAS Data Profile\nsummary(df[, c(${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")})])\n`,
-      sas: `/* ATLAS Data Profile */\nproc means data=work.${table} n nmiss mean median std min max;\n    var ${vars};\nrun;\n`,
+      python: `# ASP Model Studio Data Profile\nprofile = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].describe().T\nprofile["missing_pct"] = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].isna().mean() * 100\nprint(profile)\n`,
+      sql: `-- ASP Model Studio Data Profile: use engine-specific summary statistics for selected variables.\nSELECT COUNT(*) AS rows FROM ${dataRef};`,
+      r: `# ASP Model Studio Data Profile\nsummary(df[, c(${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")})])\n`,
+      sas: `/* ASP Model Studio Data Profile */\nproc means data=work.${table} n nmiss mean median std min max;\n    var ${vars};\nrun;\n`,
     };
   }
-  return {
+  const generated = {
     python: `# ATLAS Chart Studio - ${chartType}\n# Dataset: ${datasetName}\n# Version: ${versionId}\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\n# df = pd.read_csv(\"${table}.csv\")\n${pythonBinning}chart_data = (\n    df.groupby(\"${category}\")[\"${measure}\"]\n      .${pandasAgg}()\n      .reset_index(name=\"${aggregation}_${measure}\")\n)\nchart_data = chart_data.sort_values(\"${aggregation}_${measure}\", ascending=False).head(${Number(roles.topN || 10)})\nax = chart_data.plot(kind=\"bar\", x=\"${category}\", y=\"${aggregation}_${measure}\", figsize=(10, 5), legend=False)\nax.set_title(\"${chartType.replace(/_/g, " ")} - ${datasetName}\")\nplt.tight_layout()\nplt.show()\n`,
     sql: `-- ATLAS Chart Studio data-prep query\n-- Dataset: ${datasetName}\n-- Version: ${versionId}\n${sqlBinning}SELECT\n  ${sqlCategoryExpr} AS category,\n  ${aggregation === "count" ? "COUNT(*)" : `${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE))`} AS value,\n  COUNT(*) AS row_count\nFROM ${dataRef}\nGROUP BY ${sqlCategoryExpr}\nORDER BY value DESC\nLIMIT ${Number(roles.topN || 10)};`,
     r: `# ATLAS Chart Studio - ${chartType}\n# Dataset: ${datasetName}; Version: ${versionId}\n# If ggplot2 is available, uncomment the plotting lines.\n${rBinning}chart_data <- aggregate(${measure} ~ ${category}, data = df, FUN = ${aggregation === "count" ? "length" : aggregation})\nchart_data <- chart_data[order(-chart_data$${measure}), ]\n# library(ggplot2)\n# ggplot(head(chart_data, ${Number(roles.topN || 10)}), aes(x = reorder(${category}, ${measure}), y = ${measure})) +\n#   geom_col(fill = \"#2563eb\") + coord_flip() + theme_minimal()\n`,
     sas: `/* ATLAS Chart Studio SAS-compatible summary code */\n/* Dataset: ${datasetName}; Version: ${versionId} */\n/* Chart rendering is handled by ATLAS. This SAS-compatible code generates the chart data. */\n${sasBinning}proc means data=${sasTable} n sum mean median std min max;\n    class ${category};\n    var ${measure};\nrun;\n\nproc freq data=${sasTable};\n    tables ${category};\nrun;\n`,
+  };
+  return {
+    python: generated.python.replaceAll("ATLAS Chart Studio", "ASP Model Studio Visualization Studio"),
+    sql: generated.sql.replaceAll("ATLAS Chart Studio", "ASP Model Studio Visualization Studio"),
+    r: generated.r.replaceAll("ATLAS Chart Studio", "ASP Model Studio Visualization Studio"),
+    sas: generated.sas
+      .replaceAll("ATLAS Chart Studio", "ASP Model Studio Visualization Studio")
+      .replaceAll("handled by ATLAS", "handled by ASP Model Studio"),
   };
 }
 

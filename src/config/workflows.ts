@@ -1,3 +1,5 @@
+import { sportsWorkflowDefinitions } from "../sports/sportsConfig";
+
 export type WorkflowStepStatus = "pending" | "in_progress" | "complete" | "skipped";
 
 export type WorkflowStep = {
@@ -393,6 +395,7 @@ const experimentalDesignSteps: WorkflowStep[] = experimentalDesignJourney.map((s
 }));
 
 export const workflowDefinitions: WorkflowDefinition[] = [
+  ...sportsWorkflowDefinitions,
   {
     id: "predictive-modeling",
     label: "Predictive Modeling",

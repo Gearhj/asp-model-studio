@@ -5,7 +5,7 @@ import { PROJECT_SAVE_STATUS_EVENT, type ProjectSaveStatusDetail } from "../lib/
 function defaultStatus(): ProjectSaveStatusDetail {
   return {
     status: "local_only",
-    message: "Browser persistence is active. Save the project to synchronize it with the ATLAS database.",
+    message: "Browser persistence is active. Sports project synchronization is available through the isolated local database.",
   };
 }
 
@@ -42,7 +42,7 @@ export default function ProjectSaveStatus() {
         : detail.status === "backend_unavailable"
           ? "Backend unavailable"
         : detail.status === "database_saved"
-          ? "Saved to ATLAS database"
+          ? "Saved to local database"
         : detail.status === "local_only" || detail.status === "saved" || detail.status === "restored"
           ? "Local only"
         : detail.status === "registry_warning"
@@ -53,7 +53,7 @@ export default function ProjectSaveStatus() {
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold shadow-sm ${
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold shadow-sm ${
         isError
           ? "border-red-200 bg-red-50 text-red-800"
           : isPartial

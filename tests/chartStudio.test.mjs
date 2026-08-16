@@ -17,11 +17,12 @@ const datasetDetail = read("src/steps/DatasetDetail.tsx");
 const projectOverview = read("src/steps/ProjectOverview.tsx");
 const packageJson = JSON.parse(read("package.json"));
 
-assert.match(app, /path="\/chart-studio"/, "Chart Studio route must be registered.");
-assert.match(sidebar, /Chart Studio/, "Sidebar must include Chart Studio.");
+assert.match(app, /path="\/visualization-studio"[\s\S]*<ChartStudio/, "Visualization Studio must expose the working Chart Studio implementation.");
+assert.match(app, /path="\/chart-studio"[\s\S]*Navigate to="\/visualization-studio"/, "The legacy Chart Studio route must redirect to the canonical sports route.");
+assert.match(sidebar, /to: "\/visualization-studio", label: "Visualization Studio"/, "Sidebar must expose Visualization Studio on its canonical route.");
 assert.equal(packageJson.scripts["test:chart-studio"], "node tests/chartStudio.test.mjs", "package script must run Chart Studio tests.");
 
-for (const label of ["ATLAS Chart Studio", "Graph Gallery", "Preview Canvas", "Data Roles", "Chart Properties", "ATLAS Chart Interpretation", "Generated Code", "Saved Charts", "Export Package"]) {
+for (const label of ["Visualization Studio", "Graph Gallery", "Preview Canvas", "Data Roles", "Chart Properties", "Sports Chart Interpretation", "Generated Code", "Saved Charts", "Export Package"]) {
   assert.match(chartStudio, new RegExp(label), `Chart Studio should render ${label}.`);
 }
 
@@ -83,7 +84,7 @@ assert.match(chartStudio, /Number of bins/, "Chart Studio should expose bin-coun
 assert.match(chartStudio, /Bin method/, "Chart Studio should expose bin-method controls.");
 assert.match(chartStudio, /"quantiles"/, "Binned numeric role labels should render.");
 assert.match(chartStudio, /binnedRoleValue\(numeric\[0\]\)/, "All-numeric datasets should default category roles to binned numeric fields.");
-assert.match(chartStudio, /MedInc_band|_band/, "Generated binned role names should use the _band suffix.");
+assert.match(chartStudio, /player_workload_band|_band/, "Generated binned role names should use a sports-neutral _band example.");
 assert.match(chartStudio, /prepareBinnedRows/, "Chart preview should prepare generated binned fields.");
 assert.match(chartStudio, /preserveOrder/, "Binned bar charts should preserve band order where appropriate.");
 assert.match(chartStudio, /Select roles to preview this chart/, "Preview canvas should show friendly incomplete-role messaging.");
@@ -96,7 +97,7 @@ for (const previewComponent of ["ResidualDiagnosticsPreview", "LiftDecilePreview
   assert.match(chartStudio, new RegExp(previewComponent), `Chart Studio should render ${previewComponent}.`);
 }
 
-assert.match(chartStudio, /Chart Studio v1 uses Dataset Library preview\/sample rows/, "Chart Studio must disclose preview-row usage.");
+assert.match(chartStudio, /Visualization Studio uses Dataset Library preview\/sample rows/, "Visualization Studio must disclose preview-row usage.");
 assert.match(chartStudio, /This interpretation is based on Dataset Library preview\/sample rows/, "Interpretations must include preview-row caution.");
 assert.match(chartStudio, /Generated Code/, "Generated code section must exist.");
 assert.match(chartStudio, /Python/, "Python chart code must be shown.");
@@ -121,16 +122,22 @@ assert.match(chartStudio, /pd\.qcut/, "Generated Python should include pd.qcut f
 assert.match(chartStudio, /dplyr::ntile/, "Generated R should include ntile for binned numeric roles.");
 assert.match(chartStudio, /proc rank/i, "Generated SAS-compatible code should include PROC RANK for binned numeric roles.");
 assert.match(chartStudio, /Exact .* syntax depends on the production SQL engine/, "Generated SQL should explain binned preview behavior.");
-assert.match(chartStudio, /ATLAS Residual Diagnostics/, "Generated code should support residual diagnostics.");
-assert.match(chartStudio, /ATLAS Lift \/ Decile/, "Generated code should support lift and decile analysis.");
-assert.match(chartStudio, /ATLAS Simple Forecast Preview/, "Generated code should support simple forecast previews.");
+assert.match(chartStudio, /ASP Model Studio Residual Diagnostics/, "Generated code should support residual diagnostics with sports-product branding.");
+assert.match(chartStudio, /ASP Model Studio Lift \/ Decile/, "Generated code should support lift and decile analysis with sports-product branding.");
+assert.match(chartStudio, /ASP Model Studio Simple Forecast Preview/, "Generated code should support simple forecast previews with sports-product branding.");
 assert.match(chartStudio, /Basic Kaplan-Meier style survival preview/, "Generated code should support v1 survival preview.");
-assert.match(chartStudio, /ATLAS Data Profile/, "Generated code should support data profile output.");
+assert.match(chartStudio, /ASP Model Studio Data Profile/, "Generated code should support data profile output with sports-product branding.");
+assert.match(chartStudio, /generated\.python\.replaceAll\("ATLAS Chart Studio", "ASP Model Studio Visualization Studio"\)/, "Generic generated code must translate the retained compatibility heading before display or export.");
 assert.match(chartStudio, /Save Chart as Insight/, "Save chart action must exist.");
 assert.match(chartStudio, /Export Chart Data to Excel/, "Excel export action must exist.");
 assert.match(chartStudio, /Dataset Type/, "Chart Studio should expose dataset type filtering.");
-assert.match(chartStudio, /Scored Outputs/, "Chart Studio should expose a Scored Outputs dataset filter.");
-assert.match(chartStudio, /Register Scored Output to Dataset Library|Scored outputs appear here/, "Chart Studio should document the scored-output integration path.");
+assert.match(chartStudio, /Forecast \/ Scored Outputs/, "Visualization Studio should expose a forecast/scored-output dataset filter.");
+assert.match(chartStudio, /Forecast or scored outputs appear here only after/, "Visualization Studio should document the honest forecast-output integration path.");
+
+assert.doesNotMatch(chartStudio, />ATLAS Chart Studio</, "The visible studio heading must not use inherited ATLAS branding.");
+assert.doesNotMatch(chartStudio, /title="ATLAS Chart Interpretation"/, "The visible interpretation panel must not use inherited ATLAS branding.");
+assert.doesNotMatch(chartStudio, /Scored output detected\. ATLAS/, "Scored-output guidance must not use inherited ATLAS branding.");
+assert.doesNotMatch(chartStudio, /Credit Risk Studio|Fair Lending|HELOC|Home Lending|Credit Bureau/, "Visualization Studio must not expose finance-era examples.");
 
 assert.match(chartLib, /\/charts\/insights/, "Chart lib must use chart insights endpoint.");
 assert.match(chartLib, /\/charts\/export\/excel/, "Chart lib must use chart Excel endpoint.");

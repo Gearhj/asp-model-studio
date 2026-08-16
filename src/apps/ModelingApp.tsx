@@ -1,118 +1,138 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import CopilotCard from "../components/CopilotCard";
-import ModeSwitcher from "../components/ModeSwitcher";
-import ProjectSaveStatus from "../components/ProjectSaveStatus";
-import PrivateDemoBanner from "../components/PrivateDemoBanner";
-import Sidebar from "../components/Sidebar";
-import AtlasProgressBar from "../components/ui/AtlasProgressBar";
-import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
-import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
-import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
-import { buildBreadcrumbs, breadcrumbText } from "../lib/breadcrumbs";
-import { logout, me } from "../lib/auth";
-import { setCachedUserId } from "../lib/authSession";
-import { loadModelingMode } from "../lib/modelingMode";
-import type { AtlasUser } from "../lib/datasetLibrary";
-import { getUnreadNotificationCount } from "../lib/adminSharing";
-import { PanelRightClose, PanelRightOpen, Sparkles } from "lucide-react";
+import { ChevronDown, LogOut, Settings2, ShieldCheck, UserCircle } from "lucide-react";
+import BrandLogo from "../components/BrandLogo";
 import ErrorBoundary from "../components/ErrorBoundary";
-import {
-  ProjectContextGate,
-  PredictiveIdentityGate,
-  PredictiveIdentityProvider,
-  useAuthoritativeProjectContext,
-} from "../components/PredictiveIdentityProvider";
-import {
-  hasExactLegacyProjectCandidate,
-  normalizeWorkflowRoute,
-  projectWorkflowRoute,
-  scopedProjectIdForPathname,
-} from "../lib/projectScopedRoutes";
+import ProjectSaveStatus from "../components/ProjectSaveStatus";
+import Sidebar from "../components/Sidebar";
+import { AccountPage, AdminUsersPage, LoginPage } from "../steps/AuthPages";
+import { logout, me } from "../lib/auth";
 import { loginPathForReturnTo } from "../lib/authReturnPath";
+import { setCachedUserId } from "../lib/authSession";
+import type { AtlasUser } from "../lib/datasetLibrary";
+import { useWorkflowStore } from "../state/useWorkflowStore";
+import StudioHome from "../sports/StudioHome";
+import WorkflowLibrary from "../sports/WorkflowLibrary";
+import ForecastWorkflow from "../sports/ForecastWorkflow";
+import NewSportsProject from "../sports/NewSportsProject";
+import SportsProjects from "../sports/SportsProjects";
+import SportsProjectOverview from "../sports/SportsProjectOverview";
+import {
+  AdministrationPage,
+  DataSourcesRightsPage,
+  DataWarehousePage,
+  EvaluationCalibrationPage,
+  ForwardMonitoringPage,
+  LegacyWorkflowUnavailablePage,
+  ModelGraphPage,
+  ModelLaboratoryPage,
+  RegistryDeploymentPage,
+  ResearchToolsPage,
+  SimulationStudioPage,
+  UsersSettingsPage,
+} from "../sports/StudioModules";
+import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
 
-const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
-const Dashboard = lazy(() => import("../steps/Dashboard"));
-const DecisionJournal = lazy(() => import("../steps/DecisionJournal"));
-const DatasetDetail = lazy(() => import("../steps/DatasetDetail"));
-const DatasetLibrary = lazy(() => import("../steps/DatasetLibrary"));
-const ExperimentComparison = lazy(() => import("../steps/ExperimentComparison"));
-const GovernanceReport = lazy(() => import("../steps/GovernanceReport"));
-const IntelligentWorkbench = lazy(() => import("../steps/IntelligentWorkbench"));
-const NotebookExport = lazy(() => import("../steps/NotebookExport"));
-const NotebookStudio = lazy(() => import("../steps/NotebookStudio"));
-const NewProject = lazy(() => import("../steps/NewProject"));
-const ProjectOverview = lazy(() => import("../steps/ProjectOverview"));
 const AnalyticsWorkbench = lazy(() => import("../steps/AnalyticsWorkbench"));
-const ChartStudio = lazy(() => import("../steps/ChartStudio"));
-const CreditRiskStudio = lazy(() => import("../steps/CreditRiskStudio"));
-const EvidenceGraph = lazy(() => import("../steps/EvidenceGraph"));
-const ModelDiagnostics = lazy(() => import("../steps/ModelDiagnostics"));
-const ModelDocumentationStudio = lazy(() => import("../steps/ModelDocumentationStudio"));
-const ManagementDashboard = lazy(() => import("../steps/ManagementDashboard"));
-const AdminConsole = lazy(() => import("../steps/AdminConsole"));
-const BureauCatalogAdmin = lazy(() => import("../steps/BureauCatalogAdmin"));
-const SharingCenter = lazy(() => import("../steps/SharingCenter"));
-const NotificationCenter = lazy(() => import("../steps/NotificationCenter"));
-const MonitoringCenter = lazy(() => import("../steps/MonitoringCenter"));
-const MonitoringPlanDetail = lazy(() => import("../steps/MonitoringPlanDetail"));
-const RegistryPage = lazy(() => import("../steps/RegistryPage"));
-const RegistryAssetDetail = lazy(() => import("../steps/RegistryAssetDetail"));
-const ValidationQueue = lazy(() => import("../steps/ValidationQueue"));
-const ValidationCaseDetail = lazy(() => import("../steps/ValidationCaseDetail"));
-const RegisterDataset = lazy(() => import("../steps/RegisterDataset"));
 const SqlDataStudio = lazy(() => import("../steps/SqlDataStudio"));
-const Step00ProjectContext = lazy(() => import("../steps/Step00_ProjectContext"));
-const Step01DataAcquisition = lazy(() => import("../steps/Step01_DataAcquisition"));
-const Step02EDA = lazy(() => import("../steps/Step02_EDA"));
-const Step03Outliers = lazy(() => import("../steps/Step04_Outliers"));
-const Step04MissingValues = lazy(() => import("../steps/Step04_MissingValues"));
-const Step05EncodingScaling = lazy(() => import("../steps/Step05_EncodingScaling"));
-const Step06BalancingSplit = lazy(() => import("../steps/Step06_BalancingSplit"));
-const Step07Train = lazy(() => import("../steps/Step06_Train"));
-const Step08Evaluation = lazy(() => import("../steps/Step08_Evaluation"));
-const Step09Interpretation = lazy(() => import("../steps/Step09_Interpretation"));
-const Step10Scoring = lazy(() => import("../steps/Step10_Scoring"));
-const Step11ModelDevelopmentDocument = lazy(() => import("../steps/Step11_ModelDevelopmentDocument"));
-const Step12ModelImplementation = lazy(() => import("../steps/Step12_ModelImplementation"));
-const Step13ModelMonitoring = lazy(() => import("../steps/Step13_ModelMonitoring"));
-const SystemDiagnostics = lazy(() => import("../steps/SystemDiagnostics"));
-// Visual Intelligence Foundation Phase 1: lazy-loaded so DuckDB-Wasm, ECharts, and D3
-// overlay code are absent from every unrelated page's startup bundle (Phase O requirement).
-const VisualIntelligenceLab = lazy(() => import("../steps/VisualIntelligenceLab"));
-const WorkflowTemplates = lazy(() => import("../steps/WorkflowTemplates"));
+const ChartStudio = lazy(() => import("../steps/ChartStudio"));
+const ModelDocumentationStudio = lazy(() => import("../steps/ModelDocumentationStudio"));
+
+const LEGACY_ROUTES = [
+  "/credit-risk-studio",
+  "/management-dashboard",
+  "/validation",
+  "/validation/:validationId",
+  "/sharing",
+  "/audit",
+  "/governance-report",
+  "/journal",
+  "/step00",
+  "/step01",
+  "/step01b",
+  "/step02",
+  "/step03",
+  "/step04",
+  "/step05",
+  "/step06",
+  "/step07",
+  "/step08",
+  "/step09",
+  "/step10",
+  "/step11",
+  "/step12",
+  "/step13",
+  "/projects/:projectId/step00",
+  "/projects/:projectId/step01",
+  "/projects/:projectId/step02",
+  "/projects/:projectId/step03",
+  "/projects/:projectId/step04",
+  "/projects/:projectId/step05",
+  "/projects/:projectId/step06",
+  "/projects/:projectId/step07",
+  "/projects/:projectId/step08",
+  "/projects/:projectId/step09",
+  "/projects/:projectId/step10",
+  "/projects/:projectId/step11",
+  "/projects/:projectId/step12",
+  "/projects/:projectId/step13",
+];
+
+const ROUTE_LABELS: Array<[string, string]> = [
+  ["/project-overview", "Project Overview"],
+  ["/projects/new", "Create Sports Project"],
+  ["/projects/open", "Sports Projects"],
+  ["/templates", "Sport Workflow Library"],
+  ["/workflows/mlb", "MLB Forecasting"],
+  ["/workflows/nfl", "NFL Forecasting"],
+  ["/data-warehouse", "Data Warehouse"],
+  ["/model-laboratory", "Model Laboratory"],
+  ["/simulation-studio", "Simulation Studio"],
+  ["/evaluation-calibration", "Evaluation & Calibration"],
+  ["/model-graph", "Model Graph"],
+  ["/registry-deployment", "Registry & Deployment"],
+  ["/forward-monitoring", "Forward Monitoring"],
+  ["/research-tools", "Research Tools"],
+  ["/analytics", "Analytics Workbench"],
+  ["/sql-lab", "SQL Lab"],
+  ["/visualization-studio", "Visualization Studio"],
+  ["/model-documentation", "Model Documentation"],
+  ["/data-sources-rights", "Data Sources & Rights"],
+  ["/users-settings", "Users & Settings"],
+  ["/admin", "Administration"],
+  ["/account", "Account"],
+  ["/dashboard", "Studio Home"],
+];
+
+function pageLabel(pathname: string) {
+  const routeLabel = ROUTE_LABELS.find(([route]) => pathname === route || pathname.startsWith(`${route}/`))?.[1];
+  if (routeLabel) return routeLabel;
+  if (
+    LEGACY_ROUTES.includes(pathname)
+    || pathname.startsWith("/workflow/")
+    || pathname.startsWith("/validation/")
+    || /^\/projects\/[^/]+\/step\d+$/.test(pathname)
+  ) return "Legacy Workflow Unavailable";
+  return "Studio Home";
+}
 
 export default function ModelingApp() {
   const location = useLocation();
   const navigate = useNavigate();
-  const normalizedPathname = normalizeWorkflowRoute(location.pathname);
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
-  const [guideMode, setGuideMode] = useState<"full" | "compact" | "hidden">(() => (localStorage.getItem("atlas-guide-mode") as "full" | "compact" | "hidden") || "full");
-  const [edaPowerGuideCollapsed, setEdaPowerGuideCollapsed] = useState(
-    () => normalizedPathname === "/step02" && loadModelingMode() === "advanced",
-  );
-  const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
-  const workflowId = useWorkflowStore((state) => state.workflowId);
-  const normalizeWorkflowOrder = useWorkflowStore((state) => state.normalizeWorkflowOrder);
   const projectName = useWorkflowStore((state) => state.projectName);
-  const projectId = useWorkflowStore((state) => state.projectId);
-  const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
-  const completed = workflowSteps.filter((step) => step.status === "complete").length;
-  const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
-  const workflowLabel = workflowId.replace(/-/g, " ").split(" ").map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word)).join(" ");
-  const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio", "/management-dashboard", "/registry", "/validation", "/monitoring", "/admin", "/admin/bureau-catalogs", "/sharing", "/notifications"].includes(location.pathname)
-    || location.pathname.startsWith("/registry/")
-    || location.pathname.startsWith("/validation/")
-    || location.pathname.startsWith("/monitoring/")
-    || location.pathname.startsWith("/project-monitoring/")
-    || location.pathname.startsWith("/project-validation/");
+  const workflowId = useWorkflowStore((state) => state.workflowId);
+  const page = useMemo(() => pageLabel(location.pathname), [location.pathname]);
+  const inSportsProject = isSportsWorkflow(workflowId) && projectName !== "Untitled Sports Project";
 
   useEffect(() => {
     let cancelled = false;
     me()
       .then((payload) => {
-        if (!cancelled) setAuthUser(payload.user);
+        if (cancelled) return;
+        setCachedUserId(payload.user.userId);
+        setAuthUser(payload.user);
       })
       .catch(() => {
         if (!cancelled) setAuthUser(null);
@@ -120,61 +140,32 @@ export default function ModelingApp() {
       .finally(() => {
         if (!cancelled) setAuthChecked(true);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [location.pathname]);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
-    if (workflowId) {
-      normalizeWorkflowOrder(workflowId);
-    }
-  }, [normalizeWorkflowOrder, workflowId]);
-
-  useEffect(() => {
-    const synchronizeEdaPowerLayout = () => {
-      setEdaPowerGuideCollapsed(
-        normalizeWorkflowRoute(location.pathname) === "/step02" && loadModelingMode() === "advanced",
-      );
-    };
-    synchronizeEdaPowerLayout();
-    window.addEventListener("modeling-mode-updated", synchronizeEdaPowerLayout);
-    window.addEventListener("storage", synchronizeEdaPowerLayout);
-    return () => {
-      window.removeEventListener("modeling-mode-updated", synchronizeEdaPowerLayout);
-      window.removeEventListener("storage", synchronizeEdaPowerLayout);
-    };
-  }, [location.pathname]);
-
-  const effectiveGuideMode = edaPowerGuideCollapsed ? "hidden" : guideMode;
-
-  const cycleGuideMode = () => {
-    setGuideMode((current) => {
-      const next = current === "full" ? "compact" : current === "compact" ? "hidden" : "full";
-      localStorage.setItem("atlas-guide-mode", next);
-      return next;
-    });
-  };
+    document.title = `${page} | ASP Model Studio`;
+  }, [page]);
 
   if (!authChecked) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f5f5f7] text-sm font-semibold text-slate-600">
-        Loading ATLAS security context...
+      <div className="grid min-h-screen place-items-center bg-slate-950 px-6 text-white">
+        <div className="text-center">
+          <BrandLogo size="lg" variant="dark" showSubtitle />
+          <div className="mx-auto mt-8 h-1.5 w-48 overflow-hidden rounded-full bg-white/10"><span className="sports-flow-line block h-full w-full" /></div>
+          <p className="mt-4 text-sm font-medium text-slate-400">Loading secure sports modeling workspace…</p>
+        </div>
       </div>
     );
   }
 
   if (!authUser) {
-    const loginPath = loginPathForReturnTo(
-      location.pathname,
-      location.search,
-      location.hash,
-    );
+    const loginPath = loginPathForReturnTo(location.pathname, location.search, location.hash);
     return (
-      <div className="min-h-screen bg-[#f5f5f7] px-4 py-8 text-slate-950">
+      <div className="min-h-screen bg-slate-100 p-3 sm:p-6 lg:p-8">
         <Routes>
-        <Route path="/login" element={<LoginPage onAuthenticated={setAuthUser} />} />
-        <Route path="/register" element={<RegisterPage onAuthenticated={setAuthUser} />} />
+          <Route path="/login" element={<LoginPage onAuthenticated={(user) => { setCachedUserId(user.userId); setAuthUser(user); }} />} />
+          <Route path="/register" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to={loginPath} replace />} />
         </Routes>
       </div>
@@ -182,35 +173,21 @@ export default function ModelingApp() {
   }
 
   return (
-    <PredictiveIdentityProvider
-      key={authUser.userId}
-      authenticatedUserId={authUser.userId}
-    >
-    <div className="atlas-app-bg min-h-screen">
+    <div className="min-h-screen bg-[#f3f6f8] text-slate-950">
       <div className="flex min-h-screen">
         <Sidebar />
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
-            <div className="flex min-h-[68px] flex-col gap-3 px-4 py-3 sm:px-5 lg:px-6 xl:px-8 2xl:flex-row 2xl:items-center 2xl:justify-between">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-                <AuthoritativeBreadcrumb
-                  pathname={location.pathname}
-                  fallbackProjectName={projectName}
-                  workflowLabel={workflowLabel}
-                />
-                <ProjectSaveStatus />
+        <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">
+          <header className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,.04)] backdrop-blur-xl lg:top-0">
+            <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 sm:px-6 xl:px-8">
+              <div className="min-w-0">
+                <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400" aria-label="Breadcrumb">
+                  <Link to="/dashboard" className="hover:text-teal-700">ASP Model Studio</Link>
+                  {inSportsProject && location.pathname !== "/dashboard" && <><span>/</span><span className="max-w-48 truncate">{projectName}</span></>}
+                </nav>
+                <div className="mt-1 truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">{page}</div>
               </div>
-              <div className="flex w-full min-w-0 flex-wrap items-center gap-3 2xl:w-auto 2xl:flex-nowrap">
-                <div className="min-w-0 flex-[1_1_560px] overflow-hidden rounded-xl border border-slate-200 bg-white/75 p-1 2xl:flex-none">
-                  <ModeSwitcher />
-                </div>
-                <AuthoritativeWorkflowProgress
-                  pathname={location.pathname}
-                  completed={completed}
-                  total={workflowSteps.length}
-                  progress={progress}
-                />
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                {(location.pathname === "/project-overview" || location.pathname.startsWith("/workflows/")) && <div className="hidden sm:block"><ProjectSaveStatus /></div>}
                 <HeaderUserMenu
                   user={authUser}
                   onLogout={async () => {
@@ -218,447 +195,117 @@ export default function ModelingApp() {
                     useWorkflowStore.getState().reset();
                     setCachedUserId(null);
                     setAuthUser(null);
-                    navigate("/login");
+                    navigate("/login", { replace: true });
                   }}
                 />
               </div>
             </div>
           </header>
 
-          <PrivateDemoBanner />
-
-          <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
-            <div
-              className={`mx-auto grid w-full max-w-[1880px] gap-4 ${isFullWidthStudioRoute || effectiveGuideMode === "hidden" ? "xl:grid-cols-1" : effectiveGuideMode === "compact" ? "xl:grid-cols-[minmax(0,1fr)_74px]" : "xl:grid-cols-[minmax(0,1fr)_320px]"}`}
-              data-eda-power-guide-layout={edaPowerGuideCollapsed ? "drawer-collapsed" : "available"}
-            >
-              <div className="min-w-0">
-                {!isFullWidthStudioRoute && effectiveGuideMode === "hidden" && (
-                  <div className="mb-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => edaPowerGuideCollapsed ? setEdaPowerGuideCollapsed(false) : cycleGuideMode()}
-                      className="atlas-secondary-button"
-                      title="Restore ATLAS Guide"
-                      data-testid={edaPowerGuideCollapsed ? "eda-power-user-guide-restore" : undefined}
-                    >
-                      <PanelRightOpen size={15} /> Restore ATLAS Guide
-                    </button>
-                  </div>
-                )}
-                {restoreWarnings.length > 0 && (
-                  normalizedPathname === "/step02" ? (
-                    <details
-                      className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
-                      data-testid="eda-compact-restoration-details"
-                    >
-                      <summary className="cursor-pointer font-semibold">
-                        Restored project context · {restoreWarnings.length} compact-artifact note{restoreWarnings.length === 1 ? "" : "s"}
-                      </summary>
-                      <p className="mt-2 leading-5">
-                        Workflow decisions and summaries were restored. Some large artifacts are intentionally not stored
-                        in browser persistence.
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5">
-                        {restoreWarnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : (
-                    <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
-                      <div className="font-semibold">Project restored with compact artifacts.</div>
-                      <p className="mt-1">
-                        Workflow decisions and summaries were restored. Some large artifacts are intentionally not stored
-                        in browser persistence.
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1 pl-5">
-                        {restoreWarnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    </section>
-                  )
-                )}
-                <Suspense
-                  fallback={
-                    <div className="flex min-h-[360px] items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 shadow-sm">
-                      Loading governed analytical workspace...
-                    </div>
-                  }
-                >
-                <ErrorBoundary
-                  title="This workflow route could not be rendered safely."
-                  resetKey={`${projectId}:${location.pathname}`}
-                >
+          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
+            <div className="mx-auto w-full max-w-[1880px]">
+              <ErrorBoundary title="This sports modeling surface could not be rendered safely." resetKey={location.pathname}>
                 <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/login" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/register" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/workbench" element={<IntelligentWorkbench />} />
-                  <Route path="/project-overview" element={<ProjectOverview />} />
-                  <Route path="/management-dashboard" element={<ManagementDashboard />} />
-                  <Route path="/admin" element={<AdminConsole />} />
-                  <Route
-                    path="/admin/bureau-catalogs"
-                    element={<CatalogAdministratorRoute user={authUser} />}
-                  />
-                  <Route path="/sharing" element={<SharingCenter />} />
-                  <Route path="/notifications" element={<NotificationCenter />} />
-                  <Route path="/monitoring" element={<MonitoringCenter />} />
-                  <Route path="/monitoring/:monitoringPlanId" element={<MonitoringPlanDetail />} />
-                  <Route path="/project-monitoring/:projectId" element={<MonitoringPlanDetail />} />
-                  <Route path="/registry" element={<RegistryPage />} />
-                  <Route path="/registry/:projectId" element={<RegistryAssetDetail />} />
-                  <Route path="/validation" element={<ValidationQueue />} />
-                  <Route path="/validation/:validationId" element={<ValidationCaseDetail />} />
-                  <Route path="/project-validation/:projectId" element={<ValidationCaseDetail />} />
-                  <Route path="/projects/new" element={<NewProject />} />
-                  <Route
-                    path="/projects/open"
-                    element={(
-                      <OpenProject
-                        onSessionExpired={() => {
-                          useWorkflowStore.getState().reset();
-                          setCachedUserId(null);
-                          setAuthUser(null);
-                          navigate("/login", { replace: true });
-                        }}
-                      />
-                    )}
-                  />
-                  <Route path="/templates" element={<WorkflowTemplates />} />
-                  <Route path="/datasets" element={<DatasetLibrary />} />
-                  <Route path="/visual-intelligence-lab" element={<VisualIntelligenceLab />} />
-                  <Route path="/sql-data-studio" element={<SqlDataStudio />} />
-                  <Route path="/notebook-studio" element={<NotebookStudio />} />
-                  <Route path="/analytics" element={<AnalyticsWorkbench />} />
-                  <Route path="/chart-studio" element={<ChartStudio />} />
-                  <Route path="/credit-risk-studio" element={<CreditRiskStudio />} />
-                  <Route path="/model-evidence-center" element={<EvidenceGraph />} />
-                  <Route path="/evidence-graph" element={<Navigate to="/model-evidence-center" replace />} />
-                  <Route path="/model-diagnostics" element={<ModelDiagnostics />} />
-                  <Route path="/model-document-studio" element={<ModelDocumentationStudio />} />
-                  <Route path="/model-document" element={<Navigate to="/model-document-studio" replace />} />
-                  <Route path="/model-development-document" element={<Navigate to="/model-document-studio" replace />} />
-                  <Route path="/datasets/register" element={<RegisterDataset />} />
-                  <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
-                  <Route path="/experiments" element={<ExperimentComparison />} />
-                  <Route path="/journal" element={<DecisionJournal />} />
-                  <Route path="/governance-report" element={<GovernanceReport />} />
-                  <Route path="/notebook-export" element={<NotebookExport />} />
-                  <Route path="/exports" element={<ExportsPage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/dashboard" element={<StudioHome />} />
+                  <Route path="/projects" element={<Navigate to="/projects/open" replace />} />
+                  <Route path="/projects/open" element={<SportsProjects />} />
+                  <Route path="/projects/new" element={<NewSportsProject />} />
+                  <Route path="/project-overview" element={<SportsProjectOverview />} />
+                  <Route path="/templates" element={<WorkflowLibrary />} />
+                  <Route path="/workflows" element={<Navigate to="/templates" replace />} />
+                  <Route path="/workflows/mlb" element={<ForecastWorkflow workflowKey="mlb" />} />
+                  <Route path="/workflows/nfl" element={<ForecastWorkflow workflowKey="nfl" />} />
+                  <Route path="/data-warehouse" element={<DataWarehousePage />} />
+                  <Route path="/datasets" element={<Navigate to="/data-warehouse" replace />} />
+                  <Route path="/datasets/*" element={<Navigate to="/data-warehouse" replace />} />
+                  <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
+                  <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
+                  <Route path="/simulation-studio" element={<SimulationStudioPage />} />
+                  <Route path="/evaluation-calibration" element={<EvaluationCalibrationPage />} />
+                  <Route path="/model-diagnostics" element={<Navigate to="/evaluation-calibration" replace />} />
+                  <Route path="/model-graph" element={<ModelGraphPage />} />
+                  <Route path="/model-evidence-center" element={<Navigate to="/model-graph" replace />} />
+                  <Route path="/evidence-graph" element={<Navigate to="/model-graph" replace />} />
+                  <Route path="/registry-deployment" element={<RegistryDeploymentPage />} />
+                  <Route path="/registry" element={<Navigate to="/registry-deployment" replace />} />
+                  <Route path="/registry/*" element={<Navigate to="/registry-deployment" replace />} />
+                  <Route path="/exports" element={<Navigate to="/registry-deployment" replace />} />
+                  <Route path="/forward-monitoring" element={<ForwardMonitoringPage />} />
+                  <Route path="/monitoring" element={<Navigate to="/forward-monitoring" replace />} />
+                  <Route path="/monitoring/*" element={<Navigate to="/forward-monitoring" replace />} />
+                  <Route path="/research-tools" element={<ResearchToolsPage />} />
+                  <Route path="/analytics" element={<RetainedToolRoute label="Analytics Workbench"><AnalyticsWorkbench /></RetainedToolRoute>} />
+                  <Route path="/workbench" element={<Navigate to="/analytics" replace />} />
+                  <Route path="/sql-lab" element={<RetainedToolRoute label="SQL Lab"><SqlDataStudio /></RetainedToolRoute>} />
+                  <Route path="/sql-data-studio" element={<Navigate to="/sql-lab" replace />} />
+                  <Route path="/visualization-studio" element={<RetainedToolRoute label="Visualization Studio"><ChartStudio /></RetainedToolRoute>} />
+                  <Route path="/chart-studio" element={<Navigate to="/visualization-studio" replace />} />
+                  <Route path="/model-documentation" element={<RetainedToolRoute label="Model Documentation"><ModelDocumentationStudio /></RetainedToolRoute>} />
+                  <Route path="/model-document-studio" element={<Navigate to="/model-documentation" replace />} />
+                  <Route path="/model-development-document" element={<Navigate to="/model-documentation" replace />} />
+                  <Route path="/notebook-studio" element={<Navigate to="/research-tools" replace />} />
+                  <Route path="/notebook-export" element={<Navigate to="/research-tools" replace />} />
+                  <Route path="/data-sources-rights" element={<DataSourcesRightsPage />} />
+                  <Route path="/admin" element={<AdministrationPage />} />
+                  <Route path="/users-settings" element={<UsersSettingsPage />} />
+                  <Route path="/settings" element={<Navigate to="/users-settings" replace />} />
                   <Route path="/account" element={<AccountPage />} />
                   <Route path="/admin/users" element={<AdminUsersPage />} />
-                  <Route path="/audit" element={<AuditPage />} />
-                  <Route path="/system/diagnostics" element={<SystemDiagnostics />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/step00" element={<LegacyPredictiveRouteRedirect targetPath="/step00" />} />
-                  <Route path="/step01" element={<LegacyPredictiveRouteRedirect targetPath="/step01" />} />
-                  <Route path="/step01b" element={<LegacyPredictiveRouteRedirect targetPath="/step01?section=credit-bureau-review" />} />
-                  <Route path="/step02" element={<LegacyPredictiveRouteRedirect targetPath="/step02" />} />
-                  <Route path="/step03" element={<LegacyPredictiveRouteRedirect targetPath="/step03" />} />
-                  <Route path="/step04" element={<LegacyPredictiveRouteRedirect targetPath="/step04" />} />
-                  <Route path="/step05" element={<LegacyPredictiveRouteRedirect targetPath="/step05" />} />
-                  <Route path="/step06" element={<LegacyPredictiveRouteRedirect targetPath="/step06" />} />
-                  <Route path="/step07" element={<LegacyPredictiveRouteRedirect targetPath="/step07" />} />
-                  <Route path="/step08" element={<LegacyPredictiveRouteRedirect targetPath="/step08" />} />
-                  <Route path="/step09" element={<LegacyPredictiveRouteRedirect targetPath="/step09" />} />
-                  <Route path="/step10" element={<LegacyPredictiveRouteRedirect targetPath="/step10" />} />
-                  <Route path="/step11" element={<LegacyPredictiveRouteRedirect targetPath="/step11" />} />
-                  <Route path="/step12" element={<LegacyPredictiveRouteRedirect targetPath="/step12" />} />
-                  <Route path="/step13" element={<LegacyPredictiveRouteRedirect targetPath="/step13" />} />
-                  <Route path="/projects/:projectId/step00" element={<ProjectContextGate><Step00ProjectContext /></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step01" element={<ProjectContextGate><Step01DataAcquisition /></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step01b" element={<ScopedStep01BRedirect />} />
-                  <Route path="/projects/:projectId/step02" element={<ProjectContextGate><PredictiveRoute><Step02EDA /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step03" element={<ProjectContextGate><PredictiveRoute><Step03Outliers /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step04" element={<ProjectContextGate><PredictiveRoute><Step04MissingValues /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step05" element={<ProjectContextGate><PredictiveRoute><Step05EncodingScaling /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step06" element={<ProjectContextGate><PredictiveRoute><Step06BalancingSplit /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step07" element={<ProjectContextGate><PredictiveRoute><Step07Train /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step08" element={<ProjectContextGate><PredictiveRoute><Step08Evaluation /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step09" element={<ProjectContextGate><PredictiveRoute><Step09Interpretation /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step10" element={<ProjectContextGate><PredictiveRoute><Step10Scoring /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step11" element={<ProjectContextGate><PredictiveRoute><Step11ModelDevelopmentDocument /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step12" element={<ProjectContextGate><PredictiveRoute><Step12ModelImplementation /></PredictiveRoute></ProjectContextGate>} />
-                  <Route path="/projects/:projectId/step13" element={<ProjectContextGate><PredictiveRoute><Step13ModelMonitoring /></PredictiveRoute></ProjectContextGate>} />
-                  <Route
-                    path="/workflow/:workflowId/:stepNumber"
-                    element={
-                      <Suspense
-                        fallback={
-                          <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
-                            Loading workflow...
-                          </div>
-                        }
-                      >
-                        <ExperimentalDesignWorkflowPage />
-                      </Suspense>
-                    }
-                  />
+                  <Route path="/workflow/*" element={<LegacyWorkflowUnavailablePage />} />
+                  {LEGACY_ROUTES.map((path) => <Route key={path} path={path} element={<LegacyWorkflowUnavailablePage />} />)}
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
-                </ErrorBoundary>
-                </Suspense>
-              </div>
-              {!isFullWidthStudioRoute && effectiveGuideMode !== "hidden" && (
-                effectiveGuideMode === "full" ? (
-                  <aside className="relative min-w-0">
-                    <button type="button" onClick={cycleGuideMode} title="Compact ATLAS Guide" className="absolute right-2 top-2 z-10 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm hover:bg-slate-50"><PanelRightClose size={15} /></button>
-                    <AuthoritativeProjectGuide pathname={location.pathname} />
-                  </aside>
-                ) : (
-                  <aside className="flex min-h-[120px] flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white py-3 shadow-sm">
-                    <button type="button" onClick={cycleGuideMode} title={effectiveGuideMode === "compact" ? "Hide ATLAS Guide" : "Restore ATLAS Guide"} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 hover:bg-white">{effectiveGuideMode === "compact" ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</button>
-                    {effectiveGuideMode === "compact" && <><Sparkles size={18} className="text-blue-600" /><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 [writing-mode:vertical-rl]">Guide ready</span></>}
-                  </aside>
-                )
-              )}
+              </ErrorBoundary>
             </div>
           </main>
         </div>
       </div>
     </div>
-    </PredictiveIdentityProvider>
   );
 }
 
-function AuthoritativeBreadcrumb({
-  pathname,
-  fallbackProjectName,
-  workflowLabel,
-}: {
-  pathname: string;
-  fallbackProjectName: string;
-  workflowLabel: string;
-}) {
-  const routeProjectId = scopedProjectIdForPathname(pathname);
-  const { readiness } = useAuthoritativeProjectContext();
-  const readyProject = routeProjectId
-    && readiness.status === "ready"
-    && readiness.routeProjectId === routeProjectId
-      ? readiness.project
-      : null;
-  const projectName = routeProjectId
-    ? readyProject?.projectName || "Loading project context..."
-    : fallbackProjectName;
-  const breadcrumbs = buildBreadcrumbs({ pathname, projectName, workflowLabel });
-
+function RetainedToolRoute({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="min-w-0">
-      <nav
-        aria-label="Breadcrumb"
-        data-testid="atlas-breadcrumb"
-        data-breadcrumb={breadcrumbText(breadcrumbs)}
-        data-project-context-status={routeProjectId ? readiness.status : "not-scoped"}
-      >
-        <ol className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          {breadcrumbs.map((crumb, index) => (
-            <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
-              {index > 0 ? <span aria-hidden="true" className="text-slate-300">/</span> : null}
-              {crumb.current ? (
-                <span
-                  aria-current="page"
-                  data-testid="atlas-breadcrumb-current"
-                  className="truncate font-semibold text-slate-950"
-                >
-                  {crumb.label}
-                </span>
-              ) : crumb.href ? (
-                <Link to={crumb.href} className="truncate text-slate-600 hover:text-slate-900">
-                  {crumb.label}
-                </Link>
-              ) : (
-                <span className="truncate text-slate-600">{crumb.label}</span>
-              )}
-            </li>
-          ))}
-        </ol>
-      </nav>
-    </div>
-  );
-}
-
-function AuthoritativeWorkflowProgress({
-  pathname,
-  completed,
-  total,
-  progress,
-}: {
-  pathname: string;
-  completed: number;
-  total: number;
-  progress: number;
-}) {
-  const routeProjectId = scopedProjectIdForPathname(pathname);
-  const { readiness } = useAuthoritativeProjectContext();
-  const ready = !routeProjectId
-    || (readiness.status === "ready" && readiness.routeProjectId === routeProjectId);
-
-  return (
-    <div
-      className="w-56 shrink-0 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 shadow-sm"
-      data-testid="authoritative-workflow-progress"
-      data-project-context-status={routeProjectId ? readiness.status : "not-scoped"}
-    >
-      {ready ? (
-        <>
-          <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-600">
-            <span>{completed} of {total} steps</span>
-            <span>{progress}%</span>
+    <div className="asp-retained-tool min-w-0">
+      <Suspense fallback={(
+        <section className="grid min-h-[52vh] place-items-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div>
+            <div className="mx-auto h-1.5 w-44 overflow-hidden rounded-full bg-slate-100"><span className="sports-flow-line block h-full w-full" /></div>
+            <p className="mt-4 text-sm font-semibold text-slate-600">Loading {label}&hellip;</p>
           </div>
-          <AtlasProgressBar value={progress} />
-        </>
-      ) : (
-        <div className="text-[11px] font-semibold text-slate-600">
-          {readiness.status === "resolving" || readiness.status === "idle"
-            ? "Loading project context..."
-            : "Project context unavailable"}
-        </div>
-      )}
+        </section>
+      )}>
+        {children}
+      </Suspense>
     </div>
   );
 }
 
-function AuthoritativeProjectGuide({ pathname }: { pathname: string }) {
-  const routeProjectId = scopedProjectIdForPathname(pathname);
-  const { readiness } = useAuthoritativeProjectContext();
-  const ready = !routeProjectId
-    || (readiness.status === "ready" && readiness.routeProjectId === routeProjectId);
-  if (ready) return <CopilotCard />;
-  return (
-    <section
-      className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm"
-      data-testid="atlas-guide-project-context-loading"
-    >
-      <div className="font-semibold">Loading project context...</div>
-      <p className="mt-1 text-xs leading-5">
-        ATLAS Guide will open after the exact authorized project is ready.
-      </p>
-    </section>
-  );
-}
-
-function CatalogAdministratorRoute({ user }: { user: AtlasUser }) {
-  if (String(user.role || "").trim().toLowerCase() !== "admin") {
-    return (
-      <section
-        className="atlas-page-shell rounded-2xl border border-red-200 bg-red-50 p-6 text-red-950 shadow-sm"
-        role="alert"
-        data-testid="bureau-catalog-admin-route-denied"
-      >
-        <h1 className="text-xl font-semibold">Administrative access required</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6">
-          Bureau Catalog Administration is restricted to authenticated platform administrators.
-          No catalog request was made and no project or dataset state changed.
-        </p>
-        <Link
-          to="/dashboard"
-          className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-        >
-          Return to dashboard
-        </Link>
-      </section>
-    );
-  }
-  return <BureauCatalogAdmin />;
-}
-
-function LegacyPredictiveRouteRedirect({ targetPath }: { targetPath: string }) {
-  const location = useLocation();
-  const projectId = useWorkflowStore((state) => state.projectId);
-  const projectName = useWorkflowStore((state) => state.projectName);
-  const projectType = useWorkflowStore((state) => state.projectType);
-  const candidate = hasExactLegacyProjectCandidate({ projectId, projectName, projectType });
-  const targetWithSuffix = targetPath.includes("?")
-    ? `${targetPath}${location.hash}`
-    : `${targetPath}${location.search}${location.hash}`;
-  return (
-    <Navigate
-      replace
-      to={candidate ? projectWorkflowRoute(projectId, targetWithSuffix) : "/projects/open"}
-    />
-  );
-}
-
-function ScopedStep01BRedirect() {
-  const location = useLocation();
-  const routeProjectId = scopedProjectIdForPathname(location.pathname);
-  if (!routeProjectId) return <Navigate to="/projects/open" replace />;
-  const search = new URLSearchParams(location.search);
-  if (!search.has("section")) search.set("section", "credit-bureau-review");
-  return (
-    <Navigate
-      replace
-      to={projectWorkflowRoute(routeProjectId, `/step01?${search.toString()}${location.hash}`)}
-    />
-  );
-}
-
-function PredictiveRoute({ children }: { children: ReactNode }) {
-  return <PredictiveIdentityGate>{children}</PredictiveIdentityGate>;
-}
-
-function HeaderUserMenu({ user, onLogout }: { user: AtlasUser | null; onLogout: () => Promise<void> }) {
+function HeaderUserMenu({ user, onLogout }: { user: AtlasUser; onLogout: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
-  const [unread, setUnread] = useState(0);
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    getUnreadNotificationCount().then((payload) => {
-      if (!cancelled) setUnread(payload.count);
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-  if (!user) {
-    return (
-      <Link to="/login" className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
-        Sign In
-      </Link>
-    );
-  }
+  const initials = user.displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   return (
     <div className="relative">
-      <Link
-        to="/notifications"
-        className="mr-2 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-        title="Notification Center"
-      >
-        Notifications
-        {unread > 0 && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] text-white">{unread}</span>}
-      </Link>
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
-        title={`Signed in as ${user.displayName}`}
-      >
-        {user.displayName}
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800 shadow-sm hover:border-slate-300" aria-expanded={open}>
+        <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-950 text-xs text-cyan-200">{initials || "AS"}</span>
+        <span className="hidden max-w-48 truncate sm:block md:max-w-56 xl:max-w-72">{user.displayName}</span>
+        <ChevronDown size={15} className="text-slate-400" />
       </button>
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 text-sm shadow-lg">
-          <div className="border-b border-slate-100 px-3 py-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed in as</div>
-            <div className="mt-1 truncate font-semibold text-slate-950">{user.displayName}</div>
-            <div className="truncate text-xs text-slate-500">{user.email}</div>
+        <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="truncate font-semibold text-slate-950">{user.displayName}</div>
+            <div className="mt-0.5 truncate text-xs text-slate-500">{user.email}</div>
           </div>
-          <Link to="/account" onClick={() => setOpen(false)} className="mt-2 block rounded-lg px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50">
-            Account
-          </Link>
-          <button
-            type="button"
-            onClick={async () => {
-              setOpen(false);
-              await onLogout();
-            }}
-            className="block w-full rounded-lg px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50"
-          >
-            Sign out
-          </button>
+          <div className="p-2 text-sm">
+            <Link to="/account" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-slate-700 hover:bg-slate-50"><UserCircle size={16} /> Account</Link>
+            <Link to="/users-settings" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-slate-700 hover:bg-slate-50"><Settings2 size={16} /> Users & Settings</Link>
+            {String(user.role).toLowerCase() === "admin" && <Link to="/admin/users" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 font-medium text-slate-700 hover:bg-slate-50"><ShieldCheck size={16} /> User Administration</Link>}
+            <button type="button" onClick={async () => { setOpen(false); await onLogout(); }} className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50"><LogOut size={16} /> Sign out</button>
+          </div>
         </div>
       )}
     </div>

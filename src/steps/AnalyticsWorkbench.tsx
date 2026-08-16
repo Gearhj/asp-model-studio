@@ -97,11 +97,11 @@ export default function AnalyticsWorkbench() {
   const [joinKey, setJoinKey] = useState("");
   const [joinType, setJoinType] = useState("left");
   const [insights, setInsights] = useState<AtlasAnalyticsInsight[]>([]);
-  const [assistantText, setAssistantText] = useState("Select a dataset and enter a business question to generate ATLAS takeaways.");
+  const [assistantText, setAssistantText] = useState("Select a registered sports dataset and enter a sports research question to generate evidence-aware takeaways.");
   const [message, setMessage] = useState("");
-  const [userPython, setUserPython] = useState('print("ATLAS Analytics Workbench Python smoke test passed.")\nprint(df.shape)\nprint(df.head())');
+  const [userPython, setUserPython] = useState('print("ASP Model Studio Python smoke test passed.")\nprint(df.shape)\nprint(df.head())');
   const [userSql, setUserSql] = useState("");
-  const [userR, setUserR] = useState('cat("ATLAS R smoke test passed.\\n")\ncat("Rows:", nrow(df), " Columns:", ncol(df), "\\n")\nprint(head(df))');
+  const [userR, setUserR] = useState('cat("ASP Model Studio R smoke test passed.\\n")\ncat("Rows:", nrow(df), " Columns:", ncol(df), "\\n")\nprint(head(df))');
   const [userSas, setUserSas] = useState("");
   const [activeCodeLanguage, setActiveCodeLanguage] = useState<CodeLanguage>("python");
   const [insightFilter, setInsightFilter] = useState("all");
@@ -134,7 +134,7 @@ export default function AnalyticsWorkbench() {
         setDatasets(payload.datasets);
         if (!datasetId && payload.datasets[0]) setDatasetId(payload.datasets[0].datasetId);
       })
-      .catch((error) => setMessage(error instanceof Error ? error.message : "ATLAS could not load accessible datasets."));
+      .catch((error) => setMessage(workbenchErrorMessage(error, "ASP Model Studio could not load accessible datasets.")));
     fetchPythonDiagnostics().then(setPythonDiagnostics).catch(() => undefined);
     refreshSasDiagnostics().catch(() => undefined);
   }, []);
@@ -166,7 +166,7 @@ export default function AnalyticsWorkbench() {
         if (alive) setInsights(insightPayload.insights);
         await auditAnalyticsRun({ datasetId, versionId: version, analysisType: "workspace_opened" }).catch(() => undefined);
       } catch (error) {
-        if (alive) setMessage(error instanceof Error ? error.message : "ATLAS could not load this dataset for analytics.");
+        if (alive) setMessage(workbenchErrorMessage(error, "ASP Model Studio could not load this dataset for sports analytics."));
       }
     }
     loadDataset();
@@ -210,7 +210,7 @@ export default function AnalyticsWorkbench() {
         const common = preview?.columns?.find((column) => previewPayload?.columns?.includes(column));
         setJoinKey(common ?? "");
       } catch (error) {
-        if (alive) setMessage(error instanceof Error ? error.message : "ATLAS could not load the secondary dataset.");
+        if (alive) setMessage(workbenchErrorMessage(error, "ASP Model Studio could not load the comparison dataset."));
       }
     }
     loadSecondary();
@@ -306,7 +306,7 @@ export default function AnalyticsWorkbench() {
       const label = format === "excel" ? "Excel" : format === "word" ? "Word" : "PowerPoint";
       setMessage(`${label} export created.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not create this analytics export.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not create this analytics export."));
     }
   };
 
@@ -325,7 +325,7 @@ export default function AnalyticsWorkbench() {
       downloadBlob(blob, filename);
       setMessage(`${resultExportTitle(resultType)} Excel export created.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not create this Excel result export.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not create this Excel result export."));
     }
   };
 
@@ -398,13 +398,13 @@ export default function AnalyticsWorkbench() {
 
   const saveBusinessQuestion = async () => {
     if (!datasetId || !versionId || !businessQuestion.trim()) {
-      setMessage("Enter a business question and select a dataset before saving.");
+      setMessage("Enter a sports research question and select a dataset before saving.");
       return;
     }
     const timestamp = new Date().toISOString();
     try {
       const insight = await saveAnalyticsInsight({
-        title: `Business question: ${businessQuestion.slice(0, 72)}`,
+        title: `Sports research question: ${businessQuestion.slice(0, 72)}`,
         summary: businessQuestion.trim(),
         datasetId,
         versionId,
@@ -419,9 +419,9 @@ export default function AnalyticsWorkbench() {
       });
       setSavedQuestionAt(timestamp);
       setInsights((current) => [insight, ...current]);
-      setMessage("Business question saved to the analytics workspace.");
+      setMessage("Sports research question saved to the analytics workspace.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save the business question.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not save the sports research question."));
     }
   };
 
@@ -447,15 +447,15 @@ export default function AnalyticsWorkbench() {
     } catch {
       cleaned = deterministicQuestionCleanup(businessQuestion, target || columns[0] || "the selected target");
     }
-    if (businessQuestion.trim() && cleaned !== businessQuestion && !window.confirm("Replace the current question with the cleaned ATLAS draft?")) return;
+    if (businessQuestion.trim() && cleaned !== businessQuestion && !window.confirm("Replace the current question with the cleaned ASP Model Studio draft?")) return;
     setBusinessQuestion(cleaned);
-    setMessage(source === "llm" ? "Question cleaned up using the configured ATLAS LLM endpoint." : "Question cleaned up using deterministic ATLAS cleanup.");
+    setMessage(source === "llm" ? "Question cleaned up using the configured language-model endpoint." : "Question cleaned up using deterministic ASP Model Studio cleanup.");
   };
 
   const generatePlan = () => {
     const plan = buildAnalysisPlan({ question: businessQuestion, datasetName: dataset?.name ?? "selected dataset", target, numericColumns, categoricalColumns, hasSecondary: !!secondaryDatasetId });
     setAnalysisPlan(plan);
-    setAssistantText(`ATLAS generated a ${plan.length}-step analysis plan tied to ${dataset?.name ?? "the selected dataset"}.`);
+    setAssistantText(`ASP Model Studio generated a ${plan.length}-step sports analysis plan tied to ${dataset?.name ?? "the selected dataset"}.`);
     auditAnalyticsRun({ datasetId, versionId, analysisType: "analysis_plan_generated" }).catch(() => undefined);
   };
 
@@ -464,7 +464,7 @@ export default function AnalyticsWorkbench() {
       `${dataset?.name ?? "The selected dataset"} has ${(profile?.rowCount ?? dataset?.latestVersion?.rowCount ?? rows.length).toLocaleString()} rows and ${(profile?.columnCount ?? columns.length).toLocaleString()} columns.`,
       `${numericColumns.length} numeric columns and ${categoricalColumns.length} categorical/date-like columns are available in the preview/profile.`,
       quality.length ? `Primary data quality watch item: ${quality[0].label}.` : "No major data quality warnings were detected in the preview/profile.",
-      target ? `Target analysis is focused on ${target}.` : "Select a target variable to unlock target relationship analysis.",
+      target ? `Forecast-target analysis is focused on ${target}.` : "Select a forecast target to unlock target relationship analysis.",
       correlations.length ? `Strongest numeric relationship in preview: ${correlations[0].a} and ${correlations[0].b} (${correlations[0].corr.toFixed(2)}).` : "Correlation analysis needs at least two numeric fields.",
     ];
     setAssistantText(parts.join(" "));
@@ -517,7 +517,7 @@ export default function AnalyticsWorkbench() {
       setInsights((current) => [insight, ...current]);
       setMessage("Insight saved to the analytics store.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save this insight.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not save this insight."));
     }
   };
 
@@ -547,7 +547,7 @@ export default function AnalyticsWorkbench() {
         rows: [],
         rowCount: 0,
         runtimeMs: 0,
-        error: error instanceof Error ? error.message : "ATLAS could not run this SQL against preview rows.",
+        error: workbenchErrorMessage(error, "ASP Model Studio could not run this SQL against preview rows."),
       });
     } finally {
       setRunningSql(false);
@@ -602,7 +602,7 @@ export default function AnalyticsWorkbench() {
       await refreshSasDiagnostics().catch(() => undefined);
       setMessage("Runtime diagnostics refreshed.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not refresh runtime diagnostics.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not refresh runtime diagnostics."));
     }
   };
 
@@ -648,7 +648,7 @@ export default function AnalyticsWorkbench() {
         cfgfile: override?.cfgfile ?? sasCfgfile,
       });
       if (!payload.ok) {
-        setMessage(payload.detail || "ATLAS could not save SAS runtime settings.");
+        setMessage(sportsWorkbenchText(payload.detail || "ASP Model Studio could not save SAS runtime settings."));
         return;
       }
       if (payload.diagnostics) {
@@ -663,7 +663,7 @@ export default function AnalyticsWorkbench() {
       if (diagnostics) setPythonDiagnostics(diagnostics);
       setMessage("SAS runtime settings saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not save SAS runtime settings.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not save SAS runtime settings."));
     } finally {
       setSavingSasSettings(false);
     }
@@ -688,7 +688,7 @@ export default function AnalyticsWorkbench() {
       if (diagnostics) setPythonDiagnostics(diagnostics);
       setMessage(result.ok && result.status === "success" ? "SAS connection test succeeded." : "SAS connection test completed. Review the result panel for details.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not test the SAS connection.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not test the SAS connection."));
     } finally {
       setTestingSasConnection(false);
     }
@@ -701,7 +701,7 @@ export default function AnalyticsWorkbench() {
     try {
       const insight = await saveAnalyticsInsight({
         title,
-        summary: `Saved ${config.label} code generated from the ATLAS Analytics Workbench context.`,
+        summary: `Saved ${config.label} code generated from the ASP Model Studio sports analytics context.`,
         datasetId,
         versionId,
         projectId,
@@ -746,7 +746,7 @@ export default function AnalyticsWorkbench() {
       setInsights((current) => [insight, ...current]);
       setMessage(`${config.label} code snippet saved as an insight.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : `ATLAS could not save the ${config.label} code snippet.`);
+      setMessage(workbenchErrorMessage(error, `ASP Model Studio could not save the ${config.label} code snippet.`));
     }
   };
 
@@ -757,7 +757,7 @@ export default function AnalyticsWorkbench() {
       await loadPrimaryVersion(datasetId, nextVersionId);
       await auditAnalyticsRun({ datasetId, versionId: nextVersionId, analysisType: "dataset_selected" }).catch(() => undefined);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ATLAS could not refresh this dataset version.");
+      setMessage(workbenchErrorMessage(error, "ASP Model Studio could not refresh this dataset version."));
     }
   };
 
@@ -773,12 +773,12 @@ export default function AnalyticsWorkbench() {
                 <h1 className="text-2xl font-semibold">Analytics Workbench</h1>
               </div>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">
-                A governed analytical sandbox for asking a business question, exploring accessible datasets, drafting Python and SQL, and saving reusable findings.
+                A governed sports research workspace for exploring registered datasets, testing forecast questions, drafting Python, SQL, R, and SAS-compatible analysis, and saving reusable findings.
               </p>
             </div>
             <div className="grid gap-2 text-xs sm:grid-cols-3">
               <StatusPill label="Dataset" value={dataset?.name ?? "Not selected"} />
-              <StatusPill label="Question" value={savedQuestionAt ? "Saved" : businessQuestion ? "Draft" : "Not started"} />
+              <StatusPill label="Research question" value={savedQuestionAt ? "Saved" : businessQuestion ? "Draft" : "Not started"} />
               <StatusPill label="Access" value={accessLevel} />
             </div>
           </div>
@@ -789,13 +789,13 @@ export default function AnalyticsWorkbench() {
               {label}
             </a>
           ))}
-          <Link to="/datasets" className="atlas-studio-chip ml-auto">
-            Dataset Library
+          <Link to="/data-warehouse" className="atlas-studio-chip ml-auto">
+            Data Warehouse
           </Link>
-          <Link to={`/notebook-studio?datasetId=${datasetId}&versionId=${versionId}`} className="atlas-studio-chip">
-            Send to Notebook Studio
+          <Link to={`/research-tools?datasetId=${datasetId}&versionId=${versionId}`} className="atlas-studio-chip">
+            Open Research Tools
           </Link>
-          <Link to="/model-document-studio" className="atlas-studio-chip">
+          <Link to="/model-documentation" className="atlas-studio-chip">
             Add Insight to Model Documentation
           </Link>
         </div>
@@ -804,10 +804,10 @@ export default function AnalyticsWorkbench() {
           <div className="mx-5 my-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
             <div className="font-semibold">Scored output context detected</div>
             <p className="mt-1 leading-6">
-              ATLAS recommends Model Diagnostics for lift, calibration, residual, actual-vs-predicted, and segment performance before broader analysis.
+              ASP Model Studio recommends Evaluation &amp; Calibration for lift, calibration, residual, actual-versus-predicted, and team, player, venue, or lifecycle performance before broader analysis.
             </p>
-            <Link to={`/model-diagnostics?datasetId=${datasetId}&versionId=${versionId}`} className="mt-2 inline-flex font-semibold text-emerald-800 underline">
-              Open Model Diagnostics
+            <Link to={`/evaluation-calibration?datasetId=${datasetId}&versionId=${versionId}`} className="mt-2 inline-flex font-semibold text-emerald-800 underline">
+              Open Evaluation &amp; Calibration
             </Link>
           </div>
         )}
@@ -815,24 +815,24 @@ export default function AnalyticsWorkbench() {
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <main className="min-w-0 space-y-5">
-          <WorkbenchSection id="question" title="Question and Analysis Plan" tone="blue">
+          <WorkbenchSection id="question" title="Sports Research Question & Analysis Plan" tone="blue">
             <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Business Question</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sports Research Question</label>
                 <textarea
                   className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   value={businessQuestion}
                   onChange={(event) => setBusinessQuestion(event.target.value)}
-                  placeholder="Example: Which housing-area characteristics are most strongly associated with median home value?"
+                  placeholder="Example: Which player-state, participation, and game-context features are most strongly associated with the selected forecast target?"
                 />
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <ActionButton onClick={saveBusinessQuestion} label="Save Business Question" icon={<Save size={15} />} />
+                  <ActionButton onClick={saveBusinessQuestion} label="Save Research Question" icon={<Save size={15} />} />
                   <ActionButton onClick={cleanupQuestion} label="Clean Up Question" icon={<Sparkles size={15} />} variant="secondary" />
                   <ActionButton onClick={generatePlan} label="Generate Analysis Plan" icon={<Brain size={15} />} variant="secondary" />
                   <ActionButton onClick={() => { setBusinessQuestion(""); setAnalysisPlan([]); setSavedQuestionAt(""); }} label="Clear" icon={<Trash2 size={15} />} variant="ghost" />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Uses deterministic ATLAS cleanup in this local build. Connect `ATLAS_LLM_ENDPOINT` to enable LLM rewrite.
+                  Uses deterministic ASP Model Studio cleanup in this local build. A configured language-model endpoint can enable assisted rewrite.
                 </p>
               </div>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
@@ -842,13 +842,13 @@ export default function AnalyticsWorkbench() {
                     {analysisPlan.map((step) => <li key={step}>{step}</li>)}
                   </ol>
                 ) : (
-                  <p className="mt-3 text-sm leading-6 text-blue-900">Enter a business question and click Generate Analysis Plan.</p>
+                  <p className="mt-3 text-sm leading-6 text-blue-900">Enter a sports research question and click Generate Analysis Plan.</p>
                 )}
               </div>
             </div>
           </WorkbenchSection>
 
-          <WorkbenchSection id="data" title="Dataset Context" tone="slate">
+          <WorkbenchSection id="data" title="Sports Dataset Context" tone="slate">
             <div className="grid gap-3 lg:grid-cols-[1fr_230px]">
               <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Primary Dataset
@@ -872,7 +872,7 @@ export default function AnalyticsWorkbench() {
             <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center gap-2">
                 <Database size={17} className="text-slate-700" />
-                <h3 className="text-sm font-semibold text-slate-950">Add Comparison / Join Dataset</h3>
+                <h3 className="text-sm font-semibold text-slate-950">Add Comparison / Join Sports Dataset</h3>
               </div>
               <div className="mt-3 grid gap-3 lg:grid-cols-4">
                 <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={secondaryDatasetId} onChange={(event) => setSecondaryDatasetId(event.target.value)}>
@@ -891,7 +891,7 @@ export default function AnalyticsWorkbench() {
                 </div>
               </div>
               <p className="mt-2 text-xs text-slate-500">
-                V1 generates governed Python and SQL join templates. Full backend join execution is not enabled yet.
+                Preview mode generates governed Python and SQL join templates. Full-dataset join execution is not enabled yet.
               </p>
             </div>
           </WorkbenchSection>
@@ -905,9 +905,9 @@ export default function AnalyticsWorkbench() {
                 {selectedSummary.kind === "numeric" ? <NumericColumnView summary={selectedSummary.summary} values={numericValues(rows, selectedColumn)} column={selectedColumn} /> : <CategoricalColumnView rows={rows} column={selectedColumn} />}
                 <ExportResultActions resultType="column_explorer" payload={columnExplorerExportPayload()} onExport={downloadResultExport} />
               </Card>
-              <Card title="Target Relationship Explorer" icon={<BarChart3 size={18} />}>
+              <Card title="Forecast Target Relationship Explorer" icon={<BarChart3 size={18} />}>
                 <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={target} onChange={(event) => setTarget(event.target.value)}>
-                  <option value="">Select target...</option>
+                  <option value="">Select forecast target...</option>
                   {columns.map((column) => <option key={column} value={column}>{column}</option>)}
                 </select>
                 <TargetPanel target={target} summary={targetSummary} />
@@ -929,7 +929,7 @@ export default function AnalyticsWorkbench() {
               </Card>
             </div>
             <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Recommended Analyses for This Question</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Recommended Analyses for This Research Question</div>
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 {recommendedAnalyses.map((item) => (
                   <div key={item} className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-950">{item}</div>
@@ -1008,7 +1008,7 @@ export default function AnalyticsWorkbench() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-950">Code Runtime Configuration</h3>
-                  <p className="mt-1 text-xs text-slate-600">Local execution uses the ATLAS Python engine, SQLite preview SQL, Rscript when installed, and SAS-compatible execution with no SAS license required.</p>
+                  <p className="mt-1 text-xs text-slate-600">Local execution uses the ASP Model Studio Python runtime, SQLite preview SQL, Rscript when installed, and SAS-compatible execution with no SAS license required.</p>
                 </div>
                 <button type="button" onClick={refreshRuntimeDiagnostics} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800">
                   Refresh Runtime Diagnostics
@@ -1028,9 +1028,9 @@ export default function AnalyticsWorkbench() {
               <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-950">SAS Mode: ATLAS SAS-Compatible</h4>
+                    <h4 className="text-sm font-semibold text-slate-950">SAS Mode: ASP Model Studio SAS-Compatible</h4>
                     <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-950">
-                      Executable by default. ATLAS runs a supported subset of familiar SAS-style PROC and DATA step syntax through the local Python execution engine. No SAS license, SASPy, Java, SAS Studio, or SAS Viya connection is required.
+                      Executable by default. ASP Model Studio runs a supported subset of familiar SAS-style PROC and DATA step syntax through the local Python execution engine. No SAS license, SASPy, Java, SAS Studio, or SAS Viya connection is required.
                     </p>
                   </div>
                   <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold uppercase text-emerald-800">Executable</span>
@@ -1042,7 +1042,7 @@ export default function AnalyticsWorkbench() {
                   <div>
                     <h4 className="mt-4 text-sm font-semibold text-slate-950">Optional SASPy Runtime Setup</h4>
                     <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
-                      This bridge is only for users who already have access to a licensed SAS runtime. It is not needed for ATLAS SAS-Compatible execution.
+                      This bridge is only for users who already have access to a licensed SAS runtime. It is not needed for ASP Model Studio SAS-Compatible execution.
                     </p>
                   </div>
                   <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${sasDiagnostics?.sasExecutionAvailable ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"}`}>
@@ -1087,7 +1087,7 @@ export default function AnalyticsWorkbench() {
                     Reset to Template Only
                   </button>
                 </div>
-                {sasDiagnostics?.lastError ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Last SAS error: {sasDiagnostics.lastError}</div> : null}
+                {sasDiagnostics?.lastError ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Last SAS error: {sportsWorkbenchText(sasDiagnostics.lastError)}</div> : null}
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
                   <div className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Detected SAS Config Files</div>
@@ -1098,17 +1098,17 @@ export default function AnalyticsWorkbench() {
                   <div className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Setup Guidance</div>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-700">
-                      {(sasDiagnostics?.setupGuidance?.length ? sasDiagnostics.setupGuidance : ["Choose Template only for external SAS execution, or configure SASPy with a licensed SAS runtime to run SAS inside ATLAS."]).slice(0, 5).map((item) => <li key={item}>{item}</li>)}
+                      {(sasDiagnostics?.setupGuidance?.length ? sasDiagnostics.setupGuidance : ["Choose Template only for external SAS execution, or configure SASPy with a licensed SAS runtime to run SAS inside ASP Model Studio."]).slice(0, 5).map((item) => <li key={item}>{sportsWorkbenchText(item)}</li>)}
                     </ul>
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700">
                   <div className="font-semibold text-slate-950">Which SAS setup do you have?</div>
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    <div><span className="font-semibold">Local SAS:</span> ATLAS needs a working SASPy cfgname/cfgfile that can start a local licensed SAS session.</div>
-                    <div><span className="font-semibold">Remote SAS server:</span> ATLAS needs a SASPy config pointing to the remote server. Do not store credentials in ATLAS.</div>
-                    <div><span className="font-semibold">SAS Studio / Viya:</span> ATLAS needs a SASPy config that can connect to the SAS Viya environment.</div>
-                    <div><span className="font-semibold">Export only:</span> ATLAS generates SAS programs for external execution but does not run them inside ATLAS.</div>
+                    <div><span className="font-semibold">Local SAS:</span> ASP Model Studio needs a working SASPy cfgname/cfgfile that can start a local licensed SAS session.</div>
+                    <div><span className="font-semibold">Remote SAS server:</span> ASP Model Studio needs a SASPy config pointing to the remote server. Do not store credentials in the studio.</div>
+                    <div><span className="font-semibold">SAS Studio / Viya:</span> ASP Model Studio needs a SASPy config that can connect to the SAS Viya environment.</div>
+                    <div><span className="font-semibold">Export only:</span> ASP Model Studio generates SAS programs for external execution but does not run them inside the studio.</div>
                   </div>
                 </div>
               </details>
@@ -1133,7 +1133,7 @@ export default function AnalyticsWorkbench() {
                   onRun: runPython,
                   onCopy: () => copyText(userPython || generatedPython),
                   onSave: () => saveCodeInsight("python", userPython || generatedPython),
-                  note: "Executable locally through /api/python/run. ATLAS injects preview_rows and creates df from the selected dataset preview when pandas is available.",
+                  note: "Executable locally through /api/python/run. ASP Model Studio injects preview_rows and creates df from the selected dataset preview when pandas is available.",
                 },
                 {
                   language: "sql",
@@ -1165,7 +1165,7 @@ export default function AnalyticsWorkbench() {
                   onRun: runRCode,
                   onCopy: () => copyText(userR || generatedR),
                   onSave: () => saveCodeInsight("r", userR || generatedR),
-                  note: pythonDiagnostics?.rExecutionAvailable ? "Rscript is detected. ATLAS executes R locally against a temporary preview CSV." : "R execution is not configured on this machine. Install R and ensure Rscript is on PATH to enable local R execution.",
+                  note: pythonDiagnostics?.rExecutionAvailable ? "Rscript is detected. ASP Model Studio executes R locally against a temporary preview CSV." : "R execution is not configured on this machine. Install R and ensure Rscript is on PATH to enable local R execution.",
                 },
                 {
                   language: "sas",
@@ -1181,7 +1181,7 @@ export default function AnalyticsWorkbench() {
                   onRun: runSasCompatibleCode,
                   onCopy: () => copyText(userSas || generatedSas),
                   onSave: () => saveCodeInsight("sas", userSas || generatedSas),
-                  note: "ATLAS runs a supported subset of SAS-style code using the local Python execution engine. No SAS license is required. Unsupported SAS statements are listed with guidance instead of crashing the app.",
+                  note: "ASP Model Studio runs a supported subset of SAS-style code using the local Python execution engine. No SAS license is required. Unsupported SAS statements are listed with guidance instead of crashing the app.",
                 },
               ]}
             />
@@ -1278,7 +1278,7 @@ function SavedFindingItem({ insight, datasetName, onExport }: { insight: AtlasAn
     <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-semibold text-slate-950">{insight.title}</div>
+          <div className="truncate font-semibold text-slate-950">{sportsWorkbenchText(insight.title)}</div>
           <div className="mt-1 text-xs leading-5 text-slate-500">
             {insightType} - {new Date(insight.createdAt).toLocaleString()} - {String(metrics.datasetName ?? datasetName)}
           </div>
@@ -1376,10 +1376,10 @@ function buildExportPayload(input: {
 }) {
   const datasetName = input.dataset?.name ?? input.datasetId;
   return {
-    exportTitle: `ATLAS Analytics Workbench Report - ${datasetName}`,
+    exportTitle: `ASP Model Studio Sports Analytics Report - ${datasetName}`,
     exportedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
-    createdBy: "ATLAS local user",
+    createdBy: "ASP Model Studio local user",
     businessQuestion: input.businessQuestion,
     cleanedQuestion: input.cleanedQuestion,
     analysisPlan: input.analysisPlan,
@@ -1414,7 +1414,7 @@ function buildExportPayload(input: {
     rResult: input.rResult ?? {},
     savedInsight: input.savedInsight ?? {},
     metadata: input.metadata ?? {},
-    limitations: "Analytics Workbench results are based on the current dataset preview and selected saved findings. Validate against governed full-data execution before using in production decisions.",
+    limitations: "Analytics Workbench results are based on the current registered-dataset preview/sample and selected saved findings. They are not forecast, model-performance, or production evidence until validated through governed full-data execution.",
   };
 }
 
@@ -1570,13 +1570,13 @@ function buildTargetSummary(rows: Record<string, unknown>[], target: string, num
     const targetValues = numericValues(rows, target);
     return {
       mode: "regression",
-      text: `${target} appears numeric. ATLAS ranks numeric features by preview correlation with the target.`,
+      text: `${target} appears numeric. ASP Model Studio ranks numeric features by preview correlation with the forecast target.`,
       rankings: numericColumns.filter((column) => column !== target).map((feature) => ({ feature, value: corr(numericValues(rows, feature), targetValues) })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 8),
     };
   }
   return {
     mode: "classification",
-    text: `${target} appears categorical. ATLAS recommends reviewing event rates by feature bands/categories.`,
+    text: `${target} appears categorical. ASP Model Studio recommends reviewing event rates by feature bands or categories.`,
     rankings: categoricalColumns.filter((column) => column !== target).slice(0, 8).map((feature) => ({ feature, value: counts(rows, feature).length })),
   };
 }
@@ -1600,7 +1600,7 @@ function buildAnalysisPlan(input: { question: string; datasetName: string; targe
   const plan = [
     `Confirm the distribution and missingness profile for ${target}.`,
     input.numericColumns.length ? `Rank numeric predictors by association with ${target}.` : "Identify numeric fields that can support relationship analysis.",
-    input.categoricalColumns.length ? `Compare ${target} across key categorical segments.` : "Create useful bins or groups for comparison.",
+    input.categoricalColumns.length ? `Compare ${target} across key team, player, venue, lifecycle, or other categorical groups.` : "Create useful bins or groups for comparison.",
     "Review outliers, suspicious ranges, and high-cardinality fields before interpreting results.",
     "Check collinearity or duplicated signal among candidate explanatory fields.",
     "Generate follow-up Python and SQL templates for reproducible analysis.",
@@ -1617,7 +1617,7 @@ function recommendAnalyses(question: string, target: string, targetMode: string,
   if (targetMode === "regression") {
     ["Target distribution", "Feature correlation ranking", "Binned target means", "Scatterplot or binned scatter", "Outlier review", "Collinearity review"].forEach((item) => items.add(item));
   } else if (targetMode === "classification") {
-    ["Event rate", "Event rate by segment", "IV / separation score", "Decile or lift review", "Confusion risk if model output exists"].forEach((item) => items.add(item));
+    ["Event rate", "Event rate by team, player, venue, or lifecycle group", "IV / separation score", "Decile or lift review", "Confusion risk if model output exists"].forEach((item) => items.add(item));
   }
   if (/time|date|trend|season/.test(lower) || columns.some((column) => /date|time/i.test(column))) ["Trend by date", "Rolling average", "Seasonality review", "Before/after comparison"].forEach((item) => items.add(item));
   if (/quality|missing|duplicate|null|range/.test(lower)) ["Missingness", "Duplicate records", "High cardinality", "Constant columns", "Suspicious ranges"].forEach((item) => items.add(item));
@@ -1639,7 +1639,7 @@ function buildPivot(rows: Record<string, unknown>[], config: PivotConfig): Pivot
   if (!rows.length || !rowField || (!valueField && config.aggregation !== "count")) {
     return {
       config,
-      columns: ["Segment", config.aggregation],
+      columns: ["Group", config.aggregation],
       rows: [],
       readout: "Select a row field and value field to generate a pivot table from the dataset preview.",
     };
@@ -1751,11 +1751,11 @@ function buildPythonTemplate(input: {
   const lines = [
     "import pandas as pd",
     "",
-    "# ATLAS Analytics Workbench Python template",
+    "# ASP Model Studio Analytics Workbench Python template",
     `# Dataset: ${datasetName}`,
     `# Version: ${input.versionId || "not_selected"}`,
-    "# Source: ATLAS Dataset Library preview/sample",
-    `# Business question: ${input.businessQuestion || "not provided"}`,
+    "# Source: selected registered sports dataset preview/sample",
+    `# Sports research question: ${input.businessQuestion || "not provided"}`,
     "",
     "try:",
     "    preview_rows",
@@ -1763,7 +1763,7 @@ function buildPythonTemplate(input: {
     "    preview_rows = []",
     "",
     "df = pd.DataFrame(preview_rows)",
-    "print(\"ATLAS Analytics Workbench Python smoke test passed.\")",
+    "print(\"ASP Model Studio Python smoke test passed.\")",
     "print(df.shape)",
     "print(df.head())",
     "print(df.describe(include=\"all\"))",
@@ -1835,18 +1835,18 @@ function buildSqlTemplate(input: {
   const secondaryLogical = input.secondaryDataset ? logicalTableName(input.secondaryDataset.name, input.secondaryVersionId) : "";
   const selectColumns = input.columns.length ? input.columns : input.profile?.schema?.map((column) => column.name) ?? ["*"];
   const header = [
-    "-- ATLAS Analytics Workbench SQL template",
+    "-- ASP Model Studio Analytics Workbench SQL template",
     `-- Dataset: ${datasetName}`,
     `-- Version: ${input.versionId || "not_selected"}`,
     `-- Rows: ${input.profile?.rowCount?.toLocaleString() ?? "unknown"}`,
     `-- Columns: ${input.profile?.columnCount?.toLocaleString() ?? selectColumns.length}`,
-    `-- Logical ATLAS reference: ${logicalTable}`,
-    `-- Business question: ${input.businessQuestion || "not provided"}`,
+    `-- Logical sports dataset reference: ${logicalTable}`,
+    `-- Sports research question: ${input.businessQuestion || "not provided"}`,
     "-- Runs against preview/sample rows loaded into local SQLite memory.",
     "",
   ];
   if (secondary && input.joinKey) {
-    header.push(`-- Secondary logical ATLAS reference: ${secondaryLogical}`, "");
+    header.push(`-- Secondary logical sports dataset reference: ${secondaryLogical}`, "");
     const join = input.joinType === "append/union"
       ? [`SELECT * FROM ${table}`, "UNION ALL", `SELECT * FROM ${secondary};`]
       : [
@@ -1884,7 +1884,7 @@ function buildSqlTemplate(input: {
     "",
     "-- Pivot Table Builder template",
     "-- Numeric quantile row/column binning shown conceptually for SQL engines.",
-    "-- Exact syntax depends on the SQL engine connected to ATLAS.",
+    "-- Exact syntax depends on the SQL engine connected to ASP Model Studio.",
     "SELECT",
     selectFields.join("\n"),
     `FROM ${table}`,
@@ -1921,13 +1921,13 @@ function buildRTemplate(input: {
   const datasetName = input.dataset?.name ?? "selected_dataset";
   const numericColumns = input.columns.slice(0, 12);
   const lines = [
-    "# ATLAS Analytics Workbench R template",
+    "# ASP Model Studio Analytics Workbench R template",
     `# Dataset: ${datasetName}`,
     `# Version: ${input.versionId || "not_selected"}`,
-    "# Source: ATLAS Dataset Library preview/sample",
-    `# Business question: ${input.businessQuestion || "not provided"}`,
+    "# Source: selected registered sports dataset preview/sample",
+    `# Sports research question: ${input.businessQuestion || "not provided"}`,
     "",
-    "cat(\"ATLAS R smoke test passed.\\n\")",
+    "cat(\"ASP Model Studio R smoke test passed.\\n\")",
     "cat(\"Rows:\", nrow(df), \" Columns:\", ncol(df), \"\\n\")",
     "print(head(df))",
     "summary(df)",
@@ -1965,7 +1965,7 @@ function buildRTemplate(input: {
     lines.push(
       "",
       "# Secondary dataset join template",
-      "# primary_df and secondary_df should be loaded from the selected ATLAS datasets.",
+      "# primary_df and secondary_df should be loaded from the selected registered sports datasets.",
       input.joinKey
         ? input.joinType === "append/union"
           ? "joined <- bind_rows(primary_df, secondary_df)"
@@ -1992,17 +1992,17 @@ function buildSasTemplate(input: {
 }) {
   const datasetName = executableTableName(input.dataset?.name ?? "selected_dataset");
   const workTable = `work.${datasetName.toLowerCase()}`;
-  const exportTable = `atlas.${datasetName}`;
+  const exportTable = `aspdata.${datasetName}`;
   const secondaryName = input.secondaryDataset ? executableTableName(input.secondaryDataset.name) : "";
   const numericList = input.columns.slice(0, 12).join(" ") || "_numeric_";
   const lines = [
-    "/* ATLAS Analytics Workbench SAS-Compatible template */",
+    "/* ASP Model Studio Analytics Workbench SAS-Compatible template */",
     `/* Dataset: ${input.dataset?.name ?? "selected_dataset"} */`,
     `/* Version: ${input.versionId || "not_selected"} */`,
-    "/* Mode: ATLAS SAS-Compatible, no SAS license required */",
+    "/* Mode: ASP Model Studio SAS-Compatible, no SAS license required */",
     `/* Table available as: ${workTable} */`,
-    "/* Source: ATLAS Dataset Library preview/sample */",
-    `/* Business question: ${input.businessQuestion || "not provided"} */`,
+    "/* Source: selected registered sports dataset preview/sample */",
+    `/* Sports research question: ${input.businessQuestion || "not provided"} */`,
     `/* Optional external export table name: ${exportTable} */`,
     "",
     `proc contents data=${workTable};`,
@@ -2094,7 +2094,7 @@ function sasJoin(joinType: string) {
 }
 
 function logicalTableName(name: string, versionId: string) {
-  return `atlas_dataset.${sqlSafe(name)}_${sqlSafe(versionId || "current")}`;
+  return `sports_dataset.${sqlSafe(name)}_${sqlSafe(versionId || "current")}`;
 }
 
 function executableTableName(name: string) {
@@ -2115,7 +2115,7 @@ function copyText(text: string) {
 
 function exportInsight(payload: Record<string, unknown>) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  downloadBlob(blob, "atlas-analytics-insight.json");
+  downloadBlob(blob, "asp-model-studio-analytics-insight.json");
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -2181,7 +2181,7 @@ function SqlResultPanel({ result }: { result: AnalyticsSqlRunResult }) {
         <span>{isSuccess ? "SQL preview completed" : "SQL preview blocked or failed"}</span>
         <span>{result.runtimeMs} ms - {result.rowCount.toLocaleString()} rows</span>
       </div>
-      {!isSuccess && <div className="mt-3 rounded-lg border border-rose-200 bg-white p-3 text-rose-900">{result.error || "ATLAS could not run this SQL against preview rows."}</div>}
+      {!isSuccess && <div className="mt-3 rounded-lg border border-rose-200 bg-white p-3 text-rose-900">{sportsWorkbenchText(result.error || "ASP Model Studio could not run this SQL against preview rows.")}</div>}
       {isSuccess && (
         <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white">
           <table className="min-w-full text-xs">
@@ -2244,7 +2244,7 @@ function ChartFrame({ title, x, y, children }: { title: string; x: string; y: st
 }
 
 function TargetPanel({ target, summary }: { target: string; summary: { text: string; rankings: Array<{ feature: string; value: number }> } }) {
-  if (!target) return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">Select a target variable.</div>;
+  if (!target) return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">Select a forecast target.</div>;
   return <div><p className="text-sm text-slate-600">{summary.text}</p><BarList rows={summary.rankings.map((row) => ({ label: row.feature, value: Math.abs(row.value) }))} title="Feature Relationship Ranking" /></div>;
 }
 
@@ -2302,6 +2302,14 @@ function cleanPythonStderr(stderr: string) {
     return !trimmed || nonFatalPatterns.some((pattern) => trimmed.includes(pattern)) || /^Traceback \(most recent call last\):$/.test(trimmed) || /^File "<frozen/.test(trimmed);
   });
   return isOnlyBootstrapNoise ? "" : text;
+}
+
+function sportsWorkbenchText(value: string) {
+  return String(value || "").replace(/\bATLAS\b/g, "ASP Model Studio");
+}
+
+function workbenchErrorMessage(error: unknown, fallback: string) {
+  return sportsWorkbenchText(error instanceof Error ? error.message : fallback);
 }
 
 function formatNumber(value: number) {

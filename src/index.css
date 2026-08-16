@@ -490,6 +490,108 @@ body,
 body {
   margin: 0;
   background: var(--atlas-page-bg);
+  font-size: 15px;
+  overflow-x: hidden;
+}
+
+@layer components {
+  .sports-page-shell {
+    @apply w-full space-y-6;
+  }
+
+  .sports-panel {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.06)];
+  }
+
+  .sports-hero-panel {
+    @apply relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-[0_24px_60px_rgba(2,8,23,0.22)];
+    background-image:
+      radial-gradient(circle at 85% 15%, rgba(34, 211, 238, 0.18), transparent 28%),
+      radial-gradient(circle at 15% 95%, rgba(20, 184, 166, 0.16), transparent 32%),
+      linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+      linear-gradient(125deg, #020817 0%, #071526 52%, #0b2942 100%);
+    background-size: auto, auto, 44px 44px, 44px 44px, auto;
+  }
+
+  .sports-hero-panel::after {
+    content: "";
+    @apply pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full border border-cyan-300/10;
+    box-shadow: 0 0 0 42px rgba(34, 211, 238, 0.025), 0 0 0 84px rgba(34, 211, 238, 0.018);
+  }
+
+  .sports-eyebrow {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em];
+  }
+
+  .sports-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-teal-700;
+  }
+
+  .sports-status {
+    @apply inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-[11.5px] font-bold uppercase tracking-[0.08em];
+  }
+
+  .sports-status--teal {
+    @apply border-teal-300/40 bg-teal-300/10 text-teal-100;
+  }
+
+  .sports-status--green {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .sports-status--amber {
+    @apply border-amber-200 bg-amber-50 text-amber-800;
+  }
+
+  .sports-status--neutral {
+    @apply border-slate-200 bg-slate-100 text-slate-600;
+  }
+
+  .sports-primary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-[0_10px_24px_rgba(20,184,166,0.2)] transition hover:-translate-y-0.5 hover:from-teal-400 hover:to-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-300 disabled:text-slate-500 disabled:shadow-none disabled:hover:translate-y-0;
+  }
+
+  .sports-secondary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:text-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 focus-visible:ring-offset-2;
+  }
+
+  .sports-dark-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300;
+  }
+
+  .sports-field {
+    @apply grid gap-2 text-sm font-semibold text-slate-700;
+  }
+
+  .sports-field > span {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .sports-field > span b {
+    @apply rounded-full bg-slate-100 px-2 py-0.5 text-[11.5px] font-semibold uppercase tracking-wide text-slate-500;
+  }
+
+  .sports-field input,
+  .sports-field select,
+  .sports-field textarea {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-[15px] font-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500;
+  }
+
+  .sports-field textarea {
+    @apply resize-y leading-6;
+  }
+
+  .sports-flow-line {
+    background: linear-gradient(90deg, transparent, #2dd4bf, #67e8f9, transparent);
+    background-size: 200% 100%;
+    animation: asp-flow 4s linear infinite;
+  }
+}
+
+@keyframes asp-flow {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 button,
@@ -1188,6 +1290,45 @@ svg {
 
 .form-grid__wide {
   grid-column: 1 / -1;
+}
+
+/* Phase 1 sports surfaces keep essential copy above the product readability floor. */
+.sports-page-shell .text-sm,
+[data-sports-module] .text-sm,
+.asp-retained-tool .text-sm {
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+
+.sports-page-shell .text-xs,
+[data-sports-module] .text-xs,
+.asp-retained-tool .text-xs {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+.sports-page-shell .text-\[11px\],
+[data-sports-module] .text-\[11px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.asp-retained-tool .text-\[8px\],
+.asp-retained-tool .text-\[9px\],
+.asp-retained-tool .text-\[10px\] {
+  font-size: 0.71875rem;
+  line-height: 1rem;
+}
+
+.asp-retained-tool h1 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+.asp-retained-tool h2 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
 }
 
 @media (max-width: 1180px) {

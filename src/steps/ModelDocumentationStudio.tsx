@@ -122,7 +122,7 @@ export default function ModelDocumentationStudio() {
     if (activeProjectId && !byId.has(activeProjectId)) {
       byId.set(activeProjectId, {
         projectId: activeProjectId,
-        projectName: activeProjectName || "Current ATLAS Project",
+        projectName: activeProjectName || "Current ASP Model Studio Project",
         projectType: useWorkflowStore.getState().projectType,
         taskType: "",
         source: "browser",
@@ -153,7 +153,7 @@ export default function ModelDocumentationStudio() {
         setEvidenceItems([]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not load documentation context.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not load documentation context."));
     } finally {
       setLoading(false);
     }
@@ -186,7 +186,7 @@ export default function ModelDocumentationStudio() {
         setMessage("Documentation workspace refreshed. User narratives were preserved.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not create or refresh this documentation workspace.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not create or refresh this documentation workspace."));
     } finally {
       setLoading(false);
     }
@@ -201,7 +201,7 @@ export default function ModelDocumentationStudio() {
       await refreshEvidence(document);
       setMessage(`${label} refreshed the Evidence Library and document quality state.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : `ATLAS could not run ${label}.`);
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : `ASP Model Studio could not run ${label}.`));
     }
   }
 
@@ -218,7 +218,7 @@ export default function ModelDocumentationStudio() {
       setRightTab("evidence");
       setMessage(`Imported ${converted.length} Model Evidence Center item(s) into the Evidence Library.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not import from Model Evidence Center.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not import from Model Evidence Center."));
     }
   }
 
@@ -228,9 +228,9 @@ export default function ModelDocumentationStudio() {
     try {
       const saved = await saveDocumentationSection(document.documentId, section);
       setDocument(saved);
-      setMessage(`${section.title} saved.`);
+      setMessage(`${sectionDisplayTitle(section)} saved.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not save this documentation section.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not save this documentation section."));
     }
   }
 
@@ -240,9 +240,9 @@ export default function ModelDocumentationStudio() {
     try {
       const saved = await attachDocumentationEvidence(document.documentId, selectedSection.sectionId, evidence);
       setDocument(saved);
-      setMessage(`Attached ${evidence.title} to ${selectedSection.title}.`);
+      setMessage(`Attached ${evidence.title} to ${sectionDisplayTitle(selectedSection)}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not attach this evidence item.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not attach this evidence item."));
     }
   }
 
@@ -250,7 +250,7 @@ export default function ModelDocumentationStudio() {
     if (!document || !selectedSection) return;
     const recommended = recommendedEvidenceForSection(selectedSection, evidenceItems);
     if (!recommended.length) {
-      setMessage(`No matching recommended evidence is currently available for ${selectedSection.title}.`);
+      setMessage(`No matching recommended evidence is currently available for ${sectionDisplayTitle(selectedSection)}.`);
       return;
     }
     let latest = document;
@@ -259,9 +259,9 @@ export default function ModelDocumentationStudio() {
         latest = await attachDocumentationEvidence(latest.documentId, selectedSection.sectionId, item);
       }
       setDocument(latest);
-      setMessage(`Attached ${Math.min(5, recommended.length)} recommended evidence item(s) to ${selectedSection.title}.`);
+      setMessage(`Attached ${Math.min(5, recommended.length)} recommended evidence item(s) to ${sectionDisplayTitle(selectedSection)}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not attach recommended evidence.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not attach recommended evidence."));
     }
   }
 
@@ -286,7 +286,7 @@ export default function ModelDocumentationStudio() {
       setDocument(checked);
       setMessage(`Auto-attached ${attachedCount} available evidence item(s). User narratives and manual attachments were preserved.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not auto-attach available evidence.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not auto-attach available evidence."));
     }
   }
 
@@ -298,7 +298,7 @@ export default function ModelDocumentationStudio() {
       setDocument(checked);
       setMessage("Document quality check completed.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not run the documentation quality check.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not run the documentation quality check."));
     }
   }
 
@@ -313,7 +313,7 @@ export default function ModelDocumentationStudio() {
       downloadBlob(exported.blob, exported.filename);
       setMessage(`${exportLabel(format)} export created.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ATLAS could not create this documentation export.");
+      setError(sportsNativeGeneratedText(err instanceof Error ? err.message : "ASP Model Studio could not create this documentation export."));
     } finally {
       setExporting("");
     }
@@ -348,11 +348,11 @@ export default function ModelDocumentationStudio() {
           <div>
             <div className="flex items-center gap-2">
               <BookOpenCheck size={22} className="text-violet-200" />
-              <h1 className="text-2xl font-semibold text-white">Model Documentation Studio</h1>
+              <h1 className="text-2xl font-semibold text-white">Sports Model Documentation</h1>
             </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-violet-50/90">
-              Assemble a governed, editable, export-ready Model Development Document from ATLAS projects, datasets,
-              diagnostics, charts, notebook outputs, analytics insights, generated code, and governance notes.
+              Assemble a governed, editable, export-ready methodology and validation package from ASP Model Studio sports projects,
+              datasets, diagnostics, charts, notebook outputs, analytics insights, generated code, and governance notes.
             </p>
           </div>
           <div className="rounded-xl border border-violet-200 bg-white p-4">
@@ -367,7 +367,7 @@ export default function ModelDocumentationStudio() {
               {document ? "Refresh Workspace Evidence" : "Create Documentation Workspace"}
             </button>
             <p className="mt-2 text-xs leading-5 text-violet-900">
-              Creates an editable Model Development Document draft from the current project, datasets, diagnostics, charts, and governance artifacts.
+              Creates an editable sports model methodology and validation draft from the current project, datasets, diagnostics, charts, and governance artifacts.
             </p>
           </div>
         </div>
@@ -385,7 +385,7 @@ export default function ModelDocumentationStudio() {
           <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
             Template
             <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={templateType} onChange={(event) => setTemplateType(event.target.value)}>
-              {templates.map((template) => <option key={template.templateType} value={template.templateType} disabled={template.status !== "available"}>{template.label}{template.status !== "available" ? " - Coming soon" : ""}</option>)}
+              {templates.map((template) => <option key={template.templateType} value={template.templateType} disabled={template.status !== "available"}>{templateDisplayLabel(template)}{template.status !== "available" ? " - Coming soon" : ""}</option>)}
             </select>
           </label>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -406,7 +406,7 @@ export default function ModelDocumentationStudio() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Governed documentation access</div>
-              <div className="mt-1 text-sm font-semibold text-blue-950">Share the current documentation package with reviewers, validators, managers, or business owners.</div>
+              <div className="mt-1 text-sm font-semibold text-blue-950">Share the current documentation package with reviewers, validators, research leads, or model owners.</div>
             </div>
             <button type="button" onClick={() => setShareDocumentationOpen(true)} className="atlas-secondary-button bg-white">
               <Share2 size={15} /> Share Documentation
@@ -429,7 +429,7 @@ export default function ModelDocumentationStudio() {
             <h2 className="text-sm font-semibold">Document Outline</h2>
           </div>
           <p className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
-            Needs Evidence means ATLAS could not find or attach required supporting artifacts for this section. It does not mean you must manually write the section from scratch.
+            Needs Evidence means ASP Model Studio could not find or attach required supporting artifacts for this section. It does not mean you must manually write the section from scratch.
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
             {["all", "needs_evidence", "needs_review", "complete", "not_applicable"].map((filter) => (
@@ -468,7 +468,7 @@ export default function ModelDocumentationStudio() {
               <BookOpenCheck size={42} className="mx-auto text-blue-700" />
               <h2 className="mt-4 text-lg font-semibold text-slate-950">Create a governed documentation workspace</h2>
               <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Use the primary button at the top to create the workspace. ATLAS will generate section drafts,
+                Use the primary button at the top to create the workspace. ASP Model Studio will generate section drafts,
                 recommended evidence, a document readiness score, and export-ready evidence packages.
               </p>
             </section>
@@ -550,7 +550,7 @@ function OutlineSectionButton({
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold text-slate-950">{section.order}. {section.title}</span>
+        <span className="font-semibold text-slate-950">{section.order}. {sectionDisplayTitle(section)}</span>
         <StatusBadge status={section.status} />
       </div>
       <div className="grid grid-cols-3 gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -634,8 +634,8 @@ function SectionRecommendations({ section, recommendations, matches, onAttachRec
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Section-level evidence recommendations</div>
-          <h2 className="mt-1 text-lg font-semibold text-blue-950">{section.title}</h2>
-          <p className="mt-1 text-sm leading-6 text-blue-900">ATLAS recommends the evidence below before this section is marked complete.</p>
+          <h2 className="mt-1 text-lg font-semibold text-blue-950">{sectionDisplayTitle(section)}</h2>
+          <p className="mt-1 text-sm leading-6 text-blue-900">ASP Model Studio recommends the evidence below before this section is marked complete.</p>
         </div>
         <button type="button" onClick={onAttachRecommended} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
           <Paperclip size={15} />
@@ -658,7 +658,7 @@ function SectionEditor({ section, onChange, onSave }: { section: DocumentationSe
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Section Editor</div>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">{section.order}. {section.title}</h2>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">{section.order}. {sectionDisplayTitle(section)}</h2>
           <p className="mt-1 text-sm text-slate-500">{section.required ? "Required section" : "Optional section"} / export {section.includeInExport ? "included" : "excluded"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -685,7 +685,7 @@ function SectionEditor({ section, onChange, onSave }: { section: DocumentationSe
           <p className="mt-2 whitespace-pre-line text-sm leading-6 text-blue-950">{improvedDraft(section)}</p>
         </div>
         {section.missingEvidenceWarning && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950">{section.missingEvidenceWarning}</div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950">{sportsNativeGeneratedText(section.missingEvidenceWarning)}</div>
         )}
         <label className="grid gap-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Editable user narrative</span>
@@ -693,7 +693,7 @@ function SectionEditor({ section, onChange, onSave }: { section: DocumentationSe
             value={section.userNarrative}
             onChange={(event) => onChange({ ...section, userNarrative: event.target.value })}
             className="min-h-[240px] rounded-xl border border-slate-300 p-4 text-sm leading-6 text-slate-900 shadow-inner"
-            placeholder="Edit audit-ready narrative for this section..."
+            placeholder="Edit review-ready narrative for this section..."
           />
         </label>
         <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -735,12 +735,12 @@ function DocumentPreview({
       {mode === "section" ? (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected section preview</div>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">{selectedSection.order}. {selectedSection.title}</h3>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">{selectedSection.order}. {sectionDisplayTitle(selectedSection)}</h3>
           <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{selectedSection.userNarrative || improvedDraft(selectedSection)}</p>
           <div className="mt-3 text-xs font-semibold text-slate-500">Attached evidence summaries: {selectedSection.attachedEvidence.length}</div>
           <div className="mt-2 grid gap-2">
             {selectedSection.attachedEvidence.slice(0, 4).map((item, index) => (
-              <div key={`${item.source}-${item.title}-${index}`} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{item.title} / {item.source}</div>
+              <div key={`${item.source}-${item.title}-${index}`} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{sportsNativeGeneratedText(item.title)} / {evidenceSourceLabel(item.source)}</div>
             ))}
           </div>
         </div>
@@ -780,9 +780,9 @@ function DocumentQuality({ quality, onRun }: { quality?: ModelDocumentationDocum
           <div key={check.id} className={`rounded-lg border px-3 py-2 text-sm ${check.status === "pass" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
             <div className="flex items-center gap-2 font-semibold">
               {check.status === "pass" ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
-              {check.label}
+              {sportsNativeGeneratedText(check.label)}
             </div>
-            <p className="mt-1 text-xs leading-5">{check.detail}</p>
+            <p className="mt-1 text-xs leading-5">{sportsNativeGeneratedText(check.detail)}</p>
           </div>
         ))}
       </div>
@@ -795,7 +795,7 @@ function EvidenceActions({ onPull, onAutoAttach, onImportGraph, disabled }: { on
     "Pull Latest Project Evidence",
     "Pull Dataset Evidence",
     "Pull Model Diagnostics Evidence",
-    "Pull Chart Studio Evidence",
+    "Pull Visualization Studio Evidence",
     "Pull Notebook Studio Evidence",
     "Pull Analytics Workbench Evidence",
     "Pull Governance Notes",
@@ -845,7 +845,7 @@ function EvidenceLibrary({
   onSearch: (search: string) => void;
   onAttach: (item: DocumentationEvidence) => void;
 }) {
-  const filters = ["recommended", "all", "evidence_graph", "credit_risk", "datasets", "diagnostics", "charts", "notebooks", "analytics", "governance", "code"];
+  const filters = ["recommended", "all", "evidence_graph", "sports_modeling", "datasets", "diagnostics", "charts", "notebooks", "analytics", "governance", "code"];
   return (
     <Panel title="Evidence Library" icon={<Paperclip size={17} />}>
       <div className="grid gap-2">
@@ -858,7 +858,7 @@ function EvidenceLibrary({
         <div className="flex flex-wrap gap-1">
           {filters.map((item) => (
             <button key={item} type="button" onClick={() => onFilter(item)} className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${filter === item ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>
-              {item === "recommended" ? "Recommended for this section" : item === "evidence_graph" ? "Model Evidence Center" : item === "credit_risk" ? "Credit Risk Evidence" : humanize(item)}
+              {item === "recommended" ? "Recommended for this section" : item === "evidence_graph" ? "Model Evidence Center" : item === "sports_modeling" ? "Sports Modeling Evidence" : humanize(item)}
             </button>
           ))}
         </div>
@@ -869,9 +869,9 @@ function EvidenceLibrary({
           <div key={`${item.source}-${item.title}-${index}`} className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.type} / {item.source}</div>
-                <div className="mt-1 text-sm font-semibold text-slate-950">{item.title || "Untitled evidence"}</div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">{evidenceSummary(item)}</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{sportsNativeGeneratedText(item.type)} / {evidenceSourceLabel(item.source)}</div>
+                <div className="mt-1 text-sm font-semibold text-slate-950">{sportsNativeGeneratedText(item.title || "Untitled evidence")}</div>
+                <div className="mt-1 text-xs leading-5 text-slate-500">{sportsNativeGeneratedText(evidenceSummary(item))}</div>
                 {item.createdAt && <div className="mt-1 text-[11px] text-slate-400">Created: {item.createdAt}</div>}
               </div>
               <button type="button" onClick={() => onAttach(item)} className="rounded-md bg-slate-950 px-2 py-1 text-[11px] font-semibold text-white">
@@ -880,12 +880,12 @@ function EvidenceLibrary({
             </div>
             <details className="mt-2 rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-600">
               <summary className="cursor-pointer font-semibold">Advanced details</summary>
-              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap">{previewEvidence(item)}</pre>
+              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap">{sportsNativeGeneratedText(previewEvidence(item))}</pre>
             </details>
           </div>
         )) : (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-            Create a workspace, then use Evidence Actions to load Dataset Library, Analytics Workbench, Chart Studio, Notebook Studio, Model Diagnostics, generated code, and governance notes.
+            Create a workspace, then use Evidence Actions to load Dataset Library, Analytics Workbench, Visualization Studio, Notebook Studio, Model Diagnostics, generated code, and governance notes.
           </div>
         )}
       </div>
@@ -912,7 +912,7 @@ function OpenSourcePages({ projectId }: { projectId: string }) {
     <Panel title="Open Source Pages" icon={<Sparkles size={17} />}>
       <Link className="atlas-secondary-button" to="/project-overview">Project Overview</Link>
       <Link className="atlas-secondary-button" to="/model-diagnostics">Model Diagnostics</Link>
-      <Link className="atlas-secondary-button" to="/chart-studio">Chart Studio</Link>
+      <Link className="atlas-secondary-button" to="/visualization-studio">Visualization Studio</Link>
       <Link className="atlas-secondary-button" to="/notebook-studio">Notebook Studio</Link>
       <Link className="atlas-secondary-button" to="/analytics">Analytics Workbench</Link>
       <Link
@@ -952,10 +952,10 @@ async function fetchBackendProjects(): Promise<ProjectOption[]> {
   const response = await fetch(`${DATASET_API_BASE}/projects/registry`, { credentials: "include" });
   const payload = await response.json().catch(() => null);
   if (response.status === 401) throw new Error("Your session is not authenticated. Sign in again to create a documentation workspace.");
-  if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? "ATLAS could not load backend projects.");
+  if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? "ASP Model Studio could not load backend projects.");
   return (payload.projects ?? []).map((project: Record<string, unknown>) => ({
     projectId: String(project.projectId ?? ""),
-    projectName: String(project.name ?? project.projectName ?? "Untitled ATLAS Project"),
+    projectName: String(project.name ?? project.projectName ?? "Untitled ASP Model Studio Project"),
     projectType: String(project.projectType ?? "unknown"),
     taskType: String(project.taskType ?? ""),
     target: String(project.target ?? ""),
@@ -969,7 +969,7 @@ async function fetchDocument(documentId: string) {
   const response = await fetch(`${DATASET_API_BASE}/model-documentation/${encodeURIComponent(documentId)}`, { credentials: "include" });
   const payload = await response.json().catch(() => null);
   if (response.status === 401) throw new Error("Your session is not authenticated. Sign in again to create a documentation workspace.");
-  if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? "ATLAS could not load the selected model documentation record.");
+  if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? "ASP Model Studio could not load the selected model documentation record.");
   return payload.document as ModelDocumentationDocument;
 }
 
@@ -1023,12 +1023,12 @@ function readinessStatus(quality?: ModelDocumentationDocument["quality"]) {
 
 function evidenceRecommendations(sectionId: string) {
   const map: Record<string, string[]> = {
-    executive_summary: ["Project metadata", "task type", "target", "champion model", "performance summary", "governance warnings"],
-    business_objective: ["Project context", "business question", "decision context", "intended use"],
-    model_use_case: ["project type", "task type", "target", "workflow context", "governance context"],
+    executive_summary: ["Project metadata", "sport and league", "forecast target", "operational model", "performance summary", "governance warnings"],
+    business_objective: ["Project context", "research objective", "forecast decision context", "intended use"],
+    model_use_case: ["sport", "league", "workflow template", "forecast lifecycle", "governance context"],
     target_definition: ["Target metadata", "target column", "classification or regression flag", "event rate", "target mean"],
     data_sources: ["Dataset inventory", "Dataset Library metadata", "Dataset versions", "Linked projects"],
-    development_test_oot: ["TRAIN TEST OOT row counts", "target mean", "event rate", "version IDs"],
+    development_test_oot: ["historical development, validation, and prospective row counts", "target distribution", "event rate", "version IDs"],
     eda: ["target distribution", "class balance", "event rate", "feature relationship", "missingness summary"],
     missing_value_treatment: ["Missing Values workflow page evidence", "imputation choices", "missingness summary"],
     outlier_treatment: ["Outliers workflow page evidence", "global method", "variable-level method", "no-treatment choices"],
@@ -1036,13 +1036,13 @@ function evidenceRecommendations(sectionId: string) {
     correlation_vif: ["VIF table", "correlation filtering", "thresholds", "recommendations"],
     model_training_strategy: ["validation strategy", "candidate models", "grid search", "PCA settings", "max parallel jobs"],
     candidate_models: ["selected algorithms", "training results", "best params", "training status"],
-    champion_model_selection: ["champion model", "comparison table", "selected metric", "reason selected"],
+    champion_model_selection: ["operational model", "research challengers", "comparison table", "selected metric", "selection rationale"],
     performance_summary: ["Training results", "Evaluation metrics", "Model Diagnostics fit summary", "Scored split comparison"],
     evaluation_diagnostics: ["Actual vs Predicted", "Residuals vs Predicted", "Q-Q Plot interpretation", "Residual distribution", "Lift table, if classification", "Calibration, if classification"],
-    model_diagnostics: ["Prediction summary", "Regression fit summary", "Detailed lift table", "Population waterfall", "VIF analysis", "KPI aggregation", "Pozzolo calibration"],
+    model_diagnostics: ["Forecast summary", "Regression fit summary", "Detailed lift table", "Population waterfall", "VIF analysis", "KPI aggregation", "Probability calibration"],
     model_interpretation: ["Feature importance", "SHAP summary", "Coefficient table", "PDP and sensitivity", "Decision tree logic"],
-    scoring_external_validation: ["scored TRAIN TEST OOT outputs", "prediction distribution", "split comparison", "residual diagnostics", "lift diagnostics"],
-    fair_lending_governance: ["Governance notes", "Fair Lending review", "Compliance reminders", "Monitoring expectations"],
+    scoring_external_validation: ["historical and prospective forecast outputs", "prediction distribution", "temporal split comparison", "residual diagnostics", "calibration diagnostics"],
+    fair_lending_governance: ["Governance notes", "Source rights review", "Point-in-time integrity", "Ethical-use constraints", "Monitoring expectations"],
     implementation_plan: ["implementation workflow evidence", "scoring readiness", "export package metadata"],
     monitoring_plan: ["monitoring workflow evidence", "monitoring metrics", "drift recommendations", "stability recommendations"],
     limitations: ["recovered project warnings", "preview limitations", "model limitations", "missing artifacts"],
@@ -1074,8 +1074,8 @@ function improvedDraft(section: DocumentationSection) {
   const evidenceCount = section.attachedEvidence.length;
   const support = evidenceCount ? `${evidenceCount} attached evidence item(s) currently support this section.` : "No project-specific evidence is attached yet.";
   const review = evidenceCount ? "Review the attached evidence for accuracy, lineage, and governance completeness." : "Attach the recommended evidence before final approval.";
-  const caveat = section.required ? "Because this is a required MDD section, unresolved gaps should remain visible to validation and model risk reviewers." : "If this section is not applicable, mark it not applicable and preserve the rationale.";
-  return `What ATLAS found: ${section.autoDraft}\n\nEvidence support: ${support}\n\nNeeds review: ${review}\n\nGovernance caveat: ${caveat}`;
+  const caveat = section.required ? "Because this is a required documentation section, unresolved gaps should remain visible to validation and model governance reviewers." : "If this section is not applicable, mark it not applicable and preserve the rationale.";
+  return `What ASP Model Studio found: ${sportsNativeGeneratedText(section.autoDraft)}\n\nEvidence support: ${support}\n\nNeeds review: ${review}\n\nGovernance caveat: ${caveat}`;
 }
 
 function evidenceSummary(item: DocumentationEvidence) {
@@ -1159,7 +1159,7 @@ function filterEvidenceItems(items: DocumentationEvidence[], section: Documentat
     if (filter === "recommended") return recommended.has(evidenceKey(item));
     if (filter === "all") return true;
     if (filter === "evidence_graph") return item.source === "Evidence Graph" || item.source === "Model Evidence Center";
-    if (filter === "credit_risk") return (item.source === "Evidence Graph" || item.source === "Model Evidence Center") && /credit_risk|pdo|woe|iv|manual_binning|reject_inference|fair_lending|adverse_action|psi|cutoff_optimization|risk_based_pricing/i.test(text);
+    if (filter === "sports_modeling") return (item.source === "Evidence Graph" || item.source === "Model Evidence Center") && /sports?|baseball|football|mlb|nfl|player|team|event|drive|simulation|forecast|calibration|participation|usage/i.test(text);
     if (filter === "datasets") return item.source === "Dataset Library";
     if (filter === "diagnostics") return item.source === "Model Diagnostics";
     if (filter === "charts") return item.source === "Chart Studio";
@@ -1253,11 +1253,59 @@ function ExportButton({ label, status, icon, loading, onClick }: { label: string
   );
 }
 
+function templateDisplayLabel(template: DocumentationTemplate) {
+  const labels: Record<string, string> = {
+    [AVAILABLE_TEMPLATE]: "Sports Model Methodology & Validation Package",
+    validation_evidence_pack: "Sports Model Validation Evidence Pack",
+    monitoring_handoff: "Forecast Monitoring Handoff",
+  };
+  return labels[template.templateType] ?? sportsNativeGeneratedText(template.label);
+}
+
+function sectionDisplayTitle(section: DocumentationSection) {
+  const titles: Record<string, string> = {
+    business_objective: "Research Objective & Forecast Use",
+    model_use_case: "Sports Forecast Use Case",
+    development_test_oot: "Historical Development & Prospective Evaluation",
+    champion_model_selection: "Operational Model Selection",
+    scoring_external_validation: "Forecasting & Prospective Validation",
+    fair_lending_governance: "Sports Modeling Governance & Source Rights",
+  };
+  return titles[section.sectionId] ?? sportsNativeGeneratedText(section.title);
+}
+
+function evidenceSourceLabel(source: string) {
+  if (source === "ATLAS Guide") return "ASP Model Studio Guide";
+  if (source === "Chart Studio") return "Visualization Studio";
+  return sportsNativeGeneratedText(source);
+}
+
+function sportsNativeGeneratedText(value: unknown) {
+  return String(value ?? "")
+    .replace(/financialDomain/g, "domain")
+    .replace(/financialTechnique/g, "modelingTechnique")
+    .replace(/creditRiskContext/g, "modelingContext")
+    .replace(/\bATLAS\b/g, "ASP Model Studio")
+    .replace(/\bfair lending\b/gi, "source rights and ethical use")
+    .replace(/\bcredit bureau\b/gi, "external sports data source")
+    .replace(/\bcredit[- ]risk\b/gi, "sports forecasting")
+    .replace(/\bfinancial services?\b/gi, "sports analytics")
+    .replace(/\bfinancial institutions?\b/gi, "sports research organizations")
+    .replace(/\bloan performance\b/gi, "forecast performance")
+    .replace(/\bborrowers?\b/gi, "players")
+    .replace(/\bHELOC\b/gi, "sports forecast contract")
+    .replace(/\bbanking\b/gi, "sports modeling")
+    .replace(/\blending\b/gi, "forecasting")
+    .replace(/\bchampion model\b/gi, "operational model")
+    .replace(/\bout[- ]of[- ]time\b/gi, "prospective")
+    .replace(/\bOOT\b/g, "prospective");
+}
+
 function defaultTemplates(): DocumentationTemplate[] {
   return [
-    { templateType: AVAILABLE_TEMPLATE, label: "Model Development Document", status: "available", description: "Governed model development document." },
-    { templateType: "validation_evidence_pack", label: "Model Validation Evidence Pack", status: "coming_soon", description: "Independent validation evidence package." },
-    { templateType: "monitoring_handoff", label: "Model Monitoring Handoff", status: "coming_soon", description: "Monitoring setup, cadence, and escalation evidence." },
+    { templateType: AVAILABLE_TEMPLATE, label: "Sports Model Methodology & Validation Package", status: "available", description: "Governed sports model methodology and validation package." },
+    { templateType: "validation_evidence_pack", label: "Sports Model Validation Evidence Pack", status: "coming_soon", description: "Independent sports model validation evidence package." },
+    { templateType: "monitoring_handoff", label: "Forecast Monitoring Handoff", status: "coming_soon", description: "Forecast monitoring setup, cadence, and escalation evidence." },
     { templateType: "executive_summary", label: "Executive Summary", status: "coming_soon", description: "Senior leadership summary narrative and deck." },
     { templateType: "technical_appendix", label: "Technical Appendix", status: "coming_soon", description: "Detailed methods, code evidence, and diagnostics." },
   ];

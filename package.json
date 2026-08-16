@@ -12,6 +12,7 @@
     "preview:modeling": "vite preview --host 127.0.0.1 --port 4274 --strictPort",
     "sync:atlas": "powershell -ExecutionPolicy Bypass -File scripts/sync-atlas-clean-copy.ps1",
     "test:experimental-design": "node tests/experimentalDesign.test.mjs && .\\.venv\\Scripts\\python.exe tests\\experimental_design_premium_backend_test.py",
+    "test:sports-product": "node tests/sportsProductConversion.test.mjs",
     "test:optimization": "node tests/optimization.test.mjs && .\\.venv\\Scripts\\python.exe tests\\optimization_backend_test.py",
     "test:project-types": "node tests/projectTypes.test.mjs",
     "test:new-project": "node tests/newProjectUx.test.mjs",

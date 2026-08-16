@@ -143,12 +143,12 @@ def create_app() -> FastAPI:
       - CSV upload endpoint
       - router wiring
     """
-    application_name = os.getenv("ATLAS_APPLICATION_NAME", "ATLAS API").strip() or "ATLAS API"
+    application_name = os.getenv("ATLAS_APPLICATION_NAME", "ASP Model Studio API").strip() or "ASP Model Studio API"
 
     app = FastAPI(
         title=application_name,
         version="0.1.0",
-        description="Backend API for ATLAS regulated AI/ML model development.",
+        description="Backend API for sports forecasting, simulation, validation, and governed model intelligence.",
     )
 
     @app.exception_handler(AtlasUserContextError)

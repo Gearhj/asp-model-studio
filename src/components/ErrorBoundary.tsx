@@ -26,7 +26,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     return {
       hasError: true,
       error,
-      diagnosticId: `atlas-ui-${Date.now().toString(36)}`,
+      diagnosticId: `asp-ui-${Date.now().toString(36)}`,
     };
   }
 
@@ -57,10 +57,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             {this.props.title ?? "Something went wrong while rendering this section."}
           </div>
           <p className="text-sm leading-6">
-            ATLAS stopped this section safely. No workflow decision or dataset identity was changed.
+            ASP Model Studio stopped this section safely. No workflow decision or dataset identity was changed.
           </p>
           <p className="mt-1 text-xs font-medium text-red-700">
-            Diagnostic reference: {this.state.diagnosticId ?? "atlas-ui-render"}
+            Diagnostic reference: {this.state.diagnosticId ?? "asp-ui-render"}
           </p>
           <button
             className="mt-3 px-3 py-1 rounded-lg bg-white border border-red-300"

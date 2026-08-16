@@ -193,6 +193,16 @@ $backendErr = Join-Path $paths.logs "backend.stderr.log"
 $frontendOut = Join-Path $paths.logs "frontend.stdout.log"
 $frontendErr = Join-Path $paths.logs "frontend.stderr.log"
 
+# Codex and a few Windows launch hosts can supply both `PATH` and `Path` in the
+# inherited process block. Windows PowerShell's Start-Process rejects that
+# otherwise valid environment as a duplicate-key dictionary. Normalize the
+# case once, preserving the resolved value, before creating either child.
+$normalizedProcessPath = [Environment]::GetEnvironmentVariable("Path", "Process")
+if ($normalizedProcessPath) {
+    [Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+    [Environment]::SetEnvironmentVariable("Path", $normalizedProcessPath, "Process")
+}
+
 $backend = Start-Process -FilePath $python -ArgumentList @(
     "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", [string]$backendPort, "--workers", "1"
 ) -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput $backendOut -RedirectStandardError $backendErr -PassThru

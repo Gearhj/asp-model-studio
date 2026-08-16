@@ -1,61 +1,45 @@
-# ATLAS
+# ASP Model Studio
 
-Enterprise AI Model Development Platform
+Sports Forecasting, Simulation & Model Intelligence
 
-ATLAS is a local-first regulated AI/ML model development workbench for consumer lending model development. It supports guided and power-user workflows across data acquisition, EDA, preprocessing, model training, evaluation, interpretation, scoring, governance documentation, and experimental design.
+ASP Model Studio is a local, authenticated workbench for developing sports forecasting systems: immutable data evidence, player and team state, event and drive models, simulation, experiments, temporal validation, calibration, model graphs, documentation, and governed model-bundle export.
+
+Phase 1 provides active MLB forecasting and an NFL workflow foundation. College Football, NBA & WNBA, NHL, MMA, and Boxing are presented only as planned sports. Dataset-manifest and model-bundle connections are intentionally honest empty states until later phases.
 
 ## Local Quickstart
 
-Install frontend dependencies:
+From this repository root, validate the isolated configuration:
 
 ```powershell
-npm install
+.\scripts\start-asp-model-studio.ps1
 ```
 
-Start the FastAPI backend:
+Start the target-local backend and frontend:
 
 ```powershell
-Set-Location "C:\Users\james\ds-workflow-starter"
-.\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8000 --reload
+.\scripts\start-asp-model-studio.ps1 -Start
 ```
 
-Run this command from the repository root. Do not run `uvicorn main:app` from inside `server`; `server.main` uses package-relative imports.
+Open [http://127.0.0.1:5274](http://127.0.0.1:5274). The backend listens on `127.0.0.1:8101`. Authentication remains enabled and public registration remains disabled; use a target-local administrator account stored only in the ignored ASP Model Studio runtime.
 
-Start ATLAS:
+The launcher keeps application state beneath `.runtime\asp-model-studio` and refuses the protected ports used by adjacent products. Do not point the studio at another repository's databases, artifacts, credentials, or services.
 
-```powershell
-npm run dev
-```
-
-Open [http://127.0.0.1:5174](http://127.0.0.1:5174).
-
-## Verification
+## Focused Verification
 
 ```powershell
-npm run build
+npx tsc -b --pretty false
+npm run test:sports-product
 npm run build:modeling
-npm run test:experimental-design
 ```
 
-## Project Separation
+## Phase 1 Contracts
 
-This folder is the source workspace for ATLAS. The Phase 2 clean copy is synchronized to:
+- Sports dataset registration: `SPORTS_DATASET_MANIFEST_V1` (connection planned)
+- Sports model export: `SPORTS_MODEL_BUNDLE_V1` (no bundle exists until a graph is approved)
+- External ASP warehouse: remains external and read-only; no connection is made in Phase 1
 
-`C:\Users\james\Projects\ATLAS\atlas-app`
-
-Related projects are preserved separately:
-
-- Greatest Guitarist: `C:\Users\james\Projects\Greatest-Guitarist\guitarist-app`
-- Data Science Workflow Tracker / STELA: `C:\Users\james\Projects\Data-Science-Workflow-Tracker\tracker-app`
-
-The original `C:\Users\james\ds-workflow-starter` folder remains the git-tracked working backup until all separated builds are fully verified.
+Generic authentication, project isolation, dataset identity, analytics, SQL, visualization, documentation, experiment, validation, registry, monitoring, and evidence-lineage machinery remains in place for sports-native development.
 
 ## Documentation
 
-- [Local Development](docs/LOCAL_DEVELOPMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Persistence](docs/PERSISTENCE.md)
-- [Security and Data Handling](docs/SECURITY_AND_DATA_HANDLING.md)
-- [Release Checklist](docs/RELEASE_CHECKLIST.md)
-- [Predictive Modeling Workflow](docs/workflows/predictive-modeling.md)
-- [Experimental Design Workflow](docs/workflows/experimental-design.md)
+The `docs` directory includes inherited platform documentation. Some historical workflow and architecture documents describe the source fork and are retained as provenance; they are not the Phase 1 product surface or local launch instructions.

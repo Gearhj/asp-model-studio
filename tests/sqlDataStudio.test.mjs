@@ -13,9 +13,8 @@ const main = read("server/main.py");
 const router = read("server/sql_studio/sql_router.py");
 const engine = read("server/sql_studio/sql_engine.py");
 const store = read("server/sql_studio/sql_store.py");
-// The SQL Data Studio hand-off is now defined once in the shared dataset action
-// model and rendered by BOTH Card View and Detailed View (it was previously
-// reachable only from Detailed View).
+// The legacy SQL Data Studio hand-off remains a supported alias while normal
+// navigation exposes the working sports-native surface as SQL Lab.
 const datasetLibrary = read("src/steps/DatasetLibrary.tsx") + "\n" + read("src/lib/datasetActions.ts");
 const datasetDetail = read("src/steps/DatasetDetail.tsx");
 const packageJson = JSON.parse(read("package.json"));
@@ -23,9 +22,10 @@ const packageJson = JSON.parse(read("package.json"));
 assert.equal(packageJson.scripts["test:sql-data-studio"], "node tests/sqlDataStudio.test.mjs");
 
 assert.match(app, /SqlDataStudio/);
-assert.match(app, /path="\/sql-data-studio"/);
-assert.match(sidebar, /SQL Data Studio/);
-assert.match(sidebar, /to="\/sql-data-studio"/);
+assert.match(app, /path="\/sql-lab"[^\n]+<SqlDataStudio/);
+assert.match(app, /path="\/sql-data-studio"[^\n]+Navigate to="\/sql-lab"/);
+assert.match(sidebar, /label: "SQL Lab"/);
+assert.match(sidebar, /to: "\/sql-lab"/);
 
 assert.match(main, /sql_studio_router/);
 assert.match(main, /include_router\(sql_studio_router/);
@@ -53,11 +53,12 @@ assert.match(store, /audit_event/);
 
 [
   "Object Explorer",
-  "SQL Assistant",
+  "SQL Lab",
+  "Sports research IDE",
+  "Sports SQL Assistant",
   "Data Source",
   "Dataset Library Preview",
   "SQL Results",
-  "Compact IDE shell",
   "Tables, Saved Queries, SQL Results, Connectors",
   "Focus Mode",
   "Validate",
@@ -69,27 +70,30 @@ assert.match(store, /audit_event/);
   "Results",
   "Schema",
   "Register Result Form",
-  "Connector not configured in this local build",
+  "No external sports warehouse is connected",
   "SELECT *",
-  "Financial Services SQL Tasks",
+  "Sports Research SQL Patterns",
   "Selected Template Preview",
-  "Customer / Account Analytics",
-  "Credit Risk",
-  "Fraud / AML",
-  "Marketing / Campaigns",
+  "Sports Data Profiling",
+  "Game & Team Analysis",
+  "Player & Participation",
+  "Event & Drive Analysis",
+  "Temporal Integrity",
   "Model Development",
-  "Monitoring",
+  "Forward Monitoring",
   "Data Quality",
-  "Demo Dataset Examples",
-  "Customer 360 summary",
-  "Delinquency rate by segment",
-  "High-risk transaction review",
-  "Campaign population waterfall",
-  "Train/Test/OOT population summary",
-  "Monthly score distribution",
-  "Null rate by column",
-  "REG_TRAIN income band profile",
-  "CLASS_TRAIN rare-event summary",
+  "Dataset row count",
+  "Sports identity overview",
+  "Games by team",
+  "Player appearance coverage",
+  "Event taxonomy",
+  "Plate-appearance outcome coverage",
+  "Drive outcome distribution",
+  "Forecast cutoff integrity",
+  "Calibration table input",
+  "Forecast volume over time",
+  "Required identity missingness",
+  "Source-version control total",
   "Column Mapping",
   "Required columns",
   "Replace editor SQL",
@@ -100,7 +104,20 @@ assert.match(store, /audit_event/);
   "Governance Controls",
   "Read-only SELECT only",
   "Preview/sample-row execution only",
-].forEach((snippet) => assert.ok(page.includes(snippet), `SQL Studio page missing ${snippet}`));
+  "Review source rights, identity coverage, and point-in-time integrity",
+].forEach((snippet) => assert.ok(page.includes(snippet), `SQL Lab page missing ${snippet}`));
+
+[
+  "Financial Services SQL Tasks",
+  "Customer / Account Analytics",
+  "Credit Risk",
+  "Fraud / AML",
+  "Marketing / Campaigns",
+  "Demo Dataset Examples",
+  "Customer 360 summary",
+  "REG_TRAIN income band profile",
+  "CLASS_TRAIN rare-event summary",
+].forEach((snippet) => assert.ok(!page.includes(snippet), `SQL Lab still exposes removed finance-era copy: ${snippet}`));
 
 assert.match(page, /className="grid min-h-\[560px\] gap-3 bg-teal-50\/50 p-3"/);
 assert.match(page, /height: "calc\(100vh - 170px\)"/);
@@ -116,12 +133,12 @@ assert.match(page, /expandedCategory/);
 assert.match(page, /focusMode/);
 assert.match(page, /showRegisterPanel/);
 assert.match(page, /setShowRegisterPanel\(true\)/);
-assert.equal((page.match(/<textarea/g) ?? []).length, 1, "SQL Studio should expose one central editor textarea");
-assert.equal((page.match(/label="Run Preview"/g) ?? []).length, 1, "SQL Studio should expose one primary Run Preview action");
+assert.equal((page.match(/<textarea/g) ?? []).length, 1, "SQL Lab should expose one central editor textarea");
+assert.equal((page.match(/label="Run Preview"/g) ?? []).length, 1, "SQL Lab should expose one primary Run Preview action");
 assert.equal((page.match(/label="Register Result"/g) ?? []).length, 1, "Register action should open the compact registration panel");
-assert.ok(page.indexOf("Financial Services SQL Tasks") > page.indexOf('assistantTab === "financial"'), "Financial tasks should render inside the Assistant financial tab");
+assert.ok(page.indexOf("Sports Research SQL Patterns") > page.indexOf('assistantTab === "sports"'), "Sports patterns should render inside the Assistant sports tab");
 assert.ok(page.indexOf("Data Source") > page.indexOf('objectExplorerTab === "tables"'), "Data Source should render inside Object Explorer tables tab");
-assert.ok(page.indexOf("Selected Template Preview") > page.indexOf('assistantTab === "financial"'), "Template preview should render as auxiliary Assistant content");
+assert.ok(page.indexOf("Selected Template Preview") > page.indexOf('assistantTab === "sports"'), "Template preview should render as auxiliary Assistant content");
 assert.match(page, /Ctrl\+Enter run preview/);
 assert.match(page, /Ctrl\+S save query/);
 assert.match(page, /Ctrl\+Shift\+F format SQL/);
@@ -131,6 +148,37 @@ assert.match(page, /QueryHistoryPanel/);
 assert.match(page, /deleteSavedQuery/);
 assert.match(page, /Duplicate/);
 assert.match(page, /Rename/);
+assert.match(page, /const SPORTS_TEMPLATES: SqlTemplate\[\]/);
+assert.match(page, /const TEMPLATE_CATEGORIES: TemplateCategory\[\]/);
+assert.match(page, /const COLUMN_MAPPINGS = \[/);
+assert.match(page, /label: "Game ID"/);
+assert.match(page, /label: "Player ID"/);
+assert.match(page, /label: "Event \/ play ID"/);
+assert.match(page, /label: "Drive ID"/);
+assert.match(page, /label: "Forecast timestamp"/);
+assert.match(page, /label: "Source-available timestamp"/);
+assert.match(page, /label: "Forecast probability \/ score"/);
+assert.match(page, /FROM SPORTS_DATASET/);
+assert.match(page, /sourcePage: "SQL Lab"/);
+assert.match(page, /sourceRoute: "\/sql-lab"/);
+assert.match(page, /asp-model-studio-sql-lab-result\.xlsx/);
+assert.match(page, /asp-model-studio-sql-definition-lineage\.json/);
+
+[
+  "listDatasets",
+  "getDatasetProfile",
+  "validateSql",
+  "runSqlPreview",
+  "listSavedSqlQueries",
+  "saveSqlQuery",
+  "deleteSqlQuery",
+  "registerSqlResult",
+  "exportSqlResultExcel",
+  "createEvidence",
+  "downloadBlob",
+  "readHistory",
+  "writeHistory",
+].forEach((snippet) => assert.ok(page.includes(snippet), `SQL Lab page missing retained working machinery ${snippet}`));
 
 [
   "validateSql",
@@ -141,7 +189,7 @@ assert.match(page, /Rename/);
   "registerSqlResult",
   "exportSqlResultExcel",
   "safeSqlAlias",
-].forEach((snippet) => assert.ok(lib.includes(snippet), `SQL Studio lib missing ${snippet}`));
+].forEach((snippet) => assert.ok(lib.includes(snippet), `SQL Lab library missing ${snippet}`));
 
 assert.match(datasetLibrary, /SQL Results/);
 assert.match(datasetLibrary, /SQL Result/);
@@ -150,4 +198,4 @@ assert.match(datasetDetail, /SQL Data Studio Lineage/);
 assert.match(datasetDetail, /Registered Query/);
 assert.match(datasetDetail, /Source Datasets/);
 
-console.log("SQL Data Studio Phase 12 smoke checks passed.");
+console.log("Sports-native SQL Lab source contract checks passed.");
