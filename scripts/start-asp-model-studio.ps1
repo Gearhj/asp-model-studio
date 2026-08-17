@@ -29,6 +29,30 @@ if (-not $runtimeRoot.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreC
     throw "Runtime root escaped the ASP Model Studio repository."
 }
 
+# The immutable sports exchange is administrator-controlled configuration.  A
+# target-local .env.local may supply only this exact setting; the file remains
+# ignored and no browser request can choose or override a physical path.
+$modelExchangeRoot = [string]$env:ASP_MODEL_EXCHANGE_ROOT
+$localEnvironmentPath = Join-Path $repoRoot ".env.local"
+if (-not $modelExchangeRoot -and (Test-Path -LiteralPath $localEnvironmentPath -PathType Leaf)) {
+    $exchangeSettings = @(
+        Get-Content -LiteralPath $localEnvironmentPath -Encoding UTF8 |
+            Where-Object { $_ -match '^\s*ASP_MODEL_EXCHANGE_ROOT\s*=' }
+    )
+    if ($exchangeSettings.Count -gt 1) {
+        throw ".env.local contains more than one ASP_MODEL_EXCHANGE_ROOT setting."
+    }
+    if ($exchangeSettings.Count -eq 1) {
+        $modelExchangeRoot = ($exchangeSettings[0] -split '=', 2)[1].Trim().Trim('"').Trim("'")
+    }
+}
+if ($modelExchangeRoot) {
+    $modelExchangeRoot = [IO.Path]::GetFullPath($modelExchangeRoot)
+    if (-not (Test-Path -LiteralPath $modelExchangeRoot -PathType Container)) {
+        throw "ASP_MODEL_EXCHANGE_ROOT must resolve to an existing administrator-controlled directory."
+    }
+}
+
 $frontendPort = if ($env:ASP_MODEL_STUDIO_FRONTEND_PORT) { [int]$env:ASP_MODEL_STUDIO_FRONTEND_PORT } else { 5274 }
 $backendPort = if ($env:ASP_MODEL_STUDIO_BACKEND_PORT) { [int]$env:ASP_MODEL_STUDIO_BACKEND_PORT } else { 8101 }
 $previewPort = if ($env:ASP_MODEL_STUDIO_PREVIEW_PORT) { [int]$env:ASP_MODEL_STUDIO_PREVIEW_PORT } else { 4274 }
@@ -53,6 +77,7 @@ $paths = [ordered]@{
     restrictedMetadata = Join-Path $runtimeRoot "restricted-metadata"
     bureauCatalogs = Join-Path $runtimeRoot "bureau-catalogs"
     results = Join-Path $runtimeRoot "results"
+    sportsModeling = Join-Path $runtimeRoot "sports-modeling"
     uploads = Join-Path $runtimeRoot "uploads"
     logs = Join-Path $runtimeRoot "logs"
     cache = Join-Path $runtimeRoot "cache"
@@ -108,6 +133,8 @@ $environment = [ordered]@{
     ATLAS_RESTRICTED_METADATA_ROOT = $paths.restrictedMetadata
     ATLAS_BUREAU_CATALOG_REGISTRY_ROOT = $paths.bureauCatalogs
     ASP_MODEL_STUDIO_RESULTS_ROOT = $paths.results
+    ASP_MODEL_STUDIO_SPORTS_MODELING_ROOT = $paths.sportsModeling
+    ASP_MODEL_EXCHANGE_ROOT = $modelExchangeRoot
     ASP_MODEL_STUDIO_UPLOAD_ROOT = $paths.uploads
     ASP_MODEL_STUDIO_LOG_ROOT = $paths.logs
     ASP_MODEL_STUDIO_CACHE_ROOT = $paths.cache
@@ -175,6 +202,7 @@ $validation = [ordered]@{
     previewPort = $previewPort
     pythonReady = $pythonReady
     nodeReady = $nodeReady
+    modelExchangeConfigured = [bool]$modelExchangeRoot
     remotes = @(git -C $repoRoot remote -v)
     launchRequested = [bool]$Start
 }

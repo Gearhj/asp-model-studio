@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  DataWarehouseEvidencePage,
+} from "./SportsEvidenceSurfaces";
+import { useActiveSportsDataset } from "./sportsEvidenceApi";
+import {
   Activity,
   ArrowDown,
   ArrowRight,
@@ -244,19 +248,6 @@ function EmptyState({
   );
 }
 
-function DisabledAction({ children }: { children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      disabled
-      className="inline-flex min-h-10 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3.5 py-2 text-sm font-semibold text-slate-400"
-      title="Connection planned for Phase 2"
-    >
-      {children}
-    </button>
-  );
-}
-
 function FeatureTile({ icon: Icon, title, description, tag }: { icon: LucideIcon; title: string; description: string; tag?: string }) {
   return (
     <article className="group rounded-xl border border-slate-200 bg-slate-50/70 p-4 transition-colors hover:border-cyan-200 hover:bg-cyan-50/50">
@@ -269,21 +260,6 @@ function FeatureTile({ icon: Icon, title, description, tag }: { icon: LucideIcon
       <h3 className="mt-4 text-sm font-semibold text-slate-950">{title}</h3>
       <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p>
     </article>
-  );
-}
-
-function ContractGrid({ items }: { items: string[] }) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-      {items.map((item, index) => (
-        <div key={item} className="flex min-h-16 items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-900 text-xs font-semibold tabular-nums text-cyan-200">
-            {String(index + 1).padStart(2, "0")}
-          </span>
-          <span className="text-xs font-semibold leading-5 text-slate-700">{item}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -315,67 +291,19 @@ function PlaceholderTable({ columns, title }: { columns: string[]; title: string
 }
 
 export function DataWarehousePage() {
-  const manifestSections = [
-    "Sport and league",
-    "Seasons",
-    "Populations",
-    "Source versions",
-    "Source rights",
-    "Parquet partitions",
-    "Checksums",
-    "Identity coverage",
-    "Temporal cutoffs and exclusions",
-    "Target definitions",
-  ];
-  return (
-    <StudioPageFrame
-      eyebrow="Sports evidence layer"
-      title="Data Warehouse"
-      description="Register the immutable evidence boundary for every sport, season, population, and forecast target before model development begins."
-      icon={Database}
-      facts={[
-        { label: "Registered datasets", value: "0" },
-        { label: "Manifest", value: "Not registered" },
-        { label: "Warehouse access", value: "Not connected" },
-      ]}
-    >
-      <SectionCard
-        eyebrow="Target-local state"
-        title="Sports data registration"
-        description="ASP Model Studio consumes immutable sports dataset manifests. The source warehouse remains external and read-only."
-        icon={Fingerprint}
-        action={<StatusPill label="Connection planned" tone="amber" />}
-      >
-        <EmptyState
-          icon={Database}
-          title="No Sports Dataset Registered"
-          description="No sports evidence is available to projects in this workspace. Registering a manifest will be enabled only after the isolated Phase 2 connection is configured."
-          detail="Arbitrary filesystem browsing and direct warehouse mutation are intentionally unavailable."
-          contract="SPORTS_DATASET_MANIFEST_V1"
-        />
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          <DisabledAction><Database size={16} /> Register Manifest</DisabledAction>
-          <DisabledAction><ShieldCheck size={16} /> Validate Manifest</DisabledAction>
-          <DisabledAction><FileSearch2 size={16} /> Preview Schema</DisabledAction>
-          <DisabledAction><Search size={16} /> Inspect Coverage</DisabledAction>
-        </div>
-        <p className="mt-3 text-center text-xs font-semibold uppercase tracking-wide text-amber-700">Connection planned for Phase 2</p>
-      </SectionCard>
-
-      <SectionCard title="Immutable manifest anatomy" description="Every registration must make the evidence, timing, identity, and rights boundary inspectable." icon={FileCheck2}>
-        <ContractGrid items={manifestSections} />
-      </SectionCard>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <FeatureTile icon={LockKeyhole} title="Read-only source boundary" description="Source warehouse assets remain external. A manifest references governed partitions without copying or mutating the source." tag="GUARDRAIL" />
-        <FeatureTile icon={Clock3} title="Point-in-time integrity" description="Temporal cutoffs and exclusions travel with the dataset version so future evidence cannot leak into development." tag="REQUIRED" />
-        <FeatureTile icon={Scale} title="Rights-aware evidence" description="Source rights and permitted analytical uses are explicit components of registration, not hidden metadata." tag="REQUIRED" />
-      </div>
-    </StudioPageFrame>
-  );
+  return <DataWarehouseEvidencePage />;
 }
 
 export function ModelLaboratoryPage() {
+  const datasetEvidence = useActiveSportsDataset();
+  const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const featureAudit = dataset?.featureAudit;
+  const prerequisiteStates: Array<{ label: string; status: string; tone: Tone }> = [
+    { label: "Forecast contract", status: dataset?.project ? "REGISTERED" : "PENDING", tone: dataset?.project ? "emerald" : "slate" },
+    { label: "Immutable dataset", status: dataset?.validationStatus || "PENDING", tone: dataset ? "emerald" : "slate" },
+    { label: "Temporal validation plan", status: dataset?.folds.length ? `${dataset.folds.length} FOLDS` : "PENDING", tone: dataset?.folds.length ? "emerald" : "slate" },
+    { label: "MLB_PA_FEATURE_VIEW_V1", status: featureAudit?.status || "NOT AUDITED", tone: featureAudit?.status === "BLOCKED" ? "amber" : "slate" },
+  ];
   const metricFamilies = [
     ["Probability", "Brier score · log loss · calibration error"],
     ["Score", "MAE · RMSE · distribution score"],
@@ -388,16 +316,17 @@ export function ModelLaboratoryPage() {
       description="Run governed sports experiments, compare component candidates across temporal folds, and preserve artifact lineage from evidence to decision."
       icon={FlaskConical}
       tone="violet"
+      status={featureAudit?.status || "NOT CONFIGURED"}
       facts={[
         { label: "Experiments", value: "0" },
         { label: "Candidates", value: "0" },
-        { label: "Active runs", value: "0" },
+        { label: "Dataset", value: dataset?.validationStatus || (datasetEvidence.status === "error" ? "Unavailable" : "None") },
       ]}
     >
       <MetricStrip items={[
         { label: "Experiments", value: "0", detail: "No Experiment Run" },
         { label: "Candidate models", value: "0", detail: "No registered candidate" },
-        { label: "Temporal folds", value: "0", detail: "No validation plan" },
+        { label: "Temporal folds", value: String(dataset?.folds.length ?? 0), detail: dataset?.folds.length ? "Frozen rolling-origin plan registered" : "No validation plan" },
         { label: "Research challengers", value: "0", detail: "No selection decision" },
       ]} />
 
@@ -405,13 +334,13 @@ export function ModelLaboratoryPage() {
         <SectionCard title="Experiment ledger" description="Target, sport, dataset, fold, status, metrics, and lineage remain visible together." icon={Beaker}>
           <PlaceholderTable columns={["Experiment", "Sport", "Target", "Dataset", "Fold", "Status", "Key metrics", "Artifact lineage"]} title="Sports model experiments" />
         </SectionCard>
-        <SectionCard title="No Experiment Run" description="A registered sports dataset and forecast contract are required before a candidate can run." icon={TimerReset}>
+        <SectionCard title="No Experiment Run" description={featureAudit?.status === "BLOCKED" ? "The dataset and folds are registered, but the package-only feature authority blocks candidate fitting." : "A registered sports dataset and forecast contract are required before a candidate can run."} icon={TimerReset}>
           <div className="space-y-3">
-            {["Forecast contract", "Immutable dataset", "Temporal validation plan"].map((item, index) => (
-              <div key={item} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+            {prerequisiteStates.map((item, index) => (
+              <div key={item.label} className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold tabular-nums text-slate-500">{index + 1}</span>
-                <div className="min-w-0 flex-1 text-sm font-semibold text-slate-700">{item}</div>
-                <StatusPill label="Pending" />
+                <div className="min-w-0 flex-1 text-sm font-semibold text-slate-700">{item.label}</div>
+                <StatusPill label={item.status} tone={item.tone} />
               </div>
             ))}
           </div>
@@ -600,33 +529,49 @@ const MODEL_GRAPH_NODES = [
 ] as const;
 
 export function ModelGraphPage() {
+  const datasetEvidence = useActiveSportsDataset();
+  const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const featureAudit = dataset?.featureAudit;
+  const joinedRows = featureAudit
+    ? featureAudit.joinEvidence.batterDenominator + featureAudit.joinEvidence.pitcherDenominator
+    : 0;
+  const evidenceGraphNodes: Array<{ label: string; status: string; detail: string; icon: LucideIcon; tone: Tone }> | null = dataset && featureAudit ? [
+    { label: "MLB FD1 Dataset Manifest", status: dataset.validationStatus, detail: `${dataset.datasetId} · manifest ${dataset.manifestSha.slice(0, 12)}…`, icon: Database, tone: "emerald" },
+    { label: "Y-1 Batter and Pitcher Prior Join", status: featureAudit.status, detail: `0 exact role-specific matches across ${joinedRows.toLocaleString("en-US")} join attempts; package-bound bridge absent.`, icon: Fingerprint, tone: "amber" },
+    { label: "MLB_PA_FEATURE_VIEW_V1", status: "NOT CREATED", detail: "Feature materialization stopped at the identity-authority gate.", icon: Layers3, tone: "slate" },
+    { label: "Multinomial PA Baseline", status: "NOT TRAINED", detail: "No candidate model or preprocessing artifact exists.", icon: BrainCircuit, tone: "slate" },
+    { label: "Optional Temperature Calibration", status: "NOT RUN", detail: "No out-of-sample probabilities exist to calibrate.", icon: Gauge, tone: "slate" },
+    { label: "Retrospective Evaluation Evidence", status: "NOT CREATED", detail: "No predictions, metrics, or bootstrap evidence exists.", icon: FileCheck2, tone: "slate" },
+  ] : null;
   return (
     <StudioPageFrame
       eyebrow="Component decision system"
       title="Model Graph"
       description="Inspect the governed dependency graph from player state through simulation, calibration, and the executable sports forecast bundle."
       icon={Network}
-      tone="emerald"
+      tone={featureAudit ? "amber" : "emerald"}
+      status={featureAudit?.status || "NOT CONFIGURED"}
       facts={[
         { label: "Graphs", value: "0" },
         { label: "Components", value: "0" },
-        { label: "Decision", value: "No decision" },
+        { label: "Decision", value: featureAudit?.status || "No decision" },
       ]}
     >
-      <SectionCard title="No Model Graph" description="This blueprint shows the required DAG shape only. It does not represent trained, approved, or deployed components." icon={GitBranch} action={<StatusPill label="Blueprint only" tone="amber" />}>
+      <SectionCard title={evidenceGraphNodes ? "Evidence boundary graph" : "No Model Graph"} description={evidenceGraphNodes ? "The governed graph stops at the failed package-only identity join. It is not an executable model graph." : "This blueprint shows the required DAG shape only. It does not represent trained, approved, or deployed components."} icon={GitBranch} action={<StatusPill label={featureAudit?.status || "Blueprint only"} tone="amber" />}>
         <div className="relative rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:p-6">
           <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "radial-gradient(rgba(103,232,249,.24) 1px, transparent 1px)", backgroundSize: "22px 22px" }} aria-hidden="true" />
-          <div className="relative flex flex-col items-stretch gap-2 xl:flex-row xl:items-center" aria-label="Future sports model directed acyclic graph">
-            {MODEL_GRAPH_NODES.map(({ label, icon: Icon }, index) => (
+          <div className="relative flex flex-col items-stretch gap-2 xl:flex-row xl:items-center" aria-label={evidenceGraphNodes ? "MLB evidence boundary graph" : "Future sports model directed acyclic graph"}>
+            {(evidenceGraphNodes || MODEL_GRAPH_NODES.map(({ label, icon }) => ({ label, icon, status: "Not configured", detail: "Future component", tone: "slate" as Tone }))).map(({ label, icon: Icon, status, detail, tone }, index, nodes) => (
               <div key={label} className="contents">
-                <div className="flex min-h-24 min-w-0 flex-1 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.055] px-3 py-3 backdrop-blur-sm xl:flex-col xl:justify-center xl:text-center">
+                <div className={`flex min-h-28 min-w-0 flex-1 items-center gap-3 rounded-xl border bg-white/[0.055] px-3 py-3 backdrop-blur-sm xl:flex-col xl:justify-center xl:text-center ${tone === "amber" ? "border-amber-300/40" : tone === "emerald" ? "border-emerald-300/35" : "border-white/10"}`}>
                   <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-300/15"><Icon size={18} aria-hidden="true" /></span>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white">{label}</div>
-                    <div className="mt-1 text-xs text-slate-400">Not configured</div>
+                    <div className={`mt-1 text-xs font-semibold uppercase ${tone === "amber" ? "text-amber-300" : tone === "emerald" ? "text-emerald-300" : "text-slate-400"}`}>{status}</div>
+                    <div className="mt-1 break-words text-[11px] leading-4 text-slate-400">{detail}</div>
                   </div>
                 </div>
-                {index < MODEL_GRAPH_NODES.length - 1 ? (
+                {index < nodes.length - 1 ? (
                   <><ArrowDown size={18} className="mx-auto text-cyan-400/60 xl:hidden" aria-hidden="true" /><ArrowRight size={18} className="hidden shrink-0 text-cyan-400/60 xl:block" aria-hidden="true" /></>
                 ) : null}
               </div>
@@ -643,11 +588,9 @@ export function ModelGraphPage() {
         </div>
       </SectionCard>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <FeatureTile icon={Fingerprint} title="Immutable identity" description="Each node will resolve to a versioned artifact, schema, code reference, and checksum." />
-        <FeatureTile icon={GitBranch} title="Explicit dependencies" description="Inputs and downstream consumers remain visible before a graph can advance through review." />
-        <FeatureTile icon={BookOpenCheck} title="Decision evidence" description="Temporal validation and calibration evidence travel with every selection decision." />
-      </div>
+      <SectionCard title="Remaining Gen-2 components" description="These future nodes remain explicitly not configured; no simulation or forecast bundle is implied." icon={CircleDashed}>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{["Dynamic player state", "Lineup model", "Starter-duration model", "Bullpen-usage model", "Base-out simulator", "Residual model", "Forecast bundle"].map((label) => <div key={label} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><span className="text-xs font-semibold text-slate-700">{label}</span><span className="text-[11px] font-semibold uppercase text-slate-400">Not configured</span></div>)}</div>
+      </SectionCard>
     </StudioPageFrame>
   );
 }
@@ -699,7 +642,7 @@ export function RegistryDeploymentPage() {
       >
         <EmptyState
           icon={PackageCheck}
-          title="No sports model bundle has been exported."
+          title="No standalone ASP model bundle has been approved or exported."
           description="An approved model graph, complete validation evidence, dependency lock, schemas, and checksums are required before export becomes available."
           contract="SPORTS_MODEL_BUNDLE_V1"
         />

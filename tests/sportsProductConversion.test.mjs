@@ -18,6 +18,8 @@ const PATHS = Object.freeze({
   sportsProjects: "src/sports/SportsProjects.tsx",
   projectOverview: "src/sports/SportsProjectOverview.tsx",
   modules: "src/sports/StudioModules.tsx",
+  evidenceApi: "src/sports/sportsEvidenceApi.ts",
+  evidenceSurfaces: "src/sports/SportsEvidenceSurfaces.tsx",
   serverPersistence: "src/lib/serverPersistence.ts",
   analytics: "src/steps/AnalyticsWorkbench.tsx",
   sqlLab: "src/steps/SqlDataStudio.tsx",
@@ -257,10 +259,11 @@ test("sports research routes retain the working generic studio tools", async () 
 });
 
 test("home, workflow, warehouse, graph, bundle, and monitoring surfaces stay honest when empty", async () => {
-  const [home, workflow, modules, sportsProjects, projectOverview] = await Promise.all([
+  const [home, workflow, modules, evidenceSurfaces, sportsProjects, projectOverview] = await Promise.all([
     source(PATHS.home),
     source(PATHS.workflow),
     source(PATHS.modules),
+    source(PATHS.evidenceSurfaces),
     source(PATHS.sportsProjects),
     source(PATHS.projectOverview),
   ]);
@@ -275,7 +278,10 @@ test("home, workflow, warehouse, graph, bundle, and monitoring surfaces stay hon
       "Model Bundles",
       "Monitoring Plans",
       "No sports projects have been created yet.",
-      "Register the first immutable ASP sports dataset manifest and begin the MLB plate-appearance baseline experiment.",
+      "No governed sports dataset is registered in this workspace.",
+      "Feature authority is",
+      "modeling blocked",
+      "governedProject.status",
     ],
     "Studio Home",
   );
@@ -286,21 +292,23 @@ test("home, workflow, warehouse, graph, bundle, and monitoring surfaces stay hon
     [
       "No ASP dataset manifest registered.",
       "No model graph has been approved for export.",
+      "Future MLB simulation blueprint",
+      "No transition engine, probabilities, or simulation results exist",
       "Not Configured",
     ],
     "sport-specific workflow",
   );
   assertIncludesAll(
-    modules,
+    `${modules}\n${evidenceSurfaces}`,
     [
       "No Sports Dataset Registered",
       "SPORTS_DATASET_MANIFEST_V1",
-      "Connection planned for Phase 2",
+      "Register approved MLB exchange",
       "No Experiment Run",
       "No Simulation Run",
       "No Evaluation Evidence",
       "No Model Graph",
-      "No sports model bundle has been exported.",
+      "No standalone ASP model bundle has been approved or exported.",
       "SPORTS_MODEL_BUNDLE_V1",
       "No Monitoring Plan",
       "No Research Session",
@@ -406,6 +414,144 @@ test("closeout layout and project removal remain explicit and target-local", asy
   );
   assertIncludesAll(config, ["SPORTS_PROJECT_META_PREFIX", "localStorage.removeItem"], "sports metadata cleanup");
   assertIncludesAll(serverPersistence, ['method: "DELETE"'], "target-local database cleanup");
+});
+
+test("Phase 2 dataset evidence is fetched, registered, and rendered through governed endpoints", async () => {
+  const [api, surfaces, modules] = await Promise.all([
+    source(PATHS.evidenceApi),
+    source(PATHS.evidenceSurfaces),
+    source(PATHS.modules),
+  ]);
+
+  assertIncludesAll(
+    api,
+    [
+      '"/sports/datasets/active"',
+      "/sports/datasets/register-approved",
+      'method: "POST"',
+      'credentials: "include"',
+      "ActiveSportsDataset",
+      "SportsFeatureAudit",
+      "SportsDatasetTotals",
+      "SportsTemporalFold",
+      "RegisteredSportsProject",
+      "partitionAuthoritySha",
+      "value.projectName",
+      "value.workflowEvidence",
+      "value.featureAudit",
+      "item.displayName",
+      "item.sourceName",
+      "item.description",
+      "JSON.stringify(item.predicate",
+      "response.status === 404",
+      "hasEnvelopeKey && !isRecord(payload[key])",
+      "logicalExchangeUri",
+      'startsWith("asp-model-exchange://")',
+    ],
+    "governed sports dataset client",
+  );
+  assert.doesNotMatch(api, /sports\/modeling\/pa-baseline/, "blocked Milestone B must not have a speculative frontend client");
+  const registrationFunction = section(api, "export async function registerApprovedSportsDataset", "function useEvidence");
+  assert.doesNotMatch(registrationFunction, /body\s*:/, "the browser must not submit a filesystem path or request body when registering the approved exchange");
+
+  assertIncludesAll(
+    surfaces,
+    [
+      "Data Warehouse",
+      "Register approved MLB exchange",
+      "Administrator permission is required",
+      "The browser submits no filesystem path",
+      "Family volume",
+      "Season coverage",
+      "Population composition",
+      "Temporal fold timeline",
+      "Evidence coverage matrix",
+      "Source rights",
+      "Known limitations",
+      "Plate-appearance feature authority",
+      "Batter Y-1 joins",
+      "Pitcher Y-1 joins",
+      "Fuzzy or inferred identity matching used",
+      "Registered manifest evidence",
+      "Target-local reference withheld",
+      "logicalExchangeUri(dataset.logicalRoot)",
+      "Partition authority SHA-256",
+    ],
+    "API-driven Data Warehouse",
+  );
+  assert.match(modules, /return\s+<DataWarehouseEvidencePage\s*\/>/, "the live warehouse route must render governed evidence");
+  assert.doesNotMatch(surfaces, /C:\\Users|asp-model-exchange\\datasets/i, "frontend source must never expose a physical exchange path");
+});
+
+test("governed MLB project evidence survives reload without a duplicate browser-only project", async () => {
+  const [home, projects, overview, workflow] = await Promise.all([
+    source(PATHS.home),
+    source(PATHS.sportsProjects),
+    source(PATHS.projectOverview),
+    source(PATHS.workflow),
+  ]);
+
+  assertIncludesAll(home, ["useActiveSportsDataset", "Governed MLB project registered", "No model experiment has been run."], "governed Studio Home state");
+
+  assertIncludesAll(
+    projects,
+    [
+      "useActiveSportsDataset",
+      "governedProject",
+      "project.projectId !== governedProject.projectId",
+      "project.projectName !== governedProject.name",
+      "Open governed project",
+      "Governed project bound to the active immutable dataset registration",
+      "loadProjectSnapshot",
+    ],
+    "governed sports project registry",
+  );
+  const governedOpen = section(projects, "function openGovernedProject", "async function removeProject");
+  assertIncludesAll(
+    governedOpen,
+    [
+      "useWorkflowStore.getState().loadProjectSnapshot",
+      "hasDataset: false",
+      "datasetIdentity: null",
+    ],
+    "atomic governed-project snapshot open",
+  );
+  assert.doesNotMatch(governedOpen, /useWorkflowStore\.setState/, "governed project open must not retain stale effective state through a partial store mutation");
+  assertIncludesAll(
+    overview,
+    [
+      "useActiveSportsDataset",
+      "workspaceDataset?.project?.projectId === projectId",
+      "const boundDataset = governedProject ? workspaceDataset : null",
+      "governedStages",
+      "Workflow evidence",
+      "stages have registered evidence",
+      "governedProject.status",
+      "sports-status--amber",
+      "plate-appearance-to-player-prior identity bridge",
+      "workspace available, not bound",
+      "No governed project evidence is inferred.",
+      "No plate-appearance model, game simulation, or export is implied.",
+    ],
+    "governed MLB project overview",
+  );
+  assert.doesNotMatch(overview, /\.project\.name\s*===\s*projectName/, "project evidence must never bind by display name");
+  assertIncludesAll(
+    workflow,
+    [
+      "useActiveSportsDataset",
+      "workspaceDataset?.project?.projectId === activeProjectId",
+      "const boundDataset = governedProject ? workspaceDataset : null",
+      "Stage status comes from governed project evidence",
+      "Registered evidence",
+      "Project-bound immutable dataset registration",
+      "workspace available, not bound to active project",
+      "governed stage evidence remains project-scoped",
+      "No model graph has been approved for export.",
+    ],
+    "governed MLB workflow evidence",
+  );
+  assert.doesNotMatch(workflow, /activeProjectName|\.project\.name\s*===|!activeProjectId/, "workflow evidence must bind only to the exact governed project ID");
 });
 
 test("live sports shell, navigation, home, templates, project creation, and research tools expose no finance positioning", async () => {

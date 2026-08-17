@@ -23,6 +23,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 import {
   MLB_WORKFLOW,
   NFL_WORKFLOW,
@@ -30,6 +31,7 @@ import {
   type SportsWorkflowKey,
   type SportsWorkflowStep,
 } from "./sportsConfig";
+import { type ActiveSportsDataset, type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
 
 type ForecastWorkflowProps = {
   workflowKey?: SportsWorkflowKey;
@@ -54,7 +56,17 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
   const location = useLocation();
   const resolvedKey = workflowKey ?? (location.pathname.toLowerCase().includes("nfl") ? "nfl" : "mlb");
   const workflow = resolvedKey === "nfl" ? NFL_WORKFLOW : MLB_WORKFLOW;
-  const configuredSteps = workflow.steps.filter((step) => step.status !== "not_configured").length;
+  const activeProjectId = useWorkflowStore((state) => state.projectId);
+  const datasetEvidence = useActiveSportsDataset();
+  const workspaceDataset = resolvedKey === "mlb" && datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const governedProject = workspaceDataset?.project?.projectId === activeProjectId ? workspaceDataset.project : null;
+  const boundDataset = governedProject ? workspaceDataset : null;
+  const governedStages = governedProject?.stages ?? [];
+  const evidencedSteps = governedStages.length
+    ? governedStages.filter((stage) => !["pending", "not_configured", "not configured"].includes(stage.status.toLowerCase())).length
+    : workflow.steps.filter((step) => step.status !== "not_configured").length;
+  const blockedSteps = governedStages.filter((stage) => stage.status.toLowerCase() === "blocked").length;
+  const evidenceFor = (step: SportsWorkflowStep) => governedStages.find((stage) => stage.stepId === step.id || stage.number === step.number || stage.title?.toLowerCase() === step.title.toLowerCase());
 
   return (
     <main className="sports-page-shell w-full space-y-6 pb-10 text-slate-950">
@@ -93,17 +105,31 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
                 </div>
               )}
             </div>
-            <WorkflowReadiness workflow={workflow} configuredSteps={configuredSteps} />
+            <WorkflowReadiness workflow={workflow} evidencedSteps={evidencedSteps} blockedSteps={blockedSteps} />
           </div>
         </div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label={`${workflow.league} workflow status`}>
         <SummaryCard label="Workflow stages" value="12" helper="Full governed path" icon={Route} />
-        <SummaryCard label="Configured" value={String(configuredSteps)} helper="No status inferred" icon={SlidersHorizontal} />
-        <SummaryCard label="Dataset manifest" value="None" helper="Connection planned" icon={Database} warning />
+        <SummaryCard label="Evidence states" value={String(evidencedSteps)} helper={blockedSteps ? `${blockedSteps} blocked stage shown separately` : "No status inferred"} icon={SlidersHorizontal} />
+        <SummaryCard
+          label="Dataset manifest"
+          value={boundDataset?.validationStatus || (workspaceDataset ? "Available" : datasetEvidence.status === "error" ? "Unavailable" : "None")}
+          helper={boundDataset
+            ? `${boundDataset.datasetId} · project bound`
+            : workspaceDataset
+              ? `${workspaceDataset.datasetId} · workspace available, not bound to active project`
+              : datasetEvidence.status === "error"
+                ? "Evidence service could not be read"
+                : "No governed registration"}
+          icon={Database}
+          warning={!boundDataset}
+        />
         <SummaryCard label="Approved graph" value="None" helper="No bundle available" icon={Network} warning />
       </section>
+
+      {resolvedKey === "mlb" && datasetEvidence.status === "error" ? <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="alert"><strong>Governed sports evidence unavailable.</strong> Workflow stage status is not inferred while the registration service cannot be read.</section> : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="workflow-map-heading">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -134,7 +160,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
         </div>
       </section>
 
-      {resolvedKey === "mlb" ? <BaseOutSimulator /> : <DriveSimulator />}
+      {resolvedKey === "mlb" ? <BaseOutSimulator blocked={boundDataset?.featureAudit?.status === "BLOCKED"} /> : <DriveSimulator />}
 
       <section aria-labelledby="workflow-specification-heading">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -142,11 +168,19 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
             <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Technical specification</div>
             <h2 id="workflow-specification-heading" className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Workflow stages</h2>
           </div>
-          <span className="text-xs font-medium text-slate-500">Every stage begins as Not Configured</span>
+          <span className="text-xs font-medium text-slate-500">Stage status comes from governed project evidence</span>
         </div>
         <div className="grid items-start gap-4 xl:grid-cols-2">
           {workflow.steps.map((step, index) => (
-            <WorkflowStepCard key={step.id} step={step} workflow={workflow} icon={stepIcons[index]} />
+            <WorkflowStepCard
+              key={step.id}
+              step={step}
+              workflow={workflow}
+              icon={stepIcons[index]}
+              evidence={evidenceFor(step)}
+              boundDataset={boundDataset}
+              workspaceDataset={workspaceDataset}
+            />
           ))}
         </div>
       </section>
@@ -170,19 +204,20 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
   );
 }
 
-function WorkflowReadiness({ workflow, configuredSteps }: { workflow: SportsWorkflow; configuredSteps: number }) {
+function WorkflowReadiness({ workflow, evidencedSteps, blockedSteps }: { workflow: SportsWorkflow; evidencedSteps: number; blockedSteps: number }) {
   return (
     <div className="rounded-2xl border border-white/15 bg-white/[0.055] p-4 backdrop-blur sm:p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Workflow readiness</div>
-          <div className="mt-1 text-lg font-semibold text-white">Not configured</div>
+          <div className="mt-1 text-lg font-semibold text-white">{evidencedSteps ? "Evidence registered" : "Not configured"}</div>
         </div>
-        <span className="font-mono text-3xl font-semibold tabular-nums text-cyan-300">{configuredSteps}<span className="text-base text-slate-500">/12</span></span>
+        <span className="font-mono text-3xl font-semibold tabular-nums text-cyan-300">{evidencedSteps}<span className="text-base text-slate-500">/12</span></span>
       </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10" aria-label={`${configuredSteps} of 12 stages configured`}>
-        <div className="h-full rounded-full bg-cyan-300" style={{ width: `${(configuredSteps / 12) * 100}%` }} />
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10" aria-label={`${evidencedSteps} of 12 stages have registered evidence; ${blockedSteps} blocked`}>
+        <div className="h-full rounded-full bg-cyan-300" style={{ width: `${(evidencedSteps / 12) * 100}%` }} />
       </div>
+      {blockedSteps ? <p className="mt-3 text-xs font-semibold text-amber-200">{blockedSteps} stage is blocked and is not counted as complete.</p> : null}
       <div className="mt-5 border-t border-white/10 pt-4">
         <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Intended outputs</div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -210,7 +245,7 @@ function SummaryCard({ label, value, helper, icon: Icon, warning = false }: { la
   );
 }
 
-function BaseOutSimulator() {
+function BaseOutSimulator({ blocked }: { blocked: boolean }) {
   const states = [
     { label: "Empty", occupied: [] as number[] },
     { label: "1st", occupied: [1] },
@@ -228,9 +263,9 @@ function BaseOutSimulator() {
       <div className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full border border-cyan-300/10" aria-hidden="true" />
       <div className="relative grid gap-7 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">MLB simulation kernel</div>
-          <h2 id="base-out-heading" className="mt-2 text-2xl font-semibold tracking-tight text-white">24-state base-out engine</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-300">Eight runner configurations combine with zero, one, or two outs. Plate-appearance events move the game through this state space without inventing outcomes.</p>
+          <div className="flex flex-wrap items-center gap-2"><div className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Future MLB simulation blueprint</div><span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[11px] font-semibold uppercase text-amber-200">{blocked ? "Blocked upstream · not configured" : "Not configured"}</span></div>
+          <h2 id="base-out-heading" className="mt-2 text-2xl font-semibold tracking-tight text-white">24-state base-out design</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">Eight runner configurations combine with zero, one, or two outs in the intended design. No transition engine, probabilities, or simulation results exist in this workspace.</p>
           <div className="mt-5 flex justify-center rounded-2xl border border-white/10 bg-white/[0.045] p-5">
             <LargeDiamond />
           </div>
@@ -255,7 +290,7 @@ function BaseOutSimulator() {
             ))}
           </div>
           <div className="mt-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Simulator pipeline</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Planned simulator pipeline</div>
             <div className="mt-3 grid gap-2 lg:grid-cols-5">
               {pipeline.map((label, index) => (
                 <div key={label} className={`relative rounded-xl border px-3 py-3 text-xs font-semibold leading-5 ${index === pipeline.length - 1 ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-slate-950/35 text-slate-300"}`}>
@@ -348,10 +383,28 @@ function DriveSimulator() {
   );
 }
 
-function WorkflowStepCard({ step, workflow, icon: Icon }: { step: SportsWorkflowStep; workflow: SportsWorkflow; icon: LucideIcon }) {
+function WorkflowStepCard({
+  step,
+  workflow,
+  icon: Icon,
+  evidence,
+  boundDataset,
+  workspaceDataset,
+}: {
+  step: SportsWorkflowStep;
+  workflow: SportsWorkflow;
+  icon: LucideIcon;
+  evidence?: SportsProjectStage;
+  boundDataset: ActiveSportsDataset | null;
+  workspaceDataset: ActiveSportsDataset | null;
+}) {
   const isEvidenceStep = step.number === 2;
   const isGraphStep = step.number === 11;
   const isExportStep = step.number === 12;
+  const evidenceStatus = evidence?.status || "Not Configured";
+  const configured = !["pending", "not_configured", "not configured"].includes(evidenceStatus.toLowerCase());
+  const complete = ["complete", "completed"].includes(evidenceStatus.toLowerCase());
+  const blocked = evidenceStatus.toLowerCase() === "blocked";
   return (
     <article id={step.id} className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex items-start gap-4">
@@ -361,20 +414,39 @@ function WorkflowStepCard({ step, workflow, icon: Icon }: { step: SportsWorkflow
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="font-mono text-[11px] font-semibold tracking-[0.1em] text-slate-400">STEP {String(step.number).padStart(2, "0")}</div>
-            <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-600">Not Configured</span>
+            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : blocked ? "border-amber-300 bg-amber-50 text-amber-900" : configured ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-slate-100 text-slate-600"}`}>{evidenceStatus.replaceAll("_", " ")}</span>
           </div>
           <h3 className="mt-1 text-lg font-semibold text-slate-950">{step.title}</h3>
           <p className="mt-2 text-[15px] leading-6 text-slate-600">{step.purpose}</p>
         </div>
       </div>
 
-      {isEvidenceStep && (
+      {evidence?.evidence?.length ? <div className={`mt-5 rounded-xl border px-4 py-3 ${blocked ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}><div className={`text-xs font-semibold uppercase tracking-wide ${blocked ? "text-amber-900" : "text-emerald-800"}`}>{blocked ? "Registered blocker evidence" : "Registered evidence"}</div><ul className={`mt-2 grid gap-1 text-xs leading-5 ${blocked ? "text-amber-950" : "text-emerald-950"}`}>{evidence.evidence.map((item) => <li key={item} className="flex gap-2">{blocked ? <AlertCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}{item}</li>)}</ul></div> : null}
+
+      {isEvidenceStep && !workspaceDataset && (
         <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <Database size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div>
             <div className="text-sm font-semibold">No ASP dataset manifest registered.</div>
-            <div className="mt-0.5 text-xs leading-5 text-amber-800">SPORTS_DATASET_MANIFEST_V1 connectivity is planned for Phase 2.</div>
+            <div className="mt-0.5 text-xs leading-5 text-amber-800">No governed SPORTS_DATASET_MANIFEST_V1 registration exists in this workspace.</div>
           </div>
+        </div>
+      )}
+
+      {isEvidenceStep && workspaceDataset && !boundDataset && (
+        <div className="mt-5 flex items-start gap-3 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-cyan-950">
+          <Database size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            <div className="text-sm font-semibold">Workspace dataset available · not bound to active project.</div>
+            <div className="mt-0.5 break-all text-xs leading-5 text-cyan-800">{workspaceDataset.datasetId} is registered, but governed stage evidence remains project-scoped.</div>
+          </div>
+        </div>
+      )}
+
+      {isEvidenceStep && boundDataset && (
+        <div className="mt-5 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+          <Database size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div><div className="text-sm font-semibold">Project-bound immutable dataset registration {boundDataset.validationStatus}</div><div className="mt-0.5 break-all text-xs leading-5 text-emerald-800">{boundDataset.datasetId} · registration {boundDataset.registrationId}</div></div>
         </div>
       )}
 

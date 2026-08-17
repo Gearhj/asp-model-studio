@@ -92,6 +92,7 @@ from .registry.router import router as registry_router
 from .validation.router import router as validation_router
 from .monitoring.router import router as monitoring_router
 from .analytics_engine.router import router as analytics_engine_router
+from .sports_datasets.router import router as sports_dataset_router
 
 MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
@@ -493,6 +494,7 @@ def create_app() -> FastAPI:
     app.include_router(validation_router, prefix="/api", tags=["Validation"], dependencies=authenticated)
     app.include_router(monitoring_router, tags=["Monitoring"], dependencies=authenticated)
     app.include_router(analytics_engine_router, tags=["Statistical & Analytical Engine"])
+    app.include_router(sports_dataset_router, prefix="/api", tags=["Sports Dataset Registry"], dependencies=authenticated)
     app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"], dependencies=authenticated)
     app.include_router(analytics_queries_router, prefix="/api", tags=["Enterprise Analytical Data Plane"], dependencies=authenticated)
     app.include_router(target_intelligence_router, prefix="/api", tags=["EDA Target Intelligence"], dependencies=authenticated)

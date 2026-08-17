@@ -28,6 +28,7 @@ import {
   PLANNED_SPORTS,
   isSportsWorkflow,
 } from "./sportsConfig";
+import { useActiveSportsDataset } from "./sportsEvidenceApi";
 
 type StatusCard = {
   label: string;
@@ -47,12 +48,28 @@ const statusTone: Record<StatusCard["tone"], string> = {
 };
 
 export default function StudioHome() {
+  const datasetEvidence = useActiveSportsDataset();
+  const activeDataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const governedProject = activeDataset?.project ?? null;
   const sportsProjects = loadLocalProjects().filter((project) => isSportsWorkflow(project.workflowId));
-  const registeredDatasets = sportsProjects.filter((project) => project.snapshot.hasDataset).length;
-  const recentProjects = sportsProjects.slice(0, 4);
+  const localProjects = governedProject ? sportsProjects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name) : sportsProjects;
+  const registeredDatasets = activeDataset ? 1 : 0;
+  const recentProjects = localProjects.slice(0, governedProject ? 3 : 4);
+  const projectCount = localProjects.length + (governedProject ? 1 : 0);
+  const featureBlocked = activeDataset?.featureAudit?.status === "BLOCKED";
+  const projectBlocked = governedProject?.status?.toLowerCase().includes("blocked") === true;
+  const modelingLimitation = activeDataset?.featureAudit?.missingBridge.reason
+    || activeDataset?.limitations.find((item) => /identity|bridge|prior/i.test(item));
+  const datasetHelper = activeDataset
+    ? `${activeDataset.datasetId} · ${activeDataset.validationStatus}`
+    : datasetEvidence.status === "error"
+      ? "Governed registry unavailable"
+      : datasetEvidence.status === "loading"
+        ? "Checking governed registry"
+        : "No dataset registered";
   const statusCards: StatusCard[] = [
-    { label: "Sports Projects", value: sportsProjects.length, helper: sportsProjects.length ? "Target-local projects" : "No project created", icon: FolderKanban, tone: "cyan" },
-    { label: "Registered Datasets", value: registeredDatasets, helper: registeredDatasets ? "Project datasets" : "No dataset registered", icon: Database, tone: "blue" },
+    { label: "Sports Projects", value: projectCount, helper: governedProject ? (projectBlocked ? "Governed MLB project · modeling blocked" : "Governed MLB project registered") : projectCount ? "Target-local projects" : "No project created", icon: FolderKanban, tone: projectBlocked ? "amber" : "cyan" },
+    { label: "Registered Datasets", value: registeredDatasets, helper: datasetHelper, icon: Database, tone: "blue" },
     { label: "Active Experiments", value: 0, helper: "No experiment run", icon: FlaskConical, tone: "amber" },
     { label: "Research Challengers", value: 0, helper: "No challenger selected", icon: Activity, tone: "amber" },
     { label: "Model Bundles", value: 0, helper: "No bundle exported", icon: Box, tone: "emerald" },
@@ -177,15 +194,15 @@ export default function StudioHome() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.15em] text-amber-300">Next platform milestone</div>
-              <h2 className="mt-2 text-xl font-semibold">Establish the MLB evidence baseline</h2>
+              <h2 className="mt-2 text-xl font-semibold">{activeDataset ? (featureBlocked ? "MLB evidence registered · feature view blocked" : "MLB evidence registered") : "Establish the MLB evidence baseline"}</h2>
             </div>
             <CircleDot size={21} className="shrink-0 text-amber-300" aria-hidden="true" />
           </div>
           <p className="mt-4 text-[15px] leading-7 text-slate-300">
-            Register the first immutable ASP sports dataset manifest and begin the MLB plate-appearance baseline experiment.
+            {activeDataset ? (modelingLimitation || "Review the registered evidence and limitations before model work begins.") : "Register the first immutable ASP sports dataset manifest and begin the MLB plate-appearance baseline experiment."}
           </p>
           <div className="mt-5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-5 text-slate-400">
-            Dataset connectivity is planned for Phase 2. No external sports warehouse is connected.
+            {activeDataset ? `Registration ${activeDataset.registrationId} is ${activeDataset.validationStatus}. Feature authority is ${activeDataset.featureAudit?.status || "not audited"}. No model experiment has been run.` : datasetEvidence.status === "error" ? "The governed dataset registry could not be read. No registration is inferred from browser-local project snapshots." : "No governed sports dataset is registered in this workspace."}
           </div>
         </div>
       </section>
@@ -196,12 +213,13 @@ export default function StudioHome() {
             <div className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Target-local activity</div>
             <h2 id="recent-activity-heading" className="mt-1 text-xl font-semibold text-slate-950">Recent activity</h2>
           </div>
-          {recentProjects.length > 0 && (
+          {(recentProjects.length > 0 || governedProject) && (
             <Link to="/projects/open" className="text-sm font-semibold text-blue-700 hover:text-blue-900">Open sports projects</Link>
           )}
         </div>
-        {recentProjects.length ? (
+        {recentProjects.length || governedProject ? (
           <div className="mt-4 divide-y divide-slate-100">
+            {governedProject ? <article className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${projectBlocked ? "bg-amber-900 text-amber-100" : "bg-emerald-900 text-cyan-200"}`}><ShieldCheck size={18} aria-hidden="true" /></div><div className="min-w-0"><h3 className="break-words text-sm font-semibold text-slate-950">{governedProject.name}</h3><p className="mt-0.5 text-xs text-slate-500">MLB Forecasting · {governedProject.developmentPeriod || "Development period not recorded"}</p></div></div><span className={`inline-flex w-fit max-w-full whitespace-normal break-words rounded-full px-2.5 py-1 text-xs font-semibold ${projectBlocked ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{governedProject.status || "REGISTERED"}</span></article> : null}
             {recentProjects.map((project) => (
               <article key={project.projectId} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
