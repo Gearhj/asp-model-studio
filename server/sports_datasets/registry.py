@@ -507,6 +507,7 @@ class SportsDatasetRegistry:
         metadata = registration.get("metadata_json") or {}
         identity_bridge = None
         pa_baseline = None
+        phase4 = None
         try:
             # Kept as a lazy import so the parent dataset adapter remains usable
             # independently of optional companion-contract registrations.
@@ -552,6 +553,81 @@ class SportsDatasetRegistry:
             if "no such table: sports_pa_research_runs" not in str(exc).casefold():
                 raise
             pa_baseline = None
+        try:
+            # Phase 4 is an additive child study. It is visible only when its
+            # exact dataset, project, and immutable Phase 3 parent all match the
+            # independently projected authorities above.
+            from ..sports_phase4.registry import SportsPhase4Registry
+
+            active_phase4 = SportsPhase4Registry(self.database).public_active()
+            candidate_phase4 = (
+                active_phase4.get("phase4")
+                if isinstance(active_phase4, Mapping)
+                else None
+            )
+            candidate_dataset = (
+                candidate_phase4.get("dataset")
+                if isinstance(candidate_phase4, Mapping)
+                else None
+            )
+            candidate_parent = (
+                candidate_phase4.get("phase3Baseline")
+                if isinstance(candidate_phase4, Mapping)
+                else None
+            )
+            phase3_run = (
+                pa_baseline.get("run")
+                if isinstance(pa_baseline, Mapping)
+                else None
+            )
+            phase3_feature = (
+                pa_baseline.get("featureView")
+                if isinstance(pa_baseline, Mapping)
+                else None
+            )
+            phase3_graph = (
+                pa_baseline.get("graph")
+                if isinstance(pa_baseline, Mapping)
+                else None
+            )
+            phase3_decision = (
+                pa_baseline.get("decision")
+                if isinstance(pa_baseline, Mapping)
+                else None
+            )
+            if (
+                project is not None
+                and isinstance(candidate_phase4, Mapping)
+                and isinstance(candidate_dataset, Mapping)
+                and isinstance(candidate_parent, Mapping)
+                and isinstance(phase3_run, Mapping)
+                and isinstance(phase3_feature, Mapping)
+                and isinstance(phase3_graph, Mapping)
+                and isinstance(phase3_decision, Mapping)
+                and candidate_phase4.get("projectId") == project["project_id"]
+                and candidate_dataset.get("registrationId") == registration_id
+                and candidate_dataset.get("manifestSha") == registration.get("manifest_sha")
+                and candidate_dataset.get("partitionAuthoritySha")
+                    == metadata.get("partitionAuthoritySha")
+                and candidate_parent.get("runId") == phase3_run.get("runId")
+                and candidate_parent.get("runSha") == phase3_run.get("runSha")
+                and candidate_parent.get("experimentId")
+                    == (phase3_run.get("experiment") or {}).get("experimentId")
+                and candidate_parent.get("featureContractName")
+                    == phase3_feature.get("contractVersion")
+                and candidate_parent.get("featureContractSha")
+                    == phase3_feature.get("contractSha")
+                and candidate_parent.get("featureViewId")
+                    == phase3_feature.get("featureViewId")
+                and candidate_parent.get("graphId") == phase3_graph.get("graphId")
+                and candidate_parent.get("status")
+                    == phase3_decision.get("terminalStatus")
+            ):
+                phase4 = candidate_phase4
+        except sqlite3.OperationalError as exc:
+            if "no such table: sports_phase4_studies" not in str(exc).casefold():
+                raise
+            phase4 = None
         public_limitations = [
             {"limitationId": item["limitation_id"], "scope": item["scope"], "description": item["description"], "source": "EXCHANGE_MANIFEST"}
             for item in limitations
@@ -633,6 +709,8 @@ class SportsDatasetRegistry:
             result["identityBridge"] = identity_bridge
         if pa_baseline is not None:
             result["paBaseline"] = pa_baseline
+        if phase4 is not None:
+            result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]
             identity_stage = (workflow_evidence.get("identity_coverage_leakage") or {}).get("status")
