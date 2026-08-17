@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections import OrderedDict
 from typing import Any, Mapping, Sequence
 
@@ -504,6 +505,17 @@ class SportsDatasetRegistry:
                 (registration_id,),
             ).fetchone())
         metadata = registration.get("metadata_json") or {}
+        identity_bridge = None
+        try:
+            # Kept as a lazy import so the parent dataset adapter remains usable
+            # independently of optional companion-contract registrations.
+            from ..sports_identity_bridges.registry import SportsIdentityBridgeRegistry
+
+            identity_bridge = SportsIdentityBridgeRegistry(self.database).public_active()
+        except sqlite3.OperationalError:
+            # An absent additive bridge migration or registration is an honest
+            # no-evidence state, not a reason to hide the parent dataset.
+            identity_bridge = None
         public_limitations = [
             {"limitationId": item["limitation_id"], "scope": item["scope"], "description": item["description"], "source": "EXCHANGE_MANIFEST"}
             for item in limitations
@@ -581,12 +593,21 @@ class SportsDatasetRegistry:
             "modelingBlockers": metadata.get("modelingBlockers", []),
             "featureAudit": metadata.get("featureAudit"),
         }
+        if identity_bridge is not None:
+            result["identityBridge"] = identity_bridge
         if project:
+            workflow_evidence = project["workflow_evidence_json"]
+            identity_stage = (workflow_evidence.get("identity_coverage_leakage") or {}).get("status")
+            project_status = (
+                "REGISTERED_IDENTITY_BRIDGE_VALIDATED"
+                if identity_bridge is not None and identity_stage == "COMPLETE"
+                else "REGISTERED_MODELING_BLOCKED"
+            )
             result["project"] = {
                 "projectId": project["project_id"],
                 "projectName": project["project_name"],
                 "name": project["project_name"],
-                "status": "REGISTERED_MODELING_BLOCKED",
+                "status": project_status,
                 "workflowId": "mlb-forecasting",
                 "sport": project["sport"],
                 "league": project["league"],
@@ -598,8 +619,8 @@ class SportsDatasetRegistry:
                 "baselinePopulation": project["baseline_population"],
                 "upperBoundPopulation": project["upper_bound_population"],
                 "researchPurpose": project["research_purpose"],
-                "workflowEvidence": project["workflow_evidence_json"],
-                "stages": project["workflow_evidence_json"],
+                "workflowEvidence": workflow_evidence,
+                "stages": workflow_evidence,
                 "featureAudit": metadata.get("featureAudit"),
             }
         return result

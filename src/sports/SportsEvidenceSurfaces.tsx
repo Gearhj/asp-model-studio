@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { CircleDashed, Database, LockKeyhole, RefreshCw, Scale, ShieldCheck } from "lucide-react";
+import { CheckCircle2, CircleDashed, Database, Fingerprint, LockKeyhole, RefreshCw, Scale, ShieldCheck } from "lucide-react";
 import { me } from "../lib/auth";
 import {
   logicalExchangeUri,
+  logicalSportsEvidenceUri,
   registerApprovedSportsDataset,
   type ActiveSportsDataset,
   type SportsEvidenceCoverage,
+  type SportsIdentityBridgeEvidenceRow,
   useActiveSportsDataset,
 } from "./sportsEvidenceApi";
 
@@ -47,10 +49,57 @@ function percentage(value: number | undefined) {
   return `${normalized.toFixed(normalized === 100 ? 0 : 1)}%`;
 }
 
-function safeText(value: unknown) {
+function safeText(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (Array.isArray(value)) return value.length ? value.map(safeText).join("; ") : "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return "Structured evidence recorded";
   const text = String(value);
-  return /^[a-z]:[\\/]/i.test(text) || /^\\\\/.test(text) || /^file:/i.test(text) ? "Target-local reference withheld" : text;
+  return /^[a-z]:[\\/]/i.test(text) || /^\\\\/.test(text) || /^file:/i.test(text) || /^\//.test(text) ? "Target-local reference withheld" : text;
+}
+
+function isValidatedStatus(value: string | undefined) {
+  return ["VALID", "VALIDATED", "PASS", "PASSED", "COMPLETE"].includes(String(value || "").trim().toUpperCase());
+}
+
+function hasValidatedIdentityBridge(dataset: ActiveSportsDataset) {
+  const bridge = dataset.identityBridge;
+  return Boolean(
+    bridge?.active
+    && bridge.noNamesOrFuzzyMatching
+    && isValidatedStatus(bridge.validationStatus)
+    && isValidatedStatus(bridge.joinAudit.status),
+  );
+}
+
+function humanizeEvidenceKey(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function evidenceValue(key: string, value: unknown) {
+  if (/logical(?:uri|root)/i.test(key) && typeof value === "string") return logicalSportsEvidenceUri(value);
+  if (typeof value === "number" && /(?:rate|coverage|percentage)$/i.test(key)) return percentage(value);
+  return safeText(value);
+}
+
+function publicEvidenceEntries(row: SportsIdentityBridgeEvidenceRow) {
+  return Object.entries(row).filter(([key]) => !/(?:physical|filesystem|absolute)(?:path|root|uri)?|(?:file|source|package)path/i.test(key));
+}
+
+function EvidenceRows({ rows, empty }: { rows: SportsIdentityBridgeEvidenceRow[]; empty: string }) {
+  if (!rows.length) return <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">{empty}</p>;
+  return <div className="grid gap-3 md:grid-cols-2">{rows.map((row, index) => {
+    const entries = publicEvidenceEntries(row);
+    const stableKey = [row.namespace, row.namespaceId, row.joinContract, row.contractId, row.season, row.role, index].filter((item) => item !== undefined && item !== null).join(":");
+    return <dl key={stableKey || String(index)} className="grid min-w-0 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">{entries.map(([key, value]) => <div key={key} className="min-w-0"><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{humanizeEvidenceKey(key)}</dt><dd className="mt-1 break-words text-xs font-semibold leading-5 text-slate-800">{evidenceValue(key, value)}</dd></div>)}</dl>;
+  })}</div>;
+}
+
+function BridgeMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-2 text-2xl font-semibold tabular-nums text-slate-950">{value}</div><div className="mt-1 text-xs leading-5 text-slate-500">{detail}</div></div>;
 }
 
 function MetricGrid({ dataset }: { dataset: ActiveSportsDataset }) {
@@ -95,19 +144,94 @@ function Rights({ dataset }: { dataset: ActiveSportsDataset }) {
   return <div className="space-y-3">{dataset.rights.map((right) => <article key={right.source} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-slate-950">{right.source}</h3>{right.status ? <Pill value={right.status} /> : null}</div>{right.attribution ? <p className="mt-2 text-xs leading-5 text-slate-600">{right.attribution}</p> : null}{right.allowedUses?.length ? <p className="mt-2 text-xs text-emerald-800">Allowed: {right.allowedUses.join("; ")}</p> : null}{right.prohibitedUses?.length ? <p className="mt-1 text-xs text-amber-800">Prohibited: {right.prohibitedUses.join("; ")}</p> : null}</article>)}</div>;
 }
 
+function IdentityBridgeAuthority({ dataset }: { dataset: ActiveSportsDataset }) {
+  const bridge = dataset.identityBridge;
+  const requiredArtifact = dataset.featureAudit?.missingBridge.requiredArtifact || "SPORTS_IDENTITY_BRIDGE_V1";
+  const missingReason = dataset.featureAudit?.missingBridge.reason || "No immutable identity companion is registered for this dataset version.";
+  if (!bridge) {
+    return <Card title="MLB identity bridge" description="Exact, source-version-bound player identity authority remains separate from the immutable FD1 dataset package.">
+      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+        <Fingerprint size={20} className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1"><div className="text-sm font-semibold">No governed MLB identity bridge is registered.</div><p className="mt-1 text-sm leading-6">{safeText(missingReason)}</p><div className="mt-3 inline-flex rounded-lg border border-amber-200 bg-white px-3 py-2 font-mono text-xs font-semibold">{safeText(requiredArtifact)}</div></div>
+        <Pill value="NOT REGISTERED" />
+      </div>
+    </Card>;
+  }
+
+  const validated = hasValidatedIdentityBridge(dataset);
+  const audit = bridge.joinAudit;
+  return <Card title="MLB identity bridge" description="Immutable alias and governed-player authority bound to the active FD1 registration. Counts and joins come only from the registered companion evidence.">
+    <div className={`flex flex-wrap items-start justify-between gap-4 rounded-xl border p-4 ${validated ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {validated ? <CheckCircle2 size={21} className="mt-0.5 shrink-0 text-emerald-700" /> : <Fingerprint size={21} className="mt-0.5 shrink-0 text-amber-700" />}
+        <div className="min-w-0"><div className="break-words font-mono text-xs font-semibold text-slate-950">{safeText(bridge.contractName)} · {safeText(bridge.contractVersion)}</div><p className="mt-1 text-sm leading-6 text-slate-700">{validated ? "The active companion passed its declared validation and exact join audit without name-based or fuzzy matching." : "The companion is visible, but its active validation and exact-match gates are not all satisfied."}</p></div>
+      </div>
+      <Pill value={bridge.validationStatus} />
+    </div>
+
+    <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Identity bridge totals">
+      <BridgeMetric label="Alias rows" value={number(bridge.totals.aliasRows)} detail={`${number(bridge.totals.packageFiles)} package files · ${number(bridge.totals.packageBytes)} bytes`} />
+      <BridgeMetric label="Portable players" value={number(bridge.totals.portablePlayers)} detail={`${number(bridge.totals.primaryPortablePlayers)} primary`} />
+      <BridgeMetric label="Governed players" value={number(bridge.totals.governedPlayers)} detail={`${number(bridge.totals.primaryGovernedPlayers)} primary`} />
+      <BridgeMetric label="Namespaces" value={number(bridge.totals.namespaces)} detail={`${number(bridge.totals.joinContracts)} join contracts`} />
+      <BridgeMetric label="Join references" value={number(bridge.totals.joinReferences)} detail={`${percentage(audit.mappingRate)} exact mapping rate`} />
+    </section>
+
+    <div className="mt-5 grid gap-4 xl:grid-cols-2">
+      <section className="rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-slate-950">Exact join audit</h3><Pill value={audit.status} /></div>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Detail label="Total references" value={number(audit.totalReferences)} />
+          <Detail label="Resolved" value={number(audit.resolvedReferences)} />
+          <Detail label="Unresolved" value={number(audit.unresolvedReferences)} />
+          <Detail label="Ambiguous" value={number(audit.ambiguousReferences)} />
+          <Detail label="Multiply mapped" value={number(audit.multiplyMappedReferences)} />
+          <Detail label="Mapping rate" value={percentage(audit.mappingRate)} />
+        </div>
+        <p className={`mt-4 flex items-start gap-2 rounded-lg px-3 py-2 text-xs font-semibold leading-5 ${bridge.noNamesOrFuzzyMatching ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-950"}`}><ShieldCheck size={15} className="mt-0.5 shrink-0" />Name-based or fuzzy matching used: {bridge.noNamesOrFuzzyMatching ? "no" : "not proven absent"}.</p>
+      </section>
+      <section className="rounded-xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-slate-950">Parent authority binding</h3><Pill value={bridge.active ? "ACTIVE" : "INACTIVE"} /></div>
+        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Detail label="Parent registration" value={bridge.parentRegistrationId} />
+          <Detail label="Parent manifest SHA-256" value={bridge.parentManifestSha} />
+          <Detail label="Parent partition authority" value={bridge.parentPartitionAuthoritySha} />
+          <Detail label="Registered at" value={bridge.registeredAt} />
+        </dl>
+      </section>
+    </div>
+
+    <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <section><h3 className="text-sm font-semibold text-slate-950">Namespace evidence</h3><p className="mt-1 mb-3 text-xs leading-5 text-slate-500">Declared namespace counts and exact identity coverage.</p><EvidenceRows rows={bridge.namespaceEvidence} empty="No namespace evidence rows were returned." /></section>
+      <section><h3 className="text-sm font-semibold text-slate-950">Join contracts</h3><p className="mt-1 mb-3 text-xs leading-5 text-slate-500">Registered join-reference outcomes from the immutable audit artifact.</p><EvidenceRows rows={audit.joins} empty="No join-contract rows were returned." /></section>
+    </div>
+
+    <section className="mt-5"><h3 className="text-sm font-semibold text-slate-950">Y−1 prior coverage</h3><p className="mt-1 mb-3 text-xs leading-5 text-slate-500">Season and role coverage for leakage-safe prior joins. Genuine missing priors remain missing-prior cases, not identity failures.</p><EvidenceRows rows={bridge.yMinus1Coverage} empty="No Y−1 coverage rows were returned." /></section>
+
+    <div className="mt-5 grid gap-4 xl:grid-cols-2">
+      <section className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-slate-950">Bridge rights</h3><Pill value={bridge.rights.status} /></div>{bridge.rights.allowedPurposes.length ? <p className="mt-3 text-xs leading-5 text-emerald-800">Allowed: {bridge.rights.allowedPurposes.map(safeText).join("; ")}</p> : <p className="mt-3 text-xs text-slate-500">No allowed purposes were returned.</p>}{bridge.rights.prohibitedPurposes.length ? <p className="mt-2 text-xs leading-5 text-amber-900">Prohibited: {bridge.rights.prohibitedPurposes.map(safeText).join("; ")}</p> : null}</section>
+      <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-semibold text-slate-950">Bridge limitations</h3>{bridge.limitations.length ? <ul className="mt-3 space-y-2">{bridge.limitations.map((limitation) => <li key={limitation} className="flex gap-2 text-xs leading-5 text-amber-900"><Scale size={14} className="mt-0.5 shrink-0" />{safeText(limitation)}</li>)}</ul> : <p className="mt-3 text-xs text-slate-500">No bridge-specific limitations were returned.</p>}</section>
+    </div>
+
+    <details className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4"><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable bridge identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Detail label="Registration ID" value={bridge.registrationId} /><Detail label="Manifest ID" value={bridge.manifestId} /><Detail label="Manifest SHA-256" value={bridge.manifestSha} /><Detail label="Package ID" value={bridge.packageId} /><Detail label="Alias authority SHA-256" value={bridge.aliasAuthoritySha} /><Detail label="Dimension authority SHA-256" value={bridge.dimensionAuthoritySha} /><Detail label="Validation report SHA-256" value={bridge.validationReportSha} /><Detail label="Join artifact ID" value={audit.artifactId} /><Detail label="Join artifact SHA-256" value={audit.artifactSha} /><Detail label="Logical bridge root" value={logicalExchangeUri(bridge.logicalRoot)} /><Detail label="Logical join audit" value={logicalSportsEvidenceUri(audit.logicalUri)} /></dl></details>
+  </Card>;
+}
+
 function FeatureAuthority({ dataset }: { dataset: ActiveSportsDataset }) {
   const audit = dataset.featureAudit;
   if (!audit) return null;
-  return <Card title="Plate-appearance feature authority" description="Package-only identity evidence for MLB_PA_FEATURE_VIEW_V1. Zero joins are reported as a governed blocker, not filled or inferred.">
-    <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <div className="min-w-0"><div className="break-words font-mono text-xs font-semibold text-amber-950">{audit.contractVersion}</div><p className="mt-1 text-sm leading-6 text-amber-950">{audit.missingBridge.reason}</p></div><Pill value={audit.status} />
+  const bridgeValidated = hasValidatedIdentityBridge(dataset);
+  const showPackageOnlyRows = !bridgeValidated || audit.status.toUpperCase() !== "BLOCKED";
+  return <Card title="Plate-appearance feature authority" description={bridgeValidated ? "The validated identity companion clears the former package-only bridge blocker. Feature materialization remains a separate governed action." : "Package-only identity evidence for MLB_PA_FEATURE_VIEW_V1. Zero joins are reported as a governed blocker, not filled or inferred."}>
+    <div className={`flex flex-wrap items-start justify-between gap-3 rounded-xl border p-4 ${bridgeValidated ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      <div className="min-w-0"><div className={`break-words font-mono text-xs font-semibold ${bridgeValidated ? "text-emerald-950" : "text-amber-950"}`}>{audit.contractVersion}</div><p className={`mt-1 text-sm leading-6 ${bridgeValidated ? "text-emerald-950" : "text-amber-950"}`}>{bridgeValidated ? `Registered ${dataset.identityBridge?.contractVersion} authority ${dataset.identityBridge?.registrationId} supplies the exact package-bound identity bridge.` : audit.missingBridge.reason}</p></div><Pill value={bridgeValidated ? "BRIDGE VALIDATED" : audit.status} />
     </div>
     <dl className="mt-4 grid gap-3 sm:grid-cols-2">
       <Detail label="Plate-appearance namespace" value={audit.observedNamespaces.plateAppearance.join(", ")} />
       <Detail label="Player-prior namespaces" value={audit.observedNamespaces.playerPrior.join(", ")} />
     </dl>
-    <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Plate appearances", "Eligible batting priors", "Batter Y-1 joins", "Eligible pitching priors", "Pitcher Y-1 joins"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{audit.perSeasonRows.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearanceRows)}</td><td className="px-3 py-3 tabular-nums">{number(row.eligibleBattingPriorRows)}</td><td className="px-3 py-3 font-semibold tabular-nums text-amber-900">{number(row.batterYMinus1JoinMatches)} / {number(row.batterYMinus1JoinDenominator)}</td><td className="px-3 py-3 tabular-nums">{number(row.eligiblePitchingPriorRows)}</td><td className="px-3 py-3 font-semibold tabular-nums text-amber-900">{number(row.pitcherYMinus1JoinMatches)} / {number(row.pitcherYMinus1JoinDenominator)}</td></tr>)}</tbody></table></div>
-    <p className="mt-4 break-words text-xs leading-5 text-slate-600">Required authority: <span className="font-mono font-semibold">{audit.missingBridge.requiredArtifact}</span>. Fuzzy or inferred identity matching used: <strong>{audit.joinEvidence.inferenceOrFuzzyMatchingUsed ? "yes" : "no"}</strong>.</p>
+    {showPackageOnlyRows ? <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Plate appearances", "Eligible batting priors", "Batter Y-1 joins", "Eligible pitching priors", "Pitcher Y-1 joins"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{audit.perSeasonRows.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearanceRows)}</td><td className="px-3 py-3 tabular-nums">{number(row.eligibleBattingPriorRows)}</td><td className="px-3 py-3 font-semibold tabular-nums text-amber-900">{number(row.batterYMinus1JoinMatches)} / {number(row.batterYMinus1JoinDenominator)}</td><td className="px-3 py-3 tabular-nums">{number(row.eligiblePitchingPriorRows)}</td><td className="px-3 py-3 font-semibold tabular-nums text-amber-900">{number(row.pitcherYMinus1JoinMatches)} / {number(row.pitcherYMinus1JoinDenominator)}</td></tr>)}</tbody></table></div> : null}
+    <p className="mt-4 break-words text-xs leading-5 text-slate-600">{bridgeValidated ? <>Registered authority: <span className="font-mono font-semibold">{dataset.identityBridge?.registrationId}</span>. Name-based or fuzzy identity matching used: <strong>{dataset.identityBridge?.noNamesOrFuzzyMatching ? "no" : "not proven absent"}</strong>.</> : <>Required authority: <span className="font-mono font-semibold">{audit.missingBridge.requiredArtifact}</span>. Fuzzy or inferred identity matching used: <strong>{audit.joinEvidence.inferenceOrFuzzyMatchingUsed ? "yes" : "no"}</strong>.</>}</p>
   </Card>;
 }
 
@@ -121,6 +245,7 @@ function DatasetDetails({ dataset }: { dataset: ActiveSportsDataset }) {
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Family volume" description="Declared rows by logical data family."><FamilyChart dataset={dataset} /></Card><Card title="Season coverage" description="Registered evidence by season and target family."><SeasonCoverage dataset={dataset} /></Card></div>
     <Card title="Population composition" description="Governed population precedence, permitted research uses, and prohibitions."><Populations dataset={dataset} /></Card>
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Temporal fold timeline" description="Frozen retrospective rolling-origin validation folds."><Folds dataset={dataset} /></Card><Card title="Evidence coverage matrix" description="Only coverage states returned by the registered dataset service are shown."><Coverage dataset={dataset} /></Card></div>
+    <IdentityBridgeAuthority dataset={dataset} />
     <FeatureAuthority dataset={dataset} />
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Source rights" description="Approved uses and prohibited redistribution remain part of the registration."><Rights dataset={dataset} /></Card><Card title="Known limitations" description="Retrospective evidence is not prospective proof."><ul className="space-y-2">{dataset.limitations.map((limitation) => <li key={limitation} className="flex gap-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950"><Scale size={16} className="mt-1 shrink-0" />{limitation}</li>)}</ul></Card></div>
     <Card title="Technical registration details" description="Checksums remain inspectable without exposing the administrator-controlled physical exchange path."><details><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2"><Detail label="Registration ID" value={dataset.registrationId} /><Detail label="Dataset ID" value={dataset.datasetId} /><Detail label="Dataset version" value={dataset.datasetVersionId} /><Detail label="Manifest ID" value={dataset.manifestId} /><Detail label="Manifest SHA-256" value={dataset.manifestSha} /><Detail label="Partition authority SHA-256" value={dataset.partitionAuthoritySha || "Unavailable"} /><Detail label="Package ID" value={dataset.packageId} /><Detail label="Logical root" value={logicalExchangeUri(dataset.logicalRoot)} /><Detail label="Evidence cutoff" value={dataset.evidenceCutoff} /></dl></details></Card>

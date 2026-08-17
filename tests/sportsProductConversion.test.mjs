@@ -483,6 +483,103 @@ test("Phase 2 dataset evidence is fetched, registered, and rendered through gove
   assert.doesNotMatch(surfaces, /C:\\Users|asp-model-exchange\\datasets/i, "frontend source must never expose a physical exchange path");
 });
 
+test("Phase 3 identity bridge evidence is normalized, inspectable, and clears only the obsolete bridge blocker", async () => {
+  const [api, surfaces] = await Promise.all([
+    source(PATHS.evidenceApi),
+    source(PATHS.evidenceSurfaces),
+  ]);
+
+  assertIncludesAll(
+    api,
+    [
+      "SportsIdentityBridge",
+      "SportsIdentityBridgeTotals",
+      "SportsIdentityBridgeJoinAudit",
+      "SportsIdentityBridgeRights",
+      "normalizeIdentityBridge",
+      "normalizePublicEvidenceRows",
+      "identityBridge: normalizeIdentityBridge(raw.identityBridge)",
+      "registrationId",
+      "contractName",
+      "contractVersion",
+      "manifestId",
+      "manifestSha",
+      "packageId",
+      "parentRegistrationId",
+      "parentManifestSha",
+      "parentPartitionAuthoritySha",
+      "aliasAuthoritySha",
+      "dimensionAuthoritySha",
+      "validationReportSha",
+      "logicalRoot",
+      "validationStatus",
+      "registeredAt",
+      "active",
+      "packageFiles",
+      "packageBytes",
+      "aliasRows",
+      "portablePlayers",
+      "governedPlayers",
+      "primaryPortablePlayers",
+      "primaryGovernedPlayers",
+      "namespaces",
+      "joinContracts",
+      "joinReferences",
+      "namespaceEvidence",
+      "joinAudit",
+      "artifactId",
+      "artifactSha",
+      "logicalUri",
+      "totalReferences",
+      "resolvedReferences",
+      "mappingRate",
+      "unresolvedReferences",
+      "ambiguousReferences",
+      "multiplyMappedReferences",
+      "joins",
+      "yMinus1Coverage",
+      "allowedPurposes",
+      "prohibitedPurposes",
+      "limitations",
+      "noNamesOrFuzzyMatching",
+    ],
+    "normalized SPORTS_IDENTITY_BRIDGE_V1 client contract",
+  );
+
+  assertIncludesAll(
+    surfaces,
+    [
+      "IdentityBridgeAuthority",
+      "MLB identity bridge",
+      "No governed MLB identity bridge is registered.",
+      "SPORTS_IDENTITY_BRIDGE_V1",
+      "Identity bridge totals",
+      "Exact join audit",
+      "Parent authority binding",
+      "Namespace evidence",
+      "Join contracts",
+      "Y−1 prior coverage",
+      "Bridge rights",
+      "Bridge limitations",
+      "Show immutable bridge identifiers",
+      "Logical bridge root",
+      "Logical join audit",
+      "hasValidatedIdentityBridge",
+      "BRIDGE VALIDATED",
+      "clears the former package-only bridge blocker",
+      "Feature materialization remains a separate governed action.",
+      "Name-based or fuzzy matching used:",
+      "Target-local reference withheld",
+      "logicalExchangeUri(bridge.logicalRoot)",
+    "logicalSportsEvidenceUri(audit.logicalUri)",
+    ],
+    "governed identity bridge presentation",
+  );
+  assert.match(surfaces, /bridge\?\.active[\s\S]*bridge\.noNamesOrFuzzyMatching[\s\S]*isValidatedStatus\(bridge\.validationStatus\)[\s\S]*isValidatedStatus\(bridge\.joinAudit\.status\)/, "the old blocker must clear only for an active, exact-match bridge with validated registration and join audit states");
+  assert.doesNotMatch(surfaces, /value=\{bridge\.logicalRoot\}|value=\{audit\.logicalUri\}/, "raw bridge locations must never be rendered without logical-URI validation");
+  assert.doesNotMatch(surfaces, /C:\\Users|\\\\Users|file:\/\//i, "identity bridge presentation must not embed a physical path");
+});
+
 test("governed MLB project evidence survives reload without a duplicate browser-only project", async () => {
   const [home, projects, overview, workflow] = await Promise.all([
     source(PATHS.home),

@@ -1,18 +1,96 @@
 # ASP Model Studio Phase 2–3 MLB Baseline Report
 
-Status date: 2026-08-16
+Status date: 2026-08-17
 Approved starting branch: `main`
-Approved starting commit: `5ea918f2a5e8e9285214b6883e1ed247ae608d92`
+Approved Phase 3 starting commit: `c4902de85449f18271aad8faf51326d272c0c1ff`
 Exchange contract: `SPORTS_DATASET_MANIFEST_V1`
 Dataset: `asp.mlb.open-data.fd1`
 
 Milestone A: **PASSED AND REGISTERED**
 
-Milestone B: **BLOCKED_IDENTITY_BRIDGE_REQUIRED**
+Milestone B: **IDENTITY_BRIDGE_VALIDATED — BASELINE CONSTRUCTION IN PROGRESS**
 
 Authenticated protected-page inspection: **DEFERRED — explicitly waived for the Milestone A checkpoint commit only**
 
-This report separates completed package, persistence, and automated verification from the deferred authenticated browser inspection. The waiver does not authorize an authentication bypass and does not apply to Milestone B. No unavailable or blocked result is represented as complete.
+The Phase 3 checkpoint below supersedes the historical Phase 2 identity-blocker
+statements later in this report. The historical material remains to preserve the
+reason the original run stopped; it must not be read as the current registered
+state. No unavailable modeling result is represented as complete.
+
+## Phase 3 Identity Bridge Checkpoint
+
+### Identity Bridge Registration
+
+`SPORTS_IDENTITY_BRIDGE_V1` independently passed its exact seven-file consumer
+contract and is registered metadata-only as
+`sports-identity-bridge-6b69e7dcf4c5db76`. The bridge semantic authority is
+`6b69e7dcf4c5db7615420ee9f6f6f797b0335e31ab475646291f3a4cf90c52cf`;
+the alias and dimension row authorities are respectively
+`ddb828aee391b2f725ba4540a874865963313e6c210f246eacd7bbcf28025661`
+and `6f30e1b30ca41002d6cbb2dea8b90da5abfad4f62f96237e780fbee518005acf`.
+The exact repeat registration returned `REUSED`; SQLite contains one bridge
+registration and one content-addressed join-audit record.
+
+The validated package contains 13,460 aliases across five namespaces and 2,692
+portable player-dimension rows. Its seven files total 2,071,740 bytes. Alias and
+dimension rows remain lazy, read-only Parquet evidence in the companion; no raw
+identity rows were imported into SQLite. Browser-facing evidence exposes only
+logical `asp-model-exchange://` and `asp-model-studio-runtime://` references.
+
+### Parent Binding
+
+The companion is accepted only beside existing registration
+`sports-dataset-1b58d5d1def2c9b7` and project
+`sports-project-mlb-fd1-1b58d5d1def2`. It reproduces parent manifest SHA
+`1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49`
+and parent partition authority
+`8dec143b06622af068665b9fd1ad419a0353e76f0e0083b4c3459b8fce3cb437`.
+Parent validation reused all 329 target-local cache entries with zero misses;
+Milestone A registration was not repeated and its 329 partition rows remain
+unchanged.
+
+### Exact Join Audit
+
+The MLB FD1 adapter filtered aliases exactly to `RETROSHEET`, matched the stored
+physical source value to `parent_join_key` without trimming or prefix changes,
+and returned the canonical UUID. Player-prior UUIDs matched the unique active
+dimension directly. Names, fuzzy matching, normalization, and fallback
+namespaces were not used.
+
+All ten declared contracts passed: 4,633,762 of 4,633,762 references resolved,
+for a 100% mapping rate with zero unresolved, ambiguous, or multiply mapped
+references. The ignored runtime artifact is
+`sports-identity-join-audit:sha256:375ef4faef6716a8d66fe68b30c12bf8caff5b9255aa71fc4bd7354f9589b8b9`.
+Migration `0030_sports_identity_bridge_registry.sql` is applied, database
+integrity is `ok`, and the obsolete identity blocker is cleared.
+
+### One-Player Portable Limitation
+
+The bridge transparently retains the documented 2,692 portable versus 2,693
+governed-player difference, and 2,070 portable versus 2,071 governed players in
+the primary population. The omitted identity is roster-only, occurs in no
+permitted immutable parent field, and affects zero downstream rows. No alias,
+placeholder, or artificial dimension row was manufactured.
+
+### Y-minus-1 Prior Coverage
+
+| Target season | Role | Target rows | Eligible prior | Legitimate missing | Eligible rate |
+|---|---|---:|---:|---:|---:|
+| 2023 | Batter | 184,104 | 169,005 | 15,099 | 91.80% |
+| 2023 | Pitcher | 184,104 | 159,568 | 24,536 | 86.67% |
+| 2024 | Batter | 182,449 | 170,594 | 11,855 | 93.50% |
+| 2024 | Pitcher | 182,449 | 160,914 | 21,535 | 88.20% |
+| 2025 | Batter | 182,926 | 167,720 | 15,206 | 91.69% |
+| 2025 | Pitcher | 182,926 | 164,678 | 18,248 | 90.02% |
+
+### Legitimate Missing-Prior Cases
+
+Identity failures are zero in every season and role. A resolved player lacking
+eligible earlier-domain evidence remains explicit missing history; it is not an
+identity failure and is not filled from same-season or future totals. The next
+checkpoint will materialize the content-addressed feature view and fit
+fold-local missing-value treatment.
+
 
 ## Executive Result
 

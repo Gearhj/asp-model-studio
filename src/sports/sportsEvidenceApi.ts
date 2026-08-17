@@ -93,6 +93,68 @@ export type SportsFeatureAudit = {
   };
   auditedAt?: string;
 };
+
+export type SportsIdentityBridgeEvidenceRow = Record<string, unknown>;
+
+export type SportsIdentityBridgeTotals = {
+  packageFiles: number;
+  packageBytes: number;
+  aliasRows: number;
+  portablePlayers: number;
+  governedPlayers: number;
+  primaryPortablePlayers: number;
+  primaryGovernedPlayers: number;
+  namespaces: number;
+  joinContracts: number;
+  joinReferences: number;
+};
+
+export type SportsIdentityBridgeJoinAudit = {
+  artifactId: string;
+  artifactSha: string;
+  logicalUri: string;
+  status: string;
+  totalReferences: number;
+  resolvedReferences: number;
+  mappingRate: number;
+  unresolvedReferences: number;
+  ambiguousReferences: number;
+  multiplyMappedReferences: number;
+  joins: SportsIdentityBridgeEvidenceRow[];
+};
+
+export type SportsIdentityBridgeRights = {
+  status: string;
+  allowedPurposes: string[];
+  prohibitedPurposes: string[];
+};
+
+export type SportsIdentityBridge = {
+  registrationId: string;
+  contractName: string;
+  contractVersion: string;
+  manifestId: string;
+  manifestSha: string;
+  packageId: string;
+  parentRegistrationId: string;
+  parentManifestSha: string;
+  parentPartitionAuthoritySha: string;
+  aliasAuthoritySha: string;
+  dimensionAuthoritySha: string;
+  validationReportSha: string;
+  logicalRoot: string;
+  validationStatus: string;
+  registeredAt: string;
+  active: boolean;
+  totals: SportsIdentityBridgeTotals;
+  namespaceEvidence: SportsIdentityBridgeEvidenceRow[];
+  joinAudit: SportsIdentityBridgeJoinAudit;
+  yMinus1Coverage: SportsIdentityBridgeEvidenceRow[];
+  rights: SportsIdentityBridgeRights;
+  limitations: string[];
+  noNamesOrFuzzyMatching: boolean;
+};
+
 export type RegisteredSportsProject = {
   projectId: string;
   name: string;
@@ -141,6 +203,7 @@ export type ActiveSportsDataset = {
   limitations: string[];
   project?: RegisteredSportsProject;
   featureAudit?: SportsFeatureAudit;
+  identityBridge?: SportsIdentityBridge;
 };
 
 type EvidenceState<T> =
@@ -192,6 +255,102 @@ function stringArray(value: unknown) {
 function finiteNumber(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function isPhysicalReference(value: string) {
+  return /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value) || /^file:/i.test(value) || /^\//.test(value);
+}
+
+function publicString(value: unknown, fallback = "") {
+  if (typeof value !== "string" || !value) return fallback;
+  return isPhysicalReference(value) ? "Target-local reference withheld" : value;
+}
+
+function publicStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => publicString(String(item))).filter(Boolean) : [];
+}
+
+function sanitizePublicEvidenceValue(value: unknown): unknown {
+  if (typeof value === "string") return publicString(value);
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "boolean" || value === null) return value;
+  if (Array.isArray(value)) return value.map(sanitizePublicEvidenceValue);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !/(?:physical|filesystem|absolute)(?:path|root|uri)?|(?:file|source|package)path/i.test(key))
+      .map(([key, item]) => [key, sanitizePublicEvidenceValue(item)]));
+  }
+  return null;
+}
+
+function normalizePublicEvidenceRows(value: unknown): SportsIdentityBridgeEvidenceRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    return [sanitizePublicEvidenceValue(item) as SportsIdentityBridgeEvidenceRow];
+  });
+}
+
+function normalizeIdentityBridge(value: unknown): SportsIdentityBridge | undefined {
+  if (!isRecord(value)) return undefined;
+  const registrationId = publicString(value.registrationId);
+  const contractVersion = publicString(value.contractVersion);
+  if (!registrationId || !contractVersion) return undefined;
+  const totals = isRecord(value.totals) ? value.totals : {};
+  const joinAudit = isRecord(value.joinAudit) ? value.joinAudit : {};
+  const rights = isRecord(value.rights) ? value.rights : {};
+  return {
+    registrationId,
+    contractName: publicString(value.contractName, "SPORTS_IDENTITY_BRIDGE"),
+    contractVersion,
+    manifestId: publicString(value.manifestId),
+    manifestSha: publicString(value.manifestSha),
+    packageId: publicString(value.packageId),
+    parentRegistrationId: publicString(value.parentRegistrationId),
+    parentManifestSha: publicString(value.parentManifestSha),
+    parentPartitionAuthoritySha: publicString(value.parentPartitionAuthoritySha),
+    aliasAuthoritySha: publicString(value.aliasAuthoritySha),
+    dimensionAuthoritySha: publicString(value.dimensionAuthoritySha),
+    validationReportSha: publicString(value.validationReportSha),
+    logicalRoot: publicString(value.logicalRoot),
+    validationStatus: publicString(value.validationStatus, "UNKNOWN"),
+    registeredAt: publicString(value.registeredAt),
+    active: value.active === true,
+    totals: {
+      packageFiles: finiteNumber(totals.packageFiles),
+      packageBytes: finiteNumber(totals.packageBytes),
+      aliasRows: finiteNumber(totals.aliasRows),
+      portablePlayers: finiteNumber(totals.portablePlayers),
+      governedPlayers: finiteNumber(totals.governedPlayers),
+      primaryPortablePlayers: finiteNumber(totals.primaryPortablePlayers),
+      primaryGovernedPlayers: finiteNumber(totals.primaryGovernedPlayers),
+      namespaces: finiteNumber(totals.namespaces),
+      joinContracts: finiteNumber(totals.joinContracts),
+      joinReferences: finiteNumber(totals.joinReferences),
+    },
+    namespaceEvidence: normalizePublicEvidenceRows(value.namespaceEvidence),
+    joinAudit: {
+      artifactId: publicString(joinAudit.artifactId),
+      artifactSha: publicString(joinAudit.artifactSha),
+      logicalUri: publicString(joinAudit.logicalUri),
+      status: publicString(joinAudit.status, "UNKNOWN"),
+      totalReferences: finiteNumber(joinAudit.totalReferences),
+      resolvedReferences: finiteNumber(joinAudit.resolvedReferences),
+      mappingRate: finiteNumber(joinAudit.mappingRate),
+      unresolvedReferences: finiteNumber(joinAudit.unresolvedReferences),
+      ambiguousReferences: finiteNumber(joinAudit.ambiguousReferences),
+      multiplyMappedReferences: finiteNumber(joinAudit.multiplyMappedReferences),
+      joins: normalizePublicEvidenceRows(joinAudit.joins),
+    },
+    yMinus1Coverage: normalizePublicEvidenceRows(value.yMinus1Coverage),
+    rights: {
+      status: publicString(rights.status, "UNKNOWN"),
+      allowedPurposes: publicStringArray(rights.allowedPurposes),
+      prohibitedPurposes: publicStringArray(rights.prohibitedPurposes),
+    },
+    limitations: publicStringArray(value.limitations),
+    noNamesOrFuzzyMatching: value.noNamesOrFuzzyMatching === true,
+  };
 }
 
 function normalizeFeatureAudit(value: unknown): SportsFeatureAudit | undefined {
@@ -316,6 +475,7 @@ function normalizeActiveDataset(value: ActiveSportsDataset): ActiveSportsDataset
     populations,
     project: normalizeProject(raw.project),
     featureAudit: normalizeFeatureAudit(raw.featureAudit),
+    identityBridge: normalizeIdentityBridge(raw.identityBridge),
   };
 }
 
@@ -393,4 +553,10 @@ export function useActiveSportsDataset() {
 
 export function logicalExchangeUri(value: string | undefined) {
   return value?.startsWith("asp-model-exchange://") ? value : "Logical URI unavailable";
+}
+
+export function logicalSportsEvidenceUri(value: string | undefined) {
+  return value?.startsWith("asp-model-exchange://") || value?.startsWith("asp-model-studio-runtime://")
+    ? value
+    : "Logical URI unavailable";
 }
