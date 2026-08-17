@@ -20,6 +20,7 @@ const PATHS = Object.freeze({
   modules: "src/sports/StudioModules.tsx",
   evidenceApi: "src/sports/sportsEvidenceApi.ts",
   evidenceSurfaces: "src/sports/SportsEvidenceSurfaces.tsx",
+  sportsPaRegistry: "server/sports_modeling/registry.py",
   serverPersistence: "src/lib/serverPersistence.ts",
   analytics: "src/steps/AnalyticsWorkbench.tsx",
   sqlLab: "src/steps/SqlDataStudio.tsx",
@@ -291,7 +292,7 @@ test("home, workflow, warehouse, graph, bundle, and monitoring surfaces stay hon
     workflow,
     [
       "No ASP dataset manifest registered.",
-      "No model graph has been approved for export.",
+      "Export remains disabled.",
       "Future MLB simulation blueprint",
       "No transition engine, probabilities, or simulation results exist",
       "Not Configured",
@@ -580,6 +581,134 @@ test("Phase 3 identity bridge evidence is normalized, inspectable, and clears on
   assert.doesNotMatch(surfaces, /C:\\Users|\\\\Users|file:\/\//i, "identity bridge presentation must not embed a physical path");
 });
 
+test("Phase 3 PA baseline evidence drives research-only model, evaluation, graph, registry, project, and workflow states", async () => {
+  const [api, modules, home, overview, workflow, projects, config, backendRegistry] = await Promise.all([
+    source(PATHS.evidenceApi),
+    source(PATHS.modules),
+    source(PATHS.home),
+    source(PATHS.projectOverview),
+    source(PATHS.workflow),
+    source(PATHS.sportsProjects),
+    source(PATHS.config),
+    source(PATHS.sportsPaRegistry),
+  ]);
+
+  assertIncludesAll(
+    api,
+    [
+      "SportsPaBaseline",
+      "SportsPaFeatureView",
+      "SportsPaExperiment",
+      "SportsPaCandidate",
+      "SportsPaFold",
+      "SportsPaMetrics",
+      "SportsPaCalibration",
+      "SportsPaBootstrapComparison",
+      "SportsPaRegistry",
+      "SportsPaGraph",
+      "SPORTS_PA_TERMINAL_STATUSES",
+      '"RESEARCH_CHALLENGER"',
+      '"RESEARCH_BASELINE"',
+      '"REJECTED_BASELINE"',
+      '"BLOCKED"',
+      "normalizePaBaseline",
+      "normalizePaCandidate",
+      "normalizePaMetrics",
+      "normalizePaCalibration",
+      "normalizePaGraph",
+      "paBaseline: normalizePaBaseline(raw.paBaseline)",
+      "const run = isRecord(value.run) ? value.run : value",
+      "value.experiment ?? run.experiment",
+      "value.classOrder ?? run.classOrder",
+      "normalizePaRegistry(value.registry)",
+      "decisionRecord?.rationale",
+      "decisionRecord?.limitations",
+      "value.displayName",
+      "value.candidateType",
+      "value.config",
+      "value.foldMetrics",
+      "value.trainingSeasons",
+      "value.validationRows",
+      "value.aggregateMetrics",
+      "value.aggregateMetrics.selection2024",
+      "value.raw2025",
+      "value.scaled2025",
+      "value.selected",
+      "value.artifacts",
+      "value.baselineCandidateId",
+      "evidence.logLossDifference",
+      "sanitizePublicEvidenceValue",
+    ],
+    "defensive PA baseline client contract",
+  );
+
+  assertIncludesAll(
+    modules,
+    [
+      "Candidate model ledger",
+      "Candidate folds",
+      "Hyperparameters",
+      "Convergence",
+      "Feature-view lineage",
+      "logicalSportsEvidenceUri(baseline.featureView.logicalRoot)",
+      "2024 calibration and 2025 final comparison",
+      "Frozen 2024 / 2025 candidate fold comparison",
+      "C0 global",
+      "C1 context",
+      "candidateComparisonIds",
+      "Aggregate selection metrics (2024)",
+      "Final 2025 prevalence and confusion",
+      "Provided final reliability bins",
+      "Final 2025 classwise reliability",
+      "Final 2025 probability histograms",
+      "MetricEvidenceChart",
+      "ClasswiseReliabilityEvidence",
+      "ProbabilityHistogramEvidence",
+      "No calibration observations",
+      "Paired bootstrap comparisons",
+      "replicate arrays are intentionally withheld",
+      'aria-label="Research model graph nodes"',
+      'aria-label="Research model graph edges"',
+      "Registered research evidence graph",
+      "NOT_CONFIGURED",
+      "Research artifact registry",
+      "Terminal research status",
+      "Approved graphs",
+      "Exported bundles",
+      "Target environments",
+      "EXPORT DISABLED",
+      "No Experiment Run",
+      "No Evaluation Evidence",
+      "No Model Graph",
+    ],
+    "evidence-bound PA research surfaces",
+  );
+  const terminalVocabulary = section(modules, "Terminal research vocabulary", "Remaining Gen-2 components");
+  assertIncludesAll(terminalVocabulary, ["RESEARCH_CHALLENGER", "RESEARCH_BASELINE", "REJECTED_BASELINE", "BLOCKED"], "terminal PA research vocabulary");
+  assert.doesNotMatch(terminalVocabulary, /OPERATIONAL|PRODUCTION|SHADOW|RETIRED/, "terminal research vocabulary must not imply a delivery lifecycle");
+  assert.match(modules, /topLabelReliability\.flatMap/, "reliability marks must be derived only from supplied bins");
+  assert.match(modules, /metrics\.classwiseReliability/, "classwise reliability curves must use supplied class bins");
+  assert.match(modules, /metrics\.probabilityHistograms/, "probability histograms must use supplied class bins");
+  assert.doesNotMatch(modules, /replicateDifferences/, "individual bootstrap replicate arrays must not be rendered");
+  assert.match(modules, /baseline \? decision \|\| "BLOCKED" : "NOT CONFIGURED"/, "empty PA surfaces must not invent a BLOCKED terminal decision");
+  assert.doesNotMatch(api, /artifactId:\s*publicString\(value\.artifactId\s*\?\?\s*artifacts\[0\]/, "the client must not relabel the first registry artifact as a model artifact");
+  assert.doesNotMatch(api, /modelId:\s*modelId\s*\|\|/, "the client must not fabricate a model identity when the public registry did not provide one");
+  assert.doesNotMatch(api, /contractSha:\s*publicString\(value\.contractSha\s*\?\?\s*value\.contentSha\)/, "feature-view content SHA must not be mislabeled as feature-contract authority");
+  assert.doesNotMatch(api, /artifactId:\s*featureViewId/, "feature-view identity must not be fabricated as an artifact identity");
+  assert.doesNotMatch(api, /featureContractArtifact/, "artifact-envelope SHA must not substitute for the semantic feature-contract SHA");
+  assertIncludesAll(api, ['publicString(artifact.artifactType) === "FEATURE_VIEW"', "normalizedFeatureView.logicalRoot", "normalizedFeatureView.artifactSha", "normalizedFeatureView.artifactBytes"], "exact feature-view artifact reconciliation");
+  assert.doesNotMatch(`${api}\n${modules}`, /C:\\Users|\\\\Users|file:\/\//i, "PA baseline sources must not embed physical locations");
+
+  assertIncludesAll(home, ["activeDataset?.paBaseline", "sportsPaDecisionStatus", "baseline?.experiment", "RESEARCH_CHALLENGER", "RESEARCH_BASELINE", "REJECTED_BASELINE", "Exported bundles remain 0"], "Studio Home PA status projection");
+  assertIncludesAll(overview, ["boundDataset?.paBaseline", "sportsPaDecisionStatus", "Research graph", "terminal research status"], "project overview PA status projection");
+  assertIncludesAll(workflow, ["boundDataset?.paBaseline", "sportsPaDecisionStatus", "Research graph", "research graph is evidence only", "Export remains disabled."], "workflow PA status projection");
+  assertIncludesAll(overview, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'phase3Presentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"'], "project workflow evidence precedence");
+  assertIncludesAll(workflow, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'phase3Presentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"', 'baseline.calibration ? "COMPLETE"'], "workflow evidence precedence");
+  assertIncludesAll(config, ["mlbPaBaselineStepPresentation", 'status: "BASELINE COMPLETE"', 'status: "PA CANDIDATES COMPLETE"', 'status: "RETROSPECTIVE COMPLETE"', 'status: "REGISTERED EVIDENCE COMPLETE"', "Dynamic state — NOT_CONFIGURED", "Simulator / count / residual / ensemble candidates — NOT_CONFIGURED", "OOD / subgroup / prospective monitoring — NOT_CONFIGURED"], "honest Phase 3 workflow scope projection");
+  assertIncludesAll(backendRegistry, ['f"FOLD_{season}_PREDICTIONS"', '"predictionArtifact"', '"artifacts": public_artifacts'], "fold prediction artifact projection");
+  assertIncludesAll(projects, ["sportsPaDecisionStatus", "terminalStatus", "REJECTED_BASELINE", "BLOCKED"], "sports project PA status projection");
+});
+
 test("governed MLB project evidence survives reload without a duplicate browser-only project", async () => {
   const [home, projects, overview, workflow] = await Promise.all([
     source(PATHS.home),
@@ -644,7 +773,7 @@ test("governed MLB project evidence survives reload without a duplicate browser-
       "Project-bound immutable dataset registration",
       "workspace available, not bound to active project",
       "governed stage evidence remains project-scoped",
-      "No model graph has been approved for export.",
+      "Export remains disabled.",
     ],
     "governed MLB workflow evidence",
   );

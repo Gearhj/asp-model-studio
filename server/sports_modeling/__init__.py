@@ -1,0 +1,76 @@
+"""Pure MLB plate-appearance modeling evaluation primitives."""
+
+from .bootstrap import (
+    BOOTSTRAP_SCHEMA_VERSION,
+    DEFAULT_BOOTSTRAP_RESAMPLES,
+    DEFAULT_BOOTSTRAP_SEED,
+    DEFAULT_CONFIDENCE_LEVEL,
+    game_cluster_bootstrap,
+)
+from .calibration import (
+    CALIBRATION_RETENTION_TOLERANCE,
+    CALIBRATION_SCHEMA_VERSION,
+    CALIBRATION_SOURCE_SEASON,
+    DEFAULT_TEMPERATURE_BOUNDS,
+    TemperatureScalingResult,
+    fit_temperature_scaling,
+    temperature_scale,
+)
+from .metrics import (
+    DEFAULT_CALIBRATION_BINS,
+    METRICS_SCHEMA_VERSION,
+    PA_CLASS_ORDER,
+    PROBABILITY_EPSILON,
+    PROBABILITY_SUM_TOLERANCE,
+    encode_labels,
+    evaluate_multiclass,
+    per_row_brier_score,
+    per_row_log_loss,
+    require_frozen_class_order,
+    validate_evaluation_inputs,
+    validate_probability_matrix,
+)
+from .registry import (
+    RUN_IDENTITY_CORE_SCHEMA_VERSION,
+    RUN_IDENTITY_SCHEMA_VERSION,
+    RUN_SCHEMA_VERSION,
+    SportsPARegistryError,
+    SportsPAResearchRegistry,
+    semantic_run_identity_sha,
+    semantic_run_sha,
+)
+
+
+__all__ = [
+    "BOOTSTRAP_SCHEMA_VERSION",
+    "CALIBRATION_RETENTION_TOLERANCE",
+    "CALIBRATION_SCHEMA_VERSION",
+    "CALIBRATION_SOURCE_SEASON",
+    "DEFAULT_BOOTSTRAP_RESAMPLES",
+    "DEFAULT_BOOTSTRAP_SEED",
+    "DEFAULT_CALIBRATION_BINS",
+    "DEFAULT_CONFIDENCE_LEVEL",
+    "DEFAULT_TEMPERATURE_BOUNDS",
+    "METRICS_SCHEMA_VERSION",
+    "PA_CLASS_ORDER",
+    "PROBABILITY_EPSILON",
+    "PROBABILITY_SUM_TOLERANCE",
+    "RUN_IDENTITY_CORE_SCHEMA_VERSION",
+    "RUN_IDENTITY_SCHEMA_VERSION",
+    "RUN_SCHEMA_VERSION",
+    "SportsPARegistryError",
+    "SportsPAResearchRegistry",
+    "TemperatureScalingResult",
+    "encode_labels",
+    "evaluate_multiclass",
+    "fit_temperature_scaling",
+    "game_cluster_bootstrap",
+    "per_row_brier_score",
+    "per_row_log_loss",
+    "require_frozen_class_order",
+    "semantic_run_identity_sha",
+    "semantic_run_sha",
+    "temperature_scale",
+    "validate_evaluation_inputs",
+    "validate_probability_matrix",
+]

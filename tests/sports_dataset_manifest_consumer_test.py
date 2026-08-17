@@ -89,6 +89,22 @@ class StrictJsonAndPathTests(unittest.TestCase):
                 reject_reparse_chain(leaf, label="Configured exchange root chain")
         self.assertEqual(raised.exception.code, "REPARSE_BOUNDARY_REJECTED")
 
+    def test_validation_cache_rejects_a_descendant_reparse_before_writing(self) -> None:
+        root = _scratch("sports-cache-reparse-chain")
+        package_root = root / "package"
+        package_root.mkdir()
+        cache_parent = root / "runtime" / "dataset-validation"
+        cache_parent.mkdir(parents=True)
+        cache_path = cache_parent / "validation-cache.json"
+        with patch(
+            "server.sports_datasets.consumer._is_reparse_point",
+            side_effect=lambda path: path == cache_parent,
+        ):
+            with self.assertRaises(ManifestValidationError) as raised:
+                SportsDatasetManifestConsumer(package_root, cache_path=cache_path)
+        self.assertEqual(raised.exception.code, "REPARSE_BOUNDARY_REJECTED")
+        self.assertFalse(cache_path.exists())
+
 
 @unittest.skipUnless(os.getenv("ASP_MODEL_EXCHANGE_ROOT"), "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests")
 class GoldenManifestConsumerTests(unittest.TestCase):

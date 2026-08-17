@@ -73,10 +73,63 @@ export const MLB_WORKFLOW: SportsWorkflow = {
     step("mlb", 8, "Candidate Model Laboratory", "Compare coherent baselines, component challengers, simulators, residual models, and ensembles.", ["Event baseline", "Boosted event model", "Poisson", "Negative Binomial", "Shared-environment count model", "Simulator", "Residual model", "Ensemble"], ["Experiment evidence", "Candidate ranking"], ["Base-Out Game Simulation"]),
     step("mlb", 9, "Temporal Validation", "Evaluate forward-looking performance with sports-native time boundaries.", ["Rolling-origin folds", "Game-date grouping", "Strict versus enhanced population", "Prospective plan"], ["Temporal fold evidence", "Prospective evaluation plan"], ["Candidate Model Laboratory"]),
     step("mlb", 10, "Calibration & Reliability", "Test probability, distribution, subgroup, missingness, and out-of-distribution reliability.", ["Multiclass log loss", "Brier score", "Calibration", "Score-distribution error", "OOD", "Missingness", "Uncertainty"], ["Reliability report", "Calibration artifacts"], ["Temporal Validation"]),
-    step("mlb", 11, "Model Graph & Decision", "Select a governed component graph and assign honest lifecycle states.", ["DEVELOPMENT", "RESEARCH CHALLENGER", "RESEARCH CANDIDATE", "SHADOW", "OPERATIONAL", "RETIRED"], ["Approved component DAG", "Selection decision"], ["Calibration & Reliability"]),
+    step("mlb", 11, "Model Graph & Decision", "Record a governed research component graph and assign an honest terminal research state.", ["RESEARCH_CHALLENGER", "RESEARCH_BASELINE", "REJECTED_BASELINE", "BLOCKED"], ["Governed research component DAG", "Research selection decision"], ["Calibration & Reliability"]),
     step("mlb", 12, "Export MLB Bundle", "Package the approved graph for future immutable execution in ASP.", ["SPORTS_MODEL_BUNDLE_V1", "Schemas", "Dependencies", "Checksums", "Validation evidence"], ["Immutable MLB model bundle"], ["Model Graph & Decision"]),
   ],
 };
+
+export type MlbPaBaselineStepPresentation = Pick<SportsWorkflowStep, "purpose" | "sections" | "outputs" | "prerequisites"> & {
+  status: string;
+};
+
+const MLB_PA_BASELINE_STEP_PRESENTATIONS: Partial<Record<number, MlbPaBaselineStepPresentation>> = {
+  4: {
+    status: "BASELINE COMPLETE",
+    purpose: "Use only latest eligible Y-minus-one BATTING and PITCHING priors plus explicit missing-history indicators for the bounded PA baseline; dynamic player state and platoon effects remain not configured.",
+    sections: ["Y-minus-one BATTING priors", "Y-minus-one PITCHING priors", "Missing-prior indicators", "Fold-local imputation", "Dynamic state — NOT_CONFIGURED", "Platoon effects — NOT_CONFIGURED"],
+    outputs: ["MLB_PA_FEATURE_VIEW_V1 prior blocks", "Fold-local preprocessing evidence", "Dynamic state and platoon — NOT_CONFIGURED"],
+    prerequisites: ["Identity, Coverage & Leakage"],
+  },
+  6: {
+    status: "BASELINE COMPLETE",
+    purpose: "Fit the governed C0 frequency baseline and C1–C4 multinomial-logistic PA candidates from verified component state and Y-minus-one priors only.",
+    sections: ["C0 global frequency", "C1 context-only logistic", "C2 batter-prior logistic", "C3 pitcher-prior logistic", "C4 combined logistic", "Handedness / platoon / boosted challenger — NOT_CONFIGURED"],
+    outputs: ["Eight-class PA probabilities", "C0–C4 candidate comparison", "No complete game forecast"],
+    prerequisites: ["Identity, Coverage & Leakage", "Bounded Y-minus-one prior state"],
+  },
+  8: {
+    status: "PA CANDIDATES COMPLETE",
+    purpose: "Compare only the five registered C0–C4 plate-appearance research candidates under the frozen 2024 selection policy.",
+    sections: ["C0–C4 PA candidates", "Runtime and convergence", "2024 selection evidence", "Simulator / count / residual / ensemble candidates — NOT_CONFIGURED"],
+    outputs: ["C0–C4 experiment evidence", "Selected PA research candidate"],
+    prerequisites: ["Plate-Appearance Models"],
+  },
+  9: {
+    status: "RETROSPECTIVE COMPLETE",
+    purpose: "Evaluate the internal 2023 tuning split, 2023-to-2024 fold, and frozen through-2024-to-2025 retrospective rolling-origin fold without using 2025 for selection.",
+    sections: ["Date-atomic internal 2023 tuning", "2023 → 2024", "Through 2024 → 2025", "No random split", "Prospective evidence — NOT_CONFIGURED"],
+    outputs: ["Registered rolling-origin fold evidence", "Prospective evaluation — NOT_CONFIGURED"],
+    prerequisites: ["C0–C4 PA candidate evidence"],
+  },
+  10: {
+    status: "REGISTERED EVIDENCE COMPLETE",
+    purpose: "Inspect registered log loss, Brier, ECE, prevalence, confusion, reliability, frozen temperature scaling, and whole-game bootstrap evidence only.",
+    sections: ["Log loss and Brier", "Top-label and classwise reliability", "Prevalence and confusion", "Frozen temperature", "Game-cluster bootstrap", "OOD / subgroup / prospective monitoring — NOT_CONFIGURED"],
+    outputs: ["Calibration and reliability evidence", "Bootstrap intervals", "OOD and prospective monitoring — NOT_CONFIGURED"],
+    prerequisites: ["Retrospective rolling-origin validation"],
+  },
+  11: {
+    status: "RESEARCH GRAPH COMPLETE",
+    purpose: "Record the governed conditional-PA evidence graph and its terminal research decision without implying simulator, deployment, or export authority.",
+    sections: ["20-node research graph", "28 directed edges", "Terminal research status", "Future Gen-2 nodes — NOT_CONFIGURED"],
+    outputs: ["Governed PA research component DAG", "Terminal research decision"],
+    prerequisites: ["Registered retrospective calibration and reliability evidence"],
+  },
+};
+
+export function mlbPaBaselineStepPresentation(step: SportsWorkflowStep) {
+  return MLB_PA_BASELINE_STEP_PRESENTATIONS[step.number];
+}
 
 export const NFL_WORKFLOW: SportsWorkflow = {
   key: "nfl",

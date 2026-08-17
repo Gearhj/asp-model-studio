@@ -5,7 +5,7 @@ import { deleteLocalProject, loadLocalProjects } from "../lib/localProjects";
 import { deleteProjectFromDatabase, PersistenceHttpError } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { deleteSportsProjectMetadata, isSportsWorkflow, loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
-import { type RegisteredSportsProject, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { sportsPaDecisionStatus, type RegisteredSportsProject, type SportsPaTerminalStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
 
 export default function SportsProjects() {
   const navigate = useNavigate();
@@ -15,6 +15,15 @@ export default function SportsProjects() {
   const [removalError, setRemovalError] = useState("");
   const datasetEvidence = useActiveSportsDataset();
   const governedProject = datasetEvidence.status === "ready" ? datasetEvidence.data.project ?? null : null;
+  const terminalStatus = datasetEvidence.status === "ready"
+    ? sportsPaDecisionStatus(datasetEvidence.data.paBaseline?.decision) || sportsPaDecisionStatus(datasetEvidence.data.paBaseline?.status) || (datasetEvidence.data.paBaseline ? "BLOCKED" : null)
+    : null;
+  const baselineEvidenceCount = datasetEvidence.status === "ready" && datasetEvidence.data.paBaseline
+    ? (datasetEvidence.data.paBaseline.candidates.length ? 2 : 0)
+      + (datasetEvidence.data.paBaseline.calibration?.final2025 ? 1 : 0)
+      + (datasetEvidence.data.paBaseline.calibration ? 1 : 0)
+      + (datasetEvidence.data.paBaseline.graph?.nodes.length ? 1 : 0)
+    : 0;
   const localProjects = governedProject
     ? projects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name)
     : projects;
@@ -107,7 +116,7 @@ export default function SportsProjects() {
         </section>
       ) : (
         <section className="grid gap-4 lg:grid-cols-2">
-          {governedProject ? <GovernedProjectCard project={governedProject} onOpen={() => openGovernedProject(governedProject)} /> : null}
+          {governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
           {localProjects.map((project) => {
             const workflow = sportsWorkflowForId(project.workflowId);
             const metadata = loadSportsProjectMetadata(project.projectId);
@@ -157,11 +166,13 @@ export default function SportsProjects() {
   );
 }
 
-function GovernedProjectCard({ project, onOpen }: { project: RegisteredSportsProject; onOpen: () => void }) {
-  const evidencedStages = (project.stages ?? []).filter((stage) => !["pending", "not_configured", "not configured"].includes(stage.status.toLowerCase())).length;
-  const projectBlocked = (project.status || "").toLowerCase().includes("blocked");
+function GovernedProjectCard({ project, terminalStatus, baselineEvidenceCount, onOpen }: { project: RegisteredSportsProject; terminalStatus: SportsPaTerminalStatus | null; baselineEvidenceCount: number; onOpen: () => void }) {
+  const evidencedStages = Math.max((project.stages ?? []).filter((stage) => !["pending", "not_configured", "not configured"].includes(stage.status.toLowerCase())).length, baselineEvidenceCount);
+  const projectBlocked = terminalStatus
+    ? terminalStatus === "BLOCKED" || terminalStatus === "REJECTED_BASELINE"
+    : (project.status || "").toLowerCase().includes("blocked");
   return <article className={`sports-panel ${projectBlocked ? "border-amber-200" : "border-emerald-200"} p-5 sm:p-6`} data-governed-sports-project={project.projectId}>
-    <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><span className="sports-status sports-status--teal">{project.league || "MLB"}</span><h2 className="mt-3 break-words text-xl font-semibold text-slate-950">{project.name}</h2><p className="mt-1 text-sm text-slate-500">Governed project bound to the active immutable dataset registration · {project.developmentPeriod || "development period not recorded"}</p></div><span className={`sports-status ${projectBlocked ? "sports-status--amber" : "sports-status--green"} max-w-full whitespace-normal break-words text-center leading-4`}>{project.status || "REGISTERED"}</span></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><span className="sports-status sports-status--teal">{project.league || "MLB"}</span><h2 className="mt-3 break-words text-xl font-semibold text-slate-950">{project.name}</h2><p className="mt-1 text-sm text-slate-500">Governed project bound to the active immutable dataset registration · {project.developmentPeriod || "development period not recorded"}</p></div><span className={`sports-status ${projectBlocked ? "sports-status--amber" : terminalStatus ? "sports-status--teal" : "sports-status--green"} max-w-full whitespace-normal break-words text-center leading-4`}>{terminalStatus || project.status || "REGISTERED"}</span></div>
     <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3"><Fact label="Lifecycle" value={project.forecastLifecycle || "Not recorded"} /><Fact label="Primary target" value={project.primaryTarget || "Not recorded"} /><Fact label="Workflow evidence" value={`${evidencedStages} / 12`} /></div>
     <div className="mt-5"><button type="button" onClick={onOpen} className="sports-secondary-button">Open governed project <ArrowRight size={16} /></button></div>
     <details className="mt-4 text-xs text-slate-500"><summary className="cursor-pointer font-semibold">Technical details</summary><div className="mt-2 break-all rounded-lg bg-slate-50 p-3">Project ID: {project.projectId}</div></details>

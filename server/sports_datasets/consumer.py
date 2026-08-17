@@ -7,6 +7,7 @@ import math
 import os
 import re
 import stat
+import tempfile
 import threading
 import time
 from collections import Counter, defaultdict
@@ -503,9 +504,12 @@ class SportsDatasetManifestConsumer:
         raw_package_root = raw_absolute_path(package_root)
         reject_reparse_chain(raw_package_root, label="Configured package root chain")
         self.package_root = raw_package_root.resolve(strict=False)
-        self.cache_path = cache_path.expanduser().resolve(strict=False)
+        raw_cache_path = raw_absolute_path(cache_path)
+        reject_reparse_chain(raw_cache_path, label="Configured validation cache chain")
+        self.cache_path = raw_cache_path
         self.progress = progress
-        if self.package_root == self.cache_path or self.package_root in self.cache_path.parents:
+        resolved_cache_path = raw_cache_path.resolve(strict=False)
+        if self.package_root == resolved_cache_path or self.package_root in resolved_cache_path.parents:
             raise ManifestValidationError("CACHE_INSIDE_EXCHANGE", "Validation cache must remain outside the exchange package")
         self._started = time.monotonic()
         self._rows_processed = 0
@@ -535,6 +539,14 @@ class SportsDatasetManifestConsumer:
         )
 
     def _load_cache(self) -> dict[str, Any]:
+        reject_reparse_chain(self.cache_path, label="Validation cache chain")
+        if self.cache_path.exists():
+            metadata = self.cache_path.lstat()
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise ManifestValidationError(
+                    "CACHE_LINK_REJECTED",
+                    "Target-local validation cache must be a single-link regular file",
+                )
         if not self.cache_path.is_file():
             return {"version": "SPORTS_DATASET_VALIDATION_CACHE_V1", "entries": {}}
         try:
@@ -546,13 +558,56 @@ class SportsDatasetManifestConsumer:
         return cache
 
     def _save_cache(self, cache: dict[str, Any]) -> None:
+        temporary_name: str | None = None
         try:
+            reject_reparse_chain(
+                self.cache_path.parent,
+                label="Validation cache parent chain",
+            )
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
-            temporary.write_bytes(canonical_json_bytes(cache))
+            reject_reparse_chain(
+                self.cache_path.parent,
+                label="Validation cache parent chain",
+            )
+            if self.cache_path.exists():
+                reject_reparse_chain(self.cache_path, label="Validation cache chain")
+                metadata = self.cache_path.lstat()
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                    raise ManifestValidationError(
+                        "CACHE_LINK_REJECTED",
+                        "Target-local validation cache must be a single-link regular file",
+                    )
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=".sports-validation-cache-",
+                suffix=".tmp",
+                dir=self.cache_path.parent,
+                delete=False,
+            ) as handle:
+                temporary_name = handle.name
+                handle.write(canonical_json_bytes(cache))
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary = Path(temporary_name)
+            reject_reparse_chain(temporary, label="Validation cache temporary chain")
+            if temporary.lstat().st_nlink != 1:
+                raise ManifestValidationError(
+                    "CACHE_LINK_REJECTED",
+                    "Target-local validation cache temporary must not be hard-linked",
+                )
             os.replace(temporary, self.cache_path)
+            temporary_name = None
+            reject_reparse_chain(self.cache_path, label="Validation cache chain")
+            if self.cache_path.lstat().st_nlink != 1:
+                raise ManifestValidationError(
+                    "CACHE_LINK_REJECTED",
+                    "Target-local validation cache must not be hard-linked",
+                )
         except OSError as exc:
             raise ManifestValidationError("CACHE_WRITE_FAILED", "Target-local validation cache could not be saved") from exc
+        finally:
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
 
     @staticmethod
     def validate_manifest_contract(manifest: Mapping[str, Any]) -> None:

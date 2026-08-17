@@ -506,6 +506,7 @@ class SportsDatasetRegistry:
             ).fetchone())
         metadata = registration.get("metadata_json") or {}
         identity_bridge = None
+        pa_baseline = None
         try:
             # Kept as a lazy import so the parent dataset adapter remains usable
             # independently of optional companion-contract registrations.
@@ -516,6 +517,41 @@ class SportsDatasetRegistry:
             # An absent additive bridge migration or registration is an honest
             # no-evidence state, not a reason to hide the parent dataset.
             identity_bridge = None
+        try:
+            # Research-model evidence is additive and sports-specific. Keep it
+            # nested in the already-governed active dataset response instead of
+            # introducing a second browser fetch or a production registry claim.
+            from ..sports_modeling.registry import SportsPAResearchRegistry
+
+            active_research = SportsPAResearchRegistry(self.database).public_active()
+            candidate_baseline = (
+                active_research.get("paBaseline")
+                if isinstance(active_research, Mapping)
+                else None
+            )
+            candidate_run = (
+                candidate_baseline.get("run")
+                if isinstance(candidate_baseline, Mapping)
+                else None
+            )
+            candidate_parent = (
+                candidate_run.get("parent")
+                if isinstance(candidate_run, Mapping)
+                else None
+            )
+            if (
+                project is not None
+                and isinstance(candidate_parent, Mapping)
+                and candidate_parent.get("registrationId") == registration_id
+                and candidate_run.get("projectId") == project["project_id"]
+            ):
+                pa_baseline = candidate_baseline
+        except sqlite3.OperationalError as exc:
+            # Migration 0031 and a completed run are both optional. The parent
+            # dataset remains truthful and usable when neither exists yet.
+            if "no such table: sports_pa_research_runs" not in str(exc).casefold():
+                raise
+            pa_baseline = None
         public_limitations = [
             {"limitationId": item["limitation_id"], "scope": item["scope"], "description": item["description"], "source": "EXCHANGE_MANIFEST"}
             for item in limitations
@@ -595,13 +631,24 @@ class SportsDatasetRegistry:
         }
         if identity_bridge is not None:
             result["identityBridge"] = identity_bridge
+        if pa_baseline is not None:
+            result["paBaseline"] = pa_baseline
         if project:
             workflow_evidence = project["workflow_evidence_json"]
             identity_stage = (workflow_evidence.get("identity_coverage_leakage") or {}).get("status")
+            terminal_status = (
+                ((pa_baseline.get("decision") or {}).get("terminalStatus"))
+                if pa_baseline is not None
+                else None
+            )
             project_status = (
-                "REGISTERED_IDENTITY_BRIDGE_VALIDATED"
-                if identity_bridge is not None and identity_stage == "COMPLETE"
-                else "REGISTERED_MODELING_BLOCKED"
+                f"REGISTERED_PA_{terminal_status}"
+                if terminal_status
+                else (
+                    "REGISTERED_IDENTITY_BRIDGE_VALIDATED"
+                    if identity_bridge is not None and identity_stage == "COMPLETE"
+                    else "REGISTERED_MODELING_BLOCKED"
+                )
             )
             result["project"] = {
                 "projectId": project["project_id"],

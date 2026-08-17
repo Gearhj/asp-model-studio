@@ -8,14 +8,13 @@ Dataset: `asp.mlb.open-data.fd1`
 
 Milestone A: **PASSED AND REGISTERED**
 
-Milestone B: **IDENTITY_BRIDGE_VALIDATED — BASELINE CONSTRUCTION IN PROGRESS**
+Milestone B: **PASSED — RESEARCH_BASELINE REGISTERED**
 
-Authenticated protected-page inspection: **DEFERRED — explicitly waived for the Milestone A checkpoint commit only**
+Phase 3 run ID: `sports-pa-research-run:sha256:9ee241378320fb820aab2531a6525d2d4624d42e7ff6c406e147f28c6800fd07`
 
-The Phase 3 checkpoint below supersedes the historical Phase 2 identity-blocker
-statements later in this report. The historical material remains to preserve the
-reason the original run stopped; it must not be read as the current registered
-state. No unavailable modeling result is represented as complete.
+The completed Phase 3 evidence below supersedes the historical Phase 2
+identity-blocker statements retained in the appendix. No result is represented
+as operational, production, approved for betting, simulated, or exportable.
 
 ## Phase 3 Identity Bridge Checkpoint
 
@@ -33,9 +32,11 @@ registration and one content-addressed join-audit record.
 
 The validated package contains 13,460 aliases across five namespaces and 2,692
 portable player-dimension rows. Its seven files total 2,071,740 bytes. Alias and
-dimension rows remain lazy, read-only Parquet evidence in the companion; no raw
-identity rows were imported into SQLite. Browser-facing evidence exposes only
+dimension rows are read-only Parquet evidence validated in memory; no raw
+identity rows were persisted to SQLite. Browser-facing evidence exposes only
 logical `asp-model-exchange://` and `asp-model-studio-runtime://` references.
+The registered rights contract permits target-local research consumption but
+does not authorize public distribution or resale of the raw bridge.
 
 ### Parent Binding
 
@@ -88,11 +89,203 @@ placeholder, or artificial dimension row was manufactured.
 Identity failures are zero in every season and role. A resolved player lacking
 eligible earlier-domain evidence remains explicit missing history; it is not an
 identity failure and is not filled from same-season or future totals. The next
-checkpoint will materialize the content-addressed feature view and fit
-fold-local missing-value treatment.
+stage materialized these cases with explicit role-specific missing indicators
+and fold-local imputation.
+
+## Phase 3 Plate-Appearance Research Baseline
+
+### Feature Contract
+
+The registered contract identity is `MLB_PA_FEATURE_VIEW_V1`, with semantic
+contract SHA-256
+`fc3227fe1488f0cf422dc40c634a9b0b1c432828d479a68ea6ba7a0dce038d1e`
+and schema SHA-256
+`1660eed54bf3904c2f2306d5a0171e7df6bf87fdc4fa9d39fb5ec2e8e741afd6`.
+Its governed runtime artifact ID is
+`sports-pa-artifact:feature_contract:sha256:52bf9543bd573f24b7974fabc1ca63f2e948478cfb6cd4ca740d10e0ee2d1362`.
+
+The content-addressed 549,479-row, 22-feature view is
+`mlb-pa-feature-view:sha256:74b9c24bb57dd75061a5de0f967c4a57e492eab9e016be950a036292bf8f958b`.
+Its canonical Parquet artifact SHA is
+`42884747dfb610564bf0c85ab30f6c16d09b2a01982ddbc4e9ccb485f2ddb53f`
+(11,574,290 bytes). The view contains exactly 184,104 rows for 2023,
+182,449 for 2024, and 182,926 for 2025.
+
+The context block is inning, inning half, outs before, base mask before, and
+batting-team score differential before the terminal plate appearance. It is a
+conditional component-state boundary, not a claim that future game state is
+known by a standalone pregame caller. Batter and pitcher blocks use only the
+latest eligible Y-minus-1 annual BATTING or PITCHING row, small documented
+exposure/rate allowlists, and explicit missing-prior indicators. Handedness and
+platoon features are absent because FD1 has no validated inputs for them.
+
+Target, post-terminal state, game outcome, final score, actual participation,
+untimestamped actual weather, odds, CLV, source/provenance fields, player IDs,
+game IDs, checksums, partitions, and governance hashes are excluded from the
+matrix. Batter and pitcher IDs condition exact prior lookup only; other IDs
+remain outside the matrix for joins and lineage, while `game_id` is the
+whole-game bootstrap key. `game_date`, which is not an ID, drives the
+date-atomic chronological split. Participation, lineup, and usage models remain
+excluded and not configured. Imputation, scaling, and fixed encoding fit only
+on the training rows of each fit.
+
+### Candidate Models
+
+All four multinomial models used deterministic scikit-learn LBFGS with true
+eight-class softmax, L2 regularization, `max_iter=2000`, `tol=1e-7`, and the
+frozen `C` grid `{0.05, 0.2, 1.0}`. All converged. C0 is the training-period
+global eight-class frequency vector.
+
+| ID | Definition | Selected C | Max iterations observed | Runtime (s) | 2025 policy |
+|---|---|---:|---:|---:|---|
+| C0 | Global frequency | n/a | n/a | 1.096 | Evaluated |
+| C1 | Conditional PA-state context | 1.0 | 941 | 173.264 | Evaluated comparator |
+| C2 | Context plus batter prior | 1.0 | 1,375 | 172.839 | Not rerun after 2024 selection |
+| C3 | Context plus pitcher prior | 0.2 | 843 | 106.558 | Not rerun after 2024 selection |
+| C4 | Context plus batter and pitcher priors | 1.0 | 1,908 | 400.187 | Selected and evaluated |
+
+The internal 2023 split was chronological and date-atomic. C1–C4 were tuned
+inside 2023, all five candidates were fitted on full 2023 and compared in 2024,
+then only C0, C1, and selected C4 were refitted through 2024 for the frozen 2025
+rolling-origin evaluation. No 2025 label was used for tuning or selection.
+
+### 2024 Results
+
+Raw out-of-sample metrics for `train-2023-validate-2024` are:
+
+| Candidate | Log loss | Summed Brier | Top-label ECE | Top-1 accuracy | Balanced accuracy |
+|---|---:|---:|---:|---:|---:|
+| C0 | 1.500249 | 0.712623 | 0.009000 | 0.452543 | 0.125000 |
+| C1 | 1.495833 | 0.711626 | 0.009038 | 0.452543 | 0.125000 |
+| C2 | 1.486543 | 0.707746 | 0.010565 | 0.451765 | 0.126149 |
+| C3 | 1.493472 | 0.710639 | 0.011011 | 0.451847 | 0.125480 |
+| C4 | **1.484255** | **0.706786** | 0.011731 | 0.451644 | **0.128361** |
+
+C4 won the predeclared 2024 policy by minimum log loss, then Brier, then
+candidate ordinal. Its raw gains over C0 were 0.015995 log loss and 0.005838
+summed Brier; its gains over C1 were 0.011578 and 0.004840 respectively.
+
+### 2025 Results
+
+Frozen 2025 results for `train-through-2024-validate-2025` are:
+
+| Candidate | Log loss | Summed Brier | Top-label ECE | Top-1 accuracy | Balanced accuracy |
+|---|---:|---:|---:|---:|---:|
+| C0 | 1.499342 | 0.712440 | 0.005822 | 0.453845 | 0.125000 |
+| C1 | 1.494548 | 0.711444 | 0.005917 | 0.453845 | 0.125000 |
+| C4 raw | **1.481677** | **0.706384** | **0.003757** | 0.451986 | **0.126589** |
+| C4 frozen temperature | 1.481812 | 0.706466 | 0.008493 | 0.451986 | 0.126589 |
+
+C2 and C3 have explicit `NOT_RUN_BY_POLICY` 2025 rows; no result is fabricated
+for either candidate. The 2025 season is a frozen retrospective rolling-origin
+validation season, not an untouched holdout.
+
+### Calibration
+
+A scalar temperature of `0.9765189733` was fitted only from C4's 2024
+out-of-sample probabilities. It was retained because it improved both governing
+2024 metrics: log loss `1.484255 -> 1.484056`, summed Brier
+`0.706786 -> 0.706661`, and top-label ECE `0.011731 -> 0.004715`.
+
+The frozen transform was then applied unchanged to 2025. It slightly worsened
+the raw 2025 log loss (`1.481677 -> 1.481812`), Brier
+(`0.706384 -> 0.706466`), and top-label ECE (`0.003757 -> 0.008493`). Both raw
+and scaled evidence remain registered. This outcome is not retrospectively used
+to change the 2024-only retention policy.
+
+### Bootstrap Comparison
+
+The deterministic game-cluster bootstrap used 500 replicates, seed `20260817`,
+and sampled whole `game_id` clusters. Differences are `C4 - comparator`;
+negative values favor C4. Intervals below are 95% percentile intervals on raw
+fold probabilities.
+
+| Season | Comparator | Log-loss difference (95% CI) | Brier difference (95% CI) | P(C4 better) |
+|---|---|---|---|---:|
+| 2024 | C0 | -0.015995 [-0.017069, -0.014846] | -0.005838 [-0.006303, -0.005353] | 1.000 |
+| 2024 | C1 | -0.011578 [-0.012503, -0.010640] | -0.004840 [-0.005322, -0.004372] | 1.000 |
+| 2025 | C0 | -0.017666 [-0.018639, -0.016691] | -0.006055 [-0.006432, -0.005665] | 1.000 |
+| 2025 | C1 | -0.012871 [-0.013660, -0.012166] | -0.005060 [-0.005422, -0.004719] | 1.000 |
+
+These intervals show retrospective-fold improvement in raw probability loss
+over both global-frequency and context-only comparators. They do not establish
+prospective or standalone game-forecast performance.
+
+### Model Decision
+
+The evidence-driven terminal decision is **`RESEARCH_BASELINE`**. C4 is valid,
+converged, reproducible, and improves raw log loss and Brier over C0 and C1 in
+both folds. It is not `RESEARCH_CHALLENGER` because the frozen final 2025
+temperature policy has top-label ECE `0.008493`, worse than C0's `0.005822`, so
+the predeclared dual-fold calibration predicate is not satisfied. It is not
+`REJECTED_BASELINE` because substantive candidates clearly improve the
+governing probability losses.
+
+The registered experiment is
+`mlb-pa-experiment:sha256:a7aaf28c180cded23179735ea00ddb45582e58148a49b447f0754c3cb2c9cf7e`.
+Selected C4 model artifacts are:
+
+- 2024 model: `sports-pa-artifact:model_state:sha256:8aaf8af4e5b66231c557499a8cfef3f8303a905d0e53570b88c1b3efc569a12e`;
+- 2025 model: `sports-pa-artifact:model_state:sha256:77f241f1da33ff716ff460ef1042d30a3195841a314cd6232b40d318dc18ad5e`;
+- 2024 preprocessor: `sports-pa-artifact:preprocessor_state:sha256:feef741ca10777e5bcabb655bb15609810d04b53bf978723155d236d85f3748c`;
+- 2025 preprocessor: `sports-pa-artifact:preprocessor_state:sha256:1d60d6610b8798d78dc73bb3be56690fbe7df36e8f24effd05ba8c6e6f17c19b`.
+
+The registry contains 28 logical artifact references totaling 107,258,624
+bytes, including feature contract/schema/view, separate preprocessing and model
+states, exact class order, both fold predictions, metrics, confusion matrices,
+calibration, bootstrap evidence, lineage, model card, and final checkpoint.
+SQLite contains metadata and logical URIs only; prediction rows and model bytes
+remain in ignored repository-local runtime storage.
+
+### Model Graph
+
+The registered graph is
+`mlb-pa-model-graph:sha256:c42cec805870c4eae5f935aa406714e5cecd0f46ff0dfd2ca78d57e2397de18b`
+with 20 nodes and 28 edges. Its completed spine is:
+
+`MLB FD1 Dataset Manifest -> SPORTS_IDENTITY_BRIDGE_V1 -> Exact Y-minus-1 Prior Join -> MLB_PA_FEATURE_VIEW_V1 -> Selected Multinomial PA Baseline -> Optional Temperature Calibration -> Retrospective Evaluation Evidence`.
+
+C0–C4 appear as evaluated branches. Dynamic player state, lineup model,
+starter-duration, bullpen-usage, base-out transition, game simulator, residual
+model, and standalone ASP bundle remain `NOT_CONFIGURED`.
+
+### Remaining Components
+
+Participation and usage, prospective dynamic player state, lineup and starter
+availability, bullpen usage, base-out transition, the complete game simulator,
+residual model, forward monitoring, and standalone bundle export are not
+configured. No standalone ASP model bundle has been approved or exported. No
+prospective evidence exists. This conditional PA component must not be presented
+as a standalone pregame, game, wagering, operational, or production model.
+
+### Browser and Runtime Acceptance
+
+The refreshed target-local backend reports healthy at
+`http://127.0.0.1:8101/api/health`, the frontend serves at
+`http://127.0.0.1:5274`, and an unauthenticated request for the active sports
+dataset returns `401`, preserving the sign-in boundary. Protected API contract
+tests and authenticated frontend component/integration contracts pass without
+an authentication bypass. Manual protected-page and 1440×900, 1024×768, and
+390×844 visual inspection is deferred to the owner because the in-app browser
+refused localhost navigation under its URL policy after the services were
+refreshed. Authentication was not disabled or weakened.
+
+### Recommended Next Step
+
+Review the registered fold, classwise calibration, confusion, and whole-game
+bootstrap evidence. The next scientific milestone should be a separately
+governed prospective/component integration study, beginning with participation
+and usage plus simulator-safe dynamic state. Any future challenger or deployment
+decision must be a new authorization and must not be inferred from this
+retrospective research baseline.
 
 
-## Executive Result
+## Historical Phase 2 Appendix
+
+Everything below this heading records the superseded Phase 2 checkpoint that
+correctly stopped before the companion identity bridge existed. Statements such
+as “blocked,” “not materialized,” and “zero candidates” below are historical,
+not the current Phase 3 state.
 
 The approved MLB FD1 exchange passed an independent, package-only integrity audit. The audit reproduced both governing hashes, validated the exact 335-file inventory, checked all 329 Parquet files byte-for-byte and by footer metadata, and reconciled all 3,738,096 rows and the three governed populations without error.
 

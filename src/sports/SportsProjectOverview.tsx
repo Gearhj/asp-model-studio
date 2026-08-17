@@ -1,8 +1,8 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Database, GitBranch, Target } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
-import { type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { loadSportsProjectMetadata, mlbPaBaselineStepPresentation, sportsWorkflowForId } from "./sportsConfig";
+import { sportsIdentityBridgeIsValidated, sportsPaDecisionStatus, type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
 
 export default function SportsProjectOverview() {
   const projectId = useWorkflowStore((state) => state.projectId);
@@ -15,17 +15,28 @@ export default function SportsProjectOverview() {
   const workspaceDataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
   const governedProject = workspaceDataset?.project?.projectId === projectId ? workspaceDataset.project : null;
   const boundDataset = governedProject ? workspaceDataset : null;
-  const projectBlocked = governedProject?.status?.toLowerCase().includes("blocked") === true;
-  const identityBridgeReason = boundDataset?.featureAudit?.missingBridge.isMissing
+  const baseline = boundDataset?.paBaseline;
+  const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
+  const projectBlocked = decision
+    ? decision === "BLOCKED" || decision === "REJECTED_BASELINE"
+    : governedProject?.status?.toLowerCase().includes("blocked") === true;
+  const identityBridgeReason = !sportsIdentityBridgeIsValidated(boundDataset?.identityBridge) && boundDataset?.featureAudit?.missingBridge.isMissing
     ? boundDataset.featureAudit.missingBridge.reason
     : "";
   const governedStages = governedProject?.stages ?? [];
   const completed = governedProject
     ? governedStages.filter((stage) => ["complete", "completed"].includes(stage.status.toLowerCase())).length
     : workflowSteps.filter((step) => step.status === "complete").length;
-  const evidenced = governedProject
+  const governedEvidenceCount = governedProject
     ? governedStages.filter((stage) => !["pending", "not_configured", "not configured"].includes(stage.status.toLowerCase())).length
     : completed;
+  const baselineEvidenceCount = baseline
+    ? (baseline.candidates.length ? 2 : 0)
+      + (baseline.calibration?.final2025 ? 1 : 0)
+      + (baseline.calibration ? 1 : 0)
+      + (baseline.graph?.nodes.length ? 1 : 0)
+    : 0;
+  const evidenced = Math.max(governedEvidenceCount, baselineEvidenceCount);
   const progress = Math.round((evidenced / Math.max(1, workflow.steps.length)) * 100);
   const displayName = governedProject?.name || (projectName === "Untitled Sports Project" ? `${workflow.title} Project` : projectName);
   const datasetLabel = boundDataset
@@ -39,6 +50,14 @@ export default function SportsProjectOverview() {
         : "No Dataset Registered";
   const nextMilestone = workflow.key === "nfl"
     ? "Register the first immutable ASP sports dataset manifest and begin the NFL drive-outcome baseline experiment."
+    : decision === "RESEARCH_CHALLENGER"
+      ? "Review the registered PA research challenger and its bootstrap comparison evidence."
+      : decision === "RESEARCH_BASELINE"
+        ? "Preserve the PA research baseline and plan prospective evidence; bundle export remains unavailable."
+        : decision === "REJECTED_BASELINE"
+          ? "Review why the PA candidate was rejected before configuring another research run."
+          : decision === "BLOCKED"
+            ? baseline?.decisionReason || "Resolve the recorded PA baseline blocker before another governed run."
     : identityBridgeReason
       ? "Register the governed plate-appearance-to-player-prior identity bridge required for exact Y−1 joins."
       : boundDataset
@@ -59,7 +78,7 @@ export default function SportsProjectOverview() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="sports-status sports-status--teal">{workflow.status}</span>
               <span className="sports-status border-white/15 bg-white/10 text-slate-200">{workflow.league}</span>
-              {governedProject ? <span className={`sports-status max-w-full whitespace-normal break-words text-center leading-4 ${projectBlocked ? "sports-status--amber" : "sports-status--green"}`}>{governedProject.status || "REGISTERED"}</span> : null}
+              {governedProject ? <span className={`sports-status max-w-full whitespace-normal break-words text-center leading-4 ${projectBlocked ? "sports-status--amber" : "sports-status--green"}`}>{decision || governedProject.status || "REGISTERED"}</span> : null}
             </div>
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-[42px]">{displayName}</h1>
             <p className="mt-4 max-w-3xl text-[15px] leading-7 text-slate-300">{governedProject?.researchPurpose || metadata?.researchPurpose || "Configure the forecast contract to establish this project’s research purpose."}</p>
@@ -80,7 +99,7 @@ export default function SportsProjectOverview() {
         <Metric icon={<Target size={19} />} label="Primary target" value={governedProject?.primaryTarget || metadata?.primaryTarget || "Not Configured"} />
         <Metric icon={<CircleDashed size={19} />} label="Forecast lifecycle" value={governedProject?.forecastLifecycle || metadata?.lifecycle || "Not Configured"} />
         <Metric icon={<Database size={19} />} label="Sports dataset" value={datasetLabel} />
-        <Metric icon={<GitBranch size={19} />} label="Model graph" value="No Model Graph" />
+        <Metric icon={<GitBranch size={19} />} label="Model graph" value={baseline?.graph?.nodes.length ? `Research graph · ${decision || "BLOCKED"}` : "No Model Graph"} />
       </section>
 
       {governedProject ? <section className="sports-panel p-5 sm:p-6" aria-label="Governed MLB forecast contract"><p className="sports-kicker">Governed forecast contract</p><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><ContractFact label="Development period" value={governedProject.developmentPeriod} /><ContractFact label="Prior history" value={governedProject.priorHistory} /><ContractFact label="Baseline population" value={governedProject.baselinePopulation} /><ContractFact label="Upper-bound research" value={governedProject.upperBoundPopulation} /></div>{governedProject.secondaryTargets?.length ? <div className="mt-5 border-t border-slate-100 pt-4"><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Secondary targets</div><div className="mt-2 flex flex-wrap gap-2">{governedProject.secondaryTargets.map((target) => <span key={target} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">{target}</span>)}</div></div> : null}</section> : null}
@@ -88,15 +107,28 @@ export default function SportsProjectOverview() {
       <section className="sports-panel overflow-hidden">
         <div className="border-b border-slate-200 p-5 sm:p-7">
           <p className="sports-kicker">Shared sports modeling workflow</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">From forecast contract to ASP execution bundle</h2>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">From forecast contract to terminal research decision</h2>
           <p className="mt-2 max-w-3xl text-[15px] leading-7 text-slate-600">Every step exposes its purpose, prerequisites, expected outputs, and evidence state. {governedProject ? "Statuses come from the governed project registration; page visits never imply completion." : "The workflow begins empty by design."}</p>
         </div>
         <div className="grid gap-px bg-slate-200 lg:grid-cols-2">
           {workflow.steps.map((step) => {
             const stored = workflowSteps.find((item) => item.id === step.id);
             const evidence = governedStage(step.id, step.number, step.title);
-            const evidenceStatus = evidence?.status || (stored?.status === "complete" ? "COMPLETE" : "NOT CONFIGURED");
-            const complete = ["complete", "completed"].includes(evidenceStatus.toLowerCase());
+            const phase3Presentation = baseline && decision !== "BLOCKED" && workflow.key === "mlb" ? mlbPaBaselineStepPresentation(step) : undefined;
+            const baselineStatus = baseline && decision === "BLOCKED" && step.number === 11 ? "BLOCKED"
+              : baseline && step.number === 6 && baseline.candidates.length ? "COMPLETE"
+              : baseline && step.number === 8 && baseline.candidates.length ? "COMPLETE"
+                : baseline && step.number === 9 && baseline.calibration?.final2025 ? "COMPLETE"
+                  : baseline && step.number === 10 && baseline.calibration ? "COMPLETE"
+                    : baseline && step.number === 11 && baseline.graph?.nodes.length ? "COMPLETE"
+                      : step.number === 12 ? "NOT_CONFIGURED"
+                        : undefined;
+            const evidenceStatus = step.number === 12
+              ? "NOT_CONFIGURED"
+              : decision === "BLOCKED" && step.number === 11
+                ? "BLOCKED"
+                : phase3Presentation?.status || evidence?.status || baselineStatus || (stored?.status === "complete" ? "COMPLETE" : "NOT CONFIGURED");
+            const complete = evidenceStatus.toLowerCase().includes("complete");
             const blocked = evidenceStatus.toLowerCase() === "blocked";
             const configured = !["pending", "not_configured", "not configured"].includes(evidenceStatus.toLowerCase());
             return (
@@ -106,15 +138,15 @@ export default function SportsProjectOverview() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <h3 className="text-lg font-semibold text-slate-950">{step.title}</h3>
-                      <span className={`sports-status ${complete ? "sports-status--green" : blocked ? "sports-status--amber" : configured ? "sports-status--teal" : "sports-status--neutral"}`}>{evidenceStatus.replaceAll("_", " ").toUpperCase()}</span>
+                      <span className={`sports-status ${complete ? "sports-status--green" : blocked ? "sports-status--amber" : configured ? "sports-status--teal" : "sports-status--neutral"}`}>{evidenceStatus.toUpperCase()}</span>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{step.purpose}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{phase3Presentation?.purpose || step.purpose}</p>
                     {evidence?.evidence?.length ? <ul className={`mt-3 grid gap-1 text-xs leading-5 ${blocked ? "text-amber-900" : "text-emerald-800"}`}>{evidence.evidence.map((item) => <li key={item} className="flex gap-2">{blocked ? <AlertTriangle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0" />}{item}</li>)}</ul> : null}
                     <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                       <summary className="cursor-pointer font-semibold text-slate-800">Prerequisites & expected outputs</summary>
                       <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                        <List label="Prerequisites" items={step.prerequisites.length ? step.prerequisites : ["None — starting step"]} />
-                        <List label="Expected outputs" items={step.outputs} />
+                        <List label="Prerequisites" items={(phase3Presentation?.prerequisites || step.prerequisites).length ? (phase3Presentation?.prerequisites || step.prerequisites) : ["None — starting step"]} />
+                        <List label="Expected outputs" items={phase3Presentation?.outputs || step.outputs} />
                       </div>
                     </details>
                   </div>
@@ -129,7 +161,7 @@ export default function SportsProjectOverview() {
         <p className="sports-kicker text-cyan-300">Next platform milestone</p>
         <h2 className="mt-2 text-xl font-semibold">{nextMilestone}</h2>
         <p className="mt-3 text-sm leading-6 text-slate-400">{boundDataset
-          ? `${identityBridgeReason ? `${identityBridgeReason} ` : ""}Bound to registration ${boundDataset.registrationId}. No plate-appearance model, game simulation, or export is implied.`
+          ? baseline ? `Run ${baseline.runId} is bound to registration ${boundDataset.registrationId} with terminal research status ${decision || "BLOCKED"}. No game simulation or export bundle is implied.` : `${identityBridgeReason ? `${identityBridgeReason} ` : ""}Bound to registration ${boundDataset.registrationId}. No plate-appearance model, game simulation, or export is implied.`
           : workspaceDataset
             ? "A validated MLB dataset is available in this workspace, but it is not bound to this project. No governed project evidence is inferred."
             : "Explanatory milestone only. No connection to the external sports exchange has been created."}</p>

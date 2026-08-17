@@ -1,80 +1,145 @@
 # MLB_PA_FEATURE_VIEW_V1
 
-## Status
+## Consumer boundary
 
-`BLOCKED_IDENTITY_BRIDGE_REQUIRED — NOT MATERIALIZED`
+`MLB_PA_FEATURE_VIEW_V1` is the governed input contract for an eight-class
+plate-appearance component model. It is suitable for retrospective component
+research inside a future simulator; it is not a complete pregame forecast, a
+game simulator, a betting model, or an exportable ASP bundle.
 
-The finalized `asp.mlb.open-data.fd1` package does not contain a package-bound identity bridge from plate-appearance Retrosheet player identifiers to the canonical UUIDs used by `player_prior`. FD1 remains frozen and valid as published. The feature view must not be constructed until a separately immutable `SPORTS_IDENTITY_BRIDGE_V1` companion, bound to the FD1 manifest, supplies that authority.
+Registered Phase 3 authorities:
 
-## Intended target and row authority
+- semantic contract SHA-256:
+  `fc3227fe1488f0cf422dc40c634a9b0b1c432828d479a68ea6ba7a0dce038d1e`;
+- feature schema SHA-256:
+  `1660eed54bf3904c2f2306d5a0171e7df6bf87fdc4fa9d39fb5ec2e8e741afd6`;
+- feature-view identity:
+  `mlb-pa-feature-view:sha256:74b9c24bb57dd75061a5de0f967c4a57e492eab9e016be950a036292bf8f958b`;
+- registered research run:
+  `sports-pa-research-run:sha256:9ee241378320fb820aab2531a6525d2d4624d42e7ff6c406e147f28c6800fd07`.
 
-- Target family: `plate_appearance`
-- Target field: `outcome`
-- Group key: `game_id`
-- Time key: `game_date`
-- Row identity: `plate_appearance_id`
-- Join-only identities: `batter_id`, `pitcher_id`
-- Development seasons: 2023–2025 rolling-origin folds
+The view is accepted only when bound to the complete frozen authority set:
 
-The immutable probability-vector order is:
+- dataset registration `sports-dataset-1b58d5d1def2c9b7`;
+- project `sports-project-mlb-fd1-1b58d5d1def2`;
+- parent manifest SHA-256
+  `1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49`;
+- parent partition-authority SHA-256
+  `8dec143b06622af068665b9fd1ad419a0353e76f0e0083b4c3459b8fce3cb437`;
+- identity-bridge registration `sports-identity-bridge-6b69e7dcf4c5db76`;
+- identity bridge SHA-256
+  `6b69e7dcf4c5db7615420ee9f6f6f797b0335e31ab475646291f3a4cf90c52cf`;
+- alias and dimension row authorities
+  `ddb828aee391b2f725ba4540a874865963313e6c210f246eacd7bbcf28025661`
+  and `6f30e1b30ca41002d6cbb2dea8b90da5abfad4f62f96237e780fbee518005acf`;
+- exact join audit
+  `sports-identity-join-audit:sha256:375ef4faef6716a8d66fe68b30c12bf8caff5b9255aa71fc4bd7354f9589b8b9`.
 
-1. `STRIKEOUT`
-2. `WALK_HBP_CI`
-3. `HOME_RUN`
-4. `SINGLE`
-5. `DOUBLE`
-6. `TRIPLE`
-7. `BIP_OUT`
-8. `OTHER_REACH`
+## Population and class order
 
-No component may alphabetize or otherwise reorder these classes.
+The target population is exactly the primary plate-appearance rows from 2023,
+2024, and 2025: 184,104, 182,449, and 182,926 rows, respectively. The immutable
+probability-vector order is:
 
-## Intended eligible evidence
+| Zero-based index | Class |
+|---:|---|
+| 0 | `STRIKEOUT` |
+| 1 | `WALK_HBP_CI` |
+| 2 | `HOME_RUN` |
+| 3 | `SINGLE` |
+| 4 | `DOUBLE` |
+| 5 | `TRIPLE` |
+| 6 | `BIP_OUT` |
+| 7 | `OTHER_REACH` |
 
-Only package-bound, point-in-time-proven Y−1-or-earlier `player_prior` evidence may become predictors:
+Any other row count, season, population, target encoding, or class order fails
+closed.
 
-- BATTING-domain prior metrics for the batter;
-- PITCHING-domain prior metrics for the pitcher;
-- explicit missing-batter-prior and missing-pitcher-prior indicators;
-- training-population-only imputation values.
+## Exact identity and Y-minus-one priors
 
-The package exposes no validated batter handedness or pitcher-hand field. No game-state context is included because every available inning/base/out/score field is classified `RETROSPECTIVE_ACTUAL_NOT_PREGAME_SAFE`.
+Retrosheet batter and pitcher values join exactly through the registered bridge
+to a canonical UUID. The UUID is a governed join key only; it is never a model
+feature. Batter features use only the BATTING domain and pitcher features use
+only the PITCHING domain. For target season `Y`, select the latest deterministic
+annual row satisfying both `season <= Y - 1` and
+`eligible_from_season <= Y`. Same-season and future evidence are prohibited.
+
+A resolved identity without eligible earlier history is legitimate missingness.
+It produces a role-specific missing-prior indicator and fold-local imputation;
+it is not an identity failure and must not be filled by a later season.
+
+## Included component-state block
+
+Only values verified to exist before the terminal plate-appearance event may be
+used as component-state predictors:
+
+- inning;
+- inning half / batting-team home-away state;
+- outs before;
+- base occupancy mask before; and
+- batting-team score differential before the plate appearance.
+
+The enforced domains are inning 1–14, `top_bottom=0` when the visiting team bats
+and `top_bottom=1` when the home team bats, outs 0–2, and base mask 0–7. Score
+differential is visitor minus home for `top_bottom=0` and home minus visitor for
+`top_bottom=1`. All five projected context fields have zero nulls in the
+registered 549,479-row view. These fields describe state at component
+invocation. Their inclusion does not claim that a standalone pregame caller
+already knows future game state. Batter side, pitcher hand, and platoon features
+are absent from FD1 and therefore are not included.
+
+## Included prior block
+
+The bounded batter block contains `log1p(PA)` plus AVG, OBP, SLG, SO/PA,
+(BB+HBP)/PA, and HR/PA, where `PA = AB + BB + HBP + SF + SH`.
+`log1p(PA)` is defined at zero; rate features require a positive declared
+denominator.
+
+The bounded pitcher block contains `log1p(BFP)`, ERA9, WHIP, SO/BFP, BB/BFP,
+HR/BFP, HBP/BFP, and GS/G, where `ERA9 = 27*ER/IPouts` and
+`WHIP = 3*(BB+H)/IPouts`. `log1p(BFP)` is defined at zero; nonpositive rate
+denominators produce missing values rather than fabricated rates.
 
 ## Absolute exclusions
 
-The following are target, timing-risk, identity-only, grouping-only, or provenance fields and may not be model predictors:
+The matrix excludes the terminal outcome and target-derived/post-terminal
+fields; final score and game outcome; actual participants, starters, reliever
+usage, and untimestamped actual weather; odds and CLV; same-season or future
+totals; source IDs, player UUIDs, game IDs, partition/checkpoint/manifest IDs,
+checksums, and governance hashes. Batter and pitcher IDs condition exact prior
+lookup only; IDs otherwise remain outside the matrix for joins and lineage,
+while `game_id` is the whole-game bootstrap key. `game_date`, which is not an
+ID, drives the date-atomic chronological split. Participation, lineup, and usage
+models are not part of this feature view.
 
-- `outcome` and all target-derived or terminal-result fields;
-- `terminal_play_id`, `terminal_play_number`, `source_terminal_token`;
-- `outs_after`, `base_mask_after`, `runs_scored`;
-- `inning`, `top_bottom`, `outs_before`, `base_mask_before`, `visiting_score_before`, `home_score_before` in FD1, because their pregame/simulation availability is not proven;
-- actual lineup, starter, reliever-usage, or untimestamped actual-weather evidence;
-- `game_id`, `plate_appearance_id`, canonical player IDs, batter IDs, and pitcher IDs as model features;
-- source keys, versions, checksums, partitions, manifests, rights controls, and logical URIs;
-- same-season annual priors, later events, same-game cumulative results, future-season totals, market data, odds, closing lines, and CLV.
+## Fold-local preprocessing and evaluation
 
-## Required preprocessing boundary
+Categorical encoding, numeric imputation, and all other learned preprocessing
+fit only on the current training population. The internal 2023 tuning split is
+chronological and keeps dates atomic. Frozen rolling-origin evaluation fits on
+2023 and evaluates 2024, then refits the frozen selected policy through 2024
+and evaluates 2025 once. The 2025 season is retrospective rolling-origin
+validation, not an untouched holdout and never a tuning source.
 
-If the contract is unblocked, every fold must fit numeric imputation, feature order, scaling, and any interaction construction on its training portion only. Rookie/missing-prior values must use training-population means with explicit indicators. Same-date games remain grouped, and no random split is permitted.
+The bounded multinomial candidates use scikit-learn LBFGS, L2 regularization,
+`C` values `0.05`, `0.2`, and `1.0`, `max_iter=2000`, and `tol=1e-7`.
+Convergence warnings or exhausting the iteration ceiling fail closed. The
+registered C4 combined candidate selected `C=1.0`; this is research evidence,
+not deployment authorization.
 
-## Blocking evidence
+## Storage contract
 
-For all primary-fold plate appearances, `batter_id` and `pitcher_id` use unresolved `retrosheet:player:*` identities. `player_prior.canonical_player_id` uses unrelated UUIDs, `player_prior.player_id` is null, and `lahman_player_id` belongs to another namespace.
+Contract, schema, feature-view Parquet, preprocessing, model, class-order,
+prediction, metric, calibration, bootstrap, lineage, and model-card artifacts
+live only in ignored target-local runtime storage. The artifact index records
+each content-addressed artifact's SHA-256, byte count, media type, and logical
+URI. Artifact envelopes carry their creation and run or materialization
+identity, code revision, source authorities, and feature-contract SHA;
+row/fold/partition lineage is included only where applicable.
 
-Exact Y−1 membership joins are:
-
-| Target season | PA rows | Batter-prior matches | Pitcher-prior matches |
-|---|---:|---:|---:|
-| 2023 | 184,104 | 0 | 0 |
-| 2024 | 182,449 | 0 | 0 |
-| 2025 | 182,926 | 0 | 0 |
-
-The manifest references an `active_identity_evidence` logical artifact, but its crosswalk bytes are not part of the exact 335-file package. A checksum or aggregate claim cannot reconstruct the mapping.
-
-## Minimum immutable companion authority required
-
-A `SPORTS_IDENTITY_BRIDGE_V1` companion must bind itself to FD1 manifest SHA `1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49` and contain the compact active 2021–2025 player identity spine. Each row must carry the canonical player UUID and exact source-version-bound Retrosheet, Lahman, Chadwick, and available MLBAM identifiers, together with mapping status, confidence, rights controls, source versions, and a row checksum.
-
-The companion must prove exact one-to-one coverage of every 2023–2025 plate-appearance batter and pitcher identifier and joinability to every relevant `player_prior` canonical UUID. It must reject duplicate or conflicting source identifiers, use no name-based matching, and preserve genuine rookies without eligible prior evidence as missing-prior cases rather than identity failures.
-
-Do not modify `SPORTS_DATASET_MANIFEST_V1` or the finalized FD1 package. Once the companion is registered and validated, Milestone B may resume from the existing dataset registration without repeating Milestone A or the complete FD1 hash scan unless an FD1 file changes. Until then, Candidates 1–3, preprocessing artifacts, fold predictions, calibration, bootstrap evidence, and a model-registry decision remain absent by design.
+The canonical feature Parquet has stable materialization identity
+`sports-pa-feature-materialization:sha256:ff425ca7a4aa0180837d3265fbb02d34484f6ea7a495cc5a5545bd9aeb836a55`.
+A separate `FEATURE_VIEW_RUN_BINDING` connects it to final research run
+`sports-pa-research-run:sha256:9ee241378320fb820aab2531a6525d2d4624d42e7ff6c406e147f28c6800fd07`.
+SQLite stores metadata and logical `asp-model-studio-runtime://` references
+only; prediction rows and model bytes remain outside the relational database.

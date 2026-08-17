@@ -155,6 +155,164 @@ export type SportsIdentityBridge = {
   noNamesOrFuzzyMatching: boolean;
 };
 
+export const SPORTS_PA_TERMINAL_STATUSES = [
+  "RESEARCH_CHALLENGER",
+  "RESEARCH_BASELINE",
+  "REJECTED_BASELINE",
+  "BLOCKED",
+] as const;
+
+export type SportsPaTerminalStatus = typeof SPORTS_PA_TERMINAL_STATUSES[number];
+export type SportsPaEvidenceRecord = Record<string, unknown>;
+
+export type SportsPaMetrics = SportsPaEvidenceRecord & {
+  schemaVersion?: string;
+  classOrder: string[];
+  rowCount?: number;
+  binCount?: number;
+  logLoss?: number;
+  brierScore?: number;
+  topLabelEce?: number;
+  top1Accuracy?: number;
+  balancedAccuracy?: number;
+  macroF1?: number;
+  weightedF1?: number;
+  perClass: Record<string, SportsPaEvidenceRecord>;
+  confusionMatrix: number[][];
+  realizedPrevalence: Record<string, number>;
+  predictedPrevalence: Record<string, number>;
+  argmaxPrevalence: Record<string, number>;
+  topLabelReliability: SportsPaEvidenceRecord[];
+  classwiseReliability: Record<string, SportsPaEvidenceRecord[]>;
+  probabilityHistograms: Record<string, SportsPaEvidenceRecord[]>;
+};
+
+export type SportsPaFold = {
+  foldId: string;
+  status: string;
+  validationSeason?: number;
+  trainSeasons: number[];
+  trainingRows?: number;
+  validationRows?: number;
+  rowCount?: number;
+  metrics?: SportsPaMetrics;
+  rawMetrics?: SportsPaMetrics;
+  calibratedMetrics?: SportsPaMetrics;
+  predictionArtifact?: SportsPaEvidenceRecord;
+};
+
+export type SportsPaCandidate = {
+  candidateId: string;
+  name: string;
+  definition: string;
+  candidateType: string;
+  ordinal?: number;
+  status: string;
+  selected: boolean;
+  eligible?: boolean;
+  rejectionReasons: string[];
+  hyperparameters: SportsPaEvidenceRecord;
+  aggregateMetrics?: SportsPaMetrics;
+  aggregateEvidence: SportsPaEvidenceRecord;
+  convergence?: unknown;
+  runtimeSeconds?: number;
+  folds: SportsPaFold[];
+};
+
+export type SportsPaFeatureView = {
+  featureViewId: string;
+  contractVersion: string;
+  contractSha: string;
+  contentSha: string;
+  logicalRoot: string;
+  artifactSha: string;
+  artifactBytes?: number;
+  rowCount?: number;
+  classOrder: string[];
+  seasonRows: SportsPaEvidenceRecord[];
+  features: unknown[];
+  artifacts: SportsPaEvidenceRecord[];
+};
+
+export type SportsPaExperiment = {
+  experimentId: string;
+  status: string;
+  objective: string;
+  seed?: number;
+  trainingContractVersion: string;
+  startedAt: string;
+  completedAt: string;
+  durationSeconds?: number;
+  tuningPolicy?: unknown;
+};
+
+export type SportsPaCalibration = {
+  status: string;
+  sourceSeason?: number;
+  retained?: boolean;
+  fittedTemperature?: number;
+  retainedTemperature?: number;
+  reason: string;
+  raw2024?: SportsPaMetrics;
+  scaled2024?: SportsPaMetrics;
+  raw2025?: SportsPaMetrics;
+  scaled2025?: SportsPaMetrics;
+  final2025?: SportsPaMetrics;
+};
+
+export type SportsPaBootstrapComparison = {
+  comparatorCandidateId: string;
+  comparatorName: string;
+  foldId: string;
+  validationSeason?: number;
+  resampleCount?: number;
+  seed?: number;
+  logLossDifference: SportsPaEvidenceRecord;
+  brierScoreDifference: SportsPaEvidenceRecord;
+};
+
+export type SportsPaRegistry = {
+  modelId: string;
+  artifactId: string;
+  status: string;
+  logicalUri: string;
+  registeredAt: string;
+  lastValidatedAt: string;
+  active?: boolean;
+  artifacts: SportsPaEvidenceRecord[];
+};
+
+export type SportsPaGraph = {
+  status: string;
+  nodes: SportsPaEvidenceRecord[];
+  edges: SportsPaEvidenceRecord[];
+};
+
+export type SportsPaBaseline = {
+  schemaVersion: string;
+  runId: string;
+  runSha: string;
+  projectId: string;
+  status: string;
+  decision: string;
+  decisionReason: string;
+  parent?: SportsPaEvidenceRecord;
+  identityBridge?: SportsPaEvidenceRecord;
+  classOrder: string[];
+  featureView?: SportsPaFeatureView;
+  experiment?: SportsPaExperiment;
+  candidates: SportsPaCandidate[];
+  selectedCandidateId: string;
+  selected?: SportsPaEvidenceRecord;
+  selectedHyperparameters: SportsPaEvidenceRecord;
+  calibration?: SportsPaCalibration;
+  bootstrapComparisons: SportsPaBootstrapComparison[];
+  registry?: SportsPaRegistry;
+  artifacts: SportsPaEvidenceRecord[];
+  graph?: SportsPaGraph;
+  limitations: string[];
+};
+
 export type RegisteredSportsProject = {
   projectId: string;
   name: string;
@@ -204,6 +362,7 @@ export type ActiveSportsDataset = {
   project?: RegisteredSportsProject;
   featureAudit?: SportsFeatureAudit;
   identityBridge?: SportsIdentityBridge;
+  paBaseline?: SportsPaBaseline;
 };
 
 type EvidenceState<T> =
@@ -258,7 +417,10 @@ function finiteNumber(value: unknown) {
 }
 
 function isPhysicalReference(value: string) {
-  return /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value) || /^file:/i.test(value) || /^\//.test(value);
+  return /(?:^|[\s"'([{=])file:/i.test(value)
+    || /(?:^|[\s"'([{=\\/])[a-z]:[\\/]/i.test(value)
+    || /(?:^|[\s"'([{=])\\\\/.test(value)
+    || /(?:^|[\s"'([{=])\//.test(value);
 }
 
 function publicString(value: unknown, fallback = "") {
@@ -350,6 +512,336 @@ function normalizeIdentityBridge(value: unknown): SportsIdentityBridge | undefin
     },
     limitations: publicStringArray(value.limitations),
     noNamesOrFuzzyMatching: value.noNamesOrFuzzyMatching === true,
+  };
+}
+
+export function sportsPaDecisionStatus(value: unknown): SportsPaTerminalStatus | null {
+  const normalized = String(value || "").trim().toUpperCase();
+  return SPORTS_PA_TERMINAL_STATUSES.includes(normalized as SportsPaTerminalStatus)
+    ? normalized as SportsPaTerminalStatus
+    : null;
+}
+
+export function sportsIdentityBridgeIsValidated(bridge: SportsIdentityBridge | undefined) {
+  const validStatuses = new Set(["VALID", "VALIDATED", "COMPLETE", "COMPLETED", "PASSED"]);
+  return Boolean(
+    bridge?.active
+    && bridge.noNamesOrFuzzyMatching
+    && validStatuses.has(bridge.validationStatus.toUpperCase())
+    && validStatuses.has(bridge.joinAudit.status.toUpperCase()),
+  );
+}
+
+function optionalFiniteNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function numberArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        const numeric = optionalFiniteNumber(item);
+        return numeric === undefined ? [] : [numeric];
+      })
+    : [];
+}
+
+function normalizePublicEvidenceRecord(value: unknown): SportsPaEvidenceRecord {
+  return isRecord(value)
+    ? sanitizePublicEvidenceValue(value) as SportsPaEvidenceRecord
+    : {};
+}
+
+function optionalPublicEvidenceRecord(value: unknown): SportsPaEvidenceRecord | undefined {
+  return isRecord(value) ? normalizePublicEvidenceRecord(value) : undefined;
+}
+
+function normalizePublicEvidenceRecords(value: unknown): SportsPaEvidenceRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (isRecord(item)) return [normalizePublicEvidenceRecord(item)];
+    const sanitized = sanitizePublicEvidenceValue(item);
+    return sanitized === null ? [] : [{ value: sanitized }];
+  });
+}
+
+function normalizePublicEvidenceItems(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(sanitizePublicEvidenceValue).filter((item) => item !== null)
+    : [];
+}
+
+function normalizeNumberRecord(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => {
+    const numeric = optionalFiniteNumber(item);
+    return numeric === undefined ? [] : [[key, numeric]];
+  }));
+}
+
+function normalizeEvidenceRecordMap(value: unknown): Record<string, SportsPaEvidenceRecord> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => (
+    isRecord(item) ? [[key, normalizePublicEvidenceRecord(item)]] : []
+  )));
+}
+
+function normalizeEvidenceRowsMap(value: unknown): Record<string, SportsPaEvidenceRecord[]> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizePublicEvidenceRecords(item)]));
+}
+
+function normalizeConfusionMatrix(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => Array.isArray(row) ? [numberArray(row)] : []);
+}
+
+function normalizePaMetrics(value: unknown): SportsPaMetrics | undefined {
+  if (!isRecord(value)) return undefined;
+  const sanitized = normalizePublicEvidenceRecord(value);
+  return {
+    ...sanitized,
+    schemaVersion: typeof value.schemaVersion === "string" ? publicString(value.schemaVersion) : undefined,
+    classOrder: publicStringArray(value.classOrder),
+    rowCount: optionalFiniteNumber(value.rowCount),
+    binCount: optionalFiniteNumber(value.binCount),
+    logLoss: optionalFiniteNumber(value.logLoss),
+    brierScore: optionalFiniteNumber(value.brierScore),
+    topLabelEce: optionalFiniteNumber(value.topLabelEce),
+    top1Accuracy: optionalFiniteNumber(value.top1Accuracy),
+    balancedAccuracy: optionalFiniteNumber(value.balancedAccuracy),
+    macroF1: optionalFiniteNumber(value.macroF1),
+    weightedF1: optionalFiniteNumber(value.weightedF1),
+    perClass: normalizeEvidenceRecordMap(value.perClass),
+    confusionMatrix: normalizeConfusionMatrix(value.confusionMatrix),
+    realizedPrevalence: normalizeNumberRecord(value.realizedPrevalence),
+    predictedPrevalence: normalizeNumberRecord(value.predictedPrevalence),
+    argmaxPrevalence: normalizeNumberRecord(value.argmaxPrevalence),
+    topLabelReliability: normalizePublicEvidenceRecords(value.topLabelReliability),
+    classwiseReliability: normalizeEvidenceRowsMap(value.classwiseReliability),
+    probabilityHistograms: normalizeEvidenceRowsMap(value.probabilityHistograms),
+  };
+}
+
+function normalizePaFold(value: unknown): SportsPaFold | undefined {
+  if (!isRecord(value)) return undefined;
+  const foldId = publicString(value.foldId);
+  if (!foldId) return undefined;
+  return {
+    foldId,
+    status: publicString(value.status, "UNKNOWN"),
+    validationSeason: optionalFiniteNumber(value.validationSeason),
+    trainSeasons: numberArray(value.trainSeasons ?? value.trainingSeasons),
+    trainingRows: optionalFiniteNumber(value.trainingRows),
+    validationRows: optionalFiniteNumber(value.validationRows),
+    rowCount: optionalFiniteNumber(value.rowCount ?? value.validationRows),
+    metrics: normalizePaMetrics(value.metrics),
+    rawMetrics: normalizePaMetrics(value.rawMetrics),
+    calibratedMetrics: normalizePaMetrics(value.calibratedMetrics),
+    predictionArtifact: optionalPublicEvidenceRecord(value.predictionArtifact),
+  };
+}
+
+function normalizePaCandidate(value: unknown): SportsPaCandidate | undefined {
+  if (!isRecord(value)) return undefined;
+  const candidateId = publicString(value.candidateId ?? value.id);
+  if (!candidateId) return undefined;
+  const foldValues = Array.isArray(value.folds)
+    ? value.folds
+    : Array.isArray(value.foldMetrics) ? value.foldMetrics : [];
+  const aggregateEvidence = normalizePublicEvidenceRecord(value.aggregateMetrics);
+  const aggregateMetricSource = isRecord(value.aggregateMetrics) && isRecord(value.aggregateMetrics.selection2024)
+    ? value.aggregateMetrics.selection2024
+    : value.aggregateMetrics;
+  return {
+    candidateId,
+    name: publicString(value.name ?? value.displayName, candidateId),
+    definition: publicString(value.definition ?? value.candidateType),
+    candidateType: publicString(value.candidateType ?? value.definition),
+    ordinal: optionalFiniteNumber(value.ordinal),
+    status: publicString(value.status, value.eligible === false ? "REJECTED" : value.eligible === true ? "ELIGIBLE" : "UNKNOWN"),
+    selected: value.selected === true,
+    eligible: typeof value.eligible === "boolean" ? value.eligible : undefined,
+    rejectionReasons: publicStringArray(value.rejectionReasons),
+    hyperparameters: normalizePublicEvidenceRecord(value.hyperparameters ?? value.config),
+    aggregateMetrics: normalizePaMetrics(aggregateMetricSource),
+    aggregateEvidence,
+    convergence: value.convergence === undefined ? undefined : sanitizePublicEvidenceValue(value.convergence),
+    runtimeSeconds: optionalFiniteNumber(value.runtimeSeconds),
+    folds: foldValues.flatMap((item) => {
+      const fold = normalizePaFold(item);
+      return fold ? [fold] : [];
+    }),
+  };
+}
+
+function normalizePaFeatureView(value: unknown): SportsPaFeatureView | undefined {
+  if (!isRecord(value)) return undefined;
+  const featureViewId = publicString(value.featureViewId);
+  if (!featureViewId) return undefined;
+  const logicalRoot = publicString(value.logicalRoot ?? value.logicalUri);
+  const artifactSha = publicString(value.artifactSha);
+  return {
+    featureViewId,
+    contractVersion: publicString(value.contractVersion),
+    contractSha: publicString(value.contractSha),
+    contentSha: publicString(value.contentSha),
+    logicalRoot,
+    artifactSha,
+    artifactBytes: optionalFiniteNumber(value.artifactBytes),
+    rowCount: optionalFiniteNumber(value.rowCount),
+    classOrder: publicStringArray(value.classOrder),
+    seasonRows: normalizePublicEvidenceRecords(value.seasonRows ?? value.seasons),
+    features: normalizePublicEvidenceItems(value.features ?? value.featureNames),
+    artifacts: [],
+  };
+}
+
+function normalizePaExperiment(value: unknown): SportsPaExperiment | undefined {
+  if (!isRecord(value)) return undefined;
+  const experimentId = publicString(value.experimentId);
+  if (!experimentId) return undefined;
+  return {
+    experimentId,
+    status: publicString(value.status, "RECORDED"),
+    objective: publicString(value.objective),
+    seed: optionalFiniteNumber(value.seed),
+    trainingContractVersion: publicString(value.trainingContractVersion),
+    startedAt: publicString(value.startedAt),
+    completedAt: publicString(value.completedAt),
+    durationSeconds: optionalFiniteNumber(value.durationSeconds ?? value.runtimeSeconds),
+    tuningPolicy: value.tuningPolicy === undefined
+      ? value.seed !== undefined || value.trainingContractVersion !== undefined
+        ? sanitizePublicEvidenceValue({ seed: value.seed, trainingContractVersion: value.trainingContractVersion })
+        : undefined
+      : sanitizePublicEvidenceValue(value.tuningPolicy),
+  };
+}
+
+function normalizePaCalibration(value: unknown): SportsPaCalibration | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    status: publicString(value.status ?? value.decision, "RECORDED"),
+    sourceSeason: optionalFiniteNumber(value.sourceSeason),
+    retained: typeof value.retained === "boolean" ? value.retained : undefined,
+    fittedTemperature: optionalFiniteNumber(value.fittedTemperature),
+    retainedTemperature: optionalFiniteNumber(value.retainedTemperature),
+    reason: publicString(value.reason ?? value.rationale),
+    raw2024: normalizePaMetrics(value.raw2024 ?? value.rawMetrics2024),
+    scaled2024: normalizePaMetrics(value.scaled2024 ?? value.scaledMetrics2024 ?? value.calibrated2024),
+    raw2025: normalizePaMetrics(value.raw2025 ?? value.rawMetrics2025),
+    scaled2025: normalizePaMetrics(value.scaled2025 ?? value.scaledMetrics2025 ?? value.calibrated2025),
+    final2025: normalizePaMetrics(value.final2025 ?? value.finalMetrics2025),
+  };
+}
+
+function normalizePaBootstrapComparison(value: unknown): SportsPaBootstrapComparison | undefined {
+  if (!isRecord(value)) return undefined;
+  const evidence = isRecord(value.evidence) ? value.evidence : {};
+  const comparatorCandidateId = publicString(value.comparatorCandidateId ?? value.baselineCandidateId);
+  if (!comparatorCandidateId) return undefined;
+  return {
+    comparatorCandidateId,
+    comparatorName: publicString(value.comparatorName, comparatorCandidateId),
+    foldId: publicString(value.foldId),
+    validationSeason: optionalFiniteNumber(value.validationSeason),
+    resampleCount: optionalFiniteNumber(value.resampleCount ?? value.resamples ?? evidence.resampleCount),
+    seed: optionalFiniteNumber(value.seed),
+    logLossDifference: normalizePublicEvidenceRecord(value.logLossDifference ?? evidence.logLossDifference),
+    brierScoreDifference: normalizePublicEvidenceRecord(value.brierScoreDifference ?? evidence.brierScoreDifference),
+  };
+}
+
+function normalizePaRegistry(value: unknown): SportsPaRegistry | undefined {
+  if (!isRecord(value)) return undefined;
+  const artifacts = normalizePublicEvidenceRecords(value.artifacts);
+  const modelId = publicString(value.modelId);
+  if (!modelId && !artifacts.length) return undefined;
+  const artifactId = publicString(value.artifactId);
+  const logicalUri = publicString(value.logicalUri);
+  return {
+    modelId,
+    artifactId,
+    status: publicString(value.status, value.active === true ? "RECORDED" : "UNKNOWN"),
+    logicalUri,
+    registeredAt: publicString(value.registeredAt),
+    lastValidatedAt: publicString(value.lastValidatedAt),
+    active: typeof value.active === "boolean" ? value.active : undefined,
+    artifacts,
+  };
+}
+
+function normalizePaGraph(value: unknown): SportsPaGraph | undefined {
+  if (!isRecord(value)) return undefined;
+  const nodes = normalizePublicEvidenceRecords(value.nodes);
+  return {
+    status: publicString(value.status, nodes.length ? "RECORDED" : "NOT_CONFIGURED"),
+    nodes,
+    edges: normalizePublicEvidenceRecords(value.edges),
+  };
+}
+
+function normalizePaBaseline(value: unknown): SportsPaBaseline | undefined {
+  if (!isRecord(value)) return undefined;
+  const run = isRecord(value.run) ? value.run : value;
+  const runId = publicString(value.runId ?? run.runId);
+  if (!runId) return undefined;
+  const selected = optionalPublicEvidenceRecord(value.selected);
+  const decisionRecord = isRecord(value.decision) ? value.decision : undefined;
+  const decision = publicString(decisionRecord?.status ?? decisionRecord?.decision ?? decisionRecord?.terminalStatus ?? value.decision ?? run.terminalStatus);
+  const selectedCandidateId = publicString(value.selectedCandidateId ?? selected?.candidateId ?? selected?.id);
+  const candidates = Array.isArray(value.candidates) ? value.candidates.flatMap((item) => {
+    const candidate = normalizePaCandidate(item);
+    return candidate ? [{ ...candidate, selected: candidate.selected || candidate.candidateId === selectedCandidateId }] : [];
+  }) : [];
+  const selectedCandidate = candidates.find((candidate) => candidate.candidateId === selectedCandidateId || candidate.selected);
+  const classOrder = publicStringArray(value.classOrder ?? run.classOrder);
+  const normalizedFeatureView = normalizePaFeatureView(value.featureView);
+  const registry = normalizePaRegistry(value.registry);
+  const featureViewArtifact = normalizedFeatureView && registry?.artifacts.find((artifact) => (
+    publicString(artifact.artifactType) === "FEATURE_VIEW"
+    && publicString(artifact.logicalUri) === normalizedFeatureView.logicalRoot
+    && publicString(artifact.sha256) === normalizedFeatureView.artifactSha
+    && optionalFiniteNumber(artifact.byteCount) === normalizedFeatureView.artifactBytes
+  ));
+  const featureView = normalizedFeatureView
+    ? {
+        ...normalizedFeatureView,
+        classOrder: normalizedFeatureView.classOrder.length ? normalizedFeatureView.classOrder : classOrder,
+        artifacts: featureViewArtifact ? [featureViewArtifact] : [],
+      }
+    : undefined;
+  const topLevelArtifacts = normalizePublicEvidenceRecords(value.artifacts);
+  const bootstrapValues = Array.isArray(value.bootstrapComparisons)
+    ? value.bootstrapComparisons
+    : Array.isArray(value.bootstrap) ? value.bootstrap : [];
+  return {
+    schemaVersion: publicString(value.schemaVersion ?? run.schemaVersion),
+    runId,
+    runSha: publicString(value.runSha ?? run.runSha),
+    projectId: publicString(value.projectId ?? run.projectId),
+    status: publicString(value.status ?? run.terminalStatus, decision || "UNKNOWN"),
+    decision,
+    decisionReason: publicString(value.decisionReason ?? decisionRecord?.reason ?? decisionRecord?.rationale),
+    parent: optionalPublicEvidenceRecord(value.parent ?? run.parent),
+    identityBridge: optionalPublicEvidenceRecord(value.identityBridge ?? run.identityBridge),
+    classOrder,
+    featureView,
+    experiment: normalizePaExperiment(value.experiment ?? run.experiment),
+    candidates,
+    selectedCandidateId,
+    selected,
+    selectedHyperparameters: normalizePublicEvidenceRecord(value.selectedHyperparameters ?? selected?.hyperparameters ?? selected?.config ?? selectedCandidate?.hyperparameters),
+    calibration: normalizePaCalibration(value.calibration),
+    bootstrapComparisons: bootstrapValues.flatMap((item) => {
+      const comparison = normalizePaBootstrapComparison(item);
+      return comparison ? [comparison] : [];
+    }),
+    registry,
+    artifacts: topLevelArtifacts.length ? topLevelArtifacts : registry?.artifacts ?? [],
+    graph: normalizePaGraph(value.graph),
+    limitations: publicStringArray(value.limitations ?? decisionRecord?.limitations),
   };
 }
 
@@ -476,6 +968,7 @@ function normalizeActiveDataset(value: ActiveSportsDataset): ActiveSportsDataset
     project: normalizeProject(raw.project),
     featureAudit: normalizeFeatureAudit(raw.featureAudit),
     identityBridge: normalizeIdentityBridge(raw.identityBridge),
+    paBaseline: normalizePaBaseline(raw.paBaseline),
   };
 }
 

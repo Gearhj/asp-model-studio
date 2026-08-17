@@ -27,11 +27,12 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import {
   MLB_WORKFLOW,
   NFL_WORKFLOW,
+  mlbPaBaselineStepPresentation,
   type SportsWorkflow,
   type SportsWorkflowKey,
   type SportsWorkflowStep,
 } from "./sportsConfig";
-import { type ActiveSportsDataset, type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { sportsIdentityBridgeIsValidated, sportsPaDecisionStatus, type ActiveSportsDataset, type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
 
 type ForecastWorkflowProps = {
   workflowKey?: SportsWorkflowKey;
@@ -61,11 +62,22 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
   const workspaceDataset = resolvedKey === "mlb" && datasetEvidence.status === "ready" ? datasetEvidence.data : null;
   const governedProject = workspaceDataset?.project?.projectId === activeProjectId ? workspaceDataset.project : null;
   const boundDataset = governedProject ? workspaceDataset : null;
+  const baseline = boundDataset?.paBaseline;
+  const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const governedStages = governedProject?.stages ?? [];
-  const evidencedSteps = governedStages.length
+  const governedEvidenceSteps = governedStages.length
     ? governedStages.filter((stage) => !["pending", "not_configured", "not configured"].includes(stage.status.toLowerCase())).length
     : workflow.steps.filter((step) => step.status !== "not_configured").length;
-  const blockedSteps = governedStages.filter((stage) => stage.status.toLowerCase() === "blocked").length;
+  const baselineEvidenceSteps = baseline
+    ? (baseline.candidates.length ? 2 : 0)
+      + (baseline.calibration?.final2025 ? 1 : 0)
+      + (baseline.calibration ? 1 : 0)
+      + (baseline.graph?.nodes.length ? 1 : 0)
+    : 0;
+  const evidencedSteps = Math.max(governedEvidenceSteps, baselineEvidenceSteps);
+  const blockedSteps = baseline
+    ? decision === "BLOCKED" ? 1 : 0
+    : governedStages.filter((stage) => stage.status.toLowerCase() === "blocked").length;
   const evidenceFor = (step: SportsWorkflowStep) => governedStages.find((stage) => stage.stepId === step.id || stage.number === step.number || stage.title?.toLowerCase() === step.title.toLowerCase());
 
   return (
@@ -126,7 +138,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
           icon={Database}
           warning={!boundDataset}
         />
-        <SummaryCard label="Approved graph" value="None" helper="No bundle available" icon={Network} warning />
+        <SummaryCard label="Research graph" value={baseline?.graph?.nodes.length ? `${baseline.graph.nodes.length} nodes` : "None"} helper={baseline?.graph?.nodes.length ? `${decision || "BLOCKED"} · no bundle authority` : "No bundle available"} icon={Network} warning={!baseline?.graph?.nodes.length} />
       </section>
 
       {resolvedKey === "mlb" && datasetEvidence.status === "error" ? <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="alert"><strong>Governed sports evidence unavailable.</strong> Workflow stage status is not inferred while the registration service cannot be read.</section> : null}
@@ -135,7 +147,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-700">Shared sports modeling workflow</div>
-            <h2 id="workflow-map-heading" className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">From objective to ASP export</h2>
+            <h2 id="workflow-map-heading" className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">From objective to terminal research decision</h2>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
             <LockKeyhole size={13} aria-hidden="true" /> 12 gated stages
@@ -160,7 +172,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
         </div>
       </section>
 
-      {resolvedKey === "mlb" ? <BaseOutSimulator blocked={boundDataset?.featureAudit?.status === "BLOCKED"} /> : <DriveSimulator />}
+      {resolvedKey === "mlb" ? <BaseOutSimulator blocked={!baseline && !sportsIdentityBridgeIsValidated(boundDataset?.identityBridge) && boundDataset?.featureAudit?.status === "BLOCKED"} /> : <DriveSimulator />}
 
       <section aria-labelledby="workflow-specification-heading">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -192,8 +204,8 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
           </div>
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">Export gate</div>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">No model graph has been approved for export.</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">SPORTS_MODEL_BUNDLE_V1 becomes available only after evidence, temporal validation, calibration, and graph decisions are complete.</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Export remains disabled.</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">{baseline?.graph?.nodes.length ? `The ${decision || "BLOCKED"} research graph is evidence only and does not authorize SPORTS_MODEL_BUNDLE_V1.` : "No research graph evidence is available for bundle review."}</p>
           </div>
         </div>
         <button type="button" disabled className="inline-flex min-h-10 cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-500">
@@ -401,9 +413,23 @@ function WorkflowStepCard({
   const isEvidenceStep = step.number === 2;
   const isGraphStep = step.number === 11;
   const isExportStep = step.number === 12;
-  const evidenceStatus = evidence?.status || "Not Configured";
+  const baseline = boundDataset?.paBaseline;
+  const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
+  const phase3Presentation = baseline && decision !== "BLOCKED" && workflow.key === "mlb" ? mlbPaBaselineStepPresentation(step) : undefined;
+  const baselineStatus = baseline && decision === "BLOCKED" && step.number === 11 ? "BLOCKED"
+    : baseline && [6, 8].includes(step.number) && baseline.candidates.length ? "COMPLETE"
+    : baseline && step.number === 9 && baseline.calibration?.final2025 ? "COMPLETE"
+      : baseline && step.number === 10 && baseline.calibration ? "COMPLETE"
+        : baseline && step.number === 11 && baseline.graph?.nodes.length ? "COMPLETE"
+          : step.number === 12 ? "NOT_CONFIGURED"
+            : undefined;
+  const evidenceStatus = step.number === 12
+    ? "NOT_CONFIGURED"
+    : decision === "BLOCKED" && step.number === 11
+      ? "BLOCKED"
+      : phase3Presentation?.status || evidence?.status || baselineStatus || "Not Configured";
   const configured = !["pending", "not_configured", "not configured"].includes(evidenceStatus.toLowerCase());
-  const complete = ["complete", "completed"].includes(evidenceStatus.toLowerCase());
+  const complete = evidenceStatus.toLowerCase().includes("complete");
   const blocked = evidenceStatus.toLowerCase() === "blocked";
   return (
     <article id={step.id} className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -414,10 +440,10 @@ function WorkflowStepCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="font-mono text-[11px] font-semibold tracking-[0.1em] text-slate-400">STEP {String(step.number).padStart(2, "0")}</div>
-            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : blocked ? "border-amber-300 bg-amber-50 text-amber-900" : configured ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-slate-100 text-slate-600"}`}>{evidenceStatus.replaceAll("_", " ")}</span>
+            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : blocked ? "border-amber-300 bg-amber-50 text-amber-900" : configured ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-slate-100 text-slate-600"}`}>{evidenceStatus.toUpperCase()}</span>
           </div>
           <h3 className="mt-1 text-lg font-semibold text-slate-950">{step.title}</h3>
-          <p className="mt-2 text-[15px] leading-6 text-slate-600">{step.purpose}</p>
+          <p className="mt-2 text-[15px] leading-6 text-slate-600">{phase3Presentation?.purpose || step.purpose}</p>
         </div>
       </div>
 
@@ -454,8 +480,8 @@ function WorkflowStepCard({
         <div className="mt-5 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950">
           <Network size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div>
-            <div className="text-sm font-semibold">No model graph</div>
-            <div className="mt-0.5 text-xs leading-5 text-blue-800">Lifecycle decisions remain empty until candidate and reliability evidence exists.</div>
+            <div className="text-sm font-semibold">{baseline?.graph?.nodes.length ? "Registered research evidence graph" : "No model graph"}</div>
+            <div className="mt-0.5 text-xs leading-5 text-blue-800">{baseline?.graph?.nodes.length ? `${baseline.graph.nodes.length} nodes and ${baseline.graph.edges.length} directed edges · ${decision || "BLOCKED"}. This graph is research evidence only.` : "Lifecycle decisions remain empty until candidate and reliability evidence exists."}</div>
           </div>
         </div>
       )}
@@ -464,8 +490,8 @@ function WorkflowStepCard({
         <div className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <LockKeyhole size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div>
-            <div className="text-sm font-semibold">No model graph has been approved for export.</div>
-            <div className="mt-0.5 text-xs leading-5 text-amber-800">The future {workflow.league} artifact follows SPORTS_MODEL_BUNDLE_V1.</div>
+            <div className="text-sm font-semibold">Export remains disabled.</div>
+            <div className="mt-0.5 text-xs leading-5 text-amber-800">{baseline?.graph?.nodes.length ? `The ${decision || "BLOCKED"} research graph is not bundle authority.` : `The future ${workflow.league} artifact follows SPORTS_MODEL_BUNDLE_V1.`}</div>
           </div>
         </div>
       )}
@@ -473,7 +499,7 @@ function WorkflowStepCard({
       <div className="mt-5">
         <div className="text-xs font-semibold uppercase tracking-[0.13em] text-slate-500">Scope</div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {step.sections.map((section) => (
+          {(phase3Presentation?.sections || step.sections).map((section) => (
             <span key={section} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium leading-5 text-slate-700">{section}</span>
           ))}
         </div>
@@ -482,11 +508,11 @@ function WorkflowStepCard({
       <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"><LockKeyhole size={13} aria-hidden="true" /> Prerequisites</div>
-          <p className="mt-2 text-xs leading-5 text-slate-600">{step.prerequisites.length ? step.prerequisites.join(" · ") : "None — this is the workflow entry point."}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">{(phase3Presentation?.prerequisites || step.prerequisites).length ? (phase3Presentation?.prerequisites || step.prerequisites).join(" · ") : "None — this is the workflow entry point."}</p>
         </div>
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"><FileCheck2 size={13} aria-hidden="true" /> Expected outputs</div>
-          <p className="mt-2 text-xs leading-5 text-slate-600">{step.outputs.join(" · ")}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">{(phase3Presentation?.outputs || step.outputs).join(" · ")}</p>
         </div>
       </div>
     </article>
