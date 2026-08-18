@@ -26,6 +26,8 @@ import {
   LegacyWorkflowUnavailablePage,
   ModelGraphPage,
   ModelLaboratoryPage,
+  ParticipationUsagePage,
+  PlayerTeamStatePage,
   RegistryDeploymentPage,
   ResearchToolsPage,
   SimulationStudioPage,
@@ -221,6 +223,8 @@ export default function ModelingApp() {
                   <Route path="/data-warehouse" element={<DataWarehousePage />} />
                   <Route path="/datasets" element={<Navigate to="/data-warehouse" replace />} />
                   <Route path="/datasets/*" element={<Navigate to="/data-warehouse" replace />} />
+                  <Route path="/player-team-state" element={<PlayerTeamStatePage />} />
+                  <Route path="/participation-usage" element={<ParticipationUsagePage />} />
                   <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
                   <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
                   <Route path="/simulation-studio" element={<SimulationStudioPage />} />

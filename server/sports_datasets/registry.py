@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 from ..persistence.db import Database, json_dumps, now_iso
 from .constants import (
     EXPECTED_PROHIBITED_USES,
+    EXPECTED_TOTALS,
     LOGICAL_PACKAGE_ROOT,
     MANIFEST_SHA,
     PROJECT_ID,
@@ -48,7 +49,11 @@ def _dataset_totals(validated: ValidatedPackage) -> dict[str, Any]:
     seasons = manifest["seasons"]
     family_rows = {item["family_id"]: item["row_count"] for item in manifest["data_families"]}
     return {
-        "packageFiles": 335,
+        # Single source of truth: the consumer validates the approved package
+        # contains exactly EXPECTED_TOTALS["package_files"] files before
+        # register() runs, so the frontend-facing count must reference that same
+        # authority instead of an independent literal that could silently drift.
+        "packageFiles": EXPECTED_TOTALS["package_files"],
         "parquetFiles": manifest["totals"]["parquet_files"],
         "rows": manifest["totals"]["rows"],
         "parquetBytes": manifest["totals"]["parquet_bytes"],
@@ -101,6 +106,176 @@ def _evidence_coverage(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "transitionCoverage": {"status": "VALID", "rows": sum(item["transitions"] for item in seasons)},
         "taxonomyCoverage": {"status": "VALID", "eightClassTaxonomyComplete": manifest["data_quality_evidence"]["eight_class_taxonomy_complete"]},
     }
+
+
+def _load_active_runtime_audit(registration: Mapping[str, Any], subdir: str) -> dict[str, Any] | None:
+    """Authority-gated read of a governed sports-phase4 runtime audit artifact.
+
+    Shared by the catcher-readiness and pitch-sequence-feature projections. Read-only
+    and defensive: any absence, parse error, or dataset-authority mismatch yields
+    ``None`` so the frontend shows an honest not-run state rather than stale or
+    cross-dataset evidence. Never fabricates evidence and never fits a model.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE4_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase4"
+        )
+        artifact = root / subdir / "latest.audit.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        audit = record.get("audit") if isinstance(record, Mapping) else None
+        if not isinstance(audit, Mapping):
+            return None
+        authority = audit.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        return dict(audit)
+    except Exception:
+        return None
+
+
+def _load_active_catcher_readiness(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    return _load_active_runtime_audit(registration, "catcher-readiness")
+
+
+def _load_active_pitch_sequence_features(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    return _load_active_runtime_audit(registration, "pitch-sequence-features")
+
+
+def _load_active_process_interactions(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    return _load_active_runtime_audit(registration, "process-interactions")
+
+
+def _load_active_incremental_study(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 4E E1/E2 incremental-signal research study.
+
+    Reads ``e1-e2-incremental-signal-study/latest.study.json`` (a research study, not a
+    model or feature materialization). Read-only and defensive: any absence, parse error,
+    or dataset-authority mismatch yields ``None`` for an honest not-run state. Surfaces a
+    compact, honest view only -- never a promoted-model or champion-change claim.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE4_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase4"
+        )
+        artifact = root / "e1-e2-incremental-signal-study" / "latest.study.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("study") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        # Project only the compact, honest fields the surface needs.
+        incremental = payload.get("incrementalTable") or {}
+        return {
+            "studyId": payload.get("studyId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "promotedModel": payload.get("promotedModel", False),
+            "changesChampionStatus": payload.get("changesChampionStatus", False),
+            "modelPolicy": payload.get("modelPolicy"),
+            "population": payload.get("population"),
+            "branchFeatureCounts": payload.get("branchFeatureCounts"),
+            "anchor": payload.get("anchor"),
+            "incrementalRows": incremental.get("rows"),
+            "practicalBandDefinition": incremental.get("practicalBandDefinition"),
+            "strikeout": payload.get("strikeout"),
+            "walkHbpCi": payload.get("walkHbpCi"),
+            "bootstrap": payload.get("bootstrap"),
+            "decision": payload.get("decision"),
+            "nextStep": payload.get("nextStep"),
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
+def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 4F severe-miss forensic study (analysis only).
+
+    Reads ``severe-miss-forensics/latest.study.json``. Read-only and defensive: any absence,
+    parse error, or dataset-authority mismatch yields ``None`` for an honest not-run state.
+    Surfaces a compact, honest view; never a promoted-model claim and never per-player names.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE4_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase4"
+        )
+        artifact = root / "severe-miss-forensics" / "latest.study.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("study") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        seasons = payload.get("seasons") or {}
+        latest = seasons.get("2025") if isinstance(seasons, Mapping) else None
+        pareto = None
+        if isinstance(latest, Mapping):
+            pareto = ((latest.get("pareto") or {}).get("logLoss") or {}).get("rows")
+        decision = payload.get("decision") or {}
+        return {
+            "studyId": payload.get("studyId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "officialPopulationPreserved": payload.get("officialPopulationPreserved", True),
+            "population": payload.get("population"),
+            "anchor": payload.get("anchor"),
+            "pareto2025": pareto,
+            "tailSensitivity2025": latest.get("tailSensitivity") if isinstance(latest, Mapping) else None,
+            "overIndex2025": (latest.get("overIndex") or {}).get("worst_5pct") if isinstance(latest, Mapping) else None,
+            "confusionPairs2025": (latest.get("confusionPairsWorst5") or {}).get("pairs", [])[:6] if isinstance(latest, Mapping) else None,
+            "severeMissClassifier": {
+                "rocAuc": (payload.get("severeMissClassifier") or {}).get("rocAuc"),
+                "prAuc": (payload.get("severeMissClassifier") or {}).get("prAuc"),
+            },
+            "randomness": decision.get("randomness"),
+            "topThreePatterns": decision.get("topThreePatterns"),
+            "recommendedNextStep": decision.get("recommendedNextStep"),
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
 
 
 class SportsDatasetRegistry:
@@ -710,6 +885,21 @@ class SportsDatasetRegistry:
         if pa_baseline is not None:
             result["paBaseline"] = pa_baseline
         if phase4 is not None:
+            catcher_readiness = _load_active_catcher_readiness(registration)
+            if catcher_readiness is not None:
+                phase4 = {**phase4, "catcherReadiness": catcher_readiness}
+            pitch_sequence_features = _load_active_pitch_sequence_features(registration)
+            if pitch_sequence_features is not None:
+                phase4 = {**phase4, "pitchSequenceFeatures": pitch_sequence_features}
+            process_interactions = _load_active_process_interactions(registration)
+            if process_interactions is not None:
+                phase4 = {**phase4, "processInteractions": process_interactions}
+            incremental_study = _load_active_incremental_study(registration)
+            if incremental_study is not None:
+                phase4 = {**phase4, "incrementalSignalStudy": incremental_study}
+            severe_miss_forensics = _load_active_severe_miss_forensics(registration)
+            if severe_miss_forensics is not None:
+                phase4 = {**phase4, "severeMissForensics": severe_miss_forensics}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]

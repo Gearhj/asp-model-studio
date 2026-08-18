@@ -24,6 +24,10 @@ export default function SportsProjects() {
       + (datasetEvidence.data.paBaseline.calibration ? 1 : 0)
       + (datasetEvidence.data.paBaseline.graph?.nodes.length ? 1 : 0)
     : 0;
+  const phase4EvidenceCount = datasetEvidence.status === "ready" && datasetEvidence.data.phase4
+    ? Object.values(datasetEvidence.data.phase4.components).filter(Boolean).length
+      + (datasetEvidence.data.phase4.graph?.nodes.length ? 1 : 0)
+    : 0;
   const localProjects = governedProject
     ? projects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name)
     : projects;
@@ -116,7 +120,7 @@ export default function SportsProjects() {
         </section>
       ) : (
         <section className="grid gap-4 lg:grid-cols-2">
-          {governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
+          {governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount + phase4EvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
           {localProjects.map((project) => {
             const workflow = sportsWorkflowForId(project.workflowId);
             const metadata = loadSportsProjectMetadata(project.projectId);

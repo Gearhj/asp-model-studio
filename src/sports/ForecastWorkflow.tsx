@@ -28,6 +28,7 @@ import {
   MLB_WORKFLOW,
   NFL_WORKFLOW,
   mlbPaBaselineStepPresentation,
+  mlbPhase4StepPresentation,
   type SportsWorkflow,
   type SportsWorkflowKey,
   type SportsWorkflowStep,
@@ -414,8 +415,11 @@ function WorkflowStepCard({
   const isGraphStep = step.number === 11;
   const isExportStep = step.number === 12;
   const baseline = boundDataset?.paBaseline;
+  const phase4 = boundDataset?.phase4;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const phase3Presentation = baseline && decision !== "BLOCKED" && workflow.key === "mlb" ? mlbPaBaselineStepPresentation(step) : undefined;
+  const phase4Presentation = workflow.key === "mlb" ? mlbPhase4StepPresentation(step, phase4) : undefined;
+  const governedPresentation = phase4Presentation || phase3Presentation;
   const baselineStatus = baseline && decision === "BLOCKED" && step.number === 11 ? "BLOCKED"
     : baseline && [6, 8].includes(step.number) && baseline.candidates.length ? "COMPLETE"
     : baseline && step.number === 9 && baseline.calibration?.final2025 ? "COMPLETE"
@@ -427,7 +431,7 @@ function WorkflowStepCard({
     ? "NOT_CONFIGURED"
     : decision === "BLOCKED" && step.number === 11
       ? "BLOCKED"
-      : phase3Presentation?.status || evidence?.status || baselineStatus || "Not Configured";
+      : governedPresentation?.status || evidence?.status || baselineStatus || "Not Configured";
   const configured = !["pending", "not_configured", "not configured"].includes(evidenceStatus.toLowerCase());
   const complete = evidenceStatus.toLowerCase().includes("complete");
   const blocked = evidenceStatus.toLowerCase() === "blocked";
@@ -443,7 +447,7 @@ function WorkflowStepCard({
             <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : blocked ? "border-amber-300 bg-amber-50 text-amber-900" : configured ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-slate-100 text-slate-600"}`}>{evidenceStatus.toUpperCase()}</span>
           </div>
           <h3 className="mt-1 text-lg font-semibold text-slate-950">{step.title}</h3>
-          <p className="mt-2 text-[15px] leading-6 text-slate-600">{phase3Presentation?.purpose || step.purpose}</p>
+          <p className="mt-2 text-[15px] leading-6 text-slate-600">{governedPresentation?.purpose || step.purpose}</p>
         </div>
       </div>
 
@@ -480,8 +484,8 @@ function WorkflowStepCard({
         <div className="mt-5 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950">
           <Network size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div>
-            <div className="text-sm font-semibold">{baseline?.graph?.nodes.length ? "Registered research evidence graph" : "No model graph"}</div>
-            <div className="mt-0.5 text-xs leading-5 text-blue-800">{baseline?.graph?.nodes.length ? `${baseline.graph.nodes.length} nodes and ${baseline.graph.edges.length} directed edges · ${decision || "BLOCKED"}. This graph is research evidence only.` : "Lifecycle decisions remain empty until candidate and reliability evidence exists."}</div>
+            <div className="text-sm font-semibold">{phase4?.graph?.nodes.length ? "Registered Phase 4 research graph" : baseline?.graph?.nodes.length ? "Registered Phase 3 research graph" : "No model graph"}</div>
+            <div className="mt-0.5 text-xs leading-5 text-blue-800">{phase4?.graph?.nodes.length ? `${phase4.graph.nodes.length} nodes and ${phase4.graph.edges.length} directed edges. This parent-linked graph is research evidence only.` : baseline?.graph?.nodes.length ? `${baseline.graph.nodes.length} nodes and ${baseline.graph.edges.length} directed edges · ${decision || "BLOCKED"}. This graph is research evidence only.` : "Lifecycle decisions remain empty until candidate and reliability evidence exists."}</div>
           </div>
         </div>
       )}
@@ -491,7 +495,7 @@ function WorkflowStepCard({
           <LockKeyhole size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div>
             <div className="text-sm font-semibold">Export remains disabled.</div>
-            <div className="mt-0.5 text-xs leading-5 text-amber-800">{baseline?.graph?.nodes.length ? `The ${decision || "BLOCKED"} research graph is not bundle authority.` : `The future ${workflow.league} artifact follows SPORTS_MODEL_BUNDLE_V1.`}</div>
+            <div className="mt-0.5 text-xs leading-5 text-amber-800">{phase4?.graph?.nodes.length ? "Phase 4 component research is not a game simulator or bundle authority." : baseline?.graph?.nodes.length ? `The ${decision || "BLOCKED"} research graph is not bundle authority.` : `The future ${workflow.league} artifact follows SPORTS_MODEL_BUNDLE_V1.`}</div>
           </div>
         </div>
       )}
@@ -499,7 +503,7 @@ function WorkflowStepCard({
       <div className="mt-5">
         <div className="text-xs font-semibold uppercase tracking-[0.13em] text-slate-500">Scope</div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {(phase3Presentation?.sections || step.sections).map((section) => (
+          {(governedPresentation?.sections || step.sections).map((section) => (
             <span key={section} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium leading-5 text-slate-700">{section}</span>
           ))}
         </div>
@@ -508,11 +512,11 @@ function WorkflowStepCard({
       <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"><LockKeyhole size={13} aria-hidden="true" /> Prerequisites</div>
-          <p className="mt-2 text-xs leading-5 text-slate-600">{(phase3Presentation?.prerequisites || step.prerequisites).length ? (phase3Presentation?.prerequisites || step.prerequisites).join(" · ") : "None — this is the workflow entry point."}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">{(governedPresentation?.prerequisites || step.prerequisites).length ? (governedPresentation?.prerequisites || step.prerequisites).join(" · ") : "None — this is the workflow entry point."}</p>
         </div>
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500"><FileCheck2 size={13} aria-hidden="true" /> Expected outputs</div>
-          <p className="mt-2 text-xs leading-5 text-slate-600">{(phase3Presentation?.outputs || step.outputs).join(" · ")}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600">{(governedPresentation?.outputs || step.outputs).join(" · ")}</p>
         </div>
       </div>
     </article>

@@ -4,6 +4,16 @@ import {
   DataWarehouseEvidencePage,
 } from "./SportsEvidenceSurfaces";
 import {
+  ParticipationUsagePage,
+  Phase4EvaluationSection,
+  Phase4GraphSection,
+  Phase4ModelLaboratorySection,
+  Phase4RegistrySection,
+  Phase4SimulationStatus,
+  PlayerTeamStatePage,
+} from "./Phase4Surfaces";
+export { ParticipationUsagePage, PlayerTeamStatePage } from "./Phase4Surfaces";
+import {
   logicalSportsEvidenceUri,
   sportsPaDecisionStatus,
   useActiveSportsDataset,
@@ -367,6 +377,7 @@ export function ModelLaboratoryPage() {
   const datasetEvidence = useActiveSportsDataset();
   const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
   const baseline = dataset?.paBaseline;
+  const phase4 = dataset?.phase4;
   const featureAudit = dataset?.featureAudit;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const candidates = baseline?.candidates ?? [];
@@ -468,6 +479,7 @@ export function ModelLaboratoryPage() {
         </SectionCard>
         <SectionCard title="Sports evaluation vocabulary" description="Metrics remain empty until evidence-producing runs complete." icon={BarChart3}><div className="grid gap-3 md:grid-cols-3">{[["Probability", "Brier score · log loss · calibration error"], ["Classification", "Accuracy · macro F1 · confusion matrix"], ["Reliability", "Provided probability bands · prevalence"]].map(([title, metrics]) => <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="text-sm font-semibold text-slate-950">{title}</div><div className="mt-2 text-xs text-slate-600">{metrics}</div><div className="mt-4 border-t border-slate-200 pt-3 text-xs font-semibold text-slate-400">No measured values</div></div>)}</div></SectionCard>
       </>}
+      <Phase4ModelLaboratorySection study={phase4} />
     </StudioPageFrame>
   );
 }
@@ -491,6 +503,8 @@ function LineageRail({ labels }: { labels: string[] }) {
 }
 
 export function SimulationStudioPage() {
+  const datasetEvidence = useActiveSportsDataset();
+  const phase4 = datasetEvidence.status === "ready" ? datasetEvidence.data.phase4 : undefined;
   return (
     <StudioPageFrame
       eyebrow="Probabilistic game engine"
@@ -510,6 +524,8 @@ export function SimulationStudioPage() {
         { label: "Player distributions", value: "0", detail: "No result artifacts" },
         { label: "Scenario sets", value: "0", detail: "No scenarios defined" },
       ]} />
+
+      <Phase4SimulationStatus study={phase4} />
 
       <SectionCard title="Sports simulation architecture" description="The studio is reserved for sports-native state propagation; inherited experimental-design simulation is not presented as a game simulator." icon={Workflow}>
         <LineageRail labels={["Player & team state", "Participation & usage", "Event / drive model", "Game-state engine", "Outcome distributions"]} />
@@ -687,6 +703,7 @@ function PrevalenceAndConfusion({ metrics }: { metrics: SportsPaMetrics }) {
 export function EvaluationCalibrationPage() {
   const datasetEvidence = useActiveSportsDataset();
   const baseline = datasetEvidence.status === "ready" ? datasetEvidence.data.paBaseline : undefined;
+  const phase4 = datasetEvidence.status === "ready" ? datasetEvidence.data.phase4 : undefined;
   const calibration = baseline?.calibration;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const calibrationRows = [
@@ -750,11 +767,12 @@ export function EvaluationCalibrationPage() {
           {baseline?.bootstrapComparisons.length ? <div className="grid gap-3 lg:grid-cols-2">{baseline.bootstrapComparisons.map((comparison, index) => <article key={`${comparison.comparatorCandidateId}-${comparison.foldId || index}`} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-slate-950">{comparison.comparatorName}</h3><StatusPill label={comparison.validationSeason ? String(comparison.validationSeason) : comparison.foldId || "COMPARISON"} /></div><p className="mt-1 text-xs text-slate-500">{comparison.comparatorCandidateId} · {formatInteger(comparison.resampleCount)} resamples · seed {comparison.seed ?? "—"}</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{[["Log-loss difference", comparison.logLossDifference], ["Brier-score difference", comparison.brierScoreDifference]].map(([label, evidence]) => { const record = evidence as SportsPaEvidenceRecord; const interval = record.percentileInterval as SportsPaEvidenceRecord | undefined; return <dl key={String(label)} className="rounded-lg bg-slate-50 p-3 text-xs"><dt className="font-semibold text-slate-800">{String(label)}</dt><dd className="mt-2 space-y-1 text-slate-600"><div>Point: {formatMetric(evidenceNumber(record, "pointEstimate"))}</div><div>Mean: {formatMetric(evidenceNumber(record, "bootstrapMean"))}</div><div>Interval: {formatMetric(evidenceNumber(interval, "lower"))} to {formatMetric(evidenceNumber(interval, "upper"))}</div><div>P(selected better): {formatMetric(evidenceNumber(record, "probabilitySelectedBetter"))}</div></dd></dl>; })}</div></article>)}</div> : <p className="text-sm text-slate-500">No bootstrap comparison evidence was returned.</p>}
         </SectionCard>
       </> : <EmptyState icon={Gauge} title="No Evaluation Evidence" description="No 2024 calibration or frozen 2025 rolling-origin metrics were returned by the active dataset." detail={baseline?.decisionReason} />}
+      <Phase4EvaluationSection study={phase4} />
     </StudioPageFrame>
   );
 }
 
-const FUTURE_MODEL_GRAPH_NODES = ["Dynamic player state", "Lineup model", "Starter-duration model", "Bullpen-usage model", "Base-out simulator", "Residual model", "Forecast bundle"];
+const FUTURE_MODEL_GRAPH_NODES = ["Confirmed-lineup feed", "Probable-starter feed", "Injury and transaction feed", "Handedness / platoon (E6)", "Batter archetypes", "Pitcher archetypes", "SVM challenger", "Random forest / extra trees challenger", "Boosting challenger", "Neural challenger", "Premium Statcast ablation", "Catcher state", "Pitcher-catcher battery interaction", "Catcher-batter archetype interaction", "Pitch selection and sequencing", "Catcher framing", "Catcher blocking", "Catcher throwing / running control", "ABS challenge decision model", "Base-out transition model", "Game simulator", "Residual model", "Forecast bundle", "Forward monitoring"];
 
 function graphNodeId(node: SportsPaEvidenceRecord, index: number) {
   return evidenceString(node, "nodeId", "id", "artifactId", "key") || `node-${index + 1}`;
@@ -768,6 +786,7 @@ export function ModelGraphPage() {
   const datasetEvidence = useActiveSportsDataset();
   const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
   const baseline = dataset?.paBaseline;
+  const phase4 = dataset?.phase4;
   const graph = baseline?.graph;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const hasResearchGraph = Boolean(graph?.nodes.length);
@@ -794,6 +813,25 @@ export function ModelGraphPage() {
         </div> : <EmptyState icon={Network} title="No Model Graph" description="The active evidence does not include a completed PA research graph." detail={baseline?.decisionReason} />}
       </SectionCard>
 
+      <Phase4GraphSection study={phase4} />
+
+      {phase4?.incrementalSignalStudy ? (() => {
+        const s = phase4.incrementalSignalStudy!;
+        const dec = (s.decision ?? {}) as Record<string, unknown>;
+        const e1 = (dec.e1 ?? {}) as Record<string, unknown>;
+        const e2 = (dec.e2 ?? {}) as Record<string, unknown>;
+        const ns = (s.nextStep ?? {}) as Record<string, unknown>;
+        return (
+          <SectionCard title="E1/E2 incremental-signal research study" description="Completed feature-ablation decision node (D3 vs D3+E1 vs D3+E1+E2). Research only — grants no promotion, bundle, or champion change." icon={GitBranch} action={<StatusPill label="FEATURE_ABLATION_COMPLETE" tone="cyan" />}>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><span className="text-xs font-semibold text-slate-700">E1 predictive value</span><span className="text-[11px] font-semibold uppercase text-slate-500">{String(e1.decision ?? "—")}</span></div>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><span className="text-xs font-semibold text-slate-700">E2 incremental value</span><span className="text-[11px] font-semibold uppercase text-slate-500">{String(e2.decision ?? "—")}</span></div>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><span className="text-xs font-semibold text-slate-700">Recommended next</span><span className="text-[11px] font-semibold uppercase text-slate-500">{String(ns.recommendedPath ?? "—")}</span></div>
+            </div>
+          </SectionCard>
+        );
+      })() : null}
+
       <SectionCard title="Terminal research vocabulary" description="Only the terminal statuses supported by PA baseline evidence are shown." icon={ShieldCheck}>
         <div className="flex flex-wrap gap-2">
           {["RESEARCH_CHALLENGER", "RESEARCH_BASELINE", "REJECTED_BASELINE", "BLOCKED"].map((status) => (
@@ -812,6 +850,7 @@ export function ModelGraphPage() {
 export function RegistryDeploymentPage() {
   const datasetEvidence = useActiveSportsDataset();
   const baseline = datasetEvidence.status === "ready" ? datasetEvidence.data.paBaseline : undefined;
+  const phase4 = datasetEvidence.status === "ready" ? datasetEvidence.data.phase4 : undefined;
   const registry = baseline?.registry;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const selected = baseline?.candidates.find((candidate) => candidate.candidateId === baseline.selectedCandidateId || candidate.selected);
@@ -849,6 +888,8 @@ export function RegistryDeploymentPage() {
         { label: "Bundles", value: "0", detail: "No Bundle Exported" },
         { label: "Target environments", value: "0", detail: "No deployment target" },
       ]} />
+
+      <Phase4RegistrySection study={phase4} />
 
       <SectionCard title="Research artifact registry" description="The terminal PA research status and immutable artifact references come from the active dataset; no delivery state is inferred." icon={Boxes} action={<StatusPill label={baseline ? decision || "BLOCKED" : "NOT CONFIGURED"} tone={terminalTone(decision)} />}>
         {registry || artifactEvidence.length ? <div className="space-y-4">
@@ -1223,6 +1264,8 @@ export function LegacyWorkflowUnavailablePage() {
 
 export const STUDIO_MODULE_PAGES = {
   DataWarehousePage,
+  PlayerTeamStatePage,
+  ParticipationUsagePage,
   ModelLaboratoryPage,
   SimulationStudioPage,
   EvaluationCalibrationPage,

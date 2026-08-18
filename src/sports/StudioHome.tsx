@@ -57,6 +57,9 @@ export default function StudioHome() {
   const recentProjects = localProjects.slice(0, governedProject ? 3 : 4);
   const projectCount = localProjects.length + (governedProject ? 1 : 0);
   const baseline = activeDataset?.paBaseline;
+  const phase4 = activeDataset?.phase4;
+  const phase4Components = phase4 ? Object.values(phase4.components).filter(Boolean) : [];
+  const phase4Challengers = phase4Components.filter((component) => /CHALLENGER|_COMPONENT$/.test(component!.status)).length;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status) || (baseline ? "BLOCKED" : null);
   const identityBridgeReady = sportsIdentityBridgeIsValidated(activeDataset?.identityBridge);
   const featureBlocked = !baseline && !identityBridgeReady && activeDataset?.featureAudit?.status === "BLOCKED";
@@ -75,8 +78,8 @@ export default function StudioHome() {
   const statusCards: StatusCard[] = [
     { label: "Sports Projects", value: projectCount, helper: governedProject ? (decision || (projectBlocked ? "Governed MLB project · modeling blocked" : "Governed MLB project registered")) : projectCount ? "Target-local projects" : "No project created", icon: FolderKanban, tone: projectBlocked ? "amber" : "cyan" },
     { label: "Registered Datasets", value: registeredDatasets, helper: datasetHelper, icon: Database, tone: "blue" },
-    { label: "Active Experiments", value: baseline?.experiment ? 1 : 0, helper: baseline?.experiment?.status || "No experiment run", icon: FlaskConical, tone: baseline?.experiment ? "blue" : "amber" },
-    { label: "Research Challengers", value: decision === "RESEARCH_CHALLENGER" ? 1 : 0, helper: decision || "No challenger selected", icon: Activity, tone: decision === "RESEARCH_CHALLENGER" ? "cyan" : "amber" },
+    { label: "Active Experiments", value: (baseline?.experiment ? 1 : 0) + (phase4 ? 1 : 0), helper: phase4 ? `Phase 4 study · ${phase4Components.length} components` : baseline?.experiment?.status || "No experiment run", icon: FlaskConical, tone: baseline?.experiment || phase4 ? "blue" : "amber" },
+    { label: "Research Challengers", value: (decision === "RESEARCH_CHALLENGER" ? 1 : 0) + phase4Challengers, helper: phase4 ? "Phase 3 and Phase 4 decisions remain separate" : decision || "No challenger selected", icon: Activity, tone: decision === "RESEARCH_CHALLENGER" || phase4Challengers ? "cyan" : "amber" },
     { label: "Model Bundles", value: 0, helper: "No bundle exported", icon: Box, tone: "emerald" },
     { label: "Monitoring Plans", value: 0, helper: "No plan configured", icon: Radar, tone: "blue" },
   ];
@@ -199,15 +202,15 @@ export default function StudioHome() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.15em] text-amber-300">Next platform milestone</div>
-              <h2 className="mt-2 text-xl font-semibold">{decision === "RESEARCH_CHALLENGER" ? "MLB PA research challenger recorded" : decision === "RESEARCH_BASELINE" ? "MLB PA research baseline established" : decision === "REJECTED_BASELINE" ? "MLB PA baseline rejected" : decision === "BLOCKED" ? "MLB PA baseline blocked" : activeDataset ? (featureBlocked ? "MLB evidence registered · feature view blocked" : "MLB evidence registered") : "Establish the MLB evidence baseline"}</h2>
+              <h2 className="mt-2 text-xl font-semibold">{phase4 ? "MLB Phase 4 component research recorded" : decision === "RESEARCH_CHALLENGER" ? "MLB PA research challenger recorded" : decision === "RESEARCH_BASELINE" ? "MLB PA research baseline established" : decision === "REJECTED_BASELINE" ? "MLB PA baseline rejected" : decision === "BLOCKED" ? "MLB PA baseline blocked" : activeDataset ? (featureBlocked ? "MLB evidence registered · feature view blocked" : "MLB evidence registered") : "Establish the MLB evidence baseline"}</h2>
             </div>
             <CircleDot size={21} className="shrink-0 text-amber-300" aria-hidden="true" />
           </div>
           <p className="mt-4 text-[15px] leading-7 text-slate-300">
-            {baseline ? (baseline.decisionReason || "Review the registered candidate, calibration, and terminal research evidence.") : activeDataset ? (modelingLimitation || "Review the registered evidence and limitations before model work begins.") : "Register the first immutable ASP sports dataset manifest and begin the MLB plate-appearance baseline experiment."}
+            {phase4 ? "Review dynamic-state, lineup, starter-duration, and bullpen evidence before adding the missing prospective feeds and base-out simulator." : baseline ? (baseline.decisionReason || "Review the registered candidate, calibration, and terminal research evidence.") : activeDataset ? (modelingLimitation || "Review the registered evidence and limitations before model work begins.") : "Register the first immutable ASP sports dataset manifest and begin the MLB plate-appearance baseline experiment."}
           </p>
           <div className="mt-5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-5 text-slate-400">
-            {baseline ? `Run ${baseline.runId} is bound to registration ${activeDataset?.registrationId}. Terminal research status: ${decision || "BLOCKED"}. Exported bundles remain 0.` : activeDataset ? `Registration ${activeDataset.registrationId} is ${activeDataset.validationStatus}. Feature authority is ${activeDataset.featureAudit?.status || "not audited"}. No model experiment has been run.` : datasetEvidence.status === "error" ? "The governed dataset registry could not be read. No registration is inferred from browser-local project snapshots." : "No governed sports dataset is registered in this workspace."}
+            {phase4 ? `Study ${phase4.studyId} extends unchanged Phase 3 run ${baseline?.runId || "not recorded"} with ${phase4Components.length} component records. Simulations, bundles, and monitoring remain 0.` : baseline ? `Run ${baseline.runId} is bound to registration ${activeDataset?.registrationId}. Terminal research status: ${decision || "BLOCKED"}. Exported bundles remain 0.` : activeDataset ? `Registration ${activeDataset.registrationId} is ${activeDataset.validationStatus}. Feature authority is ${activeDataset.featureAudit?.status || "not audited"}. No model experiment has been run.` : datasetEvidence.status === "error" ? "The governed dataset registry could not be read. No registration is inferred from browser-local project snapshots." : "No governed sports dataset is registered in this workspace."}
           </div>
         </div>
       </section>

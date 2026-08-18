@@ -459,14 +459,35 @@ def save_users(payload: Dict[str, Any]) -> None:
     write_json(USERS_PATH, payload)
 
 
+# Fail-closed context returned when there is neither an authenticated request
+# user nor an explicitly provisioned local bootstrap user. Engineering integrity
+# audit finding P2-2: this function previously synthesized a role="admin" user
+# in that case, which is a latent fail-open for any non-request caller
+# (background jobs, scheduled retraining, ingestion, scoring, monitoring, CLI or
+# service tasks). An absent user context must never silently become administrator
+# authority, so the fallback now carries no identity and no privileged role.
+# Elevated internal operations must supply an explicit active-user context (via
+# security_store.set_active_user / the request middleware) rather than relying on
+# an implicit admin.
+UNAUTHENTICATED_CONTEXT: Dict[str, Any] = {
+    "userId": None,
+    "displayName": "Unauthenticated",
+    "email": None,
+    "role": "none",
+}
+
+
 def current_user() -> Dict[str, Any]:
     found = active_user()
     if found:
         return found
+    # An explicitly provisioned local bootstrap user (only created when
+    # ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP is enabled in local development) remains a
+    # legitimate, real identity -- it is not synthesized here.
     fallback = get_user("local-user")
     if fallback:
         return fallback
-    return {"userId": "local-user", "displayName": "Local ATLAS User", "email": "local.user@atlas.local", "role": "admin"}
+    return dict(UNAUTHENTICATED_CONTEXT)
 
 
 def list_users() -> List[Dict[str, Any]]:
@@ -498,6 +519,11 @@ def user_can_access(dataset: Dict[str, Any], user: Optional[Dict[str, Any]] = No
     user_id = active.get("userId")
     if active.get("role") == "admin":
         return True
+    # Fail closed when there is no concrete authenticated identity. Without this
+    # guard a context with userId=None could match a dataset whose ownerUserId is
+    # also null (None == None), silently granting access (audit finding P2-2).
+    if not user_id:
+        return False
     if dataset.get("ownerUserId") == user_id:
         return True
     grants = dataset.get("access") or []

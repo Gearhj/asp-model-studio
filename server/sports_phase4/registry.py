@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import math
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -1310,12 +1310,19 @@ def _validate_binary_calibration(
     label: str,
 ) -> None:
     calibration = _mapping(value, label=label)
+    # Governed equal-count calibration (MLB_PARTICIPATION_BINARY_CALIBRATION_V2): deciles are
+    # equal-count array splits over probability-then-governed-row-id order, so bins carry
+    # sorted start/end offsets and observed min/max probability instead of fixed equal-width
+    # bounds. Validate that authoritative schema faithfully.
     _exact_keys(
         calibration,
         {
             "schemaVersion",
             "rowCount",
             "binCount",
+            "binningPolicy",
+            "sortPolicy",
+            "rowsAssignedExactlyOnce",
             "bins",
             "expectedCalibrationError",
             "acceptableThreshold",
@@ -1327,11 +1334,14 @@ def _validate_binary_calibration(
     bins = _list(calibration.get("bins"), label=f"{label}.bins")
     if (
         calibration.get("schemaVersion")
-        != "MLB_PARTICIPATION_BINARY_CALIBRATION_V1"
+        != "MLB_PARTICIPATION_BINARY_CALIBRATION_V2"
         or calibration.get("rowCount") != rows
         or calibration.get("binCount") != 10
         or len(bins) != 10
         or calibration.get("acceptableThreshold") != 0.05
+        or calibration.get("binningPolicy") != "EQUAL_COUNT_NUMPY_ARRAY_SPLIT"
+        or calibration.get("sortPolicy") != "PROBABILITY_ASC_THEN_GOVERNED_ROW_ID_ASC"
+        or calibration.get("rowsAssignedExactlyOnce") is not True
     ):
         raise SportsPhase4RegistryError(f"{label} authority differs")
     total = 0
@@ -1343,9 +1353,11 @@ def _validate_binary_calibration(
             item,
             {
                 "binIndex",
-                "lowerInclusive",
-                "upperInclusive",
+                "sortedStartInclusive",
+                "sortedEndExclusive",
                 "count",
+                "minimumProbability",
+                "maximumProbability",
                 "meanProbability",
                 "observedRate",
                 "absoluteGap",
@@ -1353,28 +1365,39 @@ def _validate_binary_calibration(
             label=f"{label}.bins[{index}]",
         )
         count = item.get("count")
+        # Equal-count bins tile the sorted rows contiguously: each bin starts where the
+        # previous ended and spans exactly its own count.
         if (
             item.get("binIndex") != index
-            or item.get("lowerInclusive") != index / 10
-            or item.get("upperInclusive") != (index + 1) / 10
+            or item.get("sortedStartInclusive") != total
             or type(count) is not int
             or count < 0
+            or item.get("sortedEndExclusive") != total + count
         ):
             raise SportsPhase4RegistryError(f"{label} bin authority differs")
         total += count
         if count == 0:
             if any(
                 item.get(key) is not None
-                for key in ("meanProbability", "observedRate", "absoluteGap")
+                for key in (
+                    "minimumProbability",
+                    "maximumProbability",
+                    "meanProbability",
+                    "observedRate",
+                    "absoluteGap",
+                )
             ):
                 raise SportsPhase4RegistryError(f"{label} empty bin differs")
             all_finite_nonempty = False
             continue
+        minimum_probability = _metric_value(item, "minimumProbability", label=label)
+        maximum_probability = _metric_value(item, "maximumProbability", label=label)
         mean_probability = _metric_value(item, "meanProbability", label=label)
         observed_rate = _metric_value(item, "observedRate", label=label)
         absolute_gap = _metric_value(item, "absoluteGap", label=label)
         if (
-            not 0.0 <= mean_probability <= 1.0
+            not 0.0 <= minimum_probability <= maximum_probability <= 1.0
+            or not minimum_probability <= mean_probability <= maximum_probability
             or not 0.0 <= observed_rate <= 1.0
             or not math.isclose(
                 absolute_gap,
@@ -1427,6 +1450,8 @@ def _validate_participation_metrics(
                 "totalActualPositiveCount",
                 "teamGameCount",
                 "completeLineupEligibleTeamGameCount",
+                "completeLineupEligibleGameCount",
+                "orderMetricGameCount",
                 "top9Recall",
                 "topNinePrecision",
                 "topNineF1",
@@ -1435,7 +1460,12 @@ def _validate_participation_metrics(
                 "exactLineupRate",
                 "exactOrderRate",
                 "battingOrderMae",
+                "exactBattingPositionRate",
+                "exactBattingPositionCount",
+                "exactBattingPositionEligibleCount",
                 "earlySeasonTop9Recall",
+                "laterSeasonTop9Recall",
+                "stratifiedMetrics",
                 "teamGames",
             }
             if slot == "lineup"
@@ -1454,6 +1484,7 @@ def _validate_participation_metrics(
                 "conditionalBfpMae",
                 "conditionalOutsMae",
                 "earlySeasonSetRecall",
+                "recentUseStratifiedMetrics",
             }
         )
         _exact_keys(metrics, binary_keys | extra_keys, label=label)
@@ -1492,6 +1523,12 @@ def _validate_participation_metrics(
             covered_actual = 0
             eligible = complete = recovered = exact_sets = exact_orders = 0
             observed_keys: set[tuple[str, str]] = set()
+            # exactLineupRate / exactOrderRate are governed per-GAME (both teams exact among
+            # fully-eligible games), unlike the per-team-game complete/recovery rates, so track
+            # eligibility and exact flags grouped by game to reconcile them faithfully.
+            game_eligible: dict[str, list[bool]] = defaultdict(list)
+            game_exact_sets: dict[str, list[bool]] = defaultdict(list)
+            game_exact_orders: dict[str, list[bool]] = defaultdict(list)
             for index, raw_game in enumerate(team_games):
                 game = _mapping(raw_game, label=f"{label}.teamGames[{index}]")
                 _exact_keys(
@@ -1506,6 +1543,8 @@ def _validate_participation_metrics(
                         "completeLineupEligible",
                         "exactSet",
                         "exactOrder",
+                        "exactBattingPositionCount",
+                        "exactBattingPositionHits",
                     },
                     label=f"{label}.teamGames[{index}]",
                 )
@@ -1525,6 +1564,7 @@ def _validate_participation_metrics(
                 ):
                     raise SportsPhase4RegistryError(f"{label} team-game counts differ")
                 is_eligible = game["completeLineupEligible"]
+                game_eligible[identity[0]].append(bool(is_eligible))
                 if is_eligible:
                     if type(game.get("exactSet")) is not bool or type(game.get("exactOrder")) is not bool:
                         raise SportsPhase4RegistryError(f"{label} eligible exact flags differ")
@@ -1533,6 +1573,8 @@ def _validate_participation_metrics(
                     recovered += int(counts[3] == 9)
                     exact_sets += int(game["exactSet"])
                     exact_orders += int(game["exactOrder"])
+                    game_exact_sets[identity[0]].append(bool(game["exactSet"]))
+                    game_exact_orders[identity[0]].append(bool(game["exactOrder"]))
                 elif game.get("exactSet") is not None or game.get("exactOrder") is not None:
                     raise SportsPhase4RegistryError(f"{label} ineligible exact flags must be null")
                 hits += counts[3]
@@ -1558,14 +1600,39 @@ def _validate_participation_metrics(
                 ("topNineF1", f1),
             ):
                 _close(metrics.get(key), expected, label=f"{label}.{key}")
-            rate_values = {
+            # Per-team-game rates use the eligible team-game denominator.
+            team_game_rates = {
                 "completeLineupRate": complete,
                 "completeLineupRecoveryRate": recovered,
-                "exactLineupRate": exact_sets,
-                "exactOrderRate": exact_orders,
             }
-            for key, numerator in rate_values.items():
+            for key, numerator in team_game_rates.items():
                 expected = numerator / eligible if eligible else None
+                if expected is None:
+                    if metrics.get(key) is not None:
+                        raise SportsPhase4RegistryError(f"{label}.{key} must be null")
+                else:
+                    _close(metrics.get(key), expected, label=f"{label}.{key}")
+            # Per-game exact rates: a game is eligible only when all of its team-games are
+            # eligible, and it is exact only when both teams are exact.
+            eligible_games = [
+                game_id
+                for game_id, flags in game_eligible.items()
+                if flags and all(flags)
+            ]
+            exact_set_games = sum(
+                len(game_exact_sets[game_id]) == 2 and all(game_exact_sets[game_id])
+                for game_id in eligible_games
+            )
+            exact_order_games = sum(
+                len(game_exact_orders[game_id]) == 2 and all(game_exact_orders[game_id])
+                for game_id in eligible_games
+            )
+            game_rates = {
+                "exactLineupRate": exact_set_games,
+                "exactOrderRate": exact_order_games,
+            }
+            for key, numerator in game_rates.items():
+                expected = numerator / len(eligible_games) if eligible_games else None
                 if expected is None:
                     if metrics.get(key) is not None:
                         raise SportsPhase4RegistryError(f"{label}.{key} must be null")
@@ -1619,6 +1686,8 @@ def _validate_participation_metrics(
                 "reach21Brier",
                 "reach21Calibration",
                 "earlySeasonBfpMae",
+                "priorStartHistoryCoverage",
+                "historyStratifiedMetrics",
             },
             label=label,
         )
@@ -2229,6 +2298,8 @@ def _validate_participation_scientific_evidence(
             "validationSeason",
             "schemaVersion",
             "differenceOrder",
+            "clusterSamplingPolicy",
+            "replicateEstimator",
             "pointEstimate",
             "standardError",
             "confidenceLevel",
@@ -2252,16 +2323,17 @@ def _validate_participation_scientific_evidence(
             raise SportsPhase4RegistryError(f"{slot} bootstrap comparison authority differs")
         if (
             row.get("schemaVersion")
-            != "MLB_PARTICIPATION_GAME_CLUSTER_BOOTSTRAP_V1"
+            != "MLB_PARTICIPATION_GAME_CLUSTER_BOOTSTRAP_V2"
             or row.get("differenceOrder")
             != "SELECTED_MINUS_BASELINE_LOWER_IS_BETTER"
+            or row.get("clusterSamplingPolicy") != "WHOLE_GAME_IDS_WITH_REPLACEMENT"
+            or row.get("replicateEstimator")
+            != "TOTAL_SAMPLED_CLUSTER_LOSS_SUM_DIVIDED_BY_TOTAL_SAMPLED_CLUSTER_ROW_COUNT"
             or row.get("resamples") != 500
             or row.get("seed") != 20_260_817 + int(season) + (int(baseline_id[1:]) if slot == "starterDuration" else 0)
             or row.get("confidenceLevel") != 0.95
             or row.get("clusterCount")
-            != ({2024: 2418, 2025: 2420} if slot == "lineup" else {2024: 2429, 2025: 2430})[
-                int(season)
-            ]
+            != {2024: 2429, 2025: 2430}[int(season)]
             or type(row.get("replicateDifferences")) is not list
             or len(row["replicateDifferences"]) != 500
         ):

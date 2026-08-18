@@ -283,6 +283,8 @@ export type SportsPaRegistry = {
 };
 
 export type SportsPaGraph = {
+  graphId?: string;
+  parentGraphId?: string;
   status: string;
   nodes: SportsPaEvidenceRecord[];
   edges: SportsPaEvidenceRecord[];
@@ -311,6 +313,177 @@ export type SportsPaBaseline = {
   artifacts: SportsPaEvidenceRecord[];
   graph?: SportsPaGraph;
   limitations: string[];
+};
+
+export const SPORTS_PHASE4_COMPONENT_TYPES = [
+  "DYNAMIC_PLAYER_STATE",
+  "LINEUP_PROJECTION",
+  "STARTER_DURATION",
+  "BULLPEN_USAGE",
+] as const;
+
+export type SportsPhase4ComponentType = typeof SPORTS_PHASE4_COMPONENT_TYPES[number];
+export type SportsPhase4EvidenceRecord = Record<string, unknown>;
+
+export type SportsPhase4Artifact = {
+  artifactId: string;
+  componentId: string;
+  artifactType: string;
+  logicalUri: string;
+  sha256: string;
+  byteCount?: number;
+  mediaType: string;
+};
+
+export type SportsPhase4Component = {
+  componentId: string;
+  componentType: SportsPhase4ComponentType;
+  contractName: string;
+  contractSha: string;
+  status: string;
+  decisionReason: string;
+  descriptor: SportsPhase4EvidenceRecord;
+  candidates: SportsPhase4EvidenceRecord[];
+  selected?: SportsPhase4EvidenceRecord;
+  folds: SportsPhase4EvidenceRecord[];
+  metrics: SportsPhase4EvidenceRecord;
+  calibration?: SportsPhase4EvidenceRecord;
+  bootstrap: SportsPhase4EvidenceRecord[];
+  coverage: SportsPhase4EvidenceRecord;
+  limitations: string[];
+  artifactIds: string[];
+  artifacts: SportsPhase4Artifact[];
+};
+
+export const SPORTS_CATCHER_READINESS_STATUSES = [
+  "CATCHER_INFLUENCE_READY_FOR_RESEARCH_DESIGN",
+  "CATCHER_INFLUENCE_PARTIALLY_READY",
+  "CATCHER_INFLUENCE_DATA_AUDIT_BLOCKED",
+] as const;
+
+export type SportsCatcherReadinessStatus = typeof SPORTS_CATCHER_READINESS_STATUSES[number];
+
+// Data-availability audit evidence only — never a catcher score, ranking, or model
+// performance metric. Sub-objects are sanitized generic records rendered as
+// read-only evidence; the frontend never fabricates any of these values.
+export type SportsCatcherReadiness = {
+  contractName: string;
+  terminalStatus: string;
+  rationale: string;
+  seasons: number[];
+  startingCatcherCoverage: SportsPhase4EvidenceRecord;
+  paCatcherAssignmentCoverage: SportsPhase4EvidenceRecord;
+  batterySampleDistribution: SportsPhase4EvidenceRecord;
+  batteryFallbackLevels: SportsPhase4EvidenceRecord;
+  catcherBatterSampleDistribution: SportsPhase4EvidenceRecord;
+  freeFeatureInventory: SportsPhase4EvidenceRecord[];
+  premiumDataGaps: SportsPhase4EvidenceRecord[];
+  limitations: string[];
+};
+
+// E1 pitch-sequence process feature materialization readiness (not a model).
+export type SportsPitchSequenceFeatures = {
+  terminalStatus: string;
+  parserVersion: string;
+  seasons: number[];
+  trailingWindowDays?: number;
+  batterFeatureCount?: number;
+  pitcherFeatureCount?: number;
+  totalFeatureCount?: number;
+  rowsRead?: number;
+  rowsMaterialized?: number;
+  materializationId: string;
+  parseQuality: SportsPhase4EvidenceRecord;
+  parserCategories: SportsPhase4EvidenceRecord[];
+  coverage: SportsPhase4EvidenceRecord;
+  earlySeasonMissing: SportsPhase4EvidenceRecord;
+  featureSummary: SportsPhase4EvidenceRecord[];
+  strikeoutWalkReadiness: SportsPhase4EvidenceRecord;
+  rareOutcomeLimitations: string[];
+  limitations: string[];
+};
+
+// E2 batter × pitcher process interaction feature materialization (not a model).
+export type SportsProcessInteractions = {
+  terminalStatus: string;
+  seasons: number[];
+  featureCount?: number;
+  featureHardMax?: number;
+  materializationId: string;
+  parentE1: SportsPhase4EvidenceRecord;
+  interactionFamilies: SportsPhase4EvidenceRecord;
+  features: string[];
+  coverage: SportsPhase4EvidenceRecord;
+  redundancy: SportsPhase4EvidenceRecord;
+  strikeoutWalkReadiness: SportsPhase4EvidenceRecord;
+  rowsRead?: number;
+  rowsMaterialized?: number;
+  limitations: string[];
+};
+
+// E1/E2 incremental-signal feature-ablation research study (NOT a promoted model).
+export type SportsIncrementalSignalStudy = {
+  studyId: string;
+  contractName: string;
+  researchOnly: boolean;
+  promotedModel: boolean;
+  changesChampionStatus: boolean;
+  modelPolicy: SportsPhase4EvidenceRecord;
+  population: SportsPhase4EvidenceRecord;
+  branchFeatureCounts: SportsPhase4EvidenceRecord;
+  anchor: SportsPhase4EvidenceRecord;
+  incrementalRows: SportsPhase4EvidenceRecord[];
+  practicalBandDefinition: SportsPhase4EvidenceRecord;
+  strikeout: SportsPhase4EvidenceRecord;
+  walkHbpCi: SportsPhase4EvidenceRecord;
+  bootstrap: SportsPhase4EvidenceRecord[];
+  decision: SportsPhase4EvidenceRecord;
+  nextStep: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
+// E1/E2 severe-miss forensic study (analysis only — no promoted model, population preserved).
+export type SportsSevereMissForensics = {
+  studyId: string;
+  contractName: string;
+  researchOnly: boolean;
+  officialPopulationPreserved: boolean;
+  population: SportsPhase4EvidenceRecord;
+  anchor: SportsPhase4EvidenceRecord;
+  pareto2025: SportsPhase4EvidenceRecord[];
+  tailSensitivity2025: SportsPhase4EvidenceRecord;
+  overIndex2025: SportsPhase4EvidenceRecord;
+  confusionPairs2025: SportsPhase4EvidenceRecord[];
+  severeMissClassifier: SportsPhase4EvidenceRecord;
+  randomness: SportsPhase4EvidenceRecord;
+  topThreePatterns: SportsPhase4EvidenceRecord[];
+  recommendedNextStep: string;
+  limitations: string[];
+};
+
+export type SportsPhase4Study = {
+  schemaVersion: string;
+  studyId: string;
+  studySha: string;
+  projectId: string;
+  createdAt: string;
+  codeRevision: string;
+  dataset: SportsPhase4EvidenceRecord;
+  identityBridge: SportsPhase4EvidenceRecord;
+  phase3Baseline: SportsPhase4EvidenceRecord;
+  components: Partial<Record<"dynamicState" | "lineup" | "starterDuration" | "bullpenUsage", SportsPhase4Component>>;
+  artifacts: SportsPhase4Artifact[];
+  graph?: SportsPaGraph;
+  decision: SportsPhase4EvidenceRecord;
+  limitations: string[];
+  registeredAt: string;
+  lastValidatedAt: string;
+  active?: boolean;
+  catcherReadiness?: SportsCatcherReadiness;
+  pitchSequenceFeatures?: SportsPitchSequenceFeatures;
+  processInteractions?: SportsProcessInteractions;
+  incrementalSignalStudy?: SportsIncrementalSignalStudy;
+  severeMissForensics?: SportsSevereMissForensics;
 };
 
 export type RegisteredSportsProject = {
@@ -363,6 +536,7 @@ export type ActiveSportsDataset = {
   featureAudit?: SportsFeatureAudit;
   identityBridge?: SportsIdentityBridge;
   paBaseline?: SportsPaBaseline;
+  phase4?: SportsPhase4Study;
 };
 
 type EvidenceState<T> =
@@ -776,6 +950,8 @@ function normalizePaGraph(value: unknown): SportsPaGraph | undefined {
   if (!isRecord(value)) return undefined;
   const nodes = normalizePublicEvidenceRecords(value.nodes);
   return {
+    graphId: publicString(value.graphId) || undefined,
+    parentGraphId: publicString(value.parentGraphId) || undefined,
     status: publicString(value.status, nodes.length ? "RECORDED" : "NOT_CONFIGURED"),
     nodes,
     edges: normalizePublicEvidenceRecords(value.edges),
@@ -842,6 +1018,258 @@ function normalizePaBaseline(value: unknown): SportsPaBaseline | undefined {
     artifacts: topLevelArtifacts.length ? topLevelArtifacts : registry?.artifacts ?? [],
     graph: normalizePaGraph(value.graph),
     limitations: publicStringArray(value.limitations ?? decisionRecord?.limitations),
+  };
+}
+
+function normalizePhase4Artifact(value: unknown): SportsPhase4Artifact | undefined {
+  if (!isRecord(value)) return undefined;
+  const artifactId = publicString(value.artifactId);
+  const componentId = publicString(value.componentId);
+  const logicalUri = publicString(value.logicalUri);
+  const sha256 = publicString(value.sha256 ?? value.artifactSha);
+  if (!artifactId || !logicalUri || !sha256) return undefined;
+  return {
+    artifactId,
+    componentId,
+    artifactType: publicString(value.artifactType, "RESEARCH_EVIDENCE"),
+    logicalUri,
+    sha256,
+    byteCount: optionalFiniteNumber(value.byteCount ?? value.artifactBytes),
+    mediaType: publicString(value.mediaType, "application/octet-stream"),
+  };
+}
+
+function normalizePhase4Component(
+  value: unknown,
+  expectedType: SportsPhase4ComponentType,
+  artifacts: SportsPhase4Artifact[],
+): SportsPhase4Component | undefined {
+  if (!isRecord(value)) return undefined;
+  const componentId = publicString(value.componentId);
+  const componentType = publicString(value.componentType).toUpperCase();
+  const contractName = publicString(value.contractName);
+  if (!componentId || componentType !== expectedType || !contractName) return undefined;
+  const decision = isRecord(value.decision) ? value.decision : {};
+  const status = publicString(
+    decision.terminalStatus ?? decision.decision ?? decision.status ?? value.status,
+    "BLOCKED",
+  );
+  const artifactIds = publicStringArray(value.artifactIds);
+  const artifactSet = new Set(artifactIds);
+  const candidates = normalizePublicEvidenceRecords(value.candidates);
+  const candidateFolds = candidates.flatMap((candidate) => {
+    const id = publicString(candidate.candidateId ?? candidate.id);
+    const rows = Array.isArray(candidate.foldMetrics) ? candidate.foldMetrics : [];
+    return rows.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const fold = normalizePublicEvidenceRecord(item);
+      const season = optionalFiniteNumber(fold.validationSeason);
+      return [{
+        ...fold,
+        candidateId: id,
+        foldId: publicString(fold.foldId, season === 2024
+          ? "train-2023-validate-2024"
+          : season === 2025 ? "train-through-2024-validate-2025" : ""),
+        trainingSeasons: Array.isArray(fold.trainingSeasons)
+          ? fold.trainingSeasons
+          : season === 2024 ? [2023] : season === 2025 ? [2023, 2024] : [],
+      }];
+    });
+  });
+  return {
+    componentId,
+    componentType: expectedType,
+    contractName,
+    contractSha: publicString(value.contractSha),
+    status,
+    decisionReason: publicString(decision.rationale ?? decision.reason ?? value.decisionReason),
+    descriptor: normalizePublicEvidenceRecord(value.descriptor),
+    candidates,
+    selected: optionalPublicEvidenceRecord(value.selected),
+    folds: candidateFolds.length ? candidateFolds : normalizePublicEvidenceRecords(value.folds),
+    metrics: normalizePublicEvidenceRecord(value.metrics),
+    calibration: optionalPublicEvidenceRecord(value.calibration),
+    bootstrap: normalizePublicEvidenceRecords(value.bootstrap),
+    coverage: normalizePublicEvidenceRecord(value.coverage),
+    limitations: publicStringArray(value.limitations ?? decision.limitations),
+    artifactIds,
+    artifacts: artifacts.filter((artifact) => artifactSet.has(artifact.artifactId))
+      .map((artifact) => ({ ...artifact, componentId })),
+  };
+}
+
+function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
+  if (!isRecord(value)) return undefined;
+  const studyId = publicString(value.studyId);
+  if (!studyId) return undefined;
+  const studyIdentity = isRecord(value.studyIdentity) ? value.studyIdentity : {};
+  const componentValues = isRecord(value.components) ? value.components : {};
+  const artifacts = Array.isArray(value.artifacts)
+    ? value.artifacts.flatMap((item) => {
+        const artifact = normalizePhase4Artifact(item);
+        return artifact ? [artifact] : [];
+      })
+    : [];
+  const components: SportsPhase4Study["components"] = {};
+  const definitions: Array<[keyof SportsPhase4Study["components"], SportsPhase4ComponentType]> = [
+    ["dynamicState", "DYNAMIC_PLAYER_STATE"],
+    ["lineup", "LINEUP_PROJECTION"],
+    ["starterDuration", "STARTER_DURATION"],
+    ["bullpenUsage", "BULLPEN_USAGE"],
+  ];
+  for (const [key, componentType] of definitions) {
+    const component = normalizePhase4Component(componentValues[key], componentType, artifacts);
+    if (component) components[key] = component;
+  }
+  const decision = normalizePublicEvidenceRecord(value.decision);
+  const registry = isRecord(value.registry) ? value.registry : {};
+  return {
+    schemaVersion: publicString(value.schemaVersion),
+    studyId,
+    studySha: publicString(value.studySha),
+    projectId: publicString(value.projectId),
+    createdAt: publicString(studyIdentity.createdAt ?? value.createdAt),
+    codeRevision: publicString(studyIdentity.codeRevision ?? value.codeRevision),
+    dataset: normalizePublicEvidenceRecord(value.dataset),
+    identityBridge: normalizePublicEvidenceRecord(value.identityBridge),
+    phase3Baseline: normalizePublicEvidenceRecord(value.phase3Baseline),
+    components,
+    artifacts,
+    graph: normalizePaGraph(value.graph),
+    decision,
+    limitations: publicStringArray(value.limitations ?? decision.limitations),
+    registeredAt: publicString(registry.registeredAt ?? value.registeredAt),
+    lastValidatedAt: publicString(registry.lastValidatedAt ?? value.lastValidatedAt),
+    active: typeof registry.active === "boolean"
+      ? registry.active
+      : typeof value.active === "boolean" ? value.active : undefined,
+    catcherReadiness: normalizeCatcherReadiness(value.catcherReadiness),
+    pitchSequenceFeatures: normalizePitchSequenceFeatures(value.pitchSequenceFeatures),
+    processInteractions: normalizeProcessInteractions(value.processInteractions),
+    incrementalSignalStudy: normalizeIncrementalSignalStudy(value.incrementalSignalStudy),
+    severeMissForensics: normalizeSevereMissForensics(value.severeMissForensics),
+  };
+}
+
+function normalizeSevereMissForensics(value: unknown): SportsSevereMissForensics | undefined {
+  if (!isRecord(value)) return undefined;
+  const studyId = publicString(value.studyId);
+  // Existence-gated: no governed study id -> honest not-run state.
+  if (!studyId) return undefined;
+  return {
+    studyId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    officialPopulationPreserved: value.officialPopulationPreserved !== false,
+    population: normalizePublicEvidenceRecord(value.population),
+    anchor: normalizePublicEvidenceRecord(value.anchor),
+    pareto2025: normalizePublicEvidenceRecords(value.pareto2025),
+    tailSensitivity2025: normalizePublicEvidenceRecord(value.tailSensitivity2025),
+    overIndex2025: normalizePublicEvidenceRecord(value.overIndex2025),
+    confusionPairs2025: normalizePublicEvidenceRecords(value.confusionPairs2025),
+    severeMissClassifier: normalizePublicEvidenceRecord(value.severeMissClassifier),
+    randomness: normalizePublicEvidenceRecord(value.randomness),
+    topThreePatterns: normalizePublicEvidenceRecords(value.topThreePatterns),
+    recommendedNextStep: publicString(value.recommendedNextStep),
+    limitations: publicStringArray(value.limitations),
+  };
+}
+
+function normalizeIncrementalSignalStudy(value: unknown): SportsIncrementalSignalStudy | undefined {
+  if (!isRecord(value)) return undefined;
+  const studyId = publicString(value.studyId);
+  // Existence-gated: no governed study id -> honest not-run state.
+  if (!studyId) return undefined;
+  return {
+    studyId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    promotedModel: value.promotedModel === true,
+    changesChampionStatus: value.changesChampionStatus === true,
+    modelPolicy: normalizePublicEvidenceRecord(value.modelPolicy),
+    population: normalizePublicEvidenceRecord(value.population),
+    branchFeatureCounts: normalizePublicEvidenceRecord(value.branchFeatureCounts),
+    anchor: normalizePublicEvidenceRecord(value.anchor),
+    incrementalRows: normalizePublicEvidenceRecords(value.incrementalRows),
+    practicalBandDefinition: normalizePublicEvidenceRecord(value.practicalBandDefinition),
+    strikeout: normalizePublicEvidenceRecord(value.strikeout),
+    walkHbpCi: normalizePublicEvidenceRecord(value.walkHbpCi),
+    bootstrap: normalizePublicEvidenceRecords(value.bootstrap),
+    decision: normalizePublicEvidenceRecord(value.decision),
+    nextStep: normalizePublicEvidenceRecord(value.nextStep),
+    limitations: publicStringArray(value.limitations),
+  };
+}
+
+function normalizeProcessInteractions(value: unknown): SportsProcessInteractions | undefined {
+  if (!isRecord(value)) return undefined;
+  const terminalStatus = publicString(value.terminalStatus);
+  if (!terminalStatus) return undefined;
+  return {
+    terminalStatus,
+    seasons: numberArray(value.seasons),
+    featureCount: optionalFiniteNumber(value.featureCount),
+    featureHardMax: optionalFiniteNumber(value.featureHardMax),
+    materializationId: publicString(value.materializationId),
+    parentE1: normalizePublicEvidenceRecord(value.parentE1),
+    interactionFamilies: normalizePublicEvidenceRecord(value.interactionFamilies),
+    features: publicStringArray(value.features),
+    coverage: normalizePublicEvidenceRecord(value.coverage),
+    redundancy: normalizePublicEvidenceRecord(value.redundancy),
+    strikeoutWalkReadiness: normalizePublicEvidenceRecord(value.strikeoutWalkReadiness),
+    rowsRead: optionalFiniteNumber(value.rowsRead),
+    rowsMaterialized: optionalFiniteNumber(value.rowsMaterialized),
+    limitations: publicStringArray(value.limitations),
+  };
+}
+
+function normalizePitchSequenceFeatures(value: unknown): SportsPitchSequenceFeatures | undefined {
+  if (!isRecord(value)) return undefined;
+  const terminalStatus = publicString(value.terminalStatus);
+  // Existence-gated: no governed terminal status -> honest not-run state.
+  if (!terminalStatus) return undefined;
+  return {
+    terminalStatus,
+    parserVersion: publicString(value.parserVersion),
+    seasons: numberArray(value.seasons),
+    trailingWindowDays: optionalFiniteNumber(value.trailingWindowDays),
+    batterFeatureCount: optionalFiniteNumber(value.batterFeatureCount),
+    pitcherFeatureCount: optionalFiniteNumber(value.pitcherFeatureCount),
+    totalFeatureCount: optionalFiniteNumber(value.totalFeatureCount),
+    rowsRead: optionalFiniteNumber(value.rowsRead),
+    rowsMaterialized: optionalFiniteNumber(value.rowsMaterialized),
+    materializationId: publicString(value.materializationId),
+    parseQuality: normalizePublicEvidenceRecord(value.parseQuality),
+    parserCategories: normalizePublicEvidenceRecords(value.parserCategories),
+    coverage: normalizePublicEvidenceRecord(value.coverage),
+    earlySeasonMissing: normalizePublicEvidenceRecord(value.earlySeasonMissing),
+    featureSummary: normalizePublicEvidenceRecords(value.featureSummary),
+    strikeoutWalkReadiness: normalizePublicEvidenceRecord(value.strikeoutWalkReadiness),
+    rareOutcomeLimitations: publicStringArray(value.rareOutcomeLimitations),
+    limitations: publicStringArray(value.limitations),
+  };
+}
+
+function normalizeCatcherReadiness(value: unknown): SportsCatcherReadiness | undefined {
+  if (!isRecord(value)) return undefined;
+  const decision = isRecord(value.decision) ? value.decision : {};
+  const terminalStatus = publicString(value.terminalStatus ?? decision.status);
+  // Existence-gated: without a governed terminal status this is an honest NOT_RUN
+  // state, never a fabricated audit result.
+  if (!terminalStatus) return undefined;
+  return {
+    contractName: publicString(value.contractName, "MLB_CATCHER_INFLUENCE_READINESS_V1"),
+    terminalStatus,
+    rationale: publicString(decision.rationale ?? value.rationale),
+    seasons: numberArray(value.seasons),
+    startingCatcherCoverage: normalizePublicEvidenceRecord(value.startingCatcherCoverage),
+    paCatcherAssignmentCoverage: normalizePublicEvidenceRecord(value.paCatcherAssignmentCoverage),
+    batterySampleDistribution: normalizePublicEvidenceRecord(value.batterySampleDistribution),
+    batteryFallbackLevels: normalizePublicEvidenceRecord(value.batteryFallbackLevels),
+    catcherBatterSampleDistribution: normalizePublicEvidenceRecord(value.catcherBatterSampleDistribution),
+    freeFeatureInventory: normalizePublicEvidenceRecords(value.freeFeatureInventory),
+    premiumDataGaps: normalizePublicEvidenceRecords(value.premiumDataGaps),
+    limitations: publicStringArray(value.limitations),
   };
 }
 
@@ -969,6 +1397,7 @@ function normalizeActiveDataset(value: ActiveSportsDataset): ActiveSportsDataset
     featureAudit: normalizeFeatureAudit(raw.featureAudit),
     identityBridge: normalizeIdentityBridge(raw.identityBridge),
     paBaseline: normalizePaBaseline(raw.paBaseline),
+    phase4: normalizePhase4Study(raw.phase4),
   };
 }
 

@@ -41,6 +41,8 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { to: "/projects/open", label: "Sports Projects", icon: FolderKanban },
       { to: "/templates", label: "Sports Workflows", icon: Trophy },
       { to: "/data-warehouse", label: "Data Warehouse", icon: Database },
+      { to: "/player-team-state", label: "Player & Team State", icon: Activity },
+      { to: "/participation-usage", label: "Participation & Usage", icon: Users },
       { to: "/model-laboratory", label: "Model Laboratory", icon: FlaskConical },
       { to: "/simulation-studio", label: "Simulation Studio", icon: Orbit },
       { to: "/evaluation-calibration", label: "Evaluation & Calibration", icon: ChartNoAxesCombined },

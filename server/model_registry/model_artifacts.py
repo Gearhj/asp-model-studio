@@ -200,12 +200,29 @@ def verify_model_artifact(
     }
 
 
-def load_model_artifact(relative_path: str) -> Any:
+def load_model_artifact(relative_path: str, *, expected_checksum: str) -> Any:
     """Loads a previously-written, immutable artifact back into a Python
     object -- used by the scoring fallback path (a fresh process, after
     restart, whose in-memory RESULTS.final_model is None) and by any future
-    Monitoring/Deployment consumer that needs the actual fitted object."""
+    Monitoring/Deployment consumer that needs the actual fitted object.
+
+    Security (untrusted-deserialization defense): ``joblib.load`` executes the
+    pickle opcodes in the file, so it is only safe on bytes whose integrity has
+    been proven against the registry. This helper therefore REQUIRES the exact
+    checksum recorded for the model version (``model_versions.checksum``) and
+    refuses to deserialize when it does not match the on-disk file. Without this
+    guard, any tampering of the governed artifact root (a future model-bundle
+    import, a filesystem compromise, or a stale/substituted artifact) would
+    become arbitrary code execution the moment the object is loaded. The
+    registry's own verification path (``verify_model_artifact``) already enforces
+    this; this bare helper must not be a weaker back door."""
     path = resolve_model_artifact_path(relative_path)
+    actual_checksum = _sha256_of_file(path)
+    if not expected_checksum or actual_checksum != expected_checksum:
+        raise ValueError(
+            "The model artifact checksum does not match the registry record; "
+            "refusing to deserialize a potentially tampered artifact."
+        )
     return joblib.load(path)
 
 

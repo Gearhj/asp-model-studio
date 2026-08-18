@@ -18,9 +18,12 @@ const PATHS = Object.freeze({
   sportsProjects: "src/sports/SportsProjects.tsx",
   projectOverview: "src/sports/SportsProjectOverview.tsx",
   modules: "src/sports/StudioModules.tsx",
+  phase4Surfaces: "src/sports/Phase4Surfaces.tsx",
   evidenceApi: "src/sports/sportsEvidenceApi.ts",
   evidenceSurfaces: "src/sports/SportsEvidenceSurfaces.tsx",
   sportsPaRegistry: "server/sports_modeling/registry.py",
+  sportsPhase4Registry: "server/sports_phase4/registry.py",
+  sportsPhase4Migration: "server/persistence/migrations/0034_sports_phase4_research_registry.sql",
   serverPersistence: "src/lib/serverPersistence.ts",
   analytics: "src/steps/AnalyticsWorkbench.tsx",
   sqlLab: "src/steps/SqlDataStudio.tsx",
@@ -702,11 +705,112 @@ test("Phase 3 PA baseline evidence drives research-only model, evaluation, graph
   assertIncludesAll(home, ["activeDataset?.paBaseline", "sportsPaDecisionStatus", "baseline?.experiment", "RESEARCH_CHALLENGER", "RESEARCH_BASELINE", "REJECTED_BASELINE", "Exported bundles remain 0"], "Studio Home PA status projection");
   assertIncludesAll(overview, ["boundDataset?.paBaseline", "sportsPaDecisionStatus", "Research graph", "terminal research status"], "project overview PA status projection");
   assertIncludesAll(workflow, ["boundDataset?.paBaseline", "sportsPaDecisionStatus", "Research graph", "research graph is evidence only", "Export remains disabled."], "workflow PA status projection");
-  assertIncludesAll(overview, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'phase3Presentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"'], "project workflow evidence precedence");
-  assertIncludesAll(workflow, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'phase3Presentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"', 'baseline.calibration ? "COMPLETE"'], "workflow evidence precedence");
+  assertIncludesAll(overview, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'governedPresentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"'], "project workflow evidence precedence");
+  assertIncludesAll(workflow, ['decision !== "BLOCKED"', 'decision === "BLOCKED" && step.number === 11', 'governedPresentation?.status || evidence?.status || baselineStatus', 'step.number === 12', '"NOT_CONFIGURED"', 'baseline.calibration ? "COMPLETE"'], "workflow evidence precedence");
   assertIncludesAll(config, ["mlbPaBaselineStepPresentation", 'status: "BASELINE COMPLETE"', 'status: "PA CANDIDATES COMPLETE"', 'status: "RETROSPECTIVE COMPLETE"', 'status: "REGISTERED EVIDENCE COMPLETE"', "Dynamic state — NOT_CONFIGURED", "Simulator / count / residual / ensemble candidates — NOT_CONFIGURED", "OOD / subgroup / prospective monitoring — NOT_CONFIGURED"], "honest Phase 3 workflow scope projection");
   assertIncludesAll(backendRegistry, ['f"FOLD_{season}_PREDICTIONS"', '"predictionArtifact"', '"artifacts": public_artifacts'], "fold prediction artifact projection");
   assertIncludesAll(projects, ["sportsPaDecisionStatus", "terminalStatus", "REJECTED_BASELINE", "BLOCKED"], "sports project PA status projection");
+});
+
+test("Phase 4 component evidence is normalized, scoped, graphed, and rendered without simulation or deployment claims", async () => {
+  const [api, surfaces, modules, shell, sidebar, config, workflow, overview, home, registry, migration] = await Promise.all([
+    source(PATHS.evidenceApi),
+    source(PATHS.phase4Surfaces),
+    source(PATHS.modules),
+    source(PATHS.shell),
+    source(PATHS.sidebar),
+    source(PATHS.config),
+    source(PATHS.workflow),
+    source(PATHS.projectOverview),
+    source(PATHS.home),
+    source(PATHS.sportsPhase4Registry),
+    source(PATHS.sportsPhase4Migration),
+  ]);
+
+  assertIncludesAll(api, [
+    "SportsPhase4Study",
+    "SportsPhase4Component",
+    "SportsPhase4Artifact",
+    "SportsPhase4ComponentType",
+    '"DYNAMIC_PLAYER_STATE"',
+    '"LINEUP_PROJECTION"',
+    '"STARTER_DURATION"',
+    '"BULLPEN_USAGE"',
+    "normalizePhase4Artifact",
+    "normalizePhase4Component",
+    "normalizePhase4Study",
+    "phase4: normalizePhase4Study(raw.phase4)",
+    "sanitizePublicEvidenceValue",
+  ], "defensive Phase 4 browser contract");
+  assert.doesNotMatch(`${api}\n${surfaces}`, /C:\\Users|\\\\Users|file:\/\//i, "Phase 4 browser sources must not expose physical references");
+
+  assertIncludesAll(shell, [
+    'path="/player-team-state"',
+    "<PlayerTeamStatePage />",
+    'path="/participation-usage"',
+    "<ParticipationUsagePage />",
+  ], "Phase 4 protected routes");
+  assertIncludesAll(sidebar, ["Player & Team State", "Participation & Usage"], "Phase 4 navigation");
+  assertIncludesAll(modules, [
+    "Phase4ModelLaboratorySection",
+    "Phase4EvaluationSection",
+    "Phase4GraphSection",
+    "Phase4RegistrySection",
+    "Phase4SimulationStatus",
+  ], "Phase 4 cross-studio integration");
+  assertIncludesAll(surfaces, [
+    "MLB_DYNAMIC_PLAYER_STATE_V1",
+    "D0 · frozen raw C4",
+    "D0–D4 temporal comparison",
+    "Candidate selection uses 2024 only",
+    "Point-in-time batter and pitcher state",
+    "Actual historical lineup and batting order are retrospective targets only.",
+    "CONDITIONAL_ON_HISTORICAL_STARTER_IDENTITY",
+    "never injected into the candidate pool",
+    "FoldMetricChart",
+    "Phase 4 parent-linked research graph",
+    "Metadata and logical artifact references only",
+    "Still not configured",
+    "Confirmed-lineup and probable-starter feeds",
+  ], "evidence-bound Phase 4 surfaces");
+  assert.match(surfaces, /Game simulations[\s\S]*0|game simulator/i, "Phase 4 must not imply an executed game simulation");
+  assert.doesNotMatch(surfaces, /operational|production deployment|bundle authorized/i, "Phase 4 surfaces must remain research-only");
+
+  assertIncludesAll(config, [
+    "mlbPhase4StepPresentation",
+    "COMPLETE · DYNAMIC RESEARCH",
+    "PARTIAL · RETROSPECTIVE RESEARCH",
+    "PHASE 3 + DYNAMIC EVIDENCE",
+    "COMPLETE · COMPONENT SCOPE",
+    "COMPLETE · RESEARCH ONLY",
+    "Platoon — NOT_CONFIGURED",
+    "Simulator / residual / ensemble — NOT_CONFIGURED",
+  ], "honest Phase 4 workflow scopes");
+  assertIncludesAll(workflow, ["mlbPhase4StepPresentation", "governedPresentation", "Registered Phase 4 research graph", "Phase 4 component research is not a game simulator or bundle authority."], "workflow Phase 4 projection");
+  assertIncludesAll(overview, ["boundDataset?.phase4", "mlbPhase4StepPresentation", "Research graph · Phase 4", "No game simulation or export bundle is implied."], "project Phase 4 projection");
+  assertIncludesAll(home, ["activeDataset?.phase4", "phase4Components", "Phase 4 component research", "Simulations, bundles, and monitoring remain 0"], "home Phase 4 projection");
+
+  assertIncludesAll(registry, [
+    "MLB_PHASE4_RESEARCH_STUDY_V1",
+    "SportsPhase4Registry",
+    "build_phase4_study_payload",
+    "build_phase4_graph",
+    "semantic_study_core_sha",
+    "semantic_study_sha",
+    "asp-model-studio-runtime://sports-phase4/",
+    "deploymentAuthorized",
+    "simulationAuthorized",
+    "bundleAuthorized",
+    "NOT_CONFIGURED",
+  ], "Phase 4 metadata registry");
+  assertIncludesAll(migration, [
+    "sports_phase4_studies",
+    "sports_phase4_components",
+    "sports_phase4_artifact_references",
+    "sports_phase4_model_graph_nodes",
+    "sports_phase4_model_graph_edges",
+  ], "Phase 4 additive migration");
+  assert.doesNotMatch(migration, /\bBLOB\b|prediction_rows|model_bytes/i, "Phase 4 SQLite schema must not store artifact bytes or prediction rows");
 });
 
 test("governed MLB project evidence survives reload without a duplicate browser-only project", async () => {

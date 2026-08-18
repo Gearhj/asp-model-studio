@@ -1,3 +1,5 @@
+import type { SportsPhase4Study } from "./sportsEvidenceApi";
+
 export type SportsWorkflowKey = "mlb" | "nfl";
 
 export type SportsWorkflowStep = {
@@ -129,6 +131,72 @@ const MLB_PA_BASELINE_STEP_PRESENTATIONS: Partial<Record<number, MlbPaBaselineSt
 
 export function mlbPaBaselineStepPresentation(step: SportsWorkflowStep) {
   return MLB_PA_BASELINE_STEP_PRESENTATIONS[step.number];
+}
+
+function completedComponent(status: string | undefined) {
+  return Boolean(status) && !String(status).endsWith("_BLOCKED");
+}
+
+export function mlbPhase4StepPresentation(step: SportsWorkflowStep, study: SportsPhase4Study | undefined): MlbPaBaselineStepPresentation | undefined {
+  if (!study) return undefined;
+  const dynamic = study.components.dynamicState;
+  const participation = [study.components.lineup, study.components.starterDuration, study.components.bullpenUsage];
+  const recordedParticipation = participation.filter(Boolean);
+  const completeParticipation = participation.filter((component) => completedComponent(component?.status));
+  if (step.number === 4 && dynamic) {
+    return {
+      status: dynamic.status.endsWith("_BLOCKED") ? "BLOCKED" : dynamic.status.includes("BASELINE") ? "RESEARCH BASELINE" : "COMPLETE · DYNAMIC RESEARCH",
+      purpose: "Construct strictly prior-date Bayesian batter and pitcher state, preserve missing history, and compare the bounded D1–D4 candidates with the frozen Phase 3 D0 comparator.",
+      sections: ["Static, cumulative, and recency state", "Prior-date-only PA outcomes", "ESS and uncertainty", "Missing-history coverage", "Platoon — NOT_CONFIGURED"],
+      outputs: ["MLB_DYNAMIC_PLAYER_STATE_V1", "Dynamic PA candidate evidence", "Dynamic-state research decision"],
+      prerequisites: ["Exact identity bridge", "Frozen MLB_PA_FEATURE_VIEW_V1 and Phase 3 D0 evidence"],
+    };
+  }
+  if (step.number === 5 && recordedParticipation.length) {
+    return {
+      status: recordedParticipation.length === 3 && completeParticipation.length === 3 ? "COMPLETE · RETROSPECTIVE RESEARCH" : "PARTIAL · RETROSPECTIVE RESEARCH",
+      purpose: "Evaluate prior-only lineup, conditional starter-duration, and bullpen-usage components while keeping actual target-game participation and workload strictly on the target side.",
+      sections: ["Prior-only lineup candidate pools", "Conditional starter duration", "Prior-only reliever candidate pools", "Measured uncovered participants", "Prospective roster feeds — NOT_CONFIGURED"],
+      outputs: ["Lineup component decision", "Starter-duration component decision", "Bullpen-usage component decision"],
+      prerequisites: ["Dynamic state research artifact", "Registered retrospective participation and usage targets"],
+    };
+  }
+  if (step.number === 6 && dynamic) {
+    return {
+      status: dynamic.status.endsWith("_BLOCKED") ? "PHASE 3 COMPLETE · DYNAMIC BLOCKED" : "COMPLETE · PHASE 3 + DYNAMIC EVIDENCE",
+      purpose: "Preserve the Phase 3 static C4 baseline and add bounded dynamic-state logistic challengers without changing its registered result.",
+      sections: ["Frozen D0 raw C4", "D1–D4 multinomial logistic candidates", "No boosted event model", "No handedness or platoon features"],
+      outputs: ["Static-versus-dynamic PA comparison", "Frozen 2024 and 2025 evidence"],
+      prerequisites: ["MLB_DYNAMIC_PLAYER_STATE_V1"],
+    };
+  }
+  if ([8, 9, 10].includes(step.number)) {
+    return {
+      status: "COMPLETE · COMPONENT SCOPE",
+      purpose: step.number === 8
+        ? "Compare only the registered Phase 3, dynamic-state, lineup, starter-duration, and bullpen candidates; simulator, residual, and ensemble candidates remain not configured."
+        : step.number === 9
+          ? "Evaluate component research with date-atomic inner-2023 tuning, 2023-to-2024 selection, and through-2024-to-2025 frozen retrospective evidence."
+          : "Record only supplied component loss, Brier, calibration, duration-error, coverage, subgroup, and clustered-bootstrap evidence.",
+      sections: step.number === 8
+        ? ["Phase 3 C0–C4", "Dynamic D0–D4", "Lineup L0–L2", "Starter S0–S3", "Bullpen B0–B2", "Simulator / residual / ensemble — NOT_CONFIGURED"]
+        : step.number === 9
+          ? ["Date-atomic inner 2023", "2024 selection evidence", "Frozen 2025 retrospective evidence", "No prospective evidence"]
+          : ["PA calibration", "Participation calibration", "Duration errors", "Candidate-pool coverage", "Missing-history and ESS evidence"],
+      outputs: step.number === 8 ? ["Component candidate ledger"] : step.number === 9 ? ["Component temporal-fold evidence"] : ["Component reliability evidence"],
+      prerequisites: ["Registered Phase 4 component evidence"],
+    };
+  }
+  if (step.number === 11 && study.graph?.nodes.length) {
+    return {
+      status: "COMPLETE · RESEARCH ONLY",
+      purpose: "Extend the immutable Phase 3 graph with dynamic-state and participation research nodes while withholding simulation, bundle, deployment, and monitoring authority.",
+      sections: ["Parent-linked Phase 4 graph", "Component decisions", "Future feeds and simulator nodes — NOT_CONFIGURED"],
+      outputs: ["Governed Phase 4 research graph", "Research component decisions"],
+      prerequisites: ["Registered component metrics and limitations"],
+    };
+  }
+  return undefined;
 }
 
 export const NFL_WORKFLOW: SportsWorkflow = {

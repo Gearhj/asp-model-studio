@@ -595,7 +595,7 @@ class ModelRegistryTrainingIntegrationTests(unittest.TestCase):
         from server.model_registry.model_artifacts import load_model_artifact, resolve_model_artifact_path
         artifact_path = resolve_model_artifact_path(row["artifact_reference"])
         self.assertTrue(artifact_path.exists())
-        loaded = load_model_artifact(row["artifact_reference"])
+        loaded = load_model_artifact(row["artifact_reference"], expected_checksum=row["checksum"])
         predictions = loaded.predict(pd.DataFrame({"feature_a": [3.0], "feature_b": [5.0]}))
         self.assertEqual(len(predictions), 1)
 
