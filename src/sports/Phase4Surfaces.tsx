@@ -20,6 +20,7 @@ import {
   type SportsGameReplay,
   type SportsBaseOutTransition,
   type SportsSimulationInput,
+  type SportsWholeGameMonteCarlo,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -1079,6 +1080,81 @@ export function SimulationInputSection({ input }: { input?: SportsSimulationInpu
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Estimated Monte-Carlo cost (no simulation executed): one game × 1,000 sims ≈ {metric(record(perf.oneGame1000Sims).seconds, 1)}s · 15-game slate × 1,000 sims ≈ {metric(record(perf.slate15Games1000Sims).seconds, 1)}s at {integer(perf.measuredPasPerSecond)} PA/s. Next launch-critical step: the first whole-game Monte Carlo and a historical game-level backtest on this identical kernel + providers. Whole-Game Monte Carlo, game calibration, residual layer, prospective feed, and ASP export remain NOT_CONFIGURED.</p></div>
           {input.limitations.length ? <Limitations values={input.limitations} /> : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function WholeGameMonteCarloSection({ mc }: { mc?: SportsWholeGameMonteCarlo }) {
+  const s2024 = mc ? record(record(mc.bySeason)["2024"]) : {};
+  const s2025 = mc ? record(record(mc.bySeason)["2025"]) : {};
+  const ready = mc?.simulatorReadiness?.includes("RESEARCH_BASELINE_READY");
+  const covLabels: Array<[string, string]> = [["50", "50%"], ["80", "80%"], ["90", "90%"], ["95", "95%"]];
+  const scoreRows: Array<[string, string]> = [
+    ["actual runs/team", "actualMeanTotal"], ["sim runs/team", "simulatedMeanTotal"],
+    ["total-run bias", "totalBias"], ["total-run MAE", "totalMae"], ["total-run RMSE", "totalRmse"],
+    ["total-run CRPS", "crpsTotal"], ["run-diff MAE", "runDiffMae"],
+  ];
+  return (
+    <Card
+      title="Phase 5D · whole-game Monte Carlo research baseline"
+      description="First game-level probabilistic validation under actual historical participants (oracle). Research diagnostic — NOT a production forecast, betting model, or market comparison. No win/run-line/total odds."
+    >
+      {!mc ? (
+        <Empty>MLB_WHOLE_GAME_MONTE_CARLO_V1 has not been run. Simulator readiness is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(ready ? "AVAILABLE" : mc.simulatorReadiness.includes("PARTIALLY") ? "PARTIAL" : "BLOCKED")}`}>{text(mc.simulatorReadiness)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{text(mc.participantMode)} · oracle upper bound, not prospective</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{integer(mc.simulationsPerGame)} sims/game</span>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actual vs simulated scoring (per season)</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th><th className="py-1 pr-4">2024</th><th className="py-1 pr-4">2025</th></tr></thead>
+              <tbody>{scoreRows.map(([label, key]) => (
+                <tr key={key} className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">{label}</td><td className="py-1 pr-4">{metric(s2024[key], 3)}</td><td className="py-1 pr-4">{metric(s2025[key], 3)}</td></tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Prediction-interval coverage — total runs (nominal vs observed 2024)</h3>
+            <div className="grid gap-2 sm:grid-cols-4">{covLabels.map(([k, lbl]) => {
+              const obs = Number(record(s2024.coverageTotal)[k]);
+              const nominal = Number(k) / 100;
+              const good = Math.abs(obs - nominal) <= 0.05;
+              return (
+                <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{lbl} interval</span><span className={good ? "text-emerald-700" : "text-amber-700"}>{Number.isFinite(obs) ? (obs * 100).toFixed(1) : "—"}%</span></div>
+                  <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-200"><div className={`h-1.5 rounded-full ${good ? "bg-emerald-500" : "bg-amber-500"}`} style={{ width: `${Math.min(100, Math.max(0, obs * 100))}%` }} /></div>
+                </div>
+              );
+            })}</div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Diagnostic winner probability &amp; calibration (no market comparison)</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th><th className="py-1 pr-4">2024</th><th className="py-1 pr-4">2025</th></tr></thead>
+              <tbody>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">home-win Brier</td><td className="py-1 pr-4">{metric(record(s2024.winner).brier, 4)}</td><td className="py-1 pr-4">{metric(record(s2025.winner).brier, 4)}</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">home-win log loss</td><td className="py-1 pr-4">{metric(record(s2024.winner).logLoss, 4)}</td><td className="py-1 pr-4">{metric(record(s2025.winner).logLoss, 4)}</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">calibration ECE</td><td className="py-1 pr-4">{metric(s2024.calibrationEce, 4)}</td><td className="py-1 pr-4">{metric(s2025.calibrationEce, 4)}</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">actual home-win rate</td><td className="py-1 pr-4">{metric(s2024.actualHomeWinRate, 4)}</td><td className="py-1 pr-4">{metric(s2025.actualHomeWinRate, 4)}</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">mean sim home-win prob</td><td className="py-1 pr-4">{metric(s2024.meanSimulatedHomeWinProb, 4)}</td><td className="py-1 pr-4">{metric(s2025.meanSimulatedHomeWinProb, 4)}</td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <EvidenceGrid evidence={{
+            d3GameLevelValue: mc.d3GameLevelValue,
+            contactQualityPriority: mc.contactQualityPriority,
+            participationAblation: mc.participationAblationDecision,
+            illegalStates: record(mc.legality).totalIllegalStates,
+            nonterminated: record(mc.legality).totalNonterminated,
+          }} />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Oracle participants remove lineup/starter/bullpen prediction uncertainty — this is an optimistic upper bound, not a deployable pregame forecast. Next realism step follows the participation-ablation and contact-quality decisions above. Projected participation, prospective feed, residual layer, premium contact-quality, and ASP export remain NOT_CONFIGURED.</p></div>
+          {mc.limitations.length ? <Limitations values={mc.limitations} /> : null}
         </div>
       )}
     </Card>

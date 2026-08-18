@@ -523,6 +523,27 @@ export type SportsSimulationInput = {
   limitations: string[];
 };
 
+// Phase 5D whole-game Monte Carlo research baseline (HISTORICAL_PARTICIPANTS_ORACLE_MODE).
+// Not a game forecast, betting model, or market comparison.
+export type SportsWholeGameMonteCarlo = {
+  runId: string;
+  contractName: string;
+  researchOnly: boolean;
+  participantMode: string;
+  parentAuthorities: SportsPhase4EvidenceRecord;
+  simulationsPerGame?: number;
+  developmentStandardSimulations?: number;
+  eligibleGames: SportsPhase4EvidenceRecord;
+  convergence: SportsPhase4EvidenceRecord;
+  bySeason: SportsPhase4EvidenceRecord;
+  d3GameLevelValue: string;
+  contactQualityPriority: string;
+  participationAblationDecision: string;
+  simulatorReadiness: string;
+  legality: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -549,6 +570,7 @@ export type SportsPhase4Study = {
   gameReplay?: SportsGameReplay;
   baseOutTransition?: SportsBaseOutTransition;
   simulationInput?: SportsSimulationInput;
+  wholeGameMonteCarlo?: SportsWholeGameMonteCarlo;
 };
 
 export type RegisteredSportsProject = {
@@ -1216,6 +1238,32 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     gameReplay: normalizeGameReplay(value.gameReplay),
     baseOutTransition: normalizeBaseOutTransition(value.baseOutTransition),
     simulationInput: normalizeSimulationInput(value.simulationInput),
+    wholeGameMonteCarlo: normalizeWholeGameMonteCarlo(value.wholeGameMonteCarlo),
+  };
+}
+
+function normalizeWholeGameMonteCarlo(value: unknown): SportsWholeGameMonteCarlo | undefined {
+  if (!isRecord(value)) return undefined;
+  const runId = publicString(value.runId);
+  // Existence-gated: no governed Monte Carlo run -> honest not-run state.
+  if (!runId) return undefined;
+  return {
+    runId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    participantMode: publicString(value.participantMode),
+    parentAuthorities: normalizePublicEvidenceRecord(value.parentAuthorities),
+    simulationsPerGame: optionalFiniteNumber(value.simulationsPerGame),
+    developmentStandardSimulations: optionalFiniteNumber(value.developmentStandardSimulations),
+    eligibleGames: normalizePublicEvidenceRecord(value.eligibleGames),
+    convergence: normalizePublicEvidenceRecord(value.convergence),
+    bySeason: normalizePublicEvidenceRecord(value.bySeason),
+    d3GameLevelValue: publicString(value.d3GameLevelValue),
+    contactQualityPriority: publicString(value.contactQualityPriority),
+    participationAblationDecision: publicString(value.participationAblationDecision),
+    simulatorReadiness: publicString(value.simulatorReadiness),
+    legality: normalizePublicEvidenceRecord(value.legality),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

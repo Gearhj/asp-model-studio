@@ -428,6 +428,88 @@ def _load_active_simulation_input(registration: Mapping[str, Any]) -> dict[str, 
         return None
 
 
+def _load_active_whole_game_monte_carlo(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 5D whole-game Monte Carlo research baseline.
+
+    A research simulation component under HISTORICAL_PARTICIPANTS_ORACLE_MODE — not a game
+    forecast, betting model, or market comparison. Read-only and defensive: absence / parse
+    error / authority mismatch -> ``None``. Surfaces the score-distribution accuracy, interval
+    coverage, diagnostic winner calibration, D3 game-level value, and readiness only.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase5"
+        )
+        artifact = root / "whole-game-monte-carlo" / "latest.montecarlo.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("monteCarlo") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        by_season = payload.get("bySeason") or {}
+
+        def _season_view(season: str) -> dict[str, Any]:
+            ev = by_season.get(season) or {}
+            sm = ev.get("scoreMetrics") or {}
+            return {
+                "games": ev.get("games"),
+                "actualMeanTotal": ev.get("actualMeanTotal"),
+                "simulatedMeanTotal": ev.get("simulatedMeanTotal"),
+                "totalBias": (sm.get("total") or {}).get("bias"),
+                "totalMae": (sm.get("total") or {}).get("mae"),
+                "totalRmse": (sm.get("total") or {}).get("rmse"),
+                "crpsTotal": sm.get("crpsTotal"),
+                "runDiffMae": (sm.get("diff") or {}).get("mae"),
+                "coverageTotal": (ev.get("coverage") or {}).get("intTotal"),
+                "winner": ev.get("winner"),
+                "calibrationEce": (ev.get("calibration") or {}).get("ece"),
+                "actualHomeWinRate": ev.get("actualHomeWinRate"),
+                "meanSimulatedHomeWinProb": ev.get("meanSimulatedHomeWinProb"),
+                "baselineG0": ev.get("baselineG0"),
+                "distributionShapeTotal": ev.get("distributionShapeTotal"),
+                "shapeVerdict": ev.get("shapeVerdict"),
+                "dispersionRatioTotal": ev.get("dispersionRatioTotal"),
+                "errorConcentrationCrpsTotal": ev.get("errorConcentrationCrpsTotal"),
+                "legality": ev.get("legality"),
+            }
+
+        return {
+            "runId": payload.get("runId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "participantMode": payload.get("participantMode"),
+            "parentAuthorities": payload.get("parentAuthorities"),
+            "simulationsPerGame": payload.get("simulationsPerGame"),
+            "developmentStandardSimulations": payload.get("developmentStandardSimulations"),
+            "eligibleGames": payload.get("eligibleGames"),
+            "convergence": payload.get("convergence"),
+            "bySeason": {s: _season_view(s) for s in ("2024", "2025")},
+            "d3GameLevelValue": payload.get("d3GameLevelValue"),
+            "contactQualityPriority": payload.get("contactQualityPriority"),
+            "participationAblationDecision": payload.get("participationAblationDecision"),
+            "simulatorReadiness": payload.get("simulatorReadiness"),
+            "legality": payload.get("legality"),
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
 def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[str, Any] | None:
     """Authority-gated read of the Phase 4F severe-miss forensic study (analysis only).
 
@@ -1121,6 +1203,9 @@ class SportsDatasetRegistry:
             simulation_input = _load_active_simulation_input(registration)
             if simulation_input is not None:
                 phase4 = {**phase4, "simulationInput": simulation_input}
+            whole_game_monte_carlo = _load_active_whole_game_monte_carlo(registration)
+            if whole_game_monte_carlo is not None:
+                phase4 = {**phase4, "wholeGameMonteCarlo": whole_game_monte_carlo}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]
