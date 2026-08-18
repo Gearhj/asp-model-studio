@@ -34,6 +34,23 @@ from tests.sports_phase4_registry_test import _seed_parent_authorities
 SCRATCH_ROOT = Path(__file__).resolve().parents[1] / ".tmp"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_phase4_runtime_root(tmp_path, monkeypatch):
+    """Keep these scope tests hermetic.
+
+    ``public_dataset`` authority-gates optional Phase 4 runtime evidence (catcher
+    readiness, E1/E2 features, the incremental-signal and severe-miss studies) and
+    attaches whatever matches the active registration under the phase4 runtime root.
+    These tests assert the *exact* phase4 projection shape, so point the runtime root at
+    an empty temp directory: without it a populated live ``.runtime`` tree would attach
+    real evidence and perturb the equality checks. This changes no production semantics.
+    """
+
+    monkeypatch.setenv(
+        "ASP_MODEL_STUDIO_PHASE4_RUNTIME_ROOT", str(tmp_path / "phase4-runtime-empty")
+    )
+
+
 def _phase3_public() -> dict[str, object]:
     return {
         "paBaseline": {
