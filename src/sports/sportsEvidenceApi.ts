@@ -461,6 +461,27 @@ export type SportsSevereMissForensics = {
   limitations: string[];
 };
 
+// Phase 5 deterministic game-replay engine (mechanical, not a predictive/probabilistic simulator).
+export type SportsGameReplay = {
+  replayRunId: string;
+  contractName: string;
+  researchOnly: boolean;
+  probabilisticSimulation: boolean;
+  readinessStatus: string;
+  seasons: number[];
+  sourceFamily: string;
+  fullExecuted: boolean;
+  gamesAttempted?: number;
+  classificationCounts: SportsPhase4EvidenceRecord;
+  exactReplayRate?: number;
+  finalScoreExactRate?: number;
+  inningSequenceExactRate?: number;
+  zeroContinuityRate?: number;
+  mismatchesByCategory: SportsPhase4EvidenceRecord;
+  mismatchForensics: SportsPhase4EvidenceRecord[];
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -484,6 +505,7 @@ export type SportsPhase4Study = {
   processInteractions?: SportsProcessInteractions;
   incrementalSignalStudy?: SportsIncrementalSignalStudy;
   severeMissForensics?: SportsSevereMissForensics;
+  gameReplay?: SportsGameReplay;
 };
 
 export type RegisteredSportsProject = {
@@ -1148,6 +1170,33 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     processInteractions: normalizeProcessInteractions(value.processInteractions),
     incrementalSignalStudy: normalizeIncrementalSignalStudy(value.incrementalSignalStudy),
     severeMissForensics: normalizeSevereMissForensics(value.severeMissForensics),
+    gameReplay: normalizeGameReplay(value.gameReplay),
+  };
+}
+
+function normalizeGameReplay(value: unknown): SportsGameReplay | undefined {
+  if (!isRecord(value)) return undefined;
+  const replayRunId = publicString(value.replayRunId);
+  // Existence-gated: no governed replay run -> honest not-run state.
+  if (!replayRunId) return undefined;
+  return {
+    replayRunId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    probabilisticSimulation: value.probabilisticSimulation === true,
+    readinessStatus: publicString(value.readinessStatus),
+    seasons: numberArray(value.seasons),
+    sourceFamily: publicString(value.sourceFamily),
+    fullExecuted: value.fullExecuted === true,
+    gamesAttempted: optionalFiniteNumber(value.gamesAttempted),
+    classificationCounts: normalizePublicEvidenceRecord(value.classificationCounts),
+    exactReplayRate: optionalFiniteNumber(value.exactReplayRate),
+    finalScoreExactRate: optionalFiniteNumber(value.finalScoreExactRate),
+    inningSequenceExactRate: optionalFiniteNumber(value.inningSequenceExactRate),
+    zeroContinuityRate: optionalFiniteNumber(value.zeroContinuityRate),
+    mismatchesByCategory: normalizePublicEvidenceRecord(value.mismatchesByCategory),
+    mismatchForensics: normalizePublicEvidenceRecords(value.mismatchForensics),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

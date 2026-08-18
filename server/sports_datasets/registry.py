@@ -216,6 +216,65 @@ def _load_active_incremental_study(registration: Mapping[str, Any]) -> dict[str,
         return None
 
 
+def _load_active_game_replay(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 5 deterministic game-replay engine evidence.
+
+    Reads ``sports-phase5/game-replay/latest.replay.json`` (an engineering/research
+    component, not a predictive model or a probabilistic simulator). Read-only and
+    defensive: any absence, parse error, or dataset-authority mismatch yields ``None`` for
+    an honest not-run state. Surfaces a compact, honest readiness view only.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase5"
+        )
+        artifact = root / "game-replay" / "latest.replay.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("replay") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        full = payload.get("full") or {}
+        sample = payload.get("sample") or {}
+        reference = (full.get("metrics") if full.get("executed") else None) or sample.get("metrics") or {}
+        return {
+            "replayRunId": payload.get("replayRunId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "probabilisticSimulation": payload.get("probabilisticSimulation", False),
+            "readinessStatus": payload.get("readinessStatus"),
+            "seasons": payload.get("seasons"),
+            "sourceFamily": payload.get("sourceFamily"),
+            "fullExecuted": bool(full.get("executed")),
+            "gamesAttempted": reference.get("gamesAttempted"),
+            "classificationCounts": reference.get("classificationCounts"),
+            "exactReplayRate": reference.get("exactReplayRate"),
+            "finalScoreExactRate": reference.get("finalScoreExactRate"),
+            "inningSequenceExactRate": reference.get("inningSequenceExactRate"),
+            "zeroContinuityRate": reference.get("zeroContinuityRate"),
+            "mismatchesByCategory": reference.get("mismatchesByCategory"),
+            "mismatchForensics": payload.get("mismatchForensics"),
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
 def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[str, Any] | None:
     """Authority-gated read of the Phase 4F severe-miss forensic study (analysis only).
 
@@ -900,6 +959,9 @@ class SportsDatasetRegistry:
             severe_miss_forensics = _load_active_severe_miss_forensics(registration)
             if severe_miss_forensics is not None:
                 phase4 = {**phase4, "severeMissForensics": severe_miss_forensics}
+            game_replay = _load_active_game_replay(registration)
+            if game_replay is not None:
+                phase4 = {**phase4, "gameReplay": game_replay}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]

@@ -17,6 +17,7 @@ import {
   type SportsProcessInteractions,
   type SportsIncrementalSignalStudy,
   type SportsSevereMissForensics,
+  type SportsGameReplay,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -882,6 +883,52 @@ export function Phase4SimulationStatus({ study }: { study?: SportsPhase4Study })
         <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4"><div className="flex items-center gap-2 font-semibold text-cyan-950"><Layers3 size={17} />Available research evidence</div><ul className="mt-3 space-y-1 text-sm text-cyan-900">{available.map((item) => <li key={item}>{item}</li>)}</ul></div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-center gap-2 font-semibold text-amber-950"><Activity size={17} />Still not configured</div><p className="mt-3 text-sm leading-6 text-amber-900">Confirmed-lineup and probable-starter feeds, injuries and transactions, platoon state, base-out transitions, the game simulator, residual model, bundle export, and forward monitoring.</p></div>
       </div>
+    </Card>
+  );
+}
+
+export function GameReplaySection({ replay }: { replay?: SportsGameReplay }) {
+  const counts = replay ? record(replay.classificationCounts) : {};
+  const forensics = replay?.mismatchForensics ?? [];
+  return (
+    <Card
+      title="Phase 5 · deterministic historical game replay"
+      description="Before predicting a game, prove the kernel can replay a real one. Mechanical validator only — no probabilistic simulation, Monte Carlo, or betting logic."
+    >
+      {!replay ? (
+        <Empty>MLB_GAME_REPLAY_ENGINE_V1 has not been run. Replay readiness is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(replay.readinessStatus.includes("READY") && !replay.readinessStatus.includes("PARTIALLY") && !replay.readinessStatus.includes("BLOCKED") ? "AVAILABLE" : replay.readinessStatus.includes("PARTIALLY") ? "PARTIAL" : "BLOCKED")}`}>{text(replay.readinessStatus)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">deterministic replay · no probabilistic simulation</span>
+          </div>
+          <EvidenceGrid evidence={{
+            source: replay.sourceFamily,
+            seasons: replay.seasons.join(", "),
+            gamesReplayed: replay.gamesAttempted,
+            exactReplayRate: replay.exactReplayRate,
+            finalScoreExactRate: replay.finalScoreExactRate,
+            inningSequenceExactRate: replay.inningSequenceExactRate,
+            baseOutContinuityRate: replay.zeroContinuityRate,
+          }} />
+          <div className="grid gap-2 sm:grid-cols-4">
+            {["EXACT_REPLAY", "PARTIAL_REPLAY", "REPLAY_MISMATCH", "SOURCE_INSUFFICIENT"].map((k) => (
+              <div key={k} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"><span className="text-xs font-semibold text-slate-700">{k.replaceAll("_", " ")}</span><span className="text-sm font-semibold text-slate-900">{integer(counts[k])}</span></div>
+            ))}
+          </div>
+          {forensics.length ? (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mismatch forensics (honest, not hidden)</h3>
+              <div className="flex flex-wrap gap-2">{forensics.slice(0, 6).map(record).map((f, i) => (
+                <span key={i} className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">{text(f.category)}{f.paOutcome ? ` · ${text(f.paOutcome)}` : ""}<span className="font-semibold">{integer(f.count)}</span></span>
+              ))}</div>
+            </div>
+          ) : <p className="text-xs text-emerald-700">No unexplained mismatches beyond documented source quirks.</p>}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Next simulator milestone: a base-out transition distribution and a probabilistic PA-outcome provider that swaps actual events for sampled events. Game Simulator, Monte Carlo, residual layer, and ASP export remain NOT_CONFIGURED.</p></div>
+          {replay.limitations.length ? <Limitations values={replay.limitations} /> : null}
+        </div>
+      )}
     </Card>
   );
 }
