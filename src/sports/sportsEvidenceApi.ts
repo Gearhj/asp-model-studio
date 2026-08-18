@@ -504,6 +504,25 @@ export type SportsBaseOutTransition = {
   limitations: string[];
 };
 
+// Phase 5C simulation input layer (Monte-Carlo entry gates 5, 6, 7). Not a game forecast,
+// betting model, or Monte-Carlo result.
+export type SportsSimulationInput = {
+  runId: string;
+  contractName: string;
+  researchOnly: boolean;
+  parentAuthorities: SportsPhase4EvidenceRecord;
+  readiness: SportsPhase4EvidenceRecord;
+  monteCarloEntryDecision: string;
+  monteCarloEntryGates: SportsPhase4EvidenceRecord;
+  paProvider: SportsPhase4EvidenceRecord;
+  participantProvider: SportsPhase4EvidenceRecord;
+  gameInitialization: SportsPhase4EvidenceRecord;
+  shortSequenceIntegration: SportsPhase4EvidenceRecord;
+  eligiblePopulation: SportsPhase4EvidenceRecord;
+  monteCarloPerformanceEstimate: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -529,6 +548,7 @@ export type SportsPhase4Study = {
   severeMissForensics?: SportsSevereMissForensics;
   gameReplay?: SportsGameReplay;
   baseOutTransition?: SportsBaseOutTransition;
+  simulationInput?: SportsSimulationInput;
 };
 
 export type RegisteredSportsProject = {
@@ -1195,6 +1215,30 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     severeMissForensics: normalizeSevereMissForensics(value.severeMissForensics),
     gameReplay: normalizeGameReplay(value.gameReplay),
     baseOutTransition: normalizeBaseOutTransition(value.baseOutTransition),
+    simulationInput: normalizeSimulationInput(value.simulationInput),
+  };
+}
+
+function normalizeSimulationInput(value: unknown): SportsSimulationInput | undefined {
+  if (!isRecord(value)) return undefined;
+  const runId = publicString(value.runId);
+  // Existence-gated: no governed simulation-input run -> honest not-run state.
+  if (!runId) return undefined;
+  return {
+    runId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    parentAuthorities: normalizePublicEvidenceRecord(value.parentAuthorities),
+    readiness: normalizePublicEvidenceRecord(value.readiness),
+    monteCarloEntryDecision: publicString(value.monteCarloEntryDecision),
+    monteCarloEntryGates: normalizePublicEvidenceRecord(value.monteCarloEntryGates),
+    paProvider: normalizePublicEvidenceRecord(value.paProvider),
+    participantProvider: normalizePublicEvidenceRecord(value.participantProvider),
+    gameInitialization: normalizePublicEvidenceRecord(value.gameInitialization),
+    shortSequenceIntegration: normalizePublicEvidenceRecord(value.shortSequenceIntegration),
+    eligiblePopulation: normalizePublicEvidenceRecord(value.eligiblePopulation),
+    monteCarloPerformanceEstimate: normalizePublicEvidenceRecord(value.monteCarloPerformanceEstimate),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

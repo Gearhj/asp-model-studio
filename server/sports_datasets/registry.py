@@ -338,6 +338,96 @@ def _load_active_base_out_transition(registration: Mapping[str, Any]) -> dict[st
         return None
 
 
+def _load_active_simulation_input(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 5C simulation input layer (Monte-Carlo entry gates).
+
+    Not a game forecast, betting model, or Monte-Carlo result. Read-only and defensive:
+    absence / parse error / authority mismatch -> ``None`` (honest not-run state). Surfaces a
+    compact readiness view: D3 reproduction, participant coverage, eligible games, throughput,
+    short-sequence legality, and the Monte-Carlo entry decision.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase5"
+        )
+        artifact = root / "simulation-input" / "latest.simulation.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("simulationInput") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        pa = payload.get("paProvider") or {}
+        repro = pa.get("reproduction") or {}
+        throughput = pa.get("throughput") or {}
+        coverage = (payload.get("participantProvider") or {}).get("coverage") or {}
+        seq = payload.get("shortSequenceIntegration") or {}
+        perf = payload.get("monteCarloPerformanceEstimate") or {}
+        decision = payload.get("monteCarloEntryDecision") or {}
+        eligible = payload.get("eligiblePopulation") or {}
+        return {
+            "runId": payload.get("runId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "parentAuthorities": payload.get("parentAuthorities"),
+            "readiness": payload.get("readiness"),
+            "monteCarloEntryDecision": decision.get("decision"),
+            "monteCarloEntryGates": decision.get("gates"),
+            "paProvider": {
+                "contractName": pa.get("contractName"),
+                "modelAuthority": pa.get("modelAuthority"),
+                "classOrder": pa.get("classOrder"),
+                "exactReproduction": repro.get("exactReproduction"),
+                "rowsCompared": repro.get("rowsCompared"),
+                "maxAbsProbabilityDiff": repro.get("maxAbsProbabilityDiff"),
+                "meanAbsProbabilityDiff": repro.get("meanAbsProbabilityDiff"),
+                "mismatchCount": repro.get("mismatchCount"),
+                "classOrderMismatchCount": repro.get("classOrderMismatchCount"),
+                "logLoss": repro.get("logLoss"),
+                "expectedLogLoss": repro.get("expectedLogLoss"),
+                "throughputPasPerSecond": throughput.get("batchPasPerSecond"),
+                "singleRowLatencyMs": throughput.get("singleRowLatencyMs"),
+                "modelLoadMs": throughput.get("modelLoadMs"),
+                "artifactFormat": pa.get("artifactFormat"),
+                "missingHistoryAllScoredValid": (pa.get("missingHistory") or {}).get("allScoredValid"),
+            },
+            "participantProvider": {
+                "contractName": (payload.get("participantProvider") or {}).get("contractName"),
+                "provenance": (payload.get("participantProvider") or {}).get("provenance"),
+                "coverage": coverage,
+            },
+            "gameInitialization": {
+                "contractName": (payload.get("gameInitialization") or {}).get("contractName"),
+                "validated": (payload.get("gameInitialization") or {}).get("validated"),
+            },
+            "shortSequenceIntegration": {k: seq.get(k) for k in (
+                "sequences", "pasPerSequence", "totalPlateAppearances", "illegalStates",
+                "invalidProbabilityVectors", "duplicatedRunners", "lostRunners",
+                "inningProgressionOk", "clean", "sameSeedReproducible", "differentSeedDivergent")},
+            "eligiblePopulation": eligible,
+            "monteCarloPerformanceEstimate": {k: perf.get(k) for k in (
+                "measuredPasPerSecond", "oneGame1000Sims", "slate15Games1000Sims",
+                "fullSeason2024_1000Sims", "batchingRecommended")},
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
 def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[str, Any] | None:
     """Authority-gated read of the Phase 4F severe-miss forensic study (analysis only).
 
@@ -1028,6 +1118,9 @@ class SportsDatasetRegistry:
             base_out_transition = _load_active_base_out_transition(registration)
             if base_out_transition is not None:
                 phase4 = {**phase4, "baseOutTransition": base_out_transition}
+            simulation_input = _load_active_simulation_input(registration)
+            if simulation_input is not None:
+                phase4 = {**phase4, "simulationInput": simulation_input}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]

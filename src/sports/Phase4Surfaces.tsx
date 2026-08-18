@@ -19,6 +19,7 @@ import {
   type SportsSevereMissForensics,
   type SportsGameReplay,
   type SportsBaseOutTransition,
+  type SportsSimulationInput,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -985,6 +986,99 @@ export function BaseOutTransitionSection({ transition }: { transition?: SportsBa
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Next launch-critical step: a D3 probabilistic PA-outcome provider adapter, then a first whole-game Monte Carlo on this identical kernel. Monte Carlo, game-level calibration, residual layer, and ASP export remain NOT_CONFIGURED.</p></div>
           {transition.limitations.length ? <Limitations values={transition.limitations} /> : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function SimulationInputSection({ input }: { input?: SportsSimulationInput }) {
+  const readiness = input ? record(input.readiness) : {};
+  const pa = input ? record(input.paProvider) : {};
+  const repro = record(pa.reproduction);
+  const logLoss = record(repro.logLoss);
+  const coverage = input ? record(record(input.participantProvider).coverage) : {};
+  const eligible = input ? record(record(input.eligiblePopulation).bySeason) : {};
+  const seq = input ? record(input.shortSequenceIntegration) : {};
+  const perf = input ? record(input.monteCarloPerformanceEstimate) : {};
+  const passed = input?.monteCarloEntryDecision === "MONTE_CARLO_ENTRY_GATES_PASSED";
+  const gateLabels: Array<[string, string]> = [
+    ["replayEngine", "Replay Engine"],
+    ["baseOutTransition", "Base-Out Transition"],
+    ["d3ProbabilisticPaProvider", "D3 PA Provider"],
+    ["historicalParticipantReplay", "Historical Participant Replay"],
+    ["gameInitialization", "Game Initialization"],
+    ["wholeGameMonteCarlo", "Whole-Game Monte Carlo"],
+  ];
+  return (
+    <Card
+      title="Phase 5C · simulation input layer (Monte-Carlo entry gates)"
+      description="The final entry gates before the first whole-game Monte Carlo: faithful D3 PA-outcome invocation, historical participants, and game initialization. Interface correctness only — no Monte Carlo, win/run-line/total probabilities, or betting logic."
+    >
+      {!input ? (
+        <Empty>MLB_SIMULATION_INPUT_LAYER_V1 has not been run. Simulation-input readiness is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(passed ? "AVAILABLE" : input.monteCarloEntryDecision.includes("PARTIAL") ? "PARTIAL" : "BLOCKED")}`}>{text(input.monteCarloEntryDecision)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">interface correctness · no Monte Carlo</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {gateLabels.map(([key, label]) => {
+              const status = text(readiness[key]);
+              const tone = status === "READY" ? "AVAILABLE" : status === "LOCKED" ? "BLOCKED" : "PARTIAL";
+              return (
+                <div key={key} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <span className="text-xs font-semibold text-slate-700">{label}</span>
+                  <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] ${readinessChipClass(tone)}`}>{status}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">D3 historical reproduction (frozen raw_D3, bit-exact)</h3>
+            <EvidenceGrid evidence={{
+              exactReproduction: repro.exactReproduction,
+              rowsCompared: repro.rowsCompared,
+              maxAbsProbabilityDiff: repro.maxAbsProbabilityDiff,
+              mismatchCount: repro.mismatchCount,
+              logLoss2024: logLoss["2024"],
+              logLoss2025: logLoss["2025"],
+              throughputPasPerSec: pa.throughputPasPerSecond,
+            }} />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Historical participant coverage &amp; Monte-Carlo eligible games</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Season</th><th className="py-1 pr-4">Games</th><th className="py-1 pr-4">Complete replay</th><th className="py-1 pr-4">Batter/pitcher resolved</th><th className="py-1 pr-4">Eligible</th></tr></thead>
+              <tbody>{["2024", "2025"].map((s) => {
+                const c = record(coverage[s]);
+                const e = record(eligible[s]);
+                return (
+                  <tr key={s} className="border-t border-slate-100">
+                    <td className="py-1 pr-4 text-slate-700">{s}</td>
+                    <td className="py-1 pr-4">{integer(c.games)}</td>
+                    <td className="py-1 pr-4">{integer(c.completeReplayGames)}</td>
+                    <td className="py-1 pr-4">{metric(c.activeBatterResolutionRate, 4)} / {metric(c.activePitcherResolutionRate, 4)}</td>
+                    <td className="py-1 pr-4 font-semibold text-slate-900">{integer(e.eligible)}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table></div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Short-sequence stochastic integration (bounded — not a game forecast)</h3>
+            <EvidenceGrid evidence={{
+              sequences: seq.sequences,
+              sampledPlateAppearances: seq.totalPlateAppearances,
+              illegalStates: seq.illegalStates,
+              duplicatedOrLostRunners: (Number(seq.duplicatedRunners) || 0) + (Number(seq.lostRunners) || 0),
+              sameSeedReproducible: seq.sameSeedReproducible,
+              differentSeedDivergent: seq.differentSeedDivergent,
+            }} />
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Estimated Monte-Carlo cost (no simulation executed): one game × 1,000 sims ≈ {metric(record(perf.oneGame1000Sims).seconds, 1)}s · 15-game slate × 1,000 sims ≈ {metric(record(perf.slate15Games1000Sims).seconds, 1)}s at {integer(perf.measuredPasPerSecond)} PA/s. Next launch-critical step: the first whole-game Monte Carlo and a historical game-level backtest on this identical kernel + providers. Whole-Game Monte Carlo, game calibration, residual layer, prospective feed, and ASP export remain NOT_CONFIGURED.</p></div>
+          {input.limitations.length ? <Limitations values={input.limitations} /> : null}
         </div>
       )}
     </Card>

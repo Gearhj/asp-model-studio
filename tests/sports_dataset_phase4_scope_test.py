@@ -39,15 +39,19 @@ def _isolate_phase4_runtime_root(tmp_path, monkeypatch):
     """Keep these scope tests hermetic.
 
     ``public_dataset`` authority-gates optional Phase 4 runtime evidence (catcher
-    readiness, E1/E2 features, the incremental-signal and severe-miss studies) and
-    attaches whatever matches the active registration under the phase4 runtime root.
-    These tests assert the *exact* phase4 projection shape, so point the runtime root at
-    an empty temp directory: without it a populated live ``.runtime`` tree would attach
-    real evidence and perturb the equality checks. This changes no production semantics.
+    readiness, E1/E2 features, the incremental-signal and severe-miss studies) and the
+    Phase 5 simulation components (game replay, base-out transition, simulation input) and
+    attaches whatever matches the active registration under the phase4/phase5 runtime roots.
+    These tests assert the *exact* phase4 projection shape, so point both runtime roots at
+    empty temp directories: without it a populated live ``.runtime`` tree would attach real
+    evidence and perturb the equality checks. This changes no production semantics.
     """
 
     monkeypatch.setenv(
         "ASP_MODEL_STUDIO_PHASE4_RUNTIME_ROOT", str(tmp_path / "phase4-runtime-empty")
+    )
+    monkeypatch.setenv(
+        "ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", str(tmp_path / "phase5-runtime-empty")
     )
 
 
