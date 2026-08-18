@@ -275,6 +275,69 @@ def _load_active_game_replay(registration: Mapping[str, Any]) -> dict[str, Any] 
         return None
 
 
+def _load_active_base_out_transition(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 5B base-out transition model (simulation component).
+
+    Not a PA model, game forecast, betting model, or Monte Carlo result. Read-only and
+    defensive: absence / parse error / authority mismatch -> ``None`` (honest not-run state).
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase5"
+        )
+        artifact = root / "base-out-transition" / "latest.transition.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("transition") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        val = payload.get("validation2024") or {}
+        frozen = payload.get("frozen2025") or {}
+        stress = payload.get("stochasticStressTest") or {}
+        return {
+            "transitionRunId": payload.get("transitionRunId"),
+            "contractName": payload.get("contractName"),
+            "readinessStatus": payload.get("readinessStatus"),
+            "researchOnly": payload.get("researchOnly", True),
+            "parentReplayAuthority": payload.get("parentReplayAuthority"),
+            "retainedPolicy": payload.get("retainedPolicy"),
+            "devSeasons": payload.get("devSeasons"),
+            "developmentRows": payload.get("developmentRows"),
+            "primaryStateCells": payload.get("primaryStateCells"),
+            "sparseCellCount": payload.get("sparseCellCount"),
+            "deterministicRules": payload.get("deterministicRules"),
+            "illegalProbabilityMass": (payload.get("legality") or {}).get("illegalProbabilityMass"),
+            "validation2024": {k: val.get(k) for k in ("logLoss", "brier", "top1Accuracy", "top2Coverage",
+                                                       "runsScoredMae", "outsAddedAccuracy", "baseMaskAfterAccuracy",
+                                                       "inningEndingAccuracy", "fallbackUsage", "perOutcome")},
+            "frozen2025": {k: frozen.get(k) for k in ("logLoss", "brier", "top1Accuracy", "top2Coverage",
+                                                      "runsScoredMae", "outsAddedAccuracy", "baseMaskAfterAccuracy",
+                                                      "inningEndingAccuracy", "fallbackUsage")},
+            "stochasticStressTest": {k: stress.get(k) for k in ("illegalStateCount", "duplicatedRunnerCount",
+                                                                "lostRunnerCount", "totalSampledTransitions")},
+            "reproducibility": payload.get("reproducibility"),
+            "modelArtifact": {k: (payload.get("modelArtifact") or {}).get(k) for k in ("sha256", "byteCount", "format")},
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
 def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[str, Any] | None:
     """Authority-gated read of the Phase 4F severe-miss forensic study (analysis only).
 
@@ -962,6 +1025,9 @@ class SportsDatasetRegistry:
             game_replay = _load_active_game_replay(registration)
             if game_replay is not None:
                 phase4 = {**phase4, "gameReplay": game_replay}
+            base_out_transition = _load_active_base_out_transition(registration)
+            if base_out_transition is not None:
+                phase4 = {**phase4, "baseOutTransition": base_out_transition}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]

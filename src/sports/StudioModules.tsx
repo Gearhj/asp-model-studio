@@ -5,6 +5,7 @@ import {
 } from "./SportsEvidenceSurfaces";
 import {
   ParticipationUsagePage,
+  BaseOutTransitionSection,
   GameReplaySection,
   Phase4EvaluationSection,
   Phase4GraphSection,
@@ -527,6 +528,7 @@ export function SimulationStudioPage() {
       ]} />
 
       <GameReplaySection replay={phase4?.gameReplay} />
+      <BaseOutTransitionSection transition={phase4?.baseOutTransition} />
       <Phase4SimulationStatus study={phase4} />
 
       <SectionCard title="Sports simulation architecture" description="The studio is reserved for sports-native state propagation; inherited experimental-design simulation is not presented as a game simulator." icon={Workflow}>

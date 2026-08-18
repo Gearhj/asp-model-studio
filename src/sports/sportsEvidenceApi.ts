@@ -482,6 +482,28 @@ export type SportsGameReplay = {
   limitations: string[];
 };
 
+// Phase 5B empirical base-out / runner-advancement transition model (simulation component).
+export type SportsBaseOutTransition = {
+  transitionRunId: string;
+  contractName: string;
+  readinessStatus: string;
+  researchOnly: boolean;
+  parentReplayAuthority: SportsPhase4EvidenceRecord;
+  retainedPolicy: string;
+  devSeasons: number[];
+  developmentRows?: number;
+  primaryStateCells?: number;
+  sparseCellCount?: number;
+  deterministicRules: string[];
+  illegalProbabilityMass?: number;
+  validation2024: SportsPhase4EvidenceRecord;
+  frozen2025: SportsPhase4EvidenceRecord;
+  stochasticStressTest: SportsPhase4EvidenceRecord;
+  reproducibility: SportsPhase4EvidenceRecord;
+  modelArtifact: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -506,6 +528,7 @@ export type SportsPhase4Study = {
   incrementalSignalStudy?: SportsIncrementalSignalStudy;
   severeMissForensics?: SportsSevereMissForensics;
   gameReplay?: SportsGameReplay;
+  baseOutTransition?: SportsBaseOutTransition;
 };
 
 export type RegisteredSportsProject = {
@@ -1171,6 +1194,33 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     incrementalSignalStudy: normalizeIncrementalSignalStudy(value.incrementalSignalStudy),
     severeMissForensics: normalizeSevereMissForensics(value.severeMissForensics),
     gameReplay: normalizeGameReplay(value.gameReplay),
+    baseOutTransition: normalizeBaseOutTransition(value.baseOutTransition),
+  };
+}
+
+function normalizeBaseOutTransition(value: unknown): SportsBaseOutTransition | undefined {
+  if (!isRecord(value)) return undefined;
+  const transitionRunId = publicString(value.transitionRunId);
+  if (!transitionRunId) return undefined;
+  return {
+    transitionRunId,
+    contractName: publicString(value.contractName),
+    readinessStatus: publicString(value.readinessStatus),
+    researchOnly: value.researchOnly !== false,
+    parentReplayAuthority: normalizePublicEvidenceRecord(value.parentReplayAuthority),
+    retainedPolicy: publicString(value.retainedPolicy),
+    devSeasons: numberArray(value.devSeasons),
+    developmentRows: optionalFiniteNumber(value.developmentRows),
+    primaryStateCells: optionalFiniteNumber(value.primaryStateCells),
+    sparseCellCount: optionalFiniteNumber(value.sparseCellCount),
+    deterministicRules: publicStringArray(value.deterministicRules),
+    illegalProbabilityMass: optionalFiniteNumber(value.illegalProbabilityMass),
+    validation2024: normalizePublicEvidenceRecord(value.validation2024),
+    frozen2025: normalizePublicEvidenceRecord(value.frozen2025),
+    stochasticStressTest: normalizePublicEvidenceRecord(value.stochasticStressTest),
+    reproducibility: normalizePublicEvidenceRecord(value.reproducibility),
+    modelArtifact: normalizePublicEvidenceRecord(value.modelArtifact),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

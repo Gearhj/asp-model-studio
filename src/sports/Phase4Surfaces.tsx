@@ -18,6 +18,7 @@ import {
   type SportsIncrementalSignalStudy,
   type SportsSevereMissForensics,
   type SportsGameReplay,
+  type SportsBaseOutTransition,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -927,6 +928,63 @@ export function GameReplaySection({ replay }: { replay?: SportsGameReplay }) {
           ) : <p className="text-xs text-emerald-700">No unexplained mismatches beyond documented source quirks.</p>}
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Next simulator milestone: a base-out transition distribution and a probabilistic PA-outcome provider that swaps actual events for sampled events. Game Simulator, Monte Carlo, residual layer, and ASP export remain NOT_CONFIGURED.</p></div>
           {replay.limitations.length ? <Limitations values={replay.limitations} /> : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function BaseOutTransitionSection({ transition }: { transition?: SportsBaseOutTransition }) {
+  const v = transition ? record(transition.validation2024) : {};
+  const f = transition ? record(transition.frozen2025) : {};
+  const stress = transition ? record(transition.stochasticStressTest) : {};
+  const fb = record(v.fallbackUsage);
+  const perOutcome = record(v.perOutcome);
+  const ready = transition?.readinessStatus === "BASE_OUT_TRANSITION_MODEL_READY";
+  return (
+    <Card
+      title="Phase 5B · base-out / runner-advancement transition model"
+      description="The simulation bridge from a sampled PA outcome to the deterministic kernel. Mechanical + empirical, legality-guaranteed. No Monte Carlo, win/run-line/total probabilities, or betting logic."
+    >
+      {!transition ? (
+        <Empty>MLB_BASE_OUT_TRANSITION_MODEL_V1 has not been run. Transition readiness is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(ready ? "AVAILABLE" : transition.readinessStatus.includes("PARTIALLY") ? "PARTIAL" : "BLOCKED")}`}>{text(transition.readinessStatus)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">policy {text(transition.retainedPolicy)} · parent {text(record(transition.parentReplayAuthority).contractName)}</span>
+          </div>
+          <EvidenceGrid evidence={{
+            devSeasons: transition.devSeasons.join(", "),
+            primaryStateCells: transition.primaryStateCells,
+            sparseCells: transition.sparseCellCount,
+            illegalProbabilityMass: transition.illegalProbabilityMass,
+            stressIllegalStates: stress.illegalStateCount,
+            sampledTransitions: stress.totalSampledTransitions,
+          }} />
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">One-step transition backtest (2024 validation / 2025 frozen)</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th><th className="py-1 pr-4">2024</th><th className="py-1 pr-4">2025</th></tr></thead>
+              <tbody>{[["transition log loss", "logLoss", 4], ["summed Brier", "brier", 4], ["top-1 accuracy", "top1Accuracy", 4], ["top-2 coverage", "top2Coverage", 4], ["base-mask-after accuracy", "baseMaskAfterAccuracy", 4], ["outs-added accuracy", "outsAddedAccuracy", 4], ["inning-ending accuracy", "inningEndingAccuracy", 4], ["runs-scored MAE", "runsScoredMae", 4]].map(([label, key]) => (
+                <tr key={String(key)} className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">{label}</td><td className="py-1 pr-4">{metric(v[key as string], 4)}</td><td className="py-1 pr-4">{metric(f[key as string], 4)}</td></tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+          <EvidenceGrid evidence={{
+            fallbackL0Exact: fb.L0_EXACT, fallbackHomeRunDeterministic: fb.DETERMINISTIC_HOME_RUN,
+            fallbackLegalPrior: fb.L3_LEGAL_PRIOR ?? 0,
+            reproducibleSameSeed: record(transition.reproducibility).sameSeedIdentical,
+            modelArtifactFormat: record(transition.modelArtifact).format,
+          }} />
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Highest-uncertainty PA outcomes (2024 transition log loss)</h3>
+            <div className="flex flex-wrap gap-2">{Object.entries(perOutcome).map(([o, m]) => ({ o, ll: Number(record(m).logLoss) })).sort((a, b) => b.ll - a.ll).slice(0, 5).map(({ o, ll }) => (
+              <span key={o} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">{o.replaceAll("_", " ")}<span className="font-semibold">{ll.toFixed(3)}</span></span>
+            ))}</div>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Next launch-critical step: a D3 probabilistic PA-outcome provider adapter, then a first whole-game Monte Carlo on this identical kernel. Monte Carlo, game-level calibration, residual layer, and ASP export remain NOT_CONFIGURED.</p></div>
+          {transition.limitations.length ? <Limitations values={transition.limitations} /> : null}
         </div>
       )}
     </Card>
