@@ -15,12 +15,12 @@ import { useWorkflowStore } from "../../state/useWorkflowStore";
 import { loadSportsProjectMetadata, MLB_WORKFLOW } from "../sportsConfig";
 import { useActiveSportsDataset, type ActiveSportsDataset } from "../sportsEvidenceApi";
 import {
-  resolveStages, firstActionableStage, completionSummary, loadContract, loadBinding, adoptStage,
-  type StageResolution, type StageStatus, type EvidenceState, type StageClass,
+  resolveStages, firstActionableStage, nextActionable, completionSummary, loadContract, loadBinding, adoptStage,
+  type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
 } from "./workflowState";
 import { ForecastContractPanel } from "./ForecastContractPanel";
 import { DatasetBindingPanel } from "./DatasetBindingPanel";
-import { GuidedStageContent, AdoptBar } from "./GuidedStageContent";
+import { GuidedStageContent, AdoptBar, AutoSatisfiedFoundation, FoundationSummary } from "./GuidedStageContent";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, ShieldCheck, UsersRound, SlidersHorizontal, GitBranch, Gauge, FlaskConical, Clock3, CheckCircle2, Network, PackageCheck];
 
@@ -36,7 +36,7 @@ const EVIDENCE_BADGE: Partial<Record<EvidenceState, { label: string; cls: string
   PROJECT_STAGE_COMPLETE: { label: "Adopted by this project", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   NO_EVIDENCE: { label: "Not configured for this project", cls: "border-slate-200 bg-slate-50 text-slate-500" },
 };
-const CLASS_LABEL: Record<StageClass, string> = { CONFIGURE: "Configure", REVIEW_ADOPT: "Review & adopt", ANALYZE: "Analyze", DECIDE: "Decide", EXPORT: "Export" };
+const CLASS_LABEL: Record<DecisionClass, string> = { CONFIGURE: "Configure", REVIEW_AND_DECIDE: "Review & decide", ANALYZE: "Analyze", OPTIONAL_CUSTOMIZATION: "Optional customization", AUTO_SATISFIED: "Auto-satisfied", BLOCKED: "Blocked", TERMINAL: "Terminal" };
 
 export default function GuidedWorkflow() {
   const [params, setParams] = useSearchParams();
@@ -59,8 +59,12 @@ export default function GuidedWorkflow() {
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
 
   const goStep = (n: number) => setParams((p) => { const np = new URLSearchParams(p); np.set("step", String(n)); np.delete("done"); return np; });
-  const onCompleted = (next: number, from: number) =>
+  // After completing a stage, re-resolve (localStorage was just written) and jump to the next stage
+  // that still needs work — auto-satisfied foundation stages (4, 5) are skipped automatically.
+  const advanceFrom = (from: number) => {
+    const next = firstActionableStage(resolveStages(projectId, dataset));
     setParams((p) => { const np = new URLSearchParams(p); np.set("step", String(next)); np.set("done", String(from)); np.set("v", String(Date.now())); return np; });
+  };
 
   const loading = datasetEvidence.status === "loading";
 
@@ -74,7 +78,7 @@ export default function GuidedWorkflow() {
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200"><CircleDot size={15} /> Step {focus.number} of 12 · {CLASS_LABEL[focus.classification]}</div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200"><CircleDot size={15} /> Step {focus.number} of 12 · {CLASS_LABEL[focus.decisionClass]}</div>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">{displayName}</h1>
               <div className="mt-2 text-lg font-semibold text-cyan-100">{focus.title}</div>
               <p className="mt-3 max-w-3xl text-[15px] leading-7 text-slate-300">{focus.purpose}</p>
@@ -109,7 +113,7 @@ export default function GuidedWorkflow() {
                       {!navCollapsed && <>
                         <span className="min-w-0 flex-1">
                           <span className={`block truncate text-sm font-semibold ${active ? "text-white" : "text-slate-800"}`}>{r.title}</span>
-                          <span className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${active ? "text-slate-300" : "text-slate-400"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{avail && r.status !== "COMPLETE" ? "Evidence available" : style.label}</span>
+                          <span className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${active ? "text-slate-300" : "text-slate-400"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{r.autoSatisfied && r.status === "COMPLETE" ? "Foundation ready" : avail && r.status !== "COMPLETE" ? "Evidence available" : style.label}</span>
                         </span>
                         {!active && <Icon size={15} className="shrink-0 text-slate-300" />}
                       </>}
@@ -125,7 +129,7 @@ export default function GuidedWorkflow() {
           {loading ? (
             <div className="sports-panel p-8 text-center text-sm text-slate-500"><CircleDashed size={22} className="mx-auto animate-spin text-slate-400" /><p className="mt-3">Loading registered MLB evidence…</p></div>
           ) : (
-            <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetStatus={datasetEvidence.status} justDone={justDone} onGoStep={goStep} onCompleted={onCompleted} />
+            <StageWorkspace key={focus.number} focus={focus} resolutions={resolutions} projectId={projectId} metadata={metadata} dataset={dataset} datasetStatus={datasetEvidence.status} justDone={justDone} onGoStep={goStep} advanceFrom={advanceFrom} />
           )}
 
           <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -133,7 +137,7 @@ export default function GuidedWorkflow() {
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step {focus.number} of 12</span>
             {focus.number === 12 ? <span className="text-xs font-semibold text-slate-400">End of workflow</span> : (
               <div className="flex flex-col items-end">
-                <button onClick={() => goStep(focus.number + 1)} disabled={focus.status !== "COMPLETE"} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">Continue <ArrowRight size={15} /></button>
+                <button onClick={() => goStep(nextActionable(resolutions, focus.number))} disabled={focus.status !== "COMPLETE"} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">Continue <ArrowRight size={15} /></button>
                 {focus.status !== "COMPLETE" && <span className="mt-1 text-[11px] text-slate-400">Complete this step to continue</span>}
               </div>
             )}
@@ -145,16 +149,17 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, projectId, metadata, dataset, datasetStatus, justDone, onGoStep, onCompleted,
+  focus, resolutions, projectId, metadata, dataset, datasetStatus, justDone, onGoStep, advanceFrom,
 }: {
   focus: StageResolution;
+  resolutions: StageResolution[];
   projectId: string;
   metadata: ReturnType<typeof loadSportsProjectMetadata>;
   dataset: ActiveSportsDataset | null;
   datasetStatus: string;
   justDone: number;
   onGoStep: (n: number) => void;
-  onCompleted: (next: number, from: number) => void;
+  advanceFrom: (from: number) => void;
 }) {
   const style = STATUS_STYLE[focus.status];
   const step = MLB_WORKFLOW.steps.find((s) => s.number === focus.number)!;
@@ -184,7 +189,7 @@ function StageWorkspace({
 
       <section className="sports-panel p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Step {focus.number} · {CLASS_LABEL[focus.classification]} · {focus.estMinutes}</div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Step {focus.number} · {CLASS_LABEL[focus.decisionClass]} · {focus.estMinutes}</div>
           <div className="flex items-center gap-2">
             {badge && focus.status !== "COMPLETE" ? <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${badge.cls}`}>{badge.label}</span> : null}
             <span className={`sports-status ${style.chip}`}>{style.label}</span>
@@ -200,13 +205,16 @@ function StageWorkspace({
         )}
       </section>
 
-      {focus.number === 1 && <ForecastContractPanel projectId={projectId} metadata={metadata} existing={loadContract(projectId)} onSaved={() => onCompleted(2, 1)} />}
-      {focus.number === 2 && <DatasetBindingPanel projectId={projectId} dataset={dataset} datasetStatus={datasetStatus} bound={focus.status === "COMPLETE"} onBound={() => onCompleted(3, 2)} />}
-      {focus.number === 3 && <IdentityEvidenceStage focus={focus} dataset={dataset} onAdopt={() => { adoptStage(projectId, 3); onCompleted(4, 3); }} />}
+      {focus.number === 1 && <ForecastContractPanel projectId={projectId} metadata={metadata} existing={loadContract(projectId)} onSaved={() => advanceFrom(1)} />}
+      {focus.number === 2 && <DatasetBindingPanel projectId={projectId} dataset={dataset} datasetStatus={datasetStatus} bound={focus.status === "COMPLETE"} onBound={() => advanceFrom(2)} />}
+      {focus.number === 3 && <IdentityEvidenceStage focus={focus} dataset={dataset} onAdopt={() => { adoptStage(projectId, 3); advanceFrom(3); }} />}
+      {focus.number === 6 && <FoundationSummary resolutions={resolutions} onGoStep={onGoStep} />}
       {focus.number >= 4 && focus.number <= 11 && (
         <>
-          <GuidedStageContent number={focus.number} dataset={dataset} />
-          <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); onCompleted(focus.number + 1, focus.number); }} />
+          {focus.autoSatisfied && focus.number <= 5
+            ? <AutoSatisfiedFoundation focus={focus} dataset={dataset} />
+            : <GuidedStageContent number={focus.number} dataset={dataset} contract={loadContract(projectId)} />}
+          <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); advanceFrom(focus.number); }} />
         </>
       )}
       {focus.number === 12 && <AdoptOrConfigureStage focus={focus} onAdopt={() => {}} />}

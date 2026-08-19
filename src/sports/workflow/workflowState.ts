@@ -84,6 +84,8 @@ export function resetAdoption(projectId: string, stage: number) {
 
 // ---------------------------------------------------------------------------- stage metadata
 export type StageStatus = "COMPLETE" | "CURRENT" | "READY" | "BLOCKED" | "STALE";
+// Decision-driven role of a stage for the current project.
+export type DecisionClass = "CONFIGURE" | "REVIEW_AND_DECIDE" | "ANALYZE" | "OPTIONAL_CUSTOMIZATION" | "AUTO_SATISFIED" | "BLOCKED" | "TERMINAL";
 export type EvidenceState =
   | "NO_EVIDENCE"
   | "WORKSPACE_EVIDENCE_AVAILABLE"
@@ -134,10 +136,13 @@ export type StageResolution = {
   whyItMatters: string;
   estMinutes: string;
   classification: StageClass;
+  decisionClass: DecisionClass;
   status: StageStatus;
   evidenceState: EvidenceState;
   evidenceAvailable: boolean;
   adopted: boolean;
+  autoSatisfied: boolean;
+  requiredFor: string;
   blockedByNumber?: number;
   blockedReason?: string;
   action: StageAction;
@@ -147,6 +152,22 @@ export type StageResolution = {
 function ok(v: unknown): boolean {
   return Boolean(v);
 }
+
+// Stages the current PA project foundation auto-satisfies (no required scientist decision).
+// Step 4: the adopted bounded Y-1 batter/pitcher prior state is sufficient for the PA baseline.
+// Step 5: participation components are prerequisites for FULL-GAME SIMULATION (Step 7), not for
+// training/evaluating the PA classifier — so PA modeling is not blocked on them.
+function autoSatisfiedFor(n: number, bound: boolean, dataset: ActiveSportsDataset | null): boolean {
+  if (!bound) return false;
+  if (n === 4) return ok(dataset?.paBaseline) || true; // Y-1 prior-state baseline is always available once bound
+  if (n === 5) return true; // no participation component is required to develop the PA model
+  return false;
+}
+
+const REQUIRED_FOR: Record<number, string> = {
+  4: "Player-state baseline (bounded Y−1 priors) is sufficient for PA modeling",
+  5: "Required for full-game simulation (Step 7), not for PA model training",
+};
 
 /** Whether reusable workspace evidence exists for stage n (only meaningful once bound). */
 function evidenceAvailableFor(n: number, bound: boolean, dataset: ActiveSportsDataset | null): { available: boolean; evidence: string[] } {
@@ -203,12 +224,14 @@ export function resolveStages(
   const bound = ok(binding) && ok(dataset) && ok(dataset?.validationStatus);
   const adoptedSet = new Set(adoptions);
 
-  // base completion per stage (before enforcing the linear prerequisite chain)
+  // base completion per stage (before enforcing the linear prerequisite chain).
+  // Auto-satisfied foundation stages (4, 5) complete automatically once the project is bound —
+  // there is no required scientist decision, so they never gate the path to modeling.
   const base: boolean[] = steps.map((s) => {
     if (s.number === 1) return ok(contract);
     if (s.number === 2) return bound;
     if (s.number === 12) return false;
-    return adoptedSet.has(s.number);
+    return adoptedSet.has(s.number) || autoSatisfiedFor(s.number, bound, dataset);
   });
   // linear completion: a stage is complete only if it and all predecessors are base-complete
   const complete: boolean[] = [];
@@ -237,11 +260,20 @@ export function resolveStages(
       }
     }
 
+    const autoSat = autoSatisfiedFor(n, bound, dataset) && !adopted;
+
     let evidenceState: EvidenceState;
     if (status === "BLOCKED") evidenceState = "BLOCKED";
     else if (complete[i]) evidenceState = "PROJECT_STAGE_COMPLETE";
     else if (n >= 3 && available) evidenceState = "WORKSPACE_EVIDENCE_AVAILABLE";
     else evidenceState = "NO_EVIDENCE";
+
+    // decision-driven role for the current project
+    let decisionClass: DecisionClass;
+    if (status === "BLOCKED") decisionClass = "BLOCKED";
+    else if (n === 12) decisionClass = "TERMINAL";
+    else if (autoSat || (complete[i] && autoSatisfiedFor(n, bound, dataset) && !adopted)) decisionClass = "AUTO_SATISFIED";
+    else decisionClass = (CLASS[n] === "REVIEW_ADOPT" ? "REVIEW_AND_DECIDE" : CLASS[n] === "DECIDE" ? "REVIEW_AND_DECIDE" : CLASS[n] === "EXPORT" ? "TERMINAL" : CLASS[n]) as DecisionClass;
 
     return {
       number: n,
@@ -251,10 +283,13 @@ export function resolveStages(
       whyItMatters: WHY[n] || "",
       estMinutes: EST[n] || "",
       classification: CLASS[n],
+      decisionClass,
       status,
       evidenceState,
       evidenceAvailable: available,
       adopted,
+      autoSatisfied: autoSatisfiedFor(n, bound, dataset),
+      requiredFor: REQUIRED_FOR[n] || "",
       blockedByNumber,
       blockedReason,
       action: stageAction(n, available),
@@ -273,12 +308,22 @@ export function firstActionableStage(resolutions: StageResolution[]): number {
   return incomplete ? incomplete.number : resolutions.length;
 }
 
+/** Next stage after `after` that still needs work (skips COMPLETE / auto-satisfied stages). */
+export function nextActionable(resolutions: StageResolution[], after: number): number {
+  const next = resolutions.find((r) => r.number > after && r.status !== "COMPLETE");
+  return next ? next.number : Math.min(after + 1, resolutions.length);
+}
+
 export function completionSummary(resolutions: StageResolution[]) {
   const complete = resolutions.filter((r) => r.status === "COMPLETE").length;
   const ready = resolutions.filter((r) => r.status === "CURRENT" || r.status === "READY").length;
   const blocked = resolutions.filter((r) => r.status === "BLOCKED").length;
   const available = resolutions.filter((r) => r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE").length;
-  return { complete, ready, blocked, available, total: resolutions.length, pct: Math.round((complete / resolutions.length) * 100) };
+  // Foundation = Steps 1–5 (contract, data, identity, player-state, participation).
+  const foundation = resolutions.slice(0, 5);
+  const foundationComplete = foundation.every((r) => r.status === "COMPLETE");
+  const foundationDone = foundation.filter((r) => r.status === "COMPLETE").length;
+  return { complete, ready, blocked, available, total: resolutions.length, pct: Math.round((complete / resolutions.length) * 100), foundationComplete, foundationDone };
 }
 
 // Default proposed temporal policy for the current project (owner-reviewable).

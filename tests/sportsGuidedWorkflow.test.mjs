@@ -67,19 +67,23 @@ test("bound + workspace evidence but NO adoption: only 2 complete, not ~9", () =
   assert.ok(s.pct <= 20);
 });
 
-test("available vs adopted: adopting a stage makes it COMPLETE and advances the frontier", () => {
+test("decision-driven: adopting Step 3 auto-satisfies foundation Steps 4 & 5 → Step 6 is next", () => {
   const ds = fullDataset(), c = contract(), b = binding();
-  let r = wf.resolveStages("p1", ds, c, b, [3]);
-  assert.equal(r[2].status, "COMPLETE");
-  assert.equal(r[2].evidenceState, "PROJECT_STAGE_COMPLETE");
-  assert.equal(r[3].status, "CURRENT");
-  assert.equal(r[3].evidenceState, "WORKSPACE_EVIDENCE_AVAILABLE");
-  assert.equal(wf.completionSummary(r).complete, 3);
-  // adopt 3..11 -> 11 complete, step 12 frontier
-  r = wf.resolveStages("p1", ds, c, b, [3, 4, 5, 6, 7, 8, 9, 10, 11]);
-  assert.equal(wf.completionSummary(r).complete, 11);
-  assert.equal(r[11].status, "CURRENT"); // export not complete
-  assert.equal(wf.firstActionableStage(r), 12);
+  const r = wf.resolveStages("p1", ds, c, b, [3]);
+  assert.equal(r[2].status, "COMPLETE"); // identity adopted
+  assert.equal(r[3].status, "COMPLETE"); // player state auto-satisfied
+  assert.equal(r[4].status, "COMPLETE"); // participation auto-satisfied
+  assert.equal(r[3].autoSatisfied, true);
+  assert.equal(r[4].autoSatisfied, true);
+  assert.equal(r[5].status, "CURRENT");  // Step 6 — PA modeling — is the real next action
+  assert.equal(wf.completionSummary(r).complete, 5, "foundation (1-5) complete");
+  assert.equal(wf.firstActionableStage(r), 6, "scientist jumps straight to modeling");
+});
+
+test("nextActionable skips auto-satisfied foundation stages", () => {
+  const r = wf.resolveStages("p1", fullDataset(), contract(), binding(), [3]);
+  // from Step 3, Continue skips 4 & 5 straight to Step 6
+  assert.equal(wf.nextActionable(r, 3), 6);
 });
 
 test("binding without evidence: stages show NOT_CONFIGURED, not available", () => {
@@ -89,16 +93,35 @@ test("binding without evidence: stages show NOT_CONFIGURED, not available", () =
   assert.equal(r[2].evidenceAvailable, false);
 });
 
-test("Step 4 consistency: never COMPLETE from workspace evidence alone", () => {
-  // dynamicState absent (like the live defect) but paBaseline present
-  const ds = fullDataset();
-  const r = wf.resolveStages("p1", ds, contract(), binding(), [3]);
-  const s4 = r[3];
-  assert.notEqual(s4.status, "COMPLETE"); // must not be falsely complete
-  assert.equal(s4.evidenceAvailable, true); // bounded prior state is available
-  assert.equal(s4.evidenceState, "WORKSPACE_EVIDENCE_AVAILABLE");
-  // and its evidence copy is honest about dynamic state being optional/not registered
-  assert.ok(s4.evidence.some((e) => /optional further research|Dynamic player state registered/.test(e)));
+test("Step 4/5 are AUTO_SATISFIED foundation stages, not required decisions", () => {
+  const r = wf.resolveStages("p1", fullDataset(), contract(), binding(), [3]);
+  const s4 = r[3], s5 = r[4];
+  assert.equal(s4.decisionClass, "AUTO_SATISFIED");
+  assert.equal(s5.decisionClass, "AUTO_SATISFIED");
+  assert.ok(/sufficient for PA modeling/i.test(s4.requiredFor));
+  assert.ok(/full-game simulation/i.test(s5.requiredFor));
+  // decision classes across the foundation + first modeling stage
+  const classes = Object.fromEntries(r.map((s) => [s.number, s.decisionClass]));
+  assert.equal(classes[1], "CONFIGURE");
+  assert.equal(classes[2], "REVIEW_AND_DECIDE");
+  assert.equal(classes[3], "REVIEW_AND_DECIDE");
+  assert.equal(classes[4], "AUTO_SATISFIED");
+  assert.equal(classes[5], "AUTO_SATISFIED");
+  assert.equal(classes[6], "ANALYZE");
+  // with the whole program adopted, Step 11 is a decision and Step 12 is terminal
+  const full = wf.resolveStages("p1", fullDataset(), contract(), binding(), [3, 6, 7, 8, 9, 10, 11]);
+  assert.equal(full[10].decisionClass, "REVIEW_AND_DECIDE"); // Step 11 (DECIDE → review & decide)
+  assert.equal(full[11].decisionClass, "TERMINAL"); // Step 12 export
+});
+
+test("Step 6 is blocked until the real foundation (bind + identity) exists", () => {
+  // not bound -> Step 6 blocked
+  let r = wf.resolveStages("p1", null, contract(), null, []);
+  assert.equal(r[5].status, "BLOCKED");
+  // bound but identity (Step 3) not adopted -> Step 6 still blocked
+  r = wf.resolveStages("p1", fullDataset(), contract(), binding(), []);
+  assert.equal(r[5].status, "BLOCKED");
+  assert.equal(r[5].blockedByNumber, 3);
 });
 
 test("no stage routes to Studio Home; Step 3 → Data Warehouse, Step 6 → PA cockpit", () => {
@@ -115,11 +138,14 @@ test("no stage routes to Studio Home; Step 3 → Data Warehouse, Step 6 → PA c
   assert.equal(r[11].action.route, "/registry-deployment");
 });
 
-test("completion counts progress 1 -> 2 -> 3 as stages are adopted", () => {
+test("completion counts: 1 -> 2 -> foundation(5) as the scientist reaches modeling", () => {
   const ds = fullDataset(), b = binding();
   assert.equal(wf.completionSummary(wf.resolveStages("p1", null, contract(), null, [])).complete, 1);
   assert.equal(wf.completionSummary(wf.resolveStages("p1", ds, contract(), b, [])).complete, 2);
-  assert.equal(wf.completionSummary(wf.resolveStages("p1", ds, contract(), b, [3])).complete, 3);
+  // adopting identity (Step 3) auto-satisfies foundation Steps 4 & 5 -> 5 complete, Step 6 next
+  const r = wf.resolveStages("p1", ds, contract(), b, [3]);
+  assert.equal(wf.completionSummary(r).complete, 5);
+  assert.equal(wf.completionSummary(r).foundationComplete, true);
 });
 
 test("strict pregame contract evidence mode is preserved", () => {
@@ -146,8 +172,8 @@ test("Step 1 & Step 2 auto-advance (no interstitial)", () => {
   assert.ok(!contractPanel.includes("Step 1 complete"));
   assert.ok(bindPanel.includes("saveBinding(") && bindPanel.includes("onBound()"));
   assert.ok(!bindPanel.includes("Step 2 complete"));
-  // GuidedWorkflow advances step on completion
-  assert.ok(guided.includes("onCompleted(2, 1)") && guided.includes("onCompleted(3, 2)"));
+  // GuidedWorkflow advances step on completion (re-resolves to skip auto-satisfied stages)
+  assert.ok(guided.includes("advanceFrom(1)") && guided.includes("advanceFrom(2)"));
   assert.ok(guided.includes('np.set("step"'));
 });
 
@@ -220,4 +246,31 @@ test("embedded workspace offers optional expert escape, not a required return", 
 test("Step 4 shows adopted baseline plus honest optional research", () => {
   assert.ok(stageContent.includes("Adopted player-state baseline"));
   assert.ok(stageContent.includes("Optional / advanced research"));
+});
+
+// ---- Phase 6C.3: decision-driven workflow ----
+test("Continue skips auto-satisfied stages (nextActionable) and advanceFrom re-resolves", () => {
+  assert.ok(guided.includes("nextActionable(resolutions, focus.number)"));
+  assert.ok(guided.includes("advanceFrom") && guided.includes("firstActionableStage(resolveStages"));
+});
+
+test("auto-satisfied foundation renders compactly, not as empty NOT_RUN panels", () => {
+  assert.ok(guided.includes("AutoSatisfiedFoundation"));
+  assert.ok(stageContent.includes("Player-state foundation ready"));
+  assert.ok(stageContent.includes("Participation foundation sufficient for PA modeling"));
+  // optional research shown as compact rows behind a disclosure, not dominant empty cards
+  assert.ok(stageContent.includes("Explore advanced player-state research"));
+  assert.ok(stageContent.includes("Not enabled"));
+});
+
+test("Step 6 shows a foundation checkpoint and project context before the cockpit", () => {
+  assert.ok(guided.includes("FoundationSummary"));
+  assert.ok(stageContent.includes("Model foundation complete") || stageContent.includes("Begin model development"));
+  assert.ok(stageContent.includes("Begin model development"));
+  // the embedded cockpit still exposes the real 15-stage workflow
+  assert.ok(stageContent.includes("<PaModelingCockpit embedded />"));
+});
+
+test("stepper labels auto-satisfied stages as Foundation ready", () => {
+  assert.ok(guided.includes("Foundation ready"));
 });
