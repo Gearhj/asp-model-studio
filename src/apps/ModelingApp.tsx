@@ -35,6 +35,7 @@ import {
 } from "../sports/StudioModules";
 import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
 
+const PaModelingCockpit = lazy(() => import("../sports/cockpit/PaModelingCockpit"));
 const AnalyticsWorkbench = lazy(() => import("../steps/AnalyticsWorkbench"));
 const SqlDataStudio = lazy(() => import("../steps/SqlDataStudio"));
 const ChartStudio = lazy(() => import("../steps/ChartStudio"));
@@ -226,6 +227,8 @@ export default function ModelingApp() {
                   <Route path="/player-team-state" element={<PlayerTeamStatePage />} />
                   <Route path="/participation-usage" element={<ParticipationUsagePage />} />
                   <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
+                  <Route path="/pa-modeling-cockpit" element={<RetainedToolRoute label="MLB PA Modeling Cockpit"><PaModelingCockpit /></RetainedToolRoute>} />
+                  <Route path="/modeling-cockpit" element={<Navigate to="/pa-modeling-cockpit" replace />} />
                   <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
                   <Route path="/simulation-studio" element={<SimulationStudioPage />} />
                   <Route path="/evaluation-calibration" element={<EvaluationCalibrationPage />} />

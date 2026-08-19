@@ -1,0 +1,588 @@
+"""Science engine for the interactive MLB PA modeling cockpit.
+
+All computation runs on the real, materialized D3 feature view
+(``mlb-pa-feature-view-v1.parquet``) and is evaluated with the frozen
+``server.sports_modeling`` metrics authority. Preprocessing is fold-local: every learned
+statistic (outlier threshold, imputation fill, standardization moment) is fitted on the
+development season only (2023). The frozen final-evaluation season (2025) never
+participates in fitting, tuning, or selection.
+
+Performance discipline (Phase 5G lesson): no ``DataFrame.iterrows`` over the population,
+no per-row Python loops over the 549k-row frame, no repeated Parquet reloads. The frame is
+loaded once and cached; every transform is vectorized NumPy/pandas.
+"""
+
+from __future__ import annotations
+
+import glob
+import hashlib
+import json
+import math
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
+from sklearn.feature_selection import mutual_info_classif
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+
+from server.sports_modeling.metrics import (
+    PA_CLASS_ORDER,
+    encode_labels,
+    evaluate_multiclass,
+)
+
+COCKPIT_SCHEMA_VERSION = "MLB_PA_COCKPIT_V1"
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNTIME_ROOT = REPO_ROOT / ".runtime" / "asp-model-studio"
+COCKPIT_ROOT = RUNTIME_ROOT / "sports-cockpit"
+FEATURE_VIEW_GLOB = str(
+    RUNTIME_ROOT
+    / "sports-modeling"
+    / "mlb-pa-v1"
+    / "objects"
+    / "sha256"
+    / "**"
+    / "mlb-pa-feature-view-v1.parquet"
+)
+
+DEV_SEASON = 2023
+VAL_SEASON = 2024
+FROZEN_SEASON = 2025
+TARGET_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)
+
+# One-hot categorical context features (mirrors the D3 fold preprocessor authority).
+CATEGORICAL_VALUES: Mapping[str, tuple[int, ...]] = {
+    "context_top_bottom": (0, 1),
+    "context_outs_before": (0, 1, 2),
+    "context_base_mask_before": tuple(range(8)),
+}
+
+CONTEXT_FEATURES = (
+    "context_inning",
+    "context_top_bottom",
+    "context_outs_before",
+    "context_base_mask_before",
+    "context_batting_score_diff_before",
+)
+BATTER_FEATURES = (
+    "batter_log1p_pa",
+    "batter_avg",
+    "batter_obp",
+    "batter_slg",
+    "batter_so_per_pa",
+    "batter_bb_hbp_per_pa",
+    "batter_hr_per_pa",
+    "batter_prior_missing",
+)
+PITCHER_FEATURES = (
+    "pitcher_log1p_bfp",
+    "pitcher_era9",
+    "pitcher_whip",
+    "pitcher_so_per_bfp",
+    "pitcher_bb_per_bfp",
+    "pitcher_hr_per_bfp",
+    "pitcher_hbp_per_bfp",
+    "pitcher_gs_per_g",
+    "pitcher_prior_missing",
+)
+ALL_FEATURES = CONTEXT_FEATURES + BATTER_FEATURES + PITCHER_FEATURES
+
+# Binary indicator features (0/1) — never outlier-treated, no imputation needed.
+BINARY_FEATURES = frozenset({"batter_prior_missing", "pitcher_prior_missing"})
+# Features eligible for outlier treatment: continuous numerics only.
+CONTINUOUS_FEATURES = tuple(
+    f for f in ALL_FEATURES if f not in CATEGORICAL_VALUES and f not in BINARY_FEATURES
+)
+
+FAMILY_LABELS = {
+    "logistic": "Logistic Regression (multinomial)",
+    "random_forest": "Random Forest",
+    "extra_trees": "Extra Trees",
+    "hist_gradient_boosting": "Histogram Gradient Boosting",
+    "mlp": "Neural Network (MLP)",
+    "xgboost": "XGBoost",
+    "lightgbm": "LightGBM",
+}
+
+# Registered D3 champion (candidate C4) frozen evidence, read from the experiment-metrics
+# artifact at import so the cockpit displays the governed champion of record. The in-pipeline
+# reproduction (``champion_baseline``) is what challengers are compared against numerically.
+CHAMPION_REFERENCE_FALLBACK = {
+    "candidateId": "C4",
+    "val2024": {"logLoss": 1.4842548490122627, "brierScore": 0.7067859079863168, "topLabelEce": 0.0117306649436536},
+    "frozen2025": {"logLoss": 1.4816765958300682, "brierScore": 0.7063844063294433, "topLabelEce": 0.0037567915240150195},
+}
+
+
+class CockpitError(RuntimeError):
+    """Fail-closed cockpit error."""
+
+
+# ----------------------------------------------------------------------------------------
+# Frame loading (loaded once, cached)
+# ----------------------------------------------------------------------------------------
+_FRAME_LOCK = threading.Lock()
+_FRAME_CACHE: dict[str, Any] = {}
+
+
+def _feature_view_path() -> Path:
+    matches = sorted(glob.glob(FEATURE_VIEW_GLOB, recursive=True))
+    if not matches:
+        raise CockpitError(
+            "D3 feature view is not materialized; expected mlb-pa-feature-view-v1.parquet "
+            "under .runtime/asp-model-studio/sports-modeling/mlb-pa-v1."
+        )
+    return Path(matches[0])
+
+
+def load_frame() -> pd.DataFrame:
+    """Load the materialized D3 feature view once and cache it (numeric-coerced features)."""
+    with _FRAME_LOCK:
+        cached = _FRAME_CACHE.get("frame")
+        if cached is not None:
+            return cached
+        import pyarrow.parquet as pq
+
+        path = _feature_view_path()
+        columns = [
+            "plate_appearance_id",
+            "game_id",
+            "game_date",
+            "season",
+            "outcome",
+            "batter_canonical_player_uuid",
+            "pitcher_canonical_player_uuid",
+            *ALL_FEATURES,
+        ]
+        table = pq.read_table(path, columns=columns)
+        frame = table.to_pandas()
+        for col in ALL_FEATURES:
+            frame[col] = pd.to_numeric(frame[col], errors="coerce").astype(np.float64)
+        frame["season"] = pd.to_numeric(frame["season"], errors="coerce").astype(np.int64)
+        # Cache the source content sha for content-addressed profile caching.
+        content_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+        _FRAME_CACHE["frame"] = frame
+        _FRAME_CACHE["path"] = str(path)
+        _FRAME_CACHE["content_sha"] = content_sha
+        return frame
+
+
+def data_content_sha() -> str:
+    load_frame()
+    return _FRAME_CACHE["content_sha"]
+
+
+def _season_mask(frame: pd.DataFrame, season: int) -> np.ndarray:
+    return (frame["season"].to_numpy() == season)
+
+
+# ----------------------------------------------------------------------------------------
+# Feature metadata / kinds
+# ----------------------------------------------------------------------------------------
+def feature_kind(name: str) -> str:
+    if name in CATEGORICAL_VALUES:
+        return "categorical"
+    if name in BINARY_FEATURES:
+        return "binary"
+    return "continuous"
+
+
+def feature_role(name: str) -> str:
+    if name in CONTEXT_FEATURES:
+        return "context"
+    if name in BATTER_FEATURES:
+        return "batter"
+    return "pitcher"
+
+
+# ----------------------------------------------------------------------------------------
+# Objective + population
+# ----------------------------------------------------------------------------------------
+def _champion_reference() -> dict[str, Any]:
+    """Read the registered C4 champion frozen evidence from the experiment-metrics artifact."""
+    try:
+        matches = sorted(
+            glob.glob(
+                str(
+                    RUNTIME_ROOT
+                    / "sports-modeling"
+                    / "mlb-pa-v1"
+                    / "objects"
+                    / "sha256"
+                    / "**"
+                    / "experiment-metrics.json"
+                ),
+                recursive=True,
+            )
+        )
+        for path in matches:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+            candidates = payload.get("payload", {}).get("candidates", [])
+            for cand in candidates:
+                if cand.get("candidateId") == "C4":
+                    agg = cand.get("aggregateMetrics", {})
+                    val = agg.get("validation2024") or agg.get("selection2024") or {}
+                    frozen = agg.get("final2025") or {}
+                    if val.get("logLoss") is not None:
+                        return {
+                            "candidateId": "C4",
+                            "val2024": {
+                                "logLoss": val.get("logLoss"),
+                                "brierScore": val.get("brierScore"),
+                                "topLabelEce": val.get("topLabelEce"),
+                            },
+                            "frozen2025": {
+                                "logLoss": frozen.get("logLoss"),
+                                "brierScore": frozen.get("brierScore"),
+                                "topLabelEce": frozen.get("topLabelEce"),
+                            },
+                        }
+    except Exception:
+        pass
+    return dict(CHAMPION_REFERENCE_FALLBACK)
+
+
+def objective_payload() -> dict[str, Any]:
+    frame = load_frame()
+    total = int(len(frame))
+    counts = frame["outcome"].value_counts()
+    distribution = [
+        {"class": cls, "count": int(counts.get(cls, 0)), "share": float(counts.get(cls, 0) / total)}
+        for cls in PA_CLASS_ORDER
+    ]
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "objective": "Plate Appearance Outcome",
+        "predictionUnit": "PLATE_APPEARANCE",
+        "downstreamUse": "WHOLE_GAME_SIMULATOR",
+        "classOrder": list(PA_CLASS_ORDER),
+        "targetColumn": "outcome",
+        "targetDistribution": distribution,
+        "totalRows": total,
+        "seasons": list(TARGET_SEASONS),
+        "champion": {
+            "modelId": "D3 (candidate C4)",
+            "family": "Logistic Regression (multinomial)",
+            "featureCount": len(ALL_FEATURES),
+            "reference": _champion_reference(),
+            "status": "RESEARCH_CHAMPION",
+        },
+        "datasetAuthority": {
+            "featureView": "MLB_PA_FEATURE_VIEW_V1",
+            "manifestSha": "1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49",
+            "registration": "sports-dataset-1b58d5d1def2c9b7",
+        },
+        "maturity": "D3_GAME_LEVEL_VALUE_CONFIRMED",
+    }
+
+
+def population_payload() -> dict[str, Any]:
+    frame = load_frame()
+    per_season = []
+    for season in TARGET_SEASONS:
+        mask = _season_mask(frame, season)
+        sub = frame.loc[mask]
+        per_season.append(
+            {
+                "season": int(season),
+                "rows": int(mask.sum()),
+                "games": int(sub["game_id"].nunique()),
+                "batters": int(sub["batter_canonical_player_uuid"].nunique()) if "batter_canonical_player_uuid" in sub else None,
+                "role": "development" if season == DEV_SEASON else "validation" if season == VAL_SEASON else "frozen_final",
+            }
+        )
+    # Population waterfall: source PA -> strict-eligible view -> final development population.
+    total = int(len(frame))
+    dev_rows = int(_season_mask(frame, DEV_SEASON).sum())
+    waterfall = [
+        {"stage": "Governed FD1 plate appearances (2023-2025)", "rows": total, "kind": "source"},
+        {"stage": "Canonical-identity resolved feature view", "rows": total, "kind": "retained"},
+        {"stage": "Development population (2023)", "rows": dev_rows, "kind": "final"},
+    ]
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "perSeason": per_season,
+        "totalRows": total,
+        "waterfall": waterfall,
+        "candidatePredictors": len(ALL_FEATURES),
+        "temporalPolicy": {
+            "development": [DEV_SEASON],
+            "validation": VAL_SEASON,
+            "frozenFinal": FROZEN_SEASON,
+        },
+        "knownLimitations": [
+            "Prior-season player state is unavailable for debut players (batter 7.7% / pitcher 11.7% missing).",
+            "No premium contact-quality, umpire, weather, or park features in the governed free data.",
+        ],
+    }
+
+
+# ----------------------------------------------------------------------------------------
+# Profiling: stats, IV (one-vs-rest), MI, outliers, drift
+# ----------------------------------------------------------------------------------------
+def _woe_iv(feature_bins: np.ndarray, event: np.ndarray) -> float:
+    """Weight-of-evidence Information Value over integer bin ids for a binary event."""
+    total_event = float(event.sum())
+    total_nonevent = float(len(event) - total_event)
+    if total_event <= 0 or total_nonevent <= 0:
+        return 0.0
+    iv = 0.0
+    for b in np.unique(feature_bins):
+        sel = feature_bins == b
+        ev = float(event[sel].sum())
+        nev = float(sel.sum() - ev)
+        p_ev = max(ev / total_event, 1e-6)
+        p_nev = max(nev / total_nonevent, 1e-6)
+        iv += (p_ev - p_nev) * math.log(p_ev / p_nev)
+    return float(iv)
+
+
+def _dev_bins(values: np.ndarray, kind: str, n_bins: int = 10) -> np.ndarray:
+    """Assign development-fitted bin ids (categorical → own categories, continuous → deciles)."""
+    if kind in ("categorical", "binary"):
+        # each distinct integer value is its own bin; NaN → -1
+        out = np.where(np.isfinite(values), values, -1.0)
+        return out.astype(np.int64)
+    # continuous: qcut on finite dev values; missing → own bin -1
+    finite = np.isfinite(values)
+    out = np.full(values.shape, -1, dtype=np.int64)
+    if finite.sum() > n_bins:
+        ranks = pd.Series(values[finite]).rank(method="first")
+        try:
+            binned = pd.qcut(ranks, min(n_bins, finite.sum()), labels=False, duplicates="drop")
+            out[finite] = binned.to_numpy().astype(np.int64)
+        except Exception:
+            out[finite] = 0
+    else:
+        out[finite] = 0
+    return out
+
+
+def _feature_iv(dev_values: np.ndarray, dev_labels: np.ndarray, kind: str) -> dict[str, Any]:
+    """One-vs-rest IV for each of the 8 classes using development bins."""
+    bins = _dev_bins(dev_values, kind)
+    per_class = {}
+    for idx, cls in enumerate(PA_CLASS_ORDER):
+        event = (dev_labels == idx).astype(np.float64)
+        per_class[cls] = _woe_iv(bins, event)
+    values = list(per_class.values())
+    return {
+        "perClass": per_class,
+        "maxIv": float(max(values)) if values else 0.0,
+        "meanIv": float(np.mean(values)) if values else 0.0,
+        "maxIvClass": max(per_class, key=per_class.get) if per_class else None,
+    }
+
+
+_PROFILE_CACHE: dict[str, Any] = {}
+
+
+def feature_profile(force: bool = False) -> dict[str, Any]:
+    """Profile every candidate predictor. Cached content-addressed to disk + memory."""
+    sha = data_content_sha()
+    cache_key = f"profile-{sha}"
+    if not force and cache_key in _PROFILE_CACHE:
+        return _PROFILE_CACHE[cache_key]
+    cache_path = COCKPIT_ROOT / "profiles" / f"{sha}.json"
+    if not force and cache_path.is_file():
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        _PROFILE_CACHE[cache_key] = payload
+        return payload
+
+    frame = load_frame()
+    dev_mask = _season_mask(frame, DEV_SEASON)
+    dev_labels = encode_labels(frame.loc[dev_mask, "outcome"].to_numpy())
+    total = int(len(frame))
+
+    # Bounded MI sample (development evidence only) — KNN MI is O(n log n); cap to keep it fast.
+    rng = np.random.default_rng(20260819)
+    dev_idx = np.flatnonzero(dev_mask)
+    mi_sample = dev_idx if len(dev_idx) <= 30000 else rng.choice(dev_idx, 30000, replace=False)
+    mi_matrix = np.column_stack(
+        [np.nan_to_num(frame[f].to_numpy()[mi_sample], nan=np.nanmedian(frame[f].to_numpy()[mi_sample])) for f in ALL_FEATURES]
+    )
+    discrete_mask = [feature_kind(f) != "continuous" for f in ALL_FEATURES]
+    mi_labels = encode_labels(frame["outcome"].to_numpy()[mi_sample])
+    mi_values = mutual_info_classif(
+        mi_matrix,
+        mi_labels,
+        discrete_features=discrete_mask,
+        random_state=20260819,
+    )
+
+    features = []
+    for pos, name in enumerate(ALL_FEATURES):
+        col = frame[name].to_numpy()
+        dev_col = col[dev_mask]
+        kind = feature_kind(name)
+        finite = np.isfinite(col)
+        finite_vals = col[finite]
+        missing = int((~finite).sum())
+        pcts = {}
+        if finite_vals.size:
+            for p in (1, 5, 25, 50, 75, 95, 99):
+                pcts[f"p{p}"] = float(np.percentile(finite_vals, p))
+        # IQR outliers on development finite values
+        outlier_count = 0
+        iqr_bounds = None
+        if kind == "continuous" and finite_vals.size:
+            q1, q3 = np.percentile(dev_col[np.isfinite(dev_col)], [25, 75]) if np.isfinite(dev_col).any() else (0.0, 0.0)
+            iqr = q3 - q1
+            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            iqr_bounds = {"lower": float(lo), "upper": float(hi)}
+            outlier_count = int(((finite_vals < lo) | (finite_vals > hi)).sum())
+        # Drift: mean per season
+        season_means = {}
+        for season in TARGET_SEASONS:
+            sc = col[_season_mask(frame, season)]
+            scf = sc[np.isfinite(sc)]
+            season_means[str(season)] = float(scf.mean()) if scf.size else None
+        drift = None
+        vals_present = [v for v in season_means.values() if v is not None]
+        if len(vals_present) >= 2 and finite_vals.size:
+            spread = max(vals_present) - min(vals_present)
+            scale = float(np.std(finite_vals)) or 1.0
+            drift = float(spread / scale)
+        iv = _feature_iv(dev_col, dev_labels, kind)
+        features.append(
+            {
+                "name": name,
+                "role": feature_role(name),
+                "kind": kind,
+                "nonNull": total - missing,
+                "missing": missing,
+                "missingPct": float(missing / total),
+                "unique": int(pd.Series(finite_vals).nunique()) if finite_vals.size else 0,
+                "min": float(finite_vals.min()) if finite_vals.size else None,
+                "max": float(finite_vals.max()) if finite_vals.size else None,
+                "mean": float(finite_vals.mean()) if finite_vals.size else None,
+                "median": float(np.median(finite_vals)) if finite_vals.size else None,
+                "std": float(finite_vals.std()) if finite_vals.size else None,
+                "skew": float(pd.Series(finite_vals).skew()) if finite_vals.size > 2 else None,
+                "percentiles": pcts,
+                "outlierCount": outlier_count,
+                "outlierPct": float(outlier_count / total) if total else 0.0,
+                "iqrBounds": iqr_bounds,
+                "seasonMeans": season_means,
+                "drift": drift,
+                "iv": iv,
+                "mi": float(mi_values[pos]),
+                "outlierTreatable": kind == "continuous",
+            }
+        )
+
+    payload = {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "dataContentSha": sha,
+        "developmentSeason": DEV_SEASON,
+        "miSampleRows": int(len(mi_sample)),
+        "miEstimator": "sklearn.mutual_info_classif (development-only, bounded sample)",
+        "ivMethod": "one-vs-rest WOE over development deciles / categories",
+        "totalRows": total,
+        "features": features,
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    _PROFILE_CACHE[cache_key] = payload
+    return payload
+
+
+def feature_detail(name: str) -> dict[str, Any]:
+    if name not in ALL_FEATURES:
+        raise CockpitError(f"unknown feature: {name}")
+    frame = load_frame()
+    kind = feature_kind(name)
+    col = frame[name].to_numpy()
+    dev_mask = _season_mask(frame, DEV_SEASON)
+    dev_labels = encode_labels(frame.loc[dev_mask, "outcome"].to_numpy())
+    finite = np.isfinite(col)
+    vals = col[finite]
+
+    # Histogram (bounded to 30 bins), plus per-season histogram for YoY drift
+    hist = []
+    yoy = {}
+    if vals.size:
+        lo, hi = float(np.percentile(vals, 0.5)), float(np.percentile(vals, 99.5))
+        if hi <= lo:
+            hi = lo + 1.0
+        edges = np.linspace(lo, hi, 31)
+        counts, _ = np.histogram(np.clip(vals, lo, hi), bins=edges)
+        hist = [
+            {"lo": float(edges[i]), "hi": float(edges[i + 1]), "count": int(counts[i])}
+            for i in range(len(counts))
+        ]
+        for season in TARGET_SEASONS:
+            sc = col[_season_mask(frame, season)]
+            scf = sc[np.isfinite(sc)]
+            c, _ = np.histogram(np.clip(scf, lo, hi), bins=edges) if scf.size else (np.zeros(30), None)
+            yoy[str(season)] = c.astype(int).tolist()
+
+    # Box stats
+    box = None
+    if vals.size:
+        q1, med, q3 = np.percentile(vals, [25, 50, 75])
+        iqr = q3 - q1
+        box = {
+            "min": float(vals.min()),
+            "q1": float(q1),
+            "median": float(med),
+            "q3": float(q3),
+            "max": float(vals.max()),
+            "whiskerLo": float(max(vals.min(), q1 - 1.5 * iqr)),
+            "whiskerHi": float(min(vals.max(), q3 + 1.5 * iqr)),
+        }
+
+    # Target-conditioned means: mean feature value within each outcome class (dev)
+    conditioned = []
+    dev_col = col[dev_mask]
+    for idx, cls in enumerate(PA_CLASS_ORDER):
+        sel = (dev_labels == idx) & np.isfinite(dev_col)
+        conditioned.append(
+            {"class": cls, "mean": float(dev_col[sel].mean()) if sel.any() else None, "count": int(sel.sum())}
+        )
+
+    # IV bins with event rate for the max-IV class
+    iv = _feature_iv(dev_col, dev_labels, kind)
+    max_class = iv["maxIvClass"]
+    iv_bins = []
+    if max_class is not None:
+        cls_idx = PA_CLASS_ORDER.index(max_class)
+        bins = _dev_bins(dev_col, kind)
+        event = (dev_labels == cls_idx).astype(np.float64)
+        for b in np.unique(bins):
+            sel = bins == b
+            iv_bins.append(
+                {
+                    "bin": int(b),
+                    "count": int(sel.sum()),
+                    "eventRate": float(event[sel].mean()) if sel.any() else 0.0,
+                }
+            )
+
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "name": name,
+        "kind": kind,
+        "role": feature_role(name),
+        "histogram": hist,
+        "yoyHistogram": yoy,
+        "box": box,
+        "targetConditioned": conditioned,
+        "iv": iv,
+        "ivBinsMaxClass": max_class,
+        "ivBins": iv_bins,
+        "missing": int((~finite).sum()),
+        "missingPct": float((~finite).sum() / len(col)),
+    }
