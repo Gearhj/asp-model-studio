@@ -109,3 +109,21 @@ test("Project A state is isolated from Project B (project-scoped keys)", () => {
 test("loading an unknown project returns null (no cross-project leakage)", () => {
   assert.equal(persist.loadCockpitSnapshot("never-saved"), null);
 });
+
+test("feature-builder draft + EDA selection persist via notes and survive hydrate (navigation/refresh)", () => {
+  resetStore();
+  // a partially configured builder draft + an EDA feature selection are stored in notes
+  store.getState().setNote("fe.draft", JSON.stringify({ kind: "interaction", inputA: "batter_hr_per_pa", inputB: "pitcher_hr_per_bfp", name: "power_hr_interaction" }));
+  store.getState().setNote("eda.feature", "pitcher_whip");
+  // autosave snapshot captures notes
+  persist.saveCockpitSnapshot("proj-draft", { config: store.getState().config, notes: store.getState().notes, engineeredProfiles: {}, savedSteps: {}, activeStep: "features" });
+  // simulate refresh: reset store, then hydrate from the saved snapshot
+  resetStore();
+  assert.equal(store.getState().notes["fe.draft"], undefined);
+  const snap = persist.loadCockpitSnapshot("proj-draft");
+  store.getState().hydrate({ notes: snap.notes });
+  const draft = JSON.parse(store.getState().notes["fe.draft"]);
+  assert.equal(draft.kind, "interaction");
+  assert.deepEqual([draft.inputA, draft.inputB], ["batter_hr_per_pa", "pitcher_hr_per_bfp"]);
+  assert.equal(store.getState().notes["eda.feature"], "pitcher_whip");
+});

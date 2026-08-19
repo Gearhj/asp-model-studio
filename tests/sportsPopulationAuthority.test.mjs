@@ -77,12 +77,15 @@ const [panel, overview, stageContent] = await Promise.all([
   readFile(new URL("src/sports/workflow/GuidedStageContent.tsx", ROOT), "utf8"),
 ]);
 
-test("contract panel restricts development selection to governed modeling seasons (no 2021-2022)", () => {
-  assert.ok(panel.includes("DEV_YEARS") && panel.includes("MODELING_START_SEASON"));
-  assert.ok(panel.includes("governedDevelopmentSeasons"));
-  // development dropdowns iterate DEV_YEARS, not the full YEARS list
-  assert.ok(panel.includes("DEV_YEARS.filter((y) => y <= devEnd)"));
-  assert.ok(panel.includes("Source evidence")); // honest source-vs-development note present
+test("contract panel: earlier seasons are honestly selectable but never overwrite the governed 2023 contract", () => {
+  // Phase 6E.5 — 2021/2022 ARE offered (data is not hidden) but flagged ineligible and routed to a
+  // separate research draft; the governed contract still saves only the governed development window.
+  assert.ok(panel.includes("DEV_START_CANDIDATES = [2021, 2022, 2023]"));
+  assert.ok(panel.includes("isEligibleDevelopmentStart") && panel.includes("not eligible"));
+  // the governed save clamps to governedDevelopmentSeasons and is blocked for a revised (earlier) start
+  assert.ok(panel.includes("governedDevelopmentSeasons(devSeasons)") && panel.includes("if (!valid || isRevised) return"));
+  assert.ok(panel.includes("saveTemporalDraft")); // earlier start -> separate draft, not the contract
+  assert.ok(panel.includes("Source evidence")); // honest source-vs-development distinction present
 });
 
 test("overview + stage-3 intro display the governed (reconciled) development window", () => {

@@ -44,6 +44,13 @@ from server.sports_modeling.metrics import (
 
 COCKPIT_SCHEMA_VERSION = "MLB_PA_COCKPIT_V1"
 
+# Information-Value screening threshold (classic WOE/IV convention: >=0.1 is a notable one-vs-rest
+# signal, 0.02-0.1 weak, <0.02 negligible). Screening evidence only — never automatic inclusion.
+IV_SCREENING_THRESHOLD = 0.1
+IV_WEAK_THRESHOLD = 0.02
+# Absolute-correlation threshold used to flag strongly collinear predictor pairs (diagnostic only).
+CORRELATION_STRONG_THRESHOLD = 0.8
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_ROOT = REPO_ROOT / ".runtime" / "asp-model-studio"
 COCKPIT_ROOT = RUNTIME_ROOT / "sports-cockpit"
@@ -430,13 +437,16 @@ def _feature_iv(dev_values: np.ndarray, dev_labels: np.ndarray, kind: str) -> di
 _PROFILE_CACHE: dict[str, Any] = {}
 
 
+PROFILE_CACHE_VERSION = "v2"  # bump when the profile payload schema changes (adds/removes fields)
+
+
 def feature_profile(force: bool = False) -> dict[str, Any]:
     """Profile every candidate predictor. Cached content-addressed to disk + memory."""
     sha = data_content_sha()
-    cache_key = f"profile-{sha}"
+    cache_key = f"profile-{PROFILE_CACHE_VERSION}-{sha}"
     if not force and cache_key in _PROFILE_CACHE:
         return _PROFILE_CACHE[cache_key]
-    cache_path = COCKPIT_ROOT / "profiles" / f"{sha}.json"
+    cache_path = COCKPIT_ROOT / "profiles" / f"{sha}-{PROFILE_CACHE_VERSION}.json"
     if not force and cache_path.is_file():
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
         _PROFILE_CACHE[cache_key] = payload
@@ -531,6 +541,8 @@ def feature_profile(force: bool = False) -> dict[str, Any]:
         "miSampleRows": int(len(mi_sample)),
         "miEstimator": "sklearn.mutual_info_classif (development-only, bounded sample)",
         "ivMethod": "one-vs-rest WOE over development deciles / categories",
+        "ivScreeningThreshold": IV_SCREENING_THRESHOLD,
+        "ivWeakThreshold": IV_WEAK_THRESHOLD,
         "totalRows": total,
         "features": features,
     }
@@ -644,6 +656,60 @@ def data_preview(*, season: int | None = None, limit: int = 25, sample: str = "h
         "schema": schema,
         "note": "This is the governed plate-appearance modeling matrix (feature view, 2023–2025). Registered source evidence spans 2021–2025, but 2021–2022 are PRIOR_ONLY_HISTORY (used only to build Y−1 priors, not as modeling targets); development is 2023, validation 2024, frozen final 2025.",
     }
+
+
+_CORR_CACHE: dict[str, Any] = {}
+
+
+def correlation_summary(threshold: float | None = None) -> dict[str, Any]:
+    """Development-2023 pairwise |Pearson correlation| across the continuous predictors. Bounded
+    (17x17) and cached content-addressed; a diagnostic screen for redundancy, never auto-exclusion.
+    Validation (2024) and frozen (2025) rows are not used — this is a development-fold screen."""
+    thr = float(CORRELATION_STRONG_THRESHOLD if threshold is None else threshold)
+    sha = data_content_sha()
+    key = f"corr-{sha}-{thr}"
+    if key in _CORR_CACHE:
+        return _CORR_CACHE[key]
+    frame = load_frame()
+    feats = list(CONTINUOUS_FEATURES)
+    dev = frame.loc[_season_mask(frame, DEV_SEASON), feats]
+    corr = dev.corr()  # pandas handles NaN pairwise; development rows only
+    n = len(feats)
+    matrix: list[list[float | None]] = []
+    for i in range(n):
+        row: list[float | None] = []
+        for j in range(n):
+            v = corr.iat[i, j]
+            row.append(None if not (isinstance(v, (int, float)) and math.isfinite(v)) else round(float(v), 4))
+        matrix.append(row)
+    strongest: dict[str, dict[str, Any]] = {}
+    pairs: list[dict[str, Any]] = []
+    for i in range(n):
+        best_feat, best_r = None, 0.0
+        for j in range(n):
+            if i == j:
+                continue
+            v = matrix[i][j]
+            if v is None:
+                continue
+            if abs(v) > abs(best_r):
+                best_feat, best_r = feats[j], v
+            if j > i and abs(v) >= thr:
+                pairs.append({"a": feats[i], "b": feats[j], "r": v})
+        strongest[feats[i]] = {"feature": best_feat, "r": round(float(best_r), 4)}
+    pairs.sort(key=lambda p: -abs(p["r"]))
+    payload = {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "scope": "FOLD_LOCAL_DEVELOPMENT_2023",
+        "features": feats,
+        "matrix": matrix,
+        "threshold": thr,
+        "strongPairs": pairs,
+        "strongPairCount": len(pairs),
+        "strongest": strongest,
+    }
+    _CORR_CACHE[key] = payload
+    return payload
 
 
 def feature_detail(name: str) -> dict[str, Any]:

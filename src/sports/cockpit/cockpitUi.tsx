@@ -288,6 +288,45 @@ export function ConfusionHeatmap({ matrix, labels, height = 300 }: { matrix: num
   }, height);
 }
 
+const shortFeat = (f: string) => f.replace("batter_", "b·").replace("pitcher_", "p·").replace("context_", "c·");
+
+// Development-fold correlation heatmap for numeric predictors. Diverging scale centred at 0.
+export function CorrelationHeatmap({ features, matrix, height = 440 }: { features: string[]; matrix: (number | null)[][]; height?: number }) {
+  const labels = features.map(shortFeat);
+  const data: [number, number, number][] = [];
+  for (let i = 0; i < matrix.length; i++)
+    for (let j = 0; j < matrix[i].length; j++)
+      if (matrix[i][j] !== null) data.push([j, matrix.length - 1 - i, matrix[i][j] as number]);
+  return chart({
+    grid: { left: 92, right: 16, top: 8, bottom: 96 },
+    xAxis: { type: "category", data: labels, splitArea: { show: true }, axisLabel: { fontSize: 8, rotate: 60 } },
+    yAxis: { type: "category", data: [...labels].reverse(), splitArea: { show: true }, axisLabel: { fontSize: 8 } },
+    visualMap: { min: -1, max: 1, calculable: true, orient: "horizontal", left: "center", bottom: 4, itemWidth: 12, itemHeight: 90, precision: 2, inRange: { color: ["#1e40af", "#93c5fd", "#f8fafc", "#fca5a5", "#b91c1c"] }, textStyle: { fontSize: 9 } },
+    tooltip: { formatter: (p: any) => `${features[features.length - 1 - p.value[1]]} ~ ${features[p.value[0]]}<br/>r = ${(p.value[2] as number).toFixed(3)}` },
+    series: [{ type: "heatmap", data, label: { show: false }, emphasis: { itemStyle: { borderColor: "#0f172a", borderWidth: 1 } } }],
+  }, height);
+}
+
+// Deterministic horizontal box plot from bounded summary stats (no raw rows in the browser).
+export function BoxPlotSingle({ box, color = "#0891b2" }:
+  { box: { min: number; q1: number; median: number; q3: number; max: number; whiskerLo: number; whiskerHi: number }; color?: string }) {
+  const lo = box.whiskerLo, hi = box.whiskerHi, span = (hi - lo) || 1;
+  const pos = (v: number) => `${Math.max(0, Math.min(100, ((v - lo) / span) * 100))}%`;
+  return (
+    <div className="px-2 py-4">
+      <div className="relative h-9">
+        <div className="absolute top-1/2 h-px -translate-y-1/2 bg-slate-300" style={{ left: pos(box.whiskerLo), width: `${((box.whiskerHi - box.whiskerLo) / span) * 100}%` }} />
+        <div className="absolute top-1/2 h-7 -translate-y-1/2 rounded border" style={{ left: pos(box.q1), width: `${((box.q3 - box.q1) / span) * 100}%`, background: `${color}1f`, borderColor: color }} />
+        <div className="absolute top-1/2 h-7 w-[2px] -translate-y-1/2" style={{ left: pos(box.median), background: color }} />
+        {[box.whiskerLo, box.whiskerHi].map((v, i) => <div key={i} className="absolute top-1/2 h-4 w-px -translate-y-1/2 bg-slate-400" style={{ left: pos(v) }} />)}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-500">
+        <span>min {box.min.toFixed(3)}</span><span>Q1 {box.q1.toFixed(3)}</span><span className="font-semibold text-slate-700">med {box.median.toFixed(3)}</span><span>Q3 {box.q3.toFixed(3)}</span><span>max {box.max.toFixed(3)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function GroupedBars({ categories, series, height = 260, valueFmt }:
   { categories: string[]; series: { name: string; data: number[]; color: string }[]; height?: number; valueFmt?: (v: number) => string }) {
   return chart({

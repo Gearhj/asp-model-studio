@@ -8,13 +8,13 @@ import {
 } from "lucide-react";
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
-  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureDetail, type OutlierSummary, type OutlierEntry,
+  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureProfileRow, type FeatureDetail, type Correlation, type OutlierSummary, type OutlierEntry,
   type MissingSummary, type MissingEntry, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
-  OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, LineChart, ScatterClusters, fmt,
+  OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
 
@@ -195,19 +195,32 @@ function PopulationBody({ pop }: { pop: Population }) {
   );
 }
 
-// ============================================================ 03 Data Profile / Predictor Screening
+// ============================================================ 03 Data Profile — EDA workspace
+// Answers "what relationships, distributions, risks and opportunities live inside these predictors?"
+// (Data & Population already answers "what am I modeling?"). Development-2023 only for model-dev signal.
+const ivTone = (iv: number, thr: number, weak: number): "emerald" | "amber" | "slate" => (iv >= thr ? "emerald" : iv >= weak ? "amber" : "slate");
+
 export function ProfileStep() {
   const prof = useEndpoint<Profile>("/cockpit/profile");
-  const { config, toggleFeature } = useCockpitStore();
+  const corr = useEndpoint<Correlation>("/cockpit/correlation");
+  const { config, toggleFeature, notes, setNote } = useCockpitStore();
+  const selected = notes["eda.feature"] || "batter_obp";                 // persisted EDA selection
+  const setSelected = (f: string) => setNote("eda.feature", f);
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "maxIv", dir: -1 });
-  const [detail, setDetail] = useState<string | null>(null);
+
+  const feats = prof.data?.features ?? [];
+  const ivThr = prof.data?.ivScreeningThreshold ?? 0.1;
+  const ivWeak = prof.data?.ivWeakThreshold ?? 0.02;
+  const highIv = feats.filter((f) => f.iv.maxIv >= ivThr).length;
+  const highMi = feats.filter((f) => f.mi >= 0.01).length;
+  const highDrift = feats.filter((f) => (f.drift ?? 0) >= 0.1).length;
+  const missConcern = feats.filter((f) => f.missingPct > 0.05).length;
+  const outlierConcern = feats.filter((f) => f.outlierPct >= 0.02).length;
 
   const rows = useMemo(() => {
-    if (!prof.data) return [];
-    const val = (r: any) => ({ name: r.name, missingPct: r.missingPct, outlierCount: r.outlierCount, maxIv: r.iv.maxIv, meanIv: r.iv.meanIv, mi: r.mi, drift: r.drift ?? 0 } as any)[sort.key];
-    return [...prof.data.features].sort((a, b) => (val(a) > val(b) ? sort.dir : val(a) < val(b) ? -sort.dir : 0));
-  }, [prof.data, sort]);
-
+    const val = (r: any) => ({ name: r.name, missingPct: r.missingPct, outlierCount: r.outlierCount, maxIv: r.iv.maxIv, mi: r.mi, drift: r.drift ?? 0 } as any)[sort.key];
+    return [...feats].sort((a, b) => (val(a) > val(b) ? sort.dir : val(a) < val(b) ? -sort.dir : 0));
+  }, [feats, sort]);
   const Th = ({ k, label }: { k: string; label: string }) => (
     <th className="cursor-pointer border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500 hover:text-slate-900"
       onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? (s.dir === 1 ? -1 : 1) : -1 }))}>
@@ -219,38 +232,68 @@ export function ProfileStep() {
     <LoadGate state={prof}>
       {prof.data && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-4">
-            <MetricCard label="Predictors profiled" value={String(prof.data.features.length)} detail="all candidate features" />
-            <MetricCard label="Selected" value={String(config.features.length)} detail="in experiment feature set" />
-            <MetricCard label="IV method" value="1-vs-rest WOE" detail="development deciles" />
-            <MetricCard label="MI sample" value={fmt.int(prof.data.miSampleRows)} detail="dev rows (bounded)" />
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+            <MetricCard label="Predictors" value={String(feats.length)} detail="candidate features" />
+            <MetricCard label="High-IV" value={String(highIv)} detail={`IV ≥ ${ivThr}`} />
+            <MetricCard label="High-MI" value={String(highMi)} detail="MI ≥ 0.01" />
+            <MetricCard label="High drift" value={String(highDrift)} detail="drift ≥ 0.1" />
+            <MetricCard label="Strong corr pairs" value={corr.data ? String(corr.data.strongPairCount) : "…"} detail={`|r| ≥ ${corr.data?.threshold ?? 0.8}`} />
+            <MetricCard label="Missingness" value={String(missConcern)} detail=">5% missing" />
+            <MetricCard label="Outlier concern" value={String(outlierConcern)} detail="≥2% flagged" />
           </div>
-          <Card title="Predictor screening" description="Sort by any column. Click a feature for detail. Include/exclude toggles the experiment feature set." icon={ScanSearch}>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            Exploratory data analysis on the <b>2023 development</b> fold. IV / MI are one-vs-rest <b>screening signals</b>, not automatic inclusion. Validation 2024 and frozen 2025 appear only as descriptive out-of-time monitoring — never used to fit thresholds or transforms.
+          </div>
+
+          <FeatureExplorer prof={prof.data} corr={corr.data} selected={selected} setSelected={setSelected} ivThr={ivThr} ivWeak={ivWeak} config={config} toggleFeature={toggleFeature} />
+
+          <Card title="Correlation heatmap — development predictors" icon={ScanSearch}
+            description="Pairwise |Pearson correlation| on the 2023 development fold (continuous predictors). Correlation is diagnostic evidence, not automatic exclusion.">
+            <LoadGate state={corr}>
+              {corr.data && (
+                <>
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <Pill label={`Strong pairs |r| ≥ ${corr.data.threshold}: ${corr.data.strongPairCount}`} tone={corr.data.strongPairCount > 0 ? "amber" : "emerald"} />
+                    {corr.data.strongPairs.map((p) => <span key={`${p.a}-${p.b}`} className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{shortName(p.a)} ~ {shortName(p.b)} = {fmt.n(p.r, 2)}</span>)}
+                  </div>
+                  <CorrelationHeatmap features={corr.data.features} matrix={corr.data.matrix} />
+                </>
+              )}
+            </LoadGate>
+          </Card>
+
+          <Card title="Predictor screening" icon={ScanSearch}
+            description={`Sortable. IV ≥ ${ivThr} is highlighted green (notable screening signal); ${ivWeak}–${ivThr} amber (weak). Click a feature to load it into the explorer above; Include/Exclude stays in sync with Feature Engineering.`}>
             <div className="max-h-[540px] overflow-auto rounded-lg border border-slate-200">
-              <table className="w-full min-w-[860px] text-left text-xs">
+              <table className="w-full min-w-[900px] text-left text-xs">
                 <thead className="sticky top-0 bg-slate-50">
                   <tr>
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Feature</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Role</th>
                     <Th k="missingPct" label="Miss%" /><Th k="outlierCount" label="Outliers" />
-                    <Th k="maxIv" label="Max IV" /><Th k="meanIv" label="Mean IV" /><Th k="mi" label="MI" /><Th k="drift" label="Drift" />
+                    <Th k="maxIv" label="IV" /><Th k="mi" label="MI" /><Th k="drift" label="Drift" />
+                    <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Strongest corr</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Include</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => {
                     const included = config.features.includes(r.name);
+                    const strong = corr.data?.strongest?.[r.name];
+                    const tone = ivTone(r.iv.maxIv, ivThr, ivWeak);
                     return (
-                      <tr key={r.name} className="hover:bg-cyan-50/40">
-                        <td className="border-b border-slate-100 px-2 py-1.5"><button className="font-semibold text-slate-800 hover:text-cyan-700 hover:underline" onClick={() => setDetail(r.name)}>{r.name}</button>
+                      <tr key={r.name} className={`hover:bg-cyan-50/40 ${selected === r.name ? "bg-cyan-50" : ""}`}>
+                        <td className="border-b border-slate-100 px-2 py-1.5"><button className="font-semibold text-slate-800 hover:text-cyan-700 hover:underline" onClick={() => setSelected(r.name)}>{r.name}</button>
                           <span className="ml-1 text-[10px] uppercase text-slate-400">{r.kind}</span></td>
                         <td className="border-b border-slate-100 px-2 py-1.5"><Pill label={r.role} tone={ROLE_TONE[r.role]} /></td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.pct(r.missingPct)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.int(r.outlierCount)}</td>
-                        <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold text-slate-900">{fmt.n(r.iv.maxIv, 3)}<span className="ml-1 text-[10px] text-slate-400">{r.iv.maxIvClass?.slice(0, 3)}</span></td>
-                        <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.iv.meanIv, 3)}</td>
+                        <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">
+                          <span className={`rounded px-1.5 py-0.5 font-semibold ${tone === "emerald" ? "bg-emerald-100 text-emerald-800" : tone === "amber" ? "bg-amber-50 text-amber-700" : "text-slate-900"}`}>{fmt.n(r.iv.maxIv, 3)}</span>
+                          <span className="ml-1 text-[10px] text-slate-400">{r.iv.maxIvClass?.slice(0, 3)}</span></td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.mi, 4)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.drift, 2)}</td>
+                        <td className="border-b border-slate-100 px-2 py-1.5 text-[11px] text-slate-500">{strong?.feature ? `${shortName(strong.feature)} ${fmt.n(strong.r, 2)}` : "—"}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5">
                           <button onClick={() => toggleFeature(r.name)} className={`inline-flex h-5 w-5 items-center justify-center rounded border ${included ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 bg-white"}`}>
                             {included ? <Check size={13} /> : null}
@@ -262,53 +305,126 @@ export function ProfileStep() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-2 text-xs text-slate-500">{prof.data.ivMethod}. IV is screening evidence, not automatic inclusion.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded bg-emerald-100" /> IV ≥ {ivThr} notable</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded bg-amber-50" /> {ivWeak}–{ivThr} weak</span>
+              <span>{prof.data.ivMethod}. Screening signal only — not automatic inclusion.</span>
+            </div>
           </Card>
-          {detail && <FeatureDetailDrawer name={detail} onClose={() => setDetail(null)} />}
         </div>
       )}
     </LoadGate>
   );
 }
 
-function FeatureDetailDrawer({ name, onClose }: { name: string; onClose: () => void }) {
-  const d = useEndpoint<FeatureDetail>(`/cockpit/profile/feature/${name}`, [name]);
+const shortName = (f: string) => f.replace("batter_", "b·").replace("pitcher_", "p·").replace("context_", "c·");
+const EDA_TABS = [{ id: "dist", label: "Distribution" }, { id: "box", label: "Box plot" }, { id: "target", label: "Target relationship" }, { id: "temporal", label: "Temporal stability" }];
+
+function FeatureExplorer({ prof, corr, selected, setSelected, ivThr, ivWeak, config, toggleFeature }:
+  { prof: Profile; corr: Correlation | undefined; selected: string; setSelected: (f: string) => void; ivThr: number; ivWeak: number; config: any; toggleFeature: (f: string) => void }) {
+  const d = useEndpoint<FeatureDetail>(`/cockpit/profile/feature/${selected}`, [selected]);
+  const [tab, setTab] = useState("dist");
+  const [q, setQ] = useState("");
+  const row = prof.features.find((f) => f.name === selected) as FeatureProfileRow | undefined;
+  const strong = corr?.strongest?.[selected];
+  const list = prof.features.filter((f) => f.name.toLowerCase().includes(q.toLowerCase()));
+  const included = config.features.includes(selected);
+
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30" onClick={onClose}>
-      <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
-          <div><h3 className="font-semibold text-slate-950">{name}</h3><p className="text-xs text-slate-500">{d.data?.role} · {d.data?.kind}</p></div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+    <Card title="Feature Explorer" icon={ScanSearch}
+      description="Pick a predictor to explore its distribution, target relationship, and stability. Every chart updates when you choose another feature.">
+      <div className="grid gap-4 lg:grid-cols-[210px_minmax(0,1fr)_248px]">
+        {/* LEFT — searchable feature list */}
+        <div className="min-w-0">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search predictors…" className="mb-2 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs" />
+          <div className="max-h-[430px] space-y-0.5 overflow-auto rounded-lg border border-slate-200 p-1">
+            {list.map((f) => {
+              const tone = ivTone(f.iv.maxIv, ivThr, ivWeak);
+              return (
+                <button key={f.name} onClick={() => setSelected(f.name)}
+                  className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs ${selected === f.name ? "bg-slate-900 text-white" : "hover:bg-slate-100"}`}>
+                  <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
+                  <span className={`shrink-0 rounded px-1 text-[10px] font-semibold tabular-nums ${tone === "emerald" ? "bg-emerald-100 text-emerald-800" : tone === "amber" ? "bg-amber-100 text-amber-700" : selected === f.name ? "bg-white/15 text-cyan-200" : "bg-slate-100 text-slate-500"}`}>{fmt.n(f.iv.maxIv, 2)}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="space-y-4 p-5">
-          <LoadGate state={d}>
-            {d.data && (<>
-              {d.data.histogram.length > 0 && <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Distribution</div><Histogram bins={d.data.histogram} /></div>}
-              {Object.keys(d.data.yoyHistogram).length > 0 && d.data.histogram.length > 0 && (
-                <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Year-over-year distribution</div>
-                  <LineChart categories={d.data.histogram.map((_, i) => String(i))}
-                    series={Object.entries(d.data.yoyHistogram).map(([yr, arr], i) => ({ name: yr, data: arr as number[], color: ["#0891b2", "#f59e0b", "#e11d48"][i % 3] }))} height={160} /></div>
+
+        {/* CENTER — analytical chart tabs */}
+        <div className="min-w-0">
+          <div className="mb-2 inline-flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+            {EDA_TABS.map((t) => <button key={t.id} onClick={() => setTab(t.id)} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${tab === t.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-white"}`}>{t.label}</button>)}
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <LoadGate state={d}>
+              {d.data && (
+                <>
+                  {tab === "dist" && (d.data.histogram.length > 0
+                    ? <Histogram bins={d.data.histogram} height={260} />
+                    : <p className="py-8 text-center text-sm text-slate-500">Categorical / binary predictor — see target relationship.</p>)}
+                  {tab === "box" && (d.data.box
+                    ? <BoxPlotSingle box={d.data.box} />
+                    : <p className="py-8 text-center text-sm text-slate-500">No box plot for a categorical / binary predictor.</p>)}
+                  {tab === "target" && (
+                    <div className="space-y-3">
+                      <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-500">Target-conditioned mean by PA outcome (development)</div>
+                        <BarChart categories={d.data.targetConditioned.map((t) => t.class)} values={d.data.targetConditioned.map((t) => t.mean ?? 0)} height={210} valueFmt={(v) => fmt.n(v, 3)} /></div>
+                      {d.data.ivBins.length > 0 && (
+                        <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-500">Event rate by feature bin · {d.data.ivBinsMaxClass}</div>
+                          <BarChart categories={d.data.ivBins.map((b) => `b${b.bin}`)} values={d.data.ivBins.map((b) => b.eventRate)} height={150} color="#7c3aed" valueFmt={(v) => fmt.pct(v)} /></div>)}
+                      <p className="text-[11px] text-slate-500">Does this predictor separate the eight PA outcomes? Larger spread across classes ⇒ more separation.</p>
+                    </div>
+                  )}
+                  {tab === "temporal" && (
+                    <div className="space-y-2">
+                      {Object.keys(d.data.yoyHistogram).length > 0 && d.data.histogram.length > 0
+                        ? <LineChart categories={d.data.histogram.map((_, i) => String(i))}
+                            series={Object.entries(d.data.yoyHistogram).map(([yr, arr], i) => ({ name: yr, data: arr as number[], color: ["#059669", "#f59e0b", "#e11d48"][i % 3] }))} height={220} />
+                        : <p className="py-6 text-center text-sm text-slate-500">Season distribution not available for this predictor.</p>}
+                      <div className="rounded-md bg-slate-50 px-3 py-2 text-[11px] text-slate-500"><b className="text-emerald-700">2023 development</b> is the fit signal; <b>2024</b> / <b>2025</b> are out-of-time descriptive monitoring only — never used to fit transforms or thresholds.</div>
+                    </div>
+                  )}
+                </>
               )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-slate-200 p-3"><div className="text-xs font-semibold uppercase text-slate-500">Missingness</div><div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{fmt.pct(d.data.missingPct)}</div><div className="text-xs text-slate-500">{fmt.int(d.data.missing)} rows</div></div>
-                <div className="rounded-lg border border-slate-200 p-3"><div className="text-xs font-semibold uppercase text-slate-500">Max-IV class</div><div className="mt-1 text-lg font-semibold text-slate-900">{d.data.iv.maxIvClass}</div><div className="text-xs text-slate-500">IV {fmt.n(d.data.iv.maxIv, 3)}</div></div>
+            </LoadGate>
+          </div>
+        </div>
+
+        {/* RIGHT — feature profile / insights */}
+        <div className="min-w-0 space-y-2 text-xs">
+          <div className="flex items-center justify-between"><span className="text-sm font-semibold text-slate-900">{selected}</span>{row ? <Pill label={row.role} tone={ROLE_TONE[row.role]} /> : null}</div>
+          {row && (
+            <>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Insight label="Type" value={row.kind} />
+                <Insight label="Missing" value={fmt.pct(row.missingPct)} />
+                <Insight label="Outliers" value={fmt.int(row.outlierCount)} />
+                <Insight label="Drift" value={fmt.n(row.drift, 2)} />
+                <Insight label="IV" value={fmt.n(row.iv.maxIv, 3)} tone={ivTone(row.iv.maxIv, ivThr, ivWeak)} />
+                <Insight label="MI" value={fmt.n(row.mi, 4)} />
               </div>
-              {d.data.box && (
-                <div className="rounded-lg border border-slate-200 p-3 text-xs"><div className="mb-1 font-semibold uppercase text-slate-500">Five-number summary</div>
-                  <div className="grid grid-cols-5 gap-2 tabular-nums text-slate-700">
-                    {[["min", d.data.box.min], ["q1", d.data.box.q1], ["med", d.data.box.median], ["q3", d.data.box.q3], ["max", d.data.box.max]].map(([k, v]) => <div key={k as string}><div className="text-slate-400">{k}</div><div className="font-semibold">{fmt.n(v as number, 2)}</div></div>)}
-                  </div></div>
-              )}
-              <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Target-conditioned mean (development)</div>
-                <BarChart categories={d.data.targetConditioned.map((t) => t.class)} values={d.data.targetConditioned.map((t) => t.mean ?? 0)} height={180} valueFmt={(v) => fmt.n(v, 3)} /></div>
-              {d.data.ivBins.length > 0 && (
-                <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Event rate by IV bin · {d.data.ivBinsMaxClass}</div>
-                  <BarChart categories={d.data.ivBins.map((b) => `b${b.bin}`)} values={d.data.ivBins.map((b) => b.eventRate)} height={160} color="#7c3aed" valueFmt={(v) => fmt.pct(v)} /></div>
-              )}
-            </>)}
-          </LoadGate>
+              <div className="rounded-lg border border-slate-200 p-2">
+                <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Development summary</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-slate-600">
+                  {[["min", row.min], ["Q1", row.percentiles?.p25], ["median", row.median], ["mean", row.mean], ["Q3", row.percentiles?.p75], ["max", row.max], ["std", row.std]].map(([k, v]) => <div key={k as string} className="flex justify-between"><span className="text-slate-400">{k}</span><span className="font-medium">{fmt.n(v as number, 3)}</span></div>)}
+                </div>
+              </div>
+              <Insight label="Strongest correlation" value={strong?.feature ? `${shortName(strong.feature)} · ${fmt.n(strong.r, 2)}` : "—"} />
+              <button onClick={() => toggleFeature(selected)} className={`w-full rounded-lg border px-3 py-1.5 text-xs font-semibold ${included ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "border-cyan-600 bg-cyan-600 text-white hover:bg-cyan-500"}`}>{included ? "Exclude from experiment" : "Include in experiment"}</button>
+            </>
+          )}
         </div>
       </div>
+    </Card>
+  );
+}
+
+function Insight({ label, value, tone }: { label: string; value: string; tone?: "emerald" | "amber" | "slate" }) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-2">
+      <div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div>
+      <div className={`mt-0.5 font-semibold ${tone === "emerald" ? "text-emerald-700" : tone === "amber" ? "text-amber-700" : "text-slate-900"}`}>{value}</div>
     </div>
   );
 }
@@ -691,14 +807,44 @@ function engineeredFormula(e: EngineeredSpec): string {
   }
 }
 
+// Persistent feature-builder draft. Lives in the cockpit store's notes (so it autosaves and survives
+// navigation/refresh), shared by the studio and the summary table's "Use as A/B" actions.
+type FeatureDraft = { name: string; kind: string; inputA: string; inputB: string; op: string; threshold: number; exponent: number; bins: number; subkind: string };
+const DEFAULT_DRAFT: FeatureDraft = { name: "", kind: "arithmetic", inputA: "batter_obp", inputB: "pitcher_whip", op: "sub", threshold: 0.3, exponent: 2, bins: 5, subkind: "month" };
+const FE_DRAFT_KEY = "fe.draft";
+const ONE_INPUT_KINDS = ["log", "power", "bin", "indicator"];
+const TWO_INPUT_KINDS = ["arithmetic", "ratio", "interaction"];
+function useFeatureDraft(): [FeatureDraft, (patch: Partial<FeatureDraft>) => void] {
+  const notes = useCockpitStore((s) => s.notes);
+  const setNote = useCockpitStore((s) => s.setNote);
+  const draft = useMemo<FeatureDraft>(() => {
+    try { const raw = notes[FE_DRAFT_KEY]; return raw ? { ...DEFAULT_DRAFT, ...JSON.parse(raw) } : DEFAULT_DRAFT; } catch { return DEFAULT_DRAFT; }
+  }, [notes]);
+  const setDraft = (patch: Partial<FeatureDraft>) => setNote(FE_DRAFT_KEY, JSON.stringify({ ...draft, ...patch }));
+  return [draft, setDraft];
+}
+
+// One worked example per supported builder kind. "Load this example" fills the builder — it never adds.
+type FeatureExample = { title: string; why: string; draft: Partial<FeatureDraft> };
+const FEATURE_EXAMPLES: Record<string, FeatureExample> = {
+  arithmetic: { title: "Batter–Pitcher OBP/WHIP contrast", why: "Contrast between batter on-base ability and the pitcher's baserunner-suppression environment (hypothesis, not a proven feature).", draft: { kind: "arithmetic", op: "sub", inputA: "batter_obp", inputB: "pitcher_whip", name: "batter_obp_minus_pitcher_whip" } },
+  ratio: { title: "Batter power-to-pitcher HR rate", why: "Batter HR propensity relative to the pitcher's HR-allowed environment. Safe division: a 0 denominator yields NaN, handled as ordinary missingness.", draft: { kind: "ratio", inputA: "batter_hr_per_pa", inputB: "pitcher_hr_per_bfp", name: "batter_hr_pressure_ratio" } },
+  interaction: { title: "Batter power × pitcher HR vulnerability", why: "Represents a matchup effect that may be stronger when both batter power and pitcher HR susceptibility are elevated.", draft: { kind: "interaction", inputA: "batter_hr_per_pa", inputB: "pitcher_hr_per_bfp", name: "power_hr_interaction" } },
+  log: { title: "Log-compressed batter HR rate", why: "log1p compresses a right-skewed rate. Note batter_log1p_pa is already log-transformed, so this demonstrates log1p on a different, un-logged rate.", draft: { kind: "log", inputA: "batter_hr_per_pa", name: "log_batter_hr_rate" } },
+  power: { title: "Squared OBP — nonlinearity probe", why: "Tests whether the OBP → PA-outcome relationship is nonlinear (hypothesis only).", draft: { kind: "power", inputA: "batter_obp", exponent: 2, name: "batter_obp_sq" } },
+  bin: { title: "Pitcher WHIP quintile", why: "Quantile bin — cut points are learned on the 2023 development fold only, then applied to validation/frozen.", draft: { kind: "bin", inputA: "pitcher_whip", bins: 5, name: "pitcher_whip_quintile" } },
+  indicator: { title: "High-strikeout batter flag", why: "A scientist-specified development threshold flag — not optimized on validation/frozen data.", draft: { kind: "indicator", inputA: "batter_so_per_pa", threshold: 0.28, name: "high_batter_so_rate" } },
+  calendar: { title: "Game month", why: "Captures seasonality / schedule effects rather than intrinsic player skill.", draft: { kind: "calendar", subkind: "month", name: "cal_month" } },
+};
+
 export function FeatureEngineeringStep() {
   const prof = useEndpoint<Profile>("/cockpit/profile");
   const cat = useEndpoint<FeatureCatalog>("/cockpit/feature-catalog");
   const { config } = useCockpitStore();
+  const [, setDraft] = useFeatureDraft();
   const engineered = config.engineeredFeatures || [];
-  const [inputA, setInputA] = useState("batter_obp");
-  const [inputB, setInputB] = useState("pitcher_whip");
-  const useInput = (slot: "A" | "B", name: string) => (slot === "A" ? setInputA(name) : setInputB(name));
+  // "Use as A/B" from the summary table writes into the persistent builder draft.
+  const useInput = (slot: "A" | "B", name: string) => setDraft(slot === "A" ? { inputA: name } : { inputB: name });
   const total = ALL_FEATURES.length + engineered.length;
 
   return (
@@ -723,7 +869,7 @@ export function FeatureEngineeringStep() {
             )}
           </LoadGate>
         </Card>
-        <FeatureBuilder inputA={inputA} inputB={inputB} setInputA={setInputA} setInputB={setInputB} />
+        <FeatureBuilder />
       </div>
 
       {/* The primary feature inventory — updates live as features are created / toggled / removed */}
@@ -782,6 +928,8 @@ export function FeatureEngineeringStep() {
 // the store; updates immediately when a feature is created, toggled, or removed — no page reload.
 function FeatureSummaryTable({ profile, onUseInput }: { profile: Profile | undefined; onUseInput: (slot: "A" | "B", name: string) => void }) {
   const { config, engineeredProfiles, toggleFeature, removeEngineered } = useCockpitStore();
+  const [draft] = useFeatureDraft();
+  const showInputB = TWO_INPUT_KINDS.includes(draft.kind);  // the active studio op needs a second input
   const engineered = config.engineeredFeatures || [];
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "iv", dir: -1 });
   const profByName = new Map((profile?.features ?? []).map((f) => [f.name, f]));
@@ -834,8 +982,8 @@ function FeatureSummaryTable({ profile, onUseInput }: { profile: Profile | undef
               </td>
               <td className="border-b border-slate-100 px-2.5 py-1.5">
                 <div className="flex items-center gap-1">
-                  <button onClick={() => onUseInput("A", r.name)} className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">A</button>
-                  <button onClick={() => onUseInput("B", r.name)} className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">B</button>
+                  <button onClick={() => onUseInput("A", r.name)} title="Set this feature as Input A in the Create Feature Studio." className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">Use as A</button>
+                  {showInputB && <button onClick={() => onUseInput("B", r.name)} title="Set this feature as Input B in the Create Feature Studio." className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">Use as B</button>}
                   {r.source === "ENGINEERED" && <button onClick={() => removeEngineered(r.name)} className="rounded border border-rose-300 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 hover:bg-rose-50">Remove</button>}
                 </div>
               </td>
@@ -914,19 +1062,24 @@ const KINDS = [
   { id: "calendar", label: "Calendar" },
 ];
 
-function FeatureBuilder({ inputA, inputB, setInputA, setInputB }:
-  { inputA: string; inputB: string; setInputA: (v: string) => void; setInputB: (v: string) => void }) {
+function FeatureBuilder() {
   const store = useCockpitStore();
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState("arithmetic");
-  const [op, setOp] = useState("sub");
-  const [threshold, setThreshold] = useState(0.3);
-  const [exponent, setExponent] = useState(2);
-  const [bins, setBins] = useState(5);
-  const [subkind, setSubkind] = useState("month");
+  const [draft, setDraft] = useFeatureDraft();
+  const [showExample, setShowExample] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const profile = usePost<EngineeredProfile>();
-  const a = inputA, b = inputB;
+  const { name, kind, op, threshold, exponent, bins, subkind, inputA: a, inputB: b } = draft;
+  const setName = (v: string) => setDraft({ name: v });
+  const setKind = (v: string) => setDraft({ kind: v });
+  const setInputA = (v: string) => setDraft({ inputA: v });
+  const setInputB = (v: string) => setDraft({ inputB: v });
+  const setOp = (v: string) => setDraft({ op: v });
+  const setThreshold = (v: number) => setDraft({ threshold: v });
+  const setExponent = (v: number) => setDraft({ exponent: v });
+  const setBins = (v: number) => setDraft({ bins: v });
+  const setSubkind = (v: string) => setDraft({ subkind: v });
+  const example = FEATURE_EXAMPLES[kind];
+  const loadExample = () => { if (example) { setDraft(example.draft); setShowExample(false); } };
 
   const defaultName = () => {
     if (kind === "calendar") return `cal_${subkind}`;
@@ -972,7 +1125,18 @@ function FeatureBuilder({ inputA, inputB, setInputA, setInputB }:
   const p = profile.data;
   return (
     <Card title="Create feature studio" description="Compose a real derived feature, profile it fold-local (2023), then add it to the experiment." icon={Wand2}
-      action={<Pill label="TEMPORALLY SAFE" tone="emerald" />}>
+      action={<div className="flex items-center gap-2">{example && <button onClick={() => setShowExample((v) => !v)} className="rounded-lg border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-100">{showExample ? "Hide example" : "View example"}</button>}<Pill label="TEMPORALLY SAFE" tone="emerald" /></div>}>
+      {showExample && example && (
+        <div className="mb-3 rounded-xl border border-cyan-200 bg-cyan-50/60 p-3">
+          <div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold text-slate-900">Example · {example.title}</div><Pill label={KINDS.find((k) => k.id === kind)?.label ?? kind} tone="cyan" /></div>
+          <div className="mt-1.5 grid gap-1.5 text-xs sm:grid-cols-2">
+            <div><span className="font-semibold uppercase text-slate-400">Formula</span><div className="font-mono text-slate-800">{example.draft.name} = {engineeredFormula({ name: example.draft.name ?? "", kind: example.draft.kind ?? kind, inputs: [example.draft.inputA ?? a, example.draft.inputB ?? b], params: { op: example.draft.op ?? op, exponent: example.draft.exponent ?? exponent, bins: example.draft.bins ?? bins, threshold: example.draft.threshold ?? threshold, subkind: example.draft.subkind ?? subkind } })}</div></div>
+            <div><span className="font-semibold uppercase text-slate-400">Why test it?</span><div className="text-slate-600">{example.why}</div></div>
+          </div>
+          <button onClick={loadExample} className="mt-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Load this example</button>
+          <p className="mt-1 text-[10px] text-slate-500">Loads the fields below — it does not add the feature. You still choose Profile feature → Add to experiment.</p>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Feature type</span>
           <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select></label>

@@ -60,7 +60,12 @@ export type FeatureProfileRow = {
   outlierPct: number; iqrBounds: { lower: number; upper: number } | null; seasonMeans: Record<string, number | null>;
   drift: number | null; iv: FeatureIV; mi: number; outlierTreatable: boolean;
 };
-export type Profile = { features: FeatureProfileRow[]; totalRows: number; miSampleRows: number; ivMethod: string; miEstimator: string };
+export type Profile = { features: FeatureProfileRow[]; totalRows: number; miSampleRows: number; ivMethod: string; miEstimator: string; ivScreeningThreshold?: number; ivWeakThreshold?: number };
+export type Correlation = {
+  scope: string; features: string[]; matrix: (number | null)[][]; threshold: number;
+  strongPairs: { a: string; b: string; r: number }[]; strongPairCount: number;
+  strongest: Record<string, { feature: string | null; r: number }>;
+};
 export type FeatureDetail = {
   name: string; kind: string; role: string;
   histogram: { lo: number; hi: number; count: number }[];

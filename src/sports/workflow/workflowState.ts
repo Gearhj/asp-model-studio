@@ -373,3 +373,39 @@ export const DEFAULT_TEMPORAL = {
   frozenSeason: GOVERNED_TEMPORAL.frozenSeason,
   prospectiveSeason: GOVERNED_TEMPORAL.prospectiveSeason,
 };
+
+// Per-season role + development-start eligibility under the current registered Gen-2 policy. Source
+// evidence spans 2021–2025, but only 2023 is an eligible development start: 2021 has no ≤2020 prior,
+// 2021–2022 are PRIOR_ONLY_HISTORY, 2025 is frozen. The Stage 1 UI shows all seasons honestly with
+// these reasons — the data exists, but earlier seasons carry another governed role.
+export type SeasonPolicy = { role: string; eligibleDevStart: boolean; reason: string };
+export const SEASON_ROLE_POLICY: Record<number, SeasonPolicy> = {
+  2021: { role: "PRIOR HISTORY", eligibleDevStart: false, reason: "No pre-2021 registered history exists, so Y−1 player-state features are unavailable for essentially the entire season." },
+  2022: { role: "PRIOR HISTORY", eligibleDevStart: false, reason: "Available source evidence, but reserved as PRIOR_ONLY_HISTORY under the current Gen-2 registration (prohibited from primary target training)." },
+  2023: { role: "DEVELOPMENT", eligibleDevStart: true, reason: "Current Gen-2 development start." },
+  2024: { role: "VALIDATION", eligibleDevStart: false, reason: "Validation season — selects the model; never a development target." },
+  2025: { role: "FROZEN FINAL", eligibleDevStart: false, reason: "Frozen final — never used for development, tuning, or model selection." },
+  2026: { role: "FUTURE", eligibleDevStart: false, reason: "Prospective — not yet registered evidence." },
+};
+export function isEligibleDevelopmentStart(season: number): boolean {
+  return SEASON_ROLE_POLICY[season]?.eligibleDevStart === true;
+}
+
+// A "revised temporal experiment" is a RESEARCH DRAFT — it NEVER overwrites the registered Gen-2
+// forecast contract. Persisted under a distinct project-scoped key so the governed authority is safe.
+const TEMPORAL_DRAFT_PREFIX = "asp-sports-temporal-draft:";
+export type TemporalDraft = {
+  projectId: string; developmentSeasons: number[]; validationSeason: number; frozenSeason: number;
+  excludePriorFamilies: boolean; rationale: string; savedAt: string;
+};
+export function saveTemporalDraft(draft: TemporalDraft) {
+  localStorage.setItem(`${TEMPORAL_DRAFT_PREFIX}${draft.projectId}`, JSON.stringify(draft));
+}
+export function loadTemporalDraft(projectId: string): TemporalDraft | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${TEMPORAL_DRAFT_PREFIX}${projectId}`) || "null");
+    return raw?.projectId === projectId ? (raw as TemporalDraft) : null;
+  } catch {
+    return null;
+  }
+}
