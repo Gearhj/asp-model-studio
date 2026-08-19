@@ -1,6 +1,6 @@
 // Cockpit workflow steps 01–08: Objective, Data & Population, Profile, Outliers, Missing,
 // Feature Engineering, Segmentation, Temporal Split.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
@@ -8,13 +8,13 @@ import {
 } from "lucide-react";
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
-  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureDetail, type OutlierSummary,
+  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureDetail, type OutlierSummary, type OutlierEntry,
   type MissingSummary, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
-  BeforeAfter, LineChart, ScatterClusters, fmt,
+  OutlierHistogramPair, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
 
@@ -314,39 +314,157 @@ function FeatureDetailDrawer({ name, onClose }: { name: string; onClose: () => v
 }
 
 // ============================================================ 04 Outliers
+const OUTLIER_METHODS = [
+  { value: "iqr", label: "IQR" }, { value: "mad", label: "Robust Z / MAD" },
+  { value: "zscore", label: "Standard Z" }, { value: "percentile", label: "Winsorize" }, { value: "none", label: "None" },
+];
+const OUTLIER_METHOD_LABELS: Record<string, string> = { iqr: "IQR", mad: "Robust Z (MAD)", zscore: "Standard Z", percentile: "Winsorize", none: "None" };
+const methodLabel = (m: string) => OUTLIER_METHOD_LABELS[m] ?? m.toUpperCase();
+const paramSummary = (method: string, k: number, lower: number, upper: number) =>
+  method === "iqr" ? `multiplier ${k}` : method === "zscore" ? `threshold ${k}σ`
+  : method === "mad" ? `threshold ${k}` : method === "percentile" ? `${lower}% / ${upper}%` : "no threshold";
+
+// Method-specific parameter control — replaces the ambiguous generic "K". The label and helper text
+// derive from the selected method; Winsorize exposes its actual lower/upper percentiles; None shows none.
+function OutlierMethodParams({ method, k, setK, lower, setLower, upper, setUpper }:
+  { method: string; k: number; setK: (v: number) => void; lower: number; setLower: (v: number) => void; upper: number; setUpper: (v: number) => void }) {
+  if (method === "none") return <div className="self-center text-xs text-slate-500">No threshold parameter — distributions are shown unchanged.</div>;
+  if (method === "percentile") return (
+    <div className="flex items-start gap-3">
+      <div className="w-32"><NumberField label="Lower percentile" value={lower} step={0.5} min={0} onChange={setLower} /><p className="mt-1 text-[11px] leading-4 text-slate-500">Caps values below this development percentile.</p></div>
+      <div className="w-32"><NumberField label="Upper percentile" value={upper} step={0.5} min={0} onChange={setUpper} /><p className="mt-1 text-[11px] leading-4 text-slate-500">Caps values above this development percentile.</p></div>
+    </div>
+  );
+  const spec = method === "iqr"
+    ? { label: "IQR multiplier", helper: "Flags values below Q1 − m×IQR or above Q3 + m×IQR. 1.5 is the classic Tukey fence; 3.0 flags only 'far-out' extreme values." }
+    : method === "zscore"
+    ? { label: "Z-score threshold", helper: "Flags observations whose |z| = |(x − μ)/σ| exceeds this threshold (μ ± threshold×σ)." }
+    : { label: "Robust-Z (MAD) threshold", helper: "Uses the median and median absolute deviation: median ± threshold × 1.4826 × MAD — robust to outliers, unlike mean / σ." };
+  return <div className="w-48"><NumberField label={spec.label} value={k} step={0.5} min={0} onChange={setK} /><p className="mt-1 text-[11px] leading-4 text-slate-500">{spec.helper}</p></div>;
+}
+
 export function OutliersStep() {
-  const { config, setOutlierPolicy, markSaved, savedSteps } = useCockpitStore();
-  const [method, setMethod] = useState(config.outlierPolicy.globalMethod === "none" ? "iqr" : config.outlierPolicy.globalMethod);
-  const [k, setK] = useState(config.outlierPolicy.params?.k ?? 3);
+  const { config, setOutlierPolicy, markSaved } = useCockpitStore();
+  const saved = config.outlierPolicy;
+  const [method, setMethod] = useState(saved.globalMethod === "none" ? "iqr" : saved.globalMethod);
+  const [k, setK] = useState<number>(saved.params?.k ?? 3);
+  const [lower, setLower] = useState<number>((saved.params as any)?.lower ?? 1);
+  const [upper, setUpper] = useState<number>((saved.params as any)?.upper ?? 99);
+  const [overrides, setOverrides] = useState<Record<string, { method: string }>>((saved.overrides as any) ?? {});
+  const [sort, setSort] = useState<{ key: "feature" | "flagged" | "flaggedPct"; dir: 1 | -1 }>({ key: "flagged", dir: -1 });
   const post = usePost<OutlierSummary>();
-  const preview = () => post.run("/cockpit/outliers", { policy: { globalMethod: method, params: { k }, overrides: {} } });
-  const save = () => { setOutlierPolicy({ globalMethod: method, params: { k }, overrides: {} }); markSaved("outliers"); };
+  const [d, setD] = useState<OutlierSummary | undefined>();
+
+  const params: Record<string, number> = method === "percentile" ? { lower, upper } : { k };
+  const previewPolicy = { globalMethod: method, params, overrides };
+  const savedKey = JSON.stringify(saved);
+  const previewKey = JSON.stringify(previewPolicy);
+  const unsaved = savedKey !== previewKey;
+
+  // Reactive preview (debounced): the summary table, cards, and histograms always reflect the current
+  // method/parameters — never stale saved policy — from one bounded fold-local (2023) calculation.
+  useEffect(() => {
+    const t = setTimeout(() => { post.run("/cockpit/outliers", { policy: JSON.parse(previewKey) }); }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey]);
+  useEffect(() => { if (post.data) setD(post.data); }, [post.data]);
+
+  const save = () => { setOutlierPolicy(previewPolicy); markSaved("outliers"); };
+  const setOverride = (feature: string, m: string) => setOverrides((o) => {
+    const next = { ...o }; if (m === "global") delete next[feature]; else next[feature] = { method: m }; return next;
+  });
+
+  const rows = useMemo(() => {
+    if (!d) return [] as OutlierEntry[];
+    const val = (f: OutlierEntry) => (sort.key === "feature" ? f.feature : (f as any)[sort.key]);
+    return [...d.features].sort((a, b) => (val(a) > val(b) ? sort.dir : val(a) < val(b) ? -sort.dir : 0));
+  }, [d, sort]);
+
+  const Th = ({ k: key, label }: { k: "feature" | "flagged" | "flaggedPct"; label: string }) => (
+    <th className="cursor-pointer border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:text-slate-900"
+      onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : -1 }))}>
+      <span className="inline-flex items-center gap-1">{label}<ArrowUpDown size={11} className={sort.key === key ? "text-cyan-600" : "text-slate-300"} /></span>
+    </th>
+  );
 
   return (
     <div className="space-y-4">
-      <Card title="Outlier treatment" description="Fitted fold-local on development (2023) only. Preview before saving. Binary/categorical variables are never capped." icon={TriangleAlert}
-        action={<Pill label="FOLD-LOCAL PREPROCESSING" tone="cyan" />}>
+      <Card title="Outlier treatment" icon={TriangleAlert} action={<Pill label="FOLD-LOCAL PREPROCESSING · DEV 2023" tone="cyan" />}
+        description="Thresholds are fit fold-local on development (2023) only — validation (2024) and frozen final (2025) never determine thresholds. Binary / categorical variables are never capped.">
         <div className="flex flex-wrap items-end gap-4">
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Global method</div>
-            <Segmented value={method} onChange={setMethod as any} options={[
-              { value: "iqr", label: "IQR" }, { value: "mad", label: "Robust Z / MAD" }, { value: "zscore", label: "Standard Z" }, { value: "percentile", label: "Winsorize" }, { value: "none", label: "None" }]} /></div>
-          {(method === "iqr" || method === "mad" || method === "zscore") && <div className="w-28"><NumberField label="k" value={k} step={0.5} onChange={setK} /></div>}
-          <Button onClick={preview} tone="dark">{post.status === "loading" ? "Computing…" : "Preview"}</Button>
-          <Button onClick={save} tone={savedSteps.outliers ? "ghost" : "primary"}>{savedSteps.outliers ? "Saved ✓" : "Save outlier policy"}</Button>
+            <Segmented value={method} onChange={setMethod as any} options={OUTLIER_METHODS} /></div>
+          <OutlierMethodParams method={method} k={k} setK={setK} lower={lower} setLower={setLower} upper={upper} setUpper={setUpper} />
+          <Button onClick={save} tone={unsaved ? "primary" : "ghost"}>{unsaved ? "Save outlier policy" : "Saved ✓"}</Button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <Pill label={`Previewing · ${methodLabel(method)} · ${paramSummary(method, k, lower, upper)}`} tone={unsaved ? "amber" : "emerald"} />
+          <span className="text-slate-400">Saved policy · {methodLabel(saved.globalMethod)}{saved.globalMethod !== "none" ? ` · ${paramSummary(saved.globalMethod, saved.params?.k ?? 3, (saved.params as any)?.lower ?? 1, (saved.params as any)?.upper ?? 99)}` : ""}</span>
+          {unsaved && <span className="rounded bg-amber-100 px-2 py-0.5 font-semibold uppercase tracking-wide text-amber-800">Unsaved preview</span>}
+          {post.status === "loading" && d && <span className="text-slate-400">updating…</span>}
         </div>
       </Card>
-      {post.status === "loading" && <Card title="Computing…" ><div className="py-6"><div className="flex justify-center"><span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" /></div></div></Card>}
-      {post.data && (
+
+      {!d && post.status === "loading" && <Card title="Computing…"><div className="flex justify-center py-6"><span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" /></div></Card>}
+
+      {d && (
         <>
           <div className="grid gap-3 sm:grid-cols-4">
-            <MetricCard label="Observations" value={fmt.int(post.data.totalObservations)} detail="development rows" />
-            <MetricCard label="Features analyzed" value={String(post.data.featuresAnalyzed)} detail="continuous only" />
-            <MetricCard label="With outliers" value={String(post.data.featuresWithOutliers)} />
-            <MetricCard label="Values flagged" value={fmt.int(post.data.totalFlagged)} detail={fmt.pct(post.data.flaggedPct, 2)} />
+            <MetricCard label="Observations" value={fmt.int(d.totalObservations)} detail="development (2023) rows" />
+            <MetricCard label="Features analyzed" value={String(d.featuresAnalyzed)} detail="continuous only" />
+            <MetricCard label="Features with outliers" value={String(d.featuresWithOutliers)} detail={`under ${methodLabel(method)}`} />
+            <MetricCard label="Values flagged" value={fmt.int(d.totalFlagged)} detail={`${fmt.pct(d.flaggedPct, 2)} of evaluated cells`} />
           </div>
-          {post.data.features.filter((f) => f.flagged > 0).map((f) => (
-            <Card key={f.feature} title={f.feature} description={`${f.method.toUpperCase()} · ${fmt.int(f.flagged)} flagged (${fmt.pct(f.flaggedPct, 2)}) · [${fmt.n(f.beforeMin, 2)}, ${fmt.n(f.beforeMax, 2)}] → [${fmt.n(f.afterMin, 2)}, ${fmt.n(f.afterMax, 2)}]`}>
-              <BeforeAfter before={f.beforeHistogram} after={f.afterHistogram} />
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <b>{d.featuresWithOutliers}</b> of <b>{d.featuresAnalyzed}</b> continuous predictors contain observations outside the current {methodLabel(method)} thresholds. <b>{fmt.int(d.totalFlagged)}</b> values ({fmt.pct(d.flaggedPct, 2)} of evaluated continuous cells) would be affected under this preview.
+          </div>
+
+          <Card title="Outlier summary" icon={TriangleAlert}
+            description="Sorted by outlier count. Change the method or parameters above to update every value. An optional per-feature override reuses the same governed fold-local calculation.">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <thead><tr>
+                  <Th k="feature" label="Feature" />
+                  <Th k="flagged" label="Outliers" />
+                  <Th k="flaggedPct" label="Outlier %" />
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Lower threshold</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Upper threshold</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Treatment</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Override</th>
+                </tr></thead>
+                <tbody>{rows.map((f) => (
+                  <tr key={f.feature} className="hover:bg-cyan-50/40">
+                    <td className="border-b border-slate-100 px-3 py-2"><a href={`#outlier-${f.feature}`} className="font-semibold text-slate-800 hover:text-cyan-700">{f.feature}</a> <span className="ml-1 text-[10px] uppercase text-slate-400">{f.role}</span></td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold text-slate-900">{fmt.int(f.flagged)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.pct(f.flaggedPct, 2)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-600">{f.bounds ? fmt.n(f.bounds.lower, 3) : "—"}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-600">{f.bounds ? fmt.n(f.bounds.upper, 3) : "—"}</td>
+                    <td className="border-b border-slate-100 px-3 py-2"><Pill label={methodLabel(f.method)} tone={f.method === "none" ? "slate" : "cyan"} /></td>
+                    <td className="border-b border-slate-100 px-3 py-2">
+                      <select value={overrides[f.feature]?.method ?? "global"} onChange={(e) => setOverride(f.feature, e.target.value)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs">
+                        <option value="global">Use global</option><option value="iqr">IQR</option><option value="mad">Robust Z</option><option value="zscore">Standard Z</option><option value="percentile">Winsorize</option><option value="none">None</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">{d.featuresAnalyzed} continuous features analyzed; categorical / binary features (base state, prior-missing indicators) are never outlier-capped.</p>
+          </Card>
+
+          {rows.map((f) => (
+            <Card key={f.feature} title={f.feature}>
+              <div id={`outlier-${f.feature}`} className="-mt-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                <span className="text-sm font-semibold text-slate-900">{fmt.int(f.flagged)} outliers · {fmt.pct(f.flaggedPct, 2)}</span>
+                <Pill label={methodLabel(f.method)} tone={f.method === "none" ? "slate" : "cyan"} />
+                {f.bounds
+                  ? <span>Lower threshold <b>{fmt.n(f.bounds.lower, 3)}</b> · Upper threshold <b>{fmt.n(f.bounds.upper, 3)}</b></span>
+                  : <span className="text-slate-400">No thresholds — untreated</span>}
+                <span className="text-slate-400">Observed range {fmt.n(f.beforeMin, 3)} – {fmt.n(f.beforeMax, 3)}{f.bounds ? ` · Post-treatment ${fmt.n(f.afterMin, 3)} – ${fmt.n(f.afterMax, 3)}` : ""}</span>
+              </div>
+              <OutlierHistogramPair before={f.beforeHistogram} after={f.afterHistogram} lower={f.bounds?.lower ?? null} upper={f.bounds?.upper ?? null} treated={f.bounds !== null} />
             </Card>
           ))}
         </>

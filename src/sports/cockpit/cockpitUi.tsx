@@ -180,6 +180,61 @@ export function BeforeAfter({ before, after, height = 150 }:
   );
 }
 
+// Outlier before/after pair with threshold markers drawn ON the before histogram. Before and after
+// share the same value x-axis domain (the backend bins both on the same reference), so the scientist
+// can compare capping impact directly. Markers are only drawn when the threshold falls inside the
+// visible domain; a one-sided threshold shows a single marker.
+type HistBin = { lo: number; hi: number; count: number };
+function outlierHistOption(
+  bins: HistBin[],
+  { color, markers, min, max }: { color: string; markers: { value: number; label: string; color: string }[]; min: number; max: number },
+) {
+  const visible = markers.filter((m) => Number.isFinite(m.value) && m.value >= min && m.value <= max);
+  return {
+    grid: { left: 42, right: 14, top: 14, bottom: 20 },
+    xAxis: { type: "value", min, max, axisLabel: { fontSize: 9, color: "#94a3b8" }, axisTick: { show: false } },
+    yAxis: { type: "value", axisLabel: { fontSize: 9, color: "#94a3b8" }, splitLine: { lineStyle: { color: "#f1f5f9" } } },
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "shadow" },
+      formatter: (p: any) => { const b = bins[p[0].dataIndex]; return b ? `[${b.lo.toFixed(3)}, ${b.hi.toFixed(3)})<br/><b>${b.count.toLocaleString()}</b>` : ""; },
+    },
+    series: [{
+      type: "bar", data: bins.map((b) => [(b.lo + b.hi) / 2, b.count]), itemStyle: { color }, barWidth: "96%",
+      markLine: visible.length ? {
+        symbol: ["none", "none"], silent: true, animation: false,
+        data: visible.map((m) => ({
+          xAxis: m.value,
+          lineStyle: { color: m.color, type: "dashed", width: 1.5 },
+          label: { show: true, position: "insideEndTop", fontSize: 9, color: m.color, formatter: `${m.label} ${m.value.toFixed(2)}` },
+        })),
+      } : undefined,
+    }],
+  };
+}
+
+export function OutlierHistogramPair({ before, after, lower, upper, treated, height = 150 }:
+  { before: HistBin[]; after: HistBin[]; lower: number | null; upper: number | null; treated: boolean; height?: number }) {
+  if (!before.length) return null;
+  const min = before[0].lo;
+  const max = before[before.length - 1].hi;
+  const markers = [
+    ...(lower !== null && lower !== undefined ? [{ value: lower, label: "Lower", color: "#e11d48" }] : []),
+    ...(upper !== null && upper !== undefined ? [{ value: upper, label: "Upper", color: "#e11d48" }] : []),
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Before · thresholds marked</div>
+        {chart(outlierHistOption(before, { color: "#f59e0b", markers, min, max }), height)}
+      </div>
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{treated ? "After treatment" : "No treatment — distribution unchanged"}</div>
+        {chart(outlierHistOption(after, { color: treated ? "#0891b2" : "#cbd5e1", markers: [], min, max }), height)}
+      </div>
+    </div>
+  );
+}
+
 export function CalibrationChart({ reliability, height = 240 }: { reliability: { meanPredicted: number; observed: number; count: number }[]; height?: number }) {
   const pts = reliability.filter((r) => r.count > 0).map((r) => [r.meanPredicted, r.observed]);
   return chart({
