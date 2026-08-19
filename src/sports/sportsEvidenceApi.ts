@@ -544,6 +544,28 @@ export type SportsWholeGameMonteCarlo = {
   limitations: string[];
 };
 
+// Phase 5E projected-participation ablation (P0->P3). Research diagnostic; not a forecast,
+// betting model, or market comparison.
+export type SportsParticipationAblation = {
+  runId: string;
+  contractName: string;
+  researchOnly: boolean;
+  branchLabels: SportsPhase4EvidenceRecord;
+  projectionAuthorities: SportsPhase4EvidenceRecord;
+  simulationsPerGame?: number;
+  comparableGames: SportsPhase4EvidenceRecord;
+  bySeason: SportsPhase4EvidenceRecord;
+  bootstrap: SportsPhase4EvidenceRecord;
+  stateFallback: SportsPhase4EvidenceRecord;
+  meanLineupRecall: SportsPhase4EvidenceRecord;
+  overallDecision: string;
+  lineupGameImpact: string;
+  starterDurationGameImpact: string;
+  bullpenGameImpact: string;
+  remainingOracleDependencies: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -571,6 +593,7 @@ export type SportsPhase4Study = {
   baseOutTransition?: SportsBaseOutTransition;
   simulationInput?: SportsSimulationInput;
   wholeGameMonteCarlo?: SportsWholeGameMonteCarlo;
+  participationAblation?: SportsParticipationAblation;
 };
 
 export type RegisteredSportsProject = {
@@ -1239,6 +1262,33 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     baseOutTransition: normalizeBaseOutTransition(value.baseOutTransition),
     simulationInput: normalizeSimulationInput(value.simulationInput),
     wholeGameMonteCarlo: normalizeWholeGameMonteCarlo(value.wholeGameMonteCarlo),
+    participationAblation: normalizeParticipationAblation(value.participationAblation),
+  };
+}
+
+function normalizeParticipationAblation(value: unknown): SportsParticipationAblation | undefined {
+  if (!isRecord(value)) return undefined;
+  const runId = publicString(value.runId);
+  // Existence-gated: no governed ablation run -> honest not-run state.
+  if (!runId) return undefined;
+  return {
+    runId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    branchLabels: normalizePublicEvidenceRecord(value.branchLabels),
+    projectionAuthorities: normalizePublicEvidenceRecord(value.projectionAuthorities),
+    simulationsPerGame: optionalFiniteNumber(value.simulationsPerGame),
+    comparableGames: normalizePublicEvidenceRecord(value.comparableGames),
+    bySeason: normalizePublicEvidenceRecord(value.bySeason),
+    bootstrap: normalizePublicEvidenceRecord(value.bootstrap),
+    stateFallback: normalizePublicEvidenceRecord(value.stateFallback),
+    meanLineupRecall: normalizePublicEvidenceRecord(value.meanLineupRecall),
+    overallDecision: publicString(value.overallDecision),
+    lineupGameImpact: publicString(value.lineupGameImpact),
+    starterDurationGameImpact: publicString(value.starterDurationGameImpact),
+    bullpenGameImpact: publicString(value.bullpenGameImpact),
+    remainingOracleDependencies: normalizePublicEvidenceRecord(value.remainingOracleDependencies),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

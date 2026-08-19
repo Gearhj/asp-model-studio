@@ -21,6 +21,7 @@ import {
   type SportsBaseOutTransition,
   type SportsSimulationInput,
   type SportsWholeGameMonteCarlo,
+  type SportsParticipationAblation,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -1155,6 +1156,61 @@ export function WholeGameMonteCarloSection({ mc }: { mc?: SportsWholeGameMonteCa
           }} />
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">Oracle participants remove lineup/starter/bullpen prediction uncertainty — this is an optimistic upper bound, not a deployable pregame forecast. Next realism step follows the participation-ablation and contact-quality decisions above. Projected participation, prospective feed, residual layer, premium contact-quality, and ASP export remain NOT_CONFIGURED.</p></div>
           {mc.limitations.length ? <Limitations values={mc.limitations} /> : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function ParticipationAblationSection({ ablation }: { ablation?: SportsParticipationAblation }) {
+  const s2024 = ablation ? record(record(ablation.bySeason)["2024"]) : {};
+  const branches2024 = record(s2024.branches);
+  const preserved = ablation?.overallDecision?.includes("VALUE_PRESERVED") || ablation?.overallDecision?.includes("ACCEPTABLE");
+  const branchOrder: Array<[string, string]> = [["P0", "Oracle"], ["P1", "+Lineup"], ["P2", "+Starter dur."], ["P3", "+Bullpen"]];
+  const p3d = record(record(s2024.deltas)["P3_vs_P0"]);
+  const impactTone = (v?: string) => v?.includes("ACCEPTABLE") ? "AVAILABLE" : v?.includes("MATERIAL") ? "PARTIAL" : "BLOCKED";
+  return (
+    <Card
+      title="Phase 5E · projected-participation ablation (P0→P3)"
+      description="How much game-level value survives when ASP substitutes its own lineup/starter/bullpen models for the historical oracle. Research diagnostic — no forecasts, odds, edge, or ROI."
+    >
+      {!ablation ? (
+        <Empty>MLB_PROJECTED_PARTICIPATION_ABLATION_V1 has not been run. Ablation status is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(preserved ? "AVAILABLE" : ablation.overallDecision.includes("MATERIAL") ? "PARTIAL" : "BLOCKED")}`}>{text(ablation.overallDecision)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{integer(ablation.simulationsPerGame)} sims/game · starter identity oracle</span>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Branch comparison — 2024 (increasing participation realism →)</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th>{branchOrder.map(([b, l]) => <th key={b} className="py-1 pr-4">{b} · {l}</th>)}</tr></thead>
+              <tbody>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">home-win Brier</td>{branchOrder.map(([b]) => <td key={b} className="py-1 pr-4">{metric(record(record(branches2024[b]).winner).brier, 4)}</td>)}</tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">total-run CRPS</td>{branchOrder.map(([b]) => <td key={b} className="py-1 pr-4">{metric(record(branches2024[b]).totalCrps, 3)}</td>)}</tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">total-run bias</td>{branchOrder.map(([b]) => <td key={b} className="py-1 pr-4">{metric(record(branches2024[b]).totalBias, 3)}</td>)}</tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">90% coverage</td>{branchOrder.map(([b]) => <td key={b} className="py-1 pr-4">{metric(record(branches2024[b]).cov90Total, 3)}</td>)}</tr>
+              </tbody>
+            </table></div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {[["Lineup", ablation.lineupGameImpact], ["Starter duration", ablation.starterDurationGameImpact], ["Bullpen", ablation.bullpenGameImpact]].map(([label, val]) => (
+              <div key={label} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <span className="text-xs font-semibold text-slate-700">{label}</span>
+                <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] ${readinessChipClass(impactTone(text(val)))}`}>{text(val).replace(/^.*_GAME_IMPACT_/, "")}</span>
+              </div>
+            ))}
+          </div>
+          <EvidenceGrid evidence={{
+            p3VsP0BrierRelPct: record(p3d.winnerBrier).relPct,
+            p3VsP0CrpsRelPct: record(p3d.totalCrps).relPct,
+            meanLineupRecall2024: record(ablation.meanLineupRecall)["2024"],
+            priorStateFallbackRate: record(ablation.stateFallback).priorStateRate,
+            leagueFallbackRate: record(ablation.stateFallback).leagueFallbackRate,
+          }} />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">P3 is <strong>PROJECTED_PARTICIPATION_RESEARCH_MODE</strong>: it still uses the actual starter identity (S2 is conditional on it) and a historical population — not a live pregame forecast. Remaining oracle dependencies: starter identity (CRITICAL), schedule/teams/date and injury/scratch feed (MODERATE). Prospective feed, starter-identity projection, premium data, and the interactive Model Studio cockpit remain NOT_CONFIGURED.</p></div>
+          {ablation.limitations.length ? <Limitations values={ablation.limitations} /> : null}
         </div>
       )}
     </Card>
