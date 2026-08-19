@@ -322,7 +322,26 @@ def population_payload() -> dict[str, Any]:
             "validation": VAL_SEASON,
             "frozenFinal": FROZEN_SEASON,
         },
+        # Phase 6E — explicit source-evidence vs. modeling-development authority. The registered FD1
+        # dataset spans 2021-2025, but the manifest temporal contract classifies 2021-2022 as
+        # PRIOR_ONLY_HISTORY (Y-1 prior construction only; the prior_only population is contractually
+        # prohibited from PRIMARY_2023_2025_TARGET_TRAINING). The PA modeling matrix is 2023-2025.
+        "sourceEvidence": {
+            "registeredSeasons": [2021, 2022, 2023, 2024, 2025],
+            "priorOnlyHistory": [2021, 2022],
+            "modelingDevelopment": [DEV_SEASON],
+            "validation": VAL_SEASON,
+            "frozenFinal": FROZEN_SEASON,
+            "note": (
+                "Registered evidence spans 2021-2025. 2021-2022 are PRIOR_ONLY_HISTORY: retained only "
+                "to build Y-1 player priors for the 2023-2025 primary modeling seasons and prohibited "
+                "from primary target training. 2021 additionally has no eligible <=2020 prior (earliest "
+                "registered player_prior source season is 2021), so every 2021 PA would be prior-missing."
+            ),
+        },
         "knownLimitations": [
+            "Source evidence spans 2021-2025, but 2021-2022 are governed PRIOR_ONLY_HISTORY (Y-1 prior "
+            "construction only); modeling development is 2023, validation 2024, frozen final 2025.",
             "Prior-season player state is unavailable for debut players (batter 7.7% / pitcher 11.7% missing).",
             "No premium contact-quality, umpire, weather, or park features in the governed free data.",
         ],
@@ -601,7 +620,7 @@ def data_preview(*, season: int | None = None, limit: int = 25, sample: str = "h
         "previewColumns": preview_cols,
         "rows": rows,
         "schema": schema,
-        "note": "This is the governed plate-appearance modeling matrix (feature view, 2023–2025). The registered evidence spans additional raw families/seasons available in the Data Warehouse.",
+        "note": "This is the governed plate-appearance modeling matrix (feature view, 2023–2025). Registered source evidence spans 2021–2025, but 2021–2022 are PRIOR_ONLY_HISTORY (used only to build Y−1 priors, not as modeling targets); development is 2023, validation 2024, frozen final 2025.",
     }
 
 

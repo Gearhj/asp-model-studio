@@ -323,10 +323,53 @@ export function completionSummary(resolutions: StageResolution[]) {
   return { complete, ready, blocked, available, total, pct: Math.round((complete / total) * 100) };
 }
 
-// Default proposed temporal policy for the current project (owner-reviewable).
-export const DEFAULT_TEMPORAL = {
-  developmentSeasons: [2021, 2022, 2023],
+// ------------------------------------------------------------------ governed temporal authority
+// Phase 6E — single source of truth mirroring the registered FD1 dataset manifest `temporal_contract`
+// and the backend feature contract (server/sports_modeling/feature_contract.py, TARGET_SEASONS).
+// The governed dataset classifies seasons by ROLE:
+//   • 2021–2022 = PRIOR_ONLY_HISTORY — retained ONLY to construct Y−1 player priors for the primary
+//     modeling seasons. The `prior_only` population is contractually prohibited from
+//     PRIMARY_2023_2025_TARGET_TRAINING ("History retained for prior construction; never primary
+//     target rows"). 2021 additionally has no eligible ≤2020 prior (the earliest registered
+//     player_prior source season is 2021), so every 2021 PA would be prior-missing.
+//   • 2023–2025 = PRIMARY_GEN2_MODELING — the PA modeling matrix (feature view, 549,479 rows).
+// Therefore the modeling development window is 2023 only; validation 2024; frozen final 2025. Source
+// evidence spans 2021–2025, but SOURCE EVIDENCE ≠ MODELING DEVELOPMENT. The platform must never claim
+// 2021–2023 development when the model trains on 2023.
+export const GOVERNED_TEMPORAL = {
+  sourceEvidenceSeasons: [2021, 2022, 2023, 2024, 2025],
+  priorOnlyHistorySeasons: [2021, 2022],
+  developmentSeasons: [2023],
   validationSeason: 2024,
   frozenSeason: 2025,
   prospectiveSeason: 2026,
+  priorOnlyReason:
+    "2021–2022 are registered PRIOR_ONLY_HISTORY — retained only to build Y−1 player priors for 2023–2025 and contractually prohibited from primary target training. 2021 additionally has no eligible ≤2020 prior, so every 2021 plate appearance would be prior-missing.",
+} as const;
+
+// The earliest season that may serve as a modeling target/development season.
+export const MODELING_START_SEASON = GOVERNED_TEMPORAL.developmentSeasons[0];
+
+// Reconcile a (possibly legacy) contract development window with the governed modeling authority so
+// display surfaces never *claim* 2021–2023 development. No silent drift: prior-only history seasons
+// are dropped and the result is the governed development window when nothing valid remains.
+export function governedDevelopmentSeasons(seasons: number[] | undefined | null): number[] {
+  const allowed = new Set<number>(GOVERNED_TEMPORAL.developmentSeasons);
+  const kept = (seasons ?? []).filter((s) => allowed.has(s));
+  return kept.length ? kept : [...GOVERNED_TEMPORAL.developmentSeasons];
+}
+
+// Compact "2021–2023 → 2024 → 2025" style label for the governed development window of a contract.
+export function developmentWindowLabel(contract: { developmentSeasons?: number[] } | null): string {
+  const dev = governedDevelopmentSeasons(contract?.developmentSeasons);
+  return dev.length > 1 ? `${dev[0]}–${dev[dev.length - 1]}` : String(dev[0]);
+}
+
+// Default proposed temporal policy for the current project (owner-reviewable). Development is the
+// governed modeling window (2023); 2021–2022 remain source-only prior history.
+export const DEFAULT_TEMPORAL = {
+  developmentSeasons: [...GOVERNED_TEMPORAL.developmentSeasons],
+  validationSeason: GOVERNED_TEMPORAL.validationSeason,
+  frozenSeason: GOVERNED_TEMPORAL.frozenSeason,
+  prospectiveSeason: GOVERNED_TEMPORAL.prospectiveSeason,
 };

@@ -5,6 +5,7 @@ import { loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
 import { sportsPaDecisionStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
 import {
   resolveStages, firstActionableStage, completionSummary, loadContract, loadBinding,
+  developmentWindowLabel,
   type StageResolution, type StageStatus,
 } from "./workflow/workflowState";
 
@@ -81,7 +82,7 @@ export default function SportsProjectOverview() {
       {/* Metrics */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={<Target size={19} />} label="Forecast target" value={contract?.target || metadata?.primaryTarget || "Not configured"} />
-        <Metric icon={<CircleDot size={19} />} label="Temporal policy" value={contract ? `${contract.developmentSeasons[0]}–${contract.developmentSeasons.slice(-1)[0]} → ${contract.validationSeason} → ${contract.frozenSeason}` : "Not configured"} />
+        <Metric icon={<CircleDot size={19} />} label="Temporal policy" value={contract ? `${developmentWindowLabel(contract)} → ${contract.validationSeason} → ${contract.frozenSeason}` : "Not configured"} />
         <Metric icon={<Database size={19} />} label="Sports dataset" value={datasetLabel} />
         <Metric icon={<GitBranch size={19} />} label="Model graph" value={phase4?.graph?.nodes.length ? `${phase4.graph.nodes.length} nodes` : baseline?.graph?.nodes.length ? `${decision || "research"}` : "No graph yet"} />
       </section>

@@ -5,9 +5,12 @@ import { useState } from "react";
 import { ShieldCheck, Sparkles } from "lucide-react";
 import type { SportsProjectMetadata } from "../sportsConfig";
 import { TARGETS_BY_WORKFLOW, FORECAST_LIFECYCLES } from "../sportsConfig";
-import { DEFAULT_TEMPORAL, saveContract, type ForecastContract } from "./workflowState";
+import { DEFAULT_TEMPORAL, GOVERNED_TEMPORAL, MODELING_START_SEASON, governedDevelopmentSeasons, saveContract, type ForecastContract } from "./workflowState";
 
 const YEARS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
+// Development targets are restricted to the governed PRIMARY_GEN2_MODELING seasons (≥2023). 2021–2022
+// are PRIOR_ONLY_HISTORY (source evidence for Y−1 priors), never selectable as development targets.
+const DEV_YEARS = YEARS.filter((y) => y >= MODELING_START_SEASON);
 
 export function ForecastContractPanel({
   projectId, metadata, existing, onSaved,
@@ -20,8 +23,10 @@ export function ForecastContractPanel({
   const targets = TARGETS_BY_WORKFLOW["mlb-forecasting"];
   const [target, setTarget] = useState(existing?.target || metadata?.primaryTarget || "Plate-Appearance Outcome");
   const [lifecycle, setLifecycle] = useState(existing?.lifecycle || metadata?.lifecycle || "Pregame — Final");
-  const [devStart, setDevStart] = useState(existing?.developmentSeasons?.[0] ?? DEFAULT_TEMPORAL.developmentSeasons[0]);
-  const [devEnd, setDevEnd] = useState(existing?.developmentSeasons?.slice(-1)[0] ?? DEFAULT_TEMPORAL.developmentSeasons.slice(-1)[0]);
+  // Clamp any legacy development window to the governed modeling seasons (drops 2021–2022 prior-only).
+  const govDev = governedDevelopmentSeasons(existing?.developmentSeasons ?? DEFAULT_TEMPORAL.developmentSeasons);
+  const [devStart, setDevStart] = useState(govDev[0]);
+  const [devEnd, setDevEnd] = useState(govDev[govDev.length - 1]);
   const [valSeason, setValSeason] = useState(existing?.validationSeason ?? DEFAULT_TEMPORAL.validationSeason);
   const [frozenSeason, setFrozenSeason] = useState(existing?.frozenSeason ?? DEFAULT_TEMPORAL.frozenSeason);
   const [prospective, setProspective] = useState<number | null>(existing?.prospectiveSeason ?? DEFAULT_TEMPORAL.prospectiveSeason);
@@ -71,12 +76,17 @@ export function ForecastContractPanel({
         <div className="text-sm font-semibold text-slate-900">Temporal policy</div>
         <p className="mt-1 text-xs text-slate-500">Development trains the model, validation selects it, and the frozen season is held out — never used for model selection.</p>
         <div className="mt-3 grid gap-4 sm:grid-cols-4">
-          <Field label="Development start"><select value={devStart} onChange={(e) => setDevStart(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y <= devEnd).map((y) => <option key={y}>{y}</option>)}</select></Field>
-          <Field label="Development end"><select value={devEnd} onChange={(e) => setDevEnd(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y >= devStart && y < valSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
+          <Field label="Development start"><select value={devStart} onChange={(e) => setDevStart(Number(e.target.value))} className="wf-input">{DEV_YEARS.filter((y) => y <= devEnd).map((y) => <option key={y}>{y}</option>)}</select></Field>
+          <Field label="Development end"><select value={devEnd} onChange={(e) => setDevEnd(Number(e.target.value))} className="wf-input">{DEV_YEARS.filter((y) => y >= devStart && y < valSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
           <Field label="Validation"><select value={valSeason} onChange={(e) => setValSeason(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y > devEnd && y < frozenSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
           <Field label="Frozen final"><select value={frozenSeason} onChange={(e) => setFrozenSeason(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y > valSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
         </div>
         <TemporalTimeline devSeasons={devSeasons} valSeason={valSeason} frozenSeason={frozenSeason} prospective={prospective} />
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          <div className="font-semibold uppercase tracking-wide text-slate-500">Governed source evidence vs. modeling development</div>
+          <div className="mt-1"><b>Source evidence:</b> {GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–{GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]} · <b>Modeling development:</b> {devSeasons[0] ?? "—"}{devSeasons.length > 1 ? `–${devSeasons.slice(-1)[0]}` : ""} · <b>Validation:</b> {valSeason} · <b>Frozen:</b> {frozenSeason}</div>
+          <div className="mt-1 text-slate-500">{GOVERNED_TEMPORAL.priorOnlyReason}</div>
+        </div>
         {!valid && <p className="mt-2 text-xs font-semibold text-amber-700">Development must end before validation, and validation before the frozen season.</p>}
       </div>
 
