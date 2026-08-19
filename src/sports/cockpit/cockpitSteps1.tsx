@@ -1,6 +1,7 @@
 // Cockpit workflow steps 01–08: Objective, Data & Population, Profile, Outliers, Missing,
 // Feature Engineering, Segmentation, Temporal Split.
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
   X, ArrowUpDown, Check,
@@ -374,6 +375,7 @@ export function FeatureEngineeringStep() {
           ))}
         </div>
       </Card>
+      <PlayerStateFeatureFamilies />
       <FeatureBuilder />
       <AblationPanel />
       <LoadGate state={cat}>
@@ -391,6 +393,61 @@ export function FeatureEngineeringStep() {
         )}
       </LoadGate>
     </div>
+  );
+}
+
+// Player-state research relocated here (Phase 6D): scientist chooses which player-state feature
+// families enter a NEW challenger. The registered D3 champion is immutable — toggles never mutate it.
+const BATTER_PRIORS = ["batter_log1p_pa", "batter_avg", "batter_obp", "batter_slg", "batter_so_per_pa", "batter_bb_hbp_per_pa", "batter_hr_per_pa"];
+const PITCHER_PRIORS = ["pitcher_log1p_bfp", "pitcher_era9", "pitcher_whip", "pitcher_so_per_bfp", "pitcher_bb_per_bfp", "pitcher_hr_per_bfp", "pitcher_hbp_per_bfp", "pitcher_gs_per_g"];
+const MISSING_INDICATORS = ["batter_prior_missing", "pitcher_prior_missing"];
+
+function PlayerStateFeatureFamilies() {
+  const { config, setFeatures } = useCockpitStore();
+  const has = (fs: string[]) => fs.every((f) => config.features.includes(f));
+  const toggleFamily = (fs: string[]) => {
+    const included = has(fs);
+    setFeatures(included ? config.features.filter((f) => !fs.includes(f)) : [...new Set([...config.features, ...fs])]);
+  };
+  const evHref = "/player-team-state?from=mlb-workflow&stage=3";
+
+  const base: { name: string; features: string[]; note: string }[] = [
+    { name: "Prior-season batter state", features: BATTER_PRIORS, note: "Latest eligible Y−1 batting priors (AVG/OBP/SLG, K/BB/HR rates)." },
+    { name: "Prior-season pitcher state", features: PITCHER_PRIORS, note: "Latest eligible Y−1 pitching priors (ERA/WHIP, K/BB/HR rates)." },
+    { name: "Missing-history indicators", features: MISSING_INDICATORS, note: "Explicit debut / no-prior flags so imputation is honest." },
+  ];
+  const research: { name: string; status: string; tone: any; finding: string }[] = [
+    { name: "Dynamic recent-form state", status: "RESEARCH ONLY", tone: "amber", finding: "D0–D4 dynamic-state candidates registered; not in the static challenger space yet." },
+    { name: "E1 pitch-sequence process features", status: "RESEARCH ONLY", tone: "amber", finding: "Marginal positive predictive value (small, consistent aggregate gain)." },
+    { name: "E2 batter × pitcher interactions", status: "RESEARCH ONLY", tone: "amber", finding: "Negative aggregate incremental value; K/BB subclasses improved." },
+    { name: "Handedness / platoon", status: "NOT CONFIGURED", tone: "slate", finding: "Future feature family — not materialized in the governed free data." },
+  ];
+
+  return (
+    <Card title="Player-state feature families" description="Choose which player-state signal enters a new challenger. Prior research guides you; the registered champion is never changed." icon={Wand2}
+      action={<Pill label="APPLIES TO NEW CHALLENGER" tone="violet" />}>
+      <div className="grid gap-2">
+        {base.map((f) => {
+          const included = has(f.features);
+          return (
+            <div key={f.name} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <div className="min-w-0"><div className="flex items-center gap-2"><span className="text-sm font-semibold text-slate-900">{f.name}</span>{included ? <Pill label="Currently included" tone="emerald" /> : <Pill label="Excluded" tone="slate" />}</div><div className="mt-0.5 text-xs text-slate-500">{f.note} · {f.features.length} features</div></div>
+              <button onClick={() => toggleFamily(f.features)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold ${included ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "border-cyan-600 bg-cyan-600 text-white hover:bg-cyan-500"}`}>{included ? "Exclude" : "Include in challenger"}</button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced research families</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {research.map((r) => (
+          <div key={r.name} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-800">{r.name}</span><Pill label={r.status} tone={r.tone} /></div>
+            <div className="mt-1 text-xs leading-5 text-slate-600">{r.finding}</div>
+            <Link to={evHref} className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-700 hover:underline">View evidence ↗</Link>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

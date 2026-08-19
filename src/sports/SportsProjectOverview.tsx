@@ -15,7 +15,7 @@ const STATUS_CHIP: Record<StageStatus, string> = {
   BLOCKED: "sports-status--neutral",
   STALE: "sports-status--amber",
 };
-const STATUS_LABEL: Record<StageStatus, string> = { COMPLETE: "Complete", CURRENT: "Current step", READY: "Ready", BLOCKED: "Blocked", STALE: "Requires review" };
+const STATUS_LABEL: Record<StageStatus, string> = { COMPLETE: "Complete", CURRENT: "Current stage", READY: "Ready", BLOCKED: "Blocked", STALE: "Requires review" };
 
 export default function SportsProjectOverview() {
   const projectId = useWorkflowStore((state) => state.projectId);
@@ -30,7 +30,7 @@ export default function SportsProjectOverview() {
   const isMlb = workflow.key === "mlb";
 
   const resolutions = isMlb ? resolveStages(projectId, dataset, contract, binding) : [];
-  const summary = isMlb ? completionSummary(resolutions) : { complete: 0, ready: 0, blocked: 0, total: 12, pct: 0 };
+  const summary = isMlb ? completionSummary(resolutions) : { complete: 0, ready: 0, blocked: 0, total: 9, pct: 0 };
   const nextStep = isMlb ? firstActionableStage(resolutions) : 1;
   const nextRes = resolutions.find((r) => r.number === nextStep);
   const baseline = dataset?.paBaseline;
@@ -54,15 +54,15 @@ export default function SportsProjectOverview() {
             <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white sm:text-4xl lg:text-[42px]">{displayName}</h1>
             {isMlb && nextRes ? (
               <p className="mt-3 text-[15px] leading-7 text-slate-300">
-                {isNew ? "Let’s set up your MLB forecasting program." : "Welcome back."} Next: <b className="text-cyan-200">Step {nextRes.number} — {nextRes.title}</b>.
+                {isNew ? "Let’s set up your MLB forecasting program." : "Welcome back."} Next: <b className="text-cyan-200">Stage {nextRes.number} — {nextRes.title}</b>.
               </p>
             ) : (
               <p className="mt-4 max-w-3xl text-[15px] leading-7 text-slate-300">{metadata?.researchPurpose || "Configure the forecast contract to establish this project’s research purpose."}</p>
             )}
             <div className="mt-6 flex flex-wrap gap-3">
               {isMlb ? (
-                <Link to={`/workflows/mlb?step=${nextStep}`} className="sports-primary-button text-base">
-                  <PlayCircle size={18} /> {isNew ? "Start Step 1" : `Continue Step ${nextStep}`} <ArrowRight size={17} />
+                <Link to={`/workflows/mlb?stage=${nextStep}`} className="sports-primary-button text-base">
+                  <PlayCircle size={18} /> {isNew ? "Start Stage 1" : `Continue Stage ${nextStep}`} <ArrowRight size={17} />
                 </Link>
               ) : (
                 <Link to={`/workflows/${workflow.key}`} className="sports-primary-button">Open {workflow.league} workflow <ArrowRight size={17} /></Link>
@@ -91,7 +91,7 @@ export default function SportsProjectOverview() {
         <section className="sports-panel overflow-hidden">
           <div className="border-b border-slate-200 p-5 sm:p-6">
             <p className="sports-kicker">Guided workflow</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Your 12-stage MLB program</h2>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Your 9-stage MLB program</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Each stage shows its status and the exact next action. Status comes from registered evidence — page visits never imply completion.</p>
           </div>
           <div className="grid gap-px bg-slate-200 lg:grid-cols-2">
@@ -116,7 +116,7 @@ function StageCard({ r }: { r: StageResolution }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3 className="text-base font-semibold text-slate-950">{r.title}</h3>
-            <span className={`sports-status ${STATUS_CHIP[r.status]}`}>{r.autoSatisfied && r.status === "COMPLETE" ? "Foundation ready" : r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE" && r.status !== "COMPLETE" ? "Available" : STATUS_LABEL[r.status]}</span>
+            <span className={`sports-status ${STATUS_CHIP[r.status]}`}>{r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE" && r.status !== "COMPLETE" ? "Available" : STATUS_LABEL[r.status]}</span>
           </div>
           {blocked ? (
             <p className="mt-2 text-sm text-slate-500">Requires: {r.blockedReason}</p>
@@ -125,9 +125,9 @@ function StageCard({ r }: { r: StageResolution }) {
           )}
           <div className="mt-3">
             {blocked ? (
-              <Link to={`/workflows/mlb?step=${r.blockedByNumber}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900">Complete Step {r.blockedByNumber} <ArrowRight size={14} /></Link>
+              <Link to={`/workflows/mlb?stage=${r.blockedByNumber}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900">Complete Step {r.blockedByNumber} <ArrowRight size={14} /></Link>
             ) : (
-              <Link to={`/workflows/mlb?step=${r.number}`} className={`inline-flex items-center gap-1.5 text-sm font-semibold ${complete ? "text-slate-600 hover:text-slate-900" : "text-cyan-700 hover:text-cyan-800"}`}>
+              <Link to={`/workflows/mlb?stage=${r.number}`} className={`inline-flex items-center gap-1.5 text-sm font-semibold ${complete ? "text-slate-600 hover:text-slate-900" : "text-cyan-700 hover:text-cyan-800"}`}>
                 {complete ? "Review" : r.action.label} <ArrowRight size={14} />
               </Link>
             )}

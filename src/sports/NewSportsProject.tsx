@@ -102,7 +102,7 @@ export default function NewSportsProject() {
       description: description.trim(),
     });
     // Enter the guided workflow directly at Step 1 — never strand the user on a passive overview.
-    navigate(workflow.key === "mlb" ? "/workflows/mlb?step=1" : "/project-overview");
+    navigate(workflow.key === "mlb" ? "/workflows/mlb?stage=1" : "/project-overview");
   }
 
   return (

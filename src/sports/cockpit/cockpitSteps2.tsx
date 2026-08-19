@@ -14,6 +14,8 @@ import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
   ConfusionHeatmap, CalibrationChart, fmt,
 } from "./cockpitUi";
+import { useActiveSportsDataset } from "../sportsEvidenceApi";
+import { SevereMissForensicsSection } from "../Phase4Surfaces";
 
 function useConfig() {
   return useCockpitStore((s) => s.config);
@@ -224,8 +226,17 @@ export function TuningStep() {
 // ============================================================ 11 Evaluation & Diagnostics
 export function EvaluationStep() {
   const r = useCockpitStore((s) => s.lastResult);
-  if (!r) return <NeedRun label="Run a challenger in Model Laboratory to populate evaluation diagnostics." />;
+  const ds = useActiveSportsDataset();
+  const phase4 = ds.status === "ready" ? ds.data.phase4 : undefined;
   const [season, setSeason] = useState<"val2024" | "frozen2025">("val2024");
+  if (!r) {
+    return (
+      <div className="space-y-4">
+        <NeedRun label="Run a challenger in Model Laboratory to populate challenger-vs-champion diagnostics." />
+        <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
+      </div>
+    );
+  }
   const m = r.metrics[season];
   const order: string[] = m.classOrder;
   const severe = order.map((c) => ({ c, brier: m.classwiseBrier[c], ece: m.classwiseEce[c] })).sort((a, b) => b.brier - a.brier);
@@ -266,6 +277,8 @@ export function EvaluationStep() {
             : <p className="text-sm text-slate-500">No importance available for this family.</p>}
         </Card>
       </div>
+      {/* Registered severe-miss / error analysis (relocated Phase 4F): where does the model fail? */}
+      <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
     </div>
   );
 }
