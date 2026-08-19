@@ -28,10 +28,16 @@ import pandas as pd
 
 from server.sports_modeling.metrics import PA_CLASS_ORDER, evaluate_multiclass
 from server.sports_phase5 import base_out_transition as bt
+from server.sports_phase5 import whole_game_monte_carlo as mc
+from server.sports_phase5.game_initialization import RngLineage
 
 from . import engine as E
 from . import modeling as M
+from . import provider as PROV
+from . import game_preps as GP
 from .engine import COCKPIT_ROOT, COCKPIT_SCHEMA_VERSION, CockpitError, load_frame
+
+MASTER_SEED = 20260819
 
 _TRANSITION_CACHE: dict[str, Any] = {}
 _ACTUALS_CACHE: dict[str, Any] = {}
@@ -197,8 +203,10 @@ def _crps(samples: np.ndarray, actual: float) -> float:
 
 
 def _model_probs_on_rows(config: Mapping[str, Any], rows_mask: np.ndarray, family_override: str | None = None) -> np.ndarray:
-    """Fit the given config on 2023 and predict PA probabilities for the masked rows."""
-    frame = load_frame()
+    """Fit the given config on 2023 and predict PA probabilities for the masked rows.
+
+    Supports engineered features via the working frame."""
+    frame, _ = M.working_frame(config)
     features = list(config.get("features") or E.ALL_FEATURES)
     family = family_override or config.get("family", "logistic")
     hyper = dict(config.get("hyperparameters") or {})
@@ -343,6 +351,140 @@ def simulate_impact(
         "notes": [
             "Bounded QUICK mode: outcomes sampled at each game's real base-out states via the Phase 5B transition authority.",
             "Champion and challenger share the identical game sample, transition kernel, sim count, and RNG lineage.",
-            "Full lineup-rotation whole-game Monte Carlo remains the Phase 5 research pipeline.",
+            "Full lineup-rotation whole-game Monte Carlo is available via mode=FULL for simulator-eligible logistic models.",
         ],
     }
+
+
+# ----------------------------------------------------------------------------------------
+# FULL lineup-rotation whole-game simulation (generic-provider path, Phase 5 kernel)
+# ----------------------------------------------------------------------------------------
+def _load_transition_model() -> bt.TransitionModel:
+    if "model" in _TRANSITION_CACHE:
+        return _TRANSITION_CACHE["model"]
+    files = sorted(glob.glob(str(E.RUNTIME_ROOT / "sports-phase5" / "base-out-transition" / "*model-sha256-*.json")))
+    if not files:
+        raise CockpitError("base-out transition model artifact not found")
+    preferred = None
+    latest = E.RUNTIME_ROOT / "sports-phase5" / "base-out-transition" / "latest.transition.json"
+    if latest.is_file():
+        try:
+            sha = json.loads(latest.read_text(encoding="utf-8")).get("transitionSha")
+            for f in files:
+                if hashlib.sha256(Path(f).read_bytes()).hexdigest() == sha:
+                    preferred = f
+                    break
+        except Exception:
+            preferred = None
+    model = bt.TransitionModel.from_dict(json.loads(Path(preferred or files[0]).read_text(encoding="utf-8")))
+    _TRANSITION_CACHE["model"] = model
+    return model
+
+
+def _coverage(samples: np.ndarray, actual: float, bands=((5, 95, "90"), (10, 90, "80"), (25, 75, "50"), (2.5, 97.5, "95"))) -> dict[str, int]:
+    hits = {}
+    for lo, hi, name in bands:
+        lo_v, hi_v = np.percentile(samples, [lo, hi])
+        hits[name] = int(lo_v <= actual <= hi_v)
+    return hits
+
+
+def simulate_full_impact(config: Mapping[str, Any], *, season: int = E.VAL_SEASON, n_games: int = 40, n_sims: int = 120, seed: int = MASTER_SEED) -> dict[str, Any]:
+    """Full lineup-rotation whole-game Monte Carlo: champion vs challenger through the Phase 5 kernel."""
+    if season not in (E.VAL_SEASON, E.FROZEN_SEASON):
+        raise CockpitError("simulation season must be validation (2024) or frozen (2025)")
+    elig = PROV.simulator_eligibility(config)
+    if not elig["eligible"]:
+        raise CockpitError("model is not full-simulator-eligible: " + "; ".join(elig["reasons"]))
+    n_games = int(max(5, min(n_games, 160)))
+    n_sims = int(max(50, min(n_sims, 400)))
+
+    # champion config: reproduced D3 C4 (all 22 features, tuned C, mean impute)
+    champ_config = {"features": list(E.ALL_FEATURES), "family": "logistic",
+                    "hyperparameters": {"C": M.champion_baseline().get("C", 0.05)},
+                    "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "mean"}}
+    champ_fold, champ_resolver, _, _, _ = PROV.build_cockpit_fold_and_resolver(champ_config)
+    chal_fold, chal_resolver, _, chal_est, chal_pre = PROV.build_cockpit_fold_and_resolver(config)
+    tsampler = mc.FastTransitionSampler(_load_transition_model())
+
+    # pick games with resolvable participant orderings
+    frame = load_frame()
+    season_mask = frame["season"].to_numpy() == season
+    rng = np.random.default_rng(seed)
+    candidate_games = sorted(pd.unique(frame.loc[season_mask, "game_id"].to_numpy()))
+    if len(candidate_games) > n_games * 3:
+        idx = rng.choice(len(candidate_games), n_games * 3, replace=False)
+        candidate_games = [candidate_games[i] for i in sorted(idx)]
+    preps = GP.build_preps(season, candidate_games)[:n_games]
+    if not preps:
+        raise CockpitError("no games with resolvable participant orderings in the sample")
+    chosen = [p.game_id for p in preps]
+
+    def _run(fold, resolver, label: str) -> dict[str, Any]:
+        tot_bias, tot_abs, crps_list, hw_actual, hw_prob, diff_err = [], [], [], [], [], []
+        cover = {"50": 0, "80": 0, "90": 0, "95": 0}
+        for prep in preps:
+            contribs = mc.build_game_contribs(
+                fold=fold, resolver=resolver, game_date=prep.game_date, regulation=prep.regulation,
+                away_pa_uuids=prep.away_pa, home_pa_uuids=prep.home_pa,
+                away_start_batter_uuids=prep.away_start, home_start_batter_uuids=prep.home_start)
+            res = mc.simulate_game(game_id=prep.game_id, contribs=contribs, fold=fold, transition_sampler=tsampler,
+                                   rng_lineage=RngLineage(master_seed=seed, game_key=prep.game_id), n_sims=n_sims)
+            total = (res.away_runs + res.home_runs).astype(np.float64)
+            actual_total = prep.actual_away + prep.actual_home
+            tot_bias.append(float(total.mean() - actual_total)); tot_abs.append(abs(float(total.mean() - actual_total)))
+            crps_list.append(_crps(total, actual_total))
+            hw_actual.append(1 if prep.actual_home > prep.actual_away else 0)
+            hw_prob.append(float(res.home_win.mean()))
+            diff_err.append(abs(float((res.home_runs - res.away_runs).mean() - (prep.actual_home - prep.actual_away))))
+            for k, v in _coverage(total, actual_total).items():
+                cover[k] += v
+        hw_actual = np.array(hw_actual, dtype=np.float64); hw_prob = np.array(hw_prob, dtype=np.float64)
+        n = len(preps)
+        return {
+            "label": label, "games": n,
+            "totalRunBias": float(np.mean(tot_bias)), "totalRunMae": float(np.mean(tot_abs)),
+            "totalRunCrps": float(np.mean(crps_list)), "runDiffMae": float(np.mean(diff_err)),
+            "homeWinBrier": float(np.mean((hw_prob - hw_actual) ** 2)),
+            "homeWinLogLoss": float(np.mean(-(hw_actual * np.log(np.clip(hw_prob, 1e-6, 1)) + (1 - hw_actual) * np.log(np.clip(1 - hw_prob, 1e-6, 1))))),
+            "coverage50": cover["50"] / n, "coverage80": cover["80"] / n, "coverage90": cover["90"] / n, "coverage95": cover["95"] / n,
+        }
+
+    champ_eval = _run(champ_fold, champ_resolver, "CHAMPION (D3 C4)")
+    chal_eval = _run(chal_fold, chal_resolver, "CHALLENGER")
+
+    # PA-level metrics on the sampled games (exact, from the models directly)
+    rows_mask = season_mask & frame["game_id"].isin(set(chosen)).to_numpy()
+    labels = frame.loc[rows_mask, "outcome"].to_numpy()
+    champ_pa = evaluate_multiclass(labels, _probs_via_model(champ_config, rows_mask))
+    chal_pa = evaluate_multiclass(labels, _probs_via_model(config, rows_mask))
+    champ_eval["paLogLoss"], champ_eval["paBrier"] = champ_pa["logLoss"], champ_pa["brierScore"]
+    chal_eval["paLogLoss"], chal_eval["paBrier"] = chal_pa["logLoss"], chal_pa["brierScore"]
+
+    pa_better = chal_eval["paLogLoss"] < champ_eval["paLogLoss"] - 1e-6
+    game_better = (chal_eval["totalRunCrps"] < champ_eval["totalRunCrps"] - 1e-4) and (chal_eval["homeWinBrier"] <= champ_eval["homeWinBrier"] + 1e-6)
+    game_worse = chal_eval["totalRunCrps"] > champ_eval["totalRunCrps"] + 1e-3
+    verdict = "GAME_LEVEL_IMPROVEMENT" if game_better else "GAME_LEVEL_DEGRADATION" if game_worse else "PA_ONLY_IMPROVEMENT" if pa_better else "NO_MATERIAL_CHANGE"
+
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION, "mode": "FULL_LINEUP_ROTATION",
+        "provider": PROV.PROBABILISTIC_PA_PROVIDER_V1, "season": season, "games": len(preps), "simsPerGame": n_sims,
+        "kernel": "PHASE_5_WHOLE_GAME_MONTE_CARLO", "eligibility": elig,
+        "champion": champ_eval, "challenger": chal_eval,
+        "deltas": {"paLogLoss": chal_eval["paLogLoss"] - champ_eval["paLogLoss"],
+                   "totalRunCrps": chal_eval["totalRunCrps"] - champ_eval["totalRunCrps"],
+                   "homeWinBrier": chal_eval["homeWinBrier"] - champ_eval["homeWinBrier"]},
+        "verdict": verdict,
+        "notes": [
+            "FULL lineup-rotation whole-game Monte Carlo through the unchanged Phase 5 kernel.",
+            "Champion and challenger share the identical games, participant orderings, transition kernel, RNG lineage, and sim count; only the PA provider differs.",
+            "PA provider decomposed from the cockpit logistic model (reproduces predict_proba to floating tolerance).",
+        ],
+    }
+
+
+def _probs_via_model(config: Mapping[str, Any], rows_mask: np.ndarray) -> np.ndarray:
+    est, pre = M.fit_cockpit_model(config)
+    frame = load_frame()
+    X = pre.transform(frame, rows_mask)
+    return M._predict_proba_aligned(est, X)

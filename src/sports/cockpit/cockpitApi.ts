@@ -120,12 +120,35 @@ export type FeatureCatalog = {
 // ---------------------------------------------------------------------------- config store
 export type OutlierPolicy = { globalMethod: string; params?: Record<string, number>; overrides?: Record<string, any> };
 export type MissingPolicy = { globalMethod: string; addIndicator?: boolean; constant?: number; overrides?: Record<string, any> };
+export type EngineeredSpec = { name: string; kind: string; inputs?: string[]; params?: Record<string, any> };
 export type ExperimentConfig = {
   features: string[];
   family: string;
   hyperparameters: Record<string, any>;
   outlierPolicy: OutlierPolicy;
   missingPolicy: MissingPolicy;
+  engineeredFeatures?: EngineeredSpec[];
+};
+export type EngineeredProfile = {
+  name: string; kind: string; simulatorAvailability: string; missing: number; missingPct: number;
+  mean: number | null; std: number | null; min: number | null; max: number | null;
+  iv: FeatureIV; mi: number; seasonMeans: Record<string, number | null>; drift: number | null; sampleValues: number[];
+};
+export type AblationResult = {
+  addedFeatures: string[];
+  control: { features: number; val2024: Metric; frozen2025: Metric };
+  challenger: { features: number; val2024: Metric; frozen2025: Metric };
+  delta2024: Metric; delta2025: Metric; verdict: string;
+};
+export type Eligibility = { eligible: boolean; status: string; perFeature: Record<string, string>; blockedFeatures: string[]; reasons: string[] };
+export type FullSimEval = {
+  label: string; games: number; paLogLoss: number; paBrier: number; totalRunBias: number; totalRunMae: number;
+  totalRunCrps: number; runDiffMae: number; homeWinBrier: number; homeWinLogLoss: number;
+  coverage50: number; coverage80: number; coverage90: number; coverage95: number;
+};
+export type FullSimResult = {
+  mode: string; provider: string; season: number; games: number; simsPerGame: number; kernel: string;
+  eligibility: Eligibility; champion: FullSimEval; challenger: FullSimEval; deltas: Record<string, number>; verdict: string; notes: string[];
 };
 
 type CockpitStore = {
@@ -142,6 +165,8 @@ type CockpitStore = {
   setOutlierPolicy: (p: OutlierPolicy) => void;
   setMissingPolicy: (p: MissingPolicy) => void;
   setNote: (k: string, v: string) => void;
+  addEngineered: (spec: EngineeredSpec) => void;
+  removeEngineered: (name: string) => void;
   setLastResult: (r: ExperimentResult) => void;
   setLastAutopilot: (r: AutopilotResult) => void;
   setLastSim: (r: SimResult) => void;
@@ -161,6 +186,7 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
     hyperparameters: { C: 1.0, maxIter: 2000 },
     outlierPolicy: { globalMethod: "none", params: { k: 3.0 }, overrides: {} },
     missingPolicy: { globalMethod: "median", addIndicator: false, overrides: {} },
+    engineeredFeatures: [],
   },
   notes: {},
   savedSteps: {},
@@ -176,6 +202,21 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   setOutlierPolicy: (outlierPolicy) => set((s) => ({ config: { ...s.config, outlierPolicy } })),
   setMissingPolicy: (missingPolicy) => set((s) => ({ config: { ...s.config, missingPolicy } })),
   setNote: (k, v) => set((s) => ({ notes: { ...s.notes, [k]: v } })),
+  addEngineered: (spec) =>
+    set((s) => {
+      const existing = (s.config.engineeredFeatures || []).filter((e) => e.name !== spec.name);
+      const eng = [...existing, spec];
+      const features = s.config.features.includes(spec.name) ? s.config.features : [...s.config.features, spec.name];
+      return { config: { ...s.config, engineeredFeatures: eng, features } };
+    }),
+  removeEngineered: (name) =>
+    set((s) => ({
+      config: {
+        ...s.config,
+        engineeredFeatures: (s.config.engineeredFeatures || []).filter((e) => e.name !== name),
+        features: s.config.features.filter((f) => f !== name),
+      },
+    })),
   setLastResult: (lastResult) => set({ lastResult }),
   setLastAutopilot: (lastAutopilot) => set({ lastAutopilot }),
   setLastSim: (lastSim) => set({ lastSim }),

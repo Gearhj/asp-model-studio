@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import {
   FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, Boxes, Rocket, Check, X,
 } from "lucide-react";
+import { useEffect } from "react";
 import {
   useEndpoint, usePost, useCockpitStore, cockpitPost,
   type ModelFamily, type Champion, type ExperimentResult, type AutopilotResult,
-  type SimResult, type ExperimentIndexRow,
+  type SimResult, type ExperimentIndexRow, type Eligibility, type FullSimResult,
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
@@ -312,51 +313,62 @@ export function CalibrationStep() {
 export function SimulationStep() {
   const store = useCockpitStore();
   const r = store.lastResult;
-  const [budget, setBudget] = useState<"quick" | "standard">("quick");
+  const [mode, setMode] = useState<"quick" | "full">("quick");
   const [season, setSeason] = useState(2024);
-  const post = usePost<SimResult>();
-  const budgets = { quick: { nGames: 40, nSims: 150 }, standard: { nGames: 90, nSims: 250 } };
+  const post = usePost<any>();
+  const elig = usePost<Eligibility>();
+  const cfg = r?.config || store.config;
+  useEffect(() => { elig.run("/cockpit/eligibility", cfg).catch(() => {}); // eslint-disable-next-line
+  }, [cfg.family, (cfg.features || []).length, (cfg.engineeredFeatures || []).length]);
+  const eligible = elig.data?.eligible;
+  const budgets = { quick: { nGames: 40, nSims: 150 }, full: { nGames: 25, nSims: 100 } };
   const run = async () => {
-    const cfg = r?.config || store.config;
-    const b = budgets[budget];
-    const res = await post.run("/cockpit/simulate", { config: cfg, season, nGames: b.nGames, nSims: b.nSims });
+    const b = budgets[mode];
+    const res = await post.run("/cockpit/simulate", { config: cfg, season, nGames: b.nGames, nSims: b.nSims, mode });
     store.setLastSim(res);
   };
-  const sim = store.lastSim;
+  const sim: any = store.lastSim;
+  const full = sim?.mode === "FULL_LINEUP_ROTATION";
   const VERDICT_TONE: Record<string, any> = { GAME_LEVEL_IMPROVEMENT: "emerald", PA_ONLY_IMPROVEMENT: "amber", NO_MATERIAL_CHANGE: "slate", GAME_LEVEL_DEGRADATION: "rose" };
+  const rows: [string, string, number][] = full
+    ? [["PA log loss", "paLogLoss", 4], ["Total-run CRPS", "totalRunCrps", 3], ["Total-run bias", "totalRunBias", 3], ["Run-diff MAE", "runDiffMae", 3], ["Home-win Brier", "homeWinBrier", 4], ["Home-win log loss", "homeWinLogLoss", 4], ["50% coverage", "coverage50", 3], ["90% coverage", "coverage90", 3]]
+    : [["PA log loss", "paLogLoss", 4], ["PA Brier", "paBrier", 4], ["Total-run CRPS", "totalRunCrps", 3], ["Total-run bias", "totalRunBias", 3], ["Run-diff MAE", "runDiffMae", 3], ["Home-win Brier", "homeWinBrier", 4], ["Home-win log loss", "homeWinLogLoss", 4], ["90% coverage", "intervalCoverage90", 3]];
   return (
     <div className="space-y-4">
-      <Card title="Whole-game simulation impact" description="Does the challenger's PA-level change actually improve the whole game? Bounded Monte Carlo over real game PA sequences using the Phase 5B base-out transition authority." icon={Orbit}
+      <Card title="Whole-game simulation impact" description="Does the challenger's PA-level change actually improve the whole game? FULL runs the real Phase 5 lineup-rotation kernel via the generic PA provider; QUICK is a bounded marginal-state probe." icon={Orbit}
         action={<Pill label="SIGNATURE FEATURE" tone="cyan" />}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Pill label={eligible ? "FULL SIMULATOR ELIGIBLE" : (elig.data?.status || "…").replace(/_/g, " ")} tone={eligible ? "emerald" : "amber"} />
+          {elig.data && !eligible ? <span className="text-xs text-slate-500">{elig.data.reasons[0]}</span> : null}
+        </div>
         <div className="flex flex-wrap items-end gap-4">
-          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Budget</div>
-            <Segmented value={budget} onChange={setBudget as any} options={[{ value: "quick", label: "Quick · 40 games ×150" }, { value: "standard", label: "Standard · 90 ×250" }]} /></div>
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Mode</div>
+            <Segmented value={mode} onChange={setMode as any} options={[{ value: "quick", label: "Quick · marginal-state" }, { value: "full", label: "Full · lineup-rotation", disabled: !eligible }]} /></div>
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Season</div>
             <Segmented value={String(season)} onChange={(v) => setSeason(Number(v))} options={[{ value: "2024", label: "2024" }, { value: "2025", label: "2025 frozen" }]} /></div>
-          <Button onClick={run} disabled={post.status === "loading"} tone="dark">{post.status === "loading" ? "Simulating…" : "▶ Test in game simulator"}</Button>
-          {!r && <span className="text-xs text-amber-600">No trained challenger — will simulate the active configuration.</span>}
+          <Button onClick={run} disabled={post.status === "loading" || (mode === "full" && !eligible)} tone="dark">{post.status === "loading" ? "Simulating…" : "▶ Test in game simulator"}</Button>
+          {!r && <span className="text-xs text-amber-600">No trained challenger — simulating the active configuration.</span>}
         </div>
-        {post.status === "loading" && <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Fitting champion + challenger and running whole-game Monte Carlo…</div>}
+        {post.status === "loading" && <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />{mode === "full" ? "Running full lineup-rotation Monte Carlo through the Phase 5 kernel…" : "Running bounded marginal-state Monte Carlo…"}</div>}
         {post.status === "error" && <p className="mt-2 text-sm text-rose-600">{post.error}</p>}
       </Card>
       {sim && (
         <>
           <div className={`rounded-2xl border p-4 ${sim.verdict === "GAME_LEVEL_IMPROVEMENT" ? "border-emerald-300 bg-emerald-50" : sim.verdict === "GAME_LEVEL_DEGRADATION" ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-slate-50"}`}>
-            <div className="flex items-center gap-3"><Pill label={sim.verdict.replace(/_/g, " ")} tone={VERDICT_TONE[sim.verdict]} />
+            <div className="flex flex-wrap items-center gap-3"><Pill label={sim.verdict.replace(/_/g, " ")} tone={VERDICT_TONE[sim.verdict]} />
+              <Pill label={full ? "FULL LINEUP-ROTATION" : "QUICK MARGINAL"} tone={full ? "cyan" : "slate"} />
               <span className="text-sm text-slate-600">{sim.games} games · {sim.simsPerGame} sims/game · {sim.kernel.replace(/_/g, " ")}</span></div>
           </div>
-          <Card title="Champion vs challenger — whole-game metrics" description="Identical game sample, transition kernel, sim count, and RNG lineage. Only the PA model differs." icon={Orbit}>
+          <Card title="Champion vs challenger — whole-game metrics" description="Identical games, participant orderings, transition kernel, sim count, and RNG lineage. Only the PA provider differs." icon={Orbit}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead><tr className="text-slate-500">{["Metric", "Champion", "Challenger", "Δ"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
                 <tbody>
-                  {([
-                    ["PA log loss", "paLogLoss", 4], ["PA Brier", "paBrier", 4], ["Total-run CRPS", "totalRunCrps", 3],
-                    ["Total-run bias", "totalRunBias", 3], ["Run-diff MAE", "runDiffMae", 3], ["Home-win Brier", "homeWinBrier", 4],
-                    ["Home-win log loss", "homeWinLogLoss", 4], ["90% interval coverage", "intervalCoverage90", 3],
-                  ] as [string, keyof typeof sim.champion, number][]).map(([label, key, d]) => {
+                  {rows.map(([label, key, d]) => {
                     const c = sim.champion[key] as number, h = sim.challenger[key] as number;
-                    const better = key === "intervalCoverage90" ? Math.abs(h - 0.9) < Math.abs(c - 0.9) : h < c;
+                    const isCov = key.startsWith("coverage") || key === "intervalCoverage90";
+                    const target = key === "coverage50" ? 0.5 : key === "coverage80" ? 0.8 : key === "coverage95" ? 0.95 : 0.9;
+                    const better = isCov ? Math.abs(h - target) < Math.abs(c - target) : h < c;
                     return <tr key={label}><td className="border-b border-slate-100 px-3 py-2 font-medium text-slate-800">{label}</td>
                       <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(c, d)}</td>
                       <td className={`border-b border-slate-100 px-3 py-2 tabular-nums font-semibold ${better ? "text-emerald-600" : "text-slate-900"}`}>{fmt.n(h, d)}</td>
@@ -367,8 +379,8 @@ export function SimulationStep() {
             </div>
           </Card>
           <Card title="Scope & authority" icon={Orbit}>
-            <ul className="space-y-1.5 text-xs text-slate-600">{sim.notes.map((n, i) => <li key={i} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-500" />{n}</li>)}
-              <li className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />Transition authority SHA {sim.transitionAuthority.slice(0, 16)}…</li></ul>
+            <ul className="space-y-1.5 text-xs text-slate-600">{sim.notes.map((n: string, i: number) => <li key={i} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-500" />{n}</li>)}
+              {sim.provider ? <li className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />Provider {sim.provider}</li> : null}</ul>
           </Card>
         </>
       )}

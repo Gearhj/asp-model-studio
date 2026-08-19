@@ -71,10 +71,46 @@ test("honest unavailable states — nothing faked", () => {
   // model family cards disable uninstalled libraries and surface their real status
   assert.ok(steps2.includes("disabled={!f.available}"));
   assert.ok(steps2.includes("f.status.replace"));
-  // segmentation is explicitly deferred, not a fake clustering result
-  assert.ok(steps1.includes("NEXT IMPLEMENTATION"));
+  // tree/boosting grid search honestly marked as the next increment
+  assert.ok(steps2.includes("next increment"));
   // feature catalog labels roadmap availability rather than fabricating unavailable families
   assert.ok(steps1.includes("roadmap"));
+});
+
+// ---- Phase 6B additions ----
+test("real feature builder with profiling and ablation", () => {
+  assert.ok(steps1.includes("/cockpit/feature/profile"));
+  assert.ok(steps1.includes("/cockpit/feature/ablation"));
+  assert.ok(steps1.includes("addEngineered"));
+  // every builder kind is offered
+  for (const k of ["arithmetic", "ratio", "interaction", "log", "power", "bin", "indicator", "calendar"]) {
+    assert.ok(steps1.includes(`"${k}"`), `feature kind ${k} missing`);
+  }
+});
+
+test("feature ablation surfaces a value verdict", () => {
+  for (const v of ["VALUE_CONFIRMED", "VALUE_MARGINAL", "NO_MATERIAL_VALUE", "NEGATIVE_VALUE"]) {
+    assert.ok(steps1.includes(v), `ablation verdict ${v} not surfaced`);
+  }
+});
+
+test("full lineup-rotation simulation mode is wired with eligibility gating", () => {
+  assert.ok(steps2.includes("/cockpit/eligibility"));
+  assert.ok(steps2.includes('mode: "full"') || steps2.includes("mode }") || steps2.includes("mode,"));
+  assert.ok(steps2.includes("FULL SIMULATOR ELIGIBLE"));
+  // full-mode option is disabled when the model is not eligible
+  assert.ok(steps2.includes("disabled: !eligible"));
+  // full-sim coverage metrics surfaced
+  assert.ok(steps2.includes("coverage90") && steps2.includes("coverage50"));
+});
+
+test("segmentation workbench is functional (not a placeholder)", () => {
+  assert.ok(steps1.includes("/cockpit/segmentation/kmeans"));
+  assert.ok(steps1.includes("/cockpit/segmentation/pca"));
+  assert.ok(steps1.includes("/cockpit/segmentation/grid"));
+  assert.ok(steps1.includes("/cockpit/segmentation/stability"));
+  // research-only discipline is stated
+  assert.ok(steps1.includes("RESEARCH ONLY"));
 });
 
 test("temporal split protects the frozen season and warns on random split", () => {

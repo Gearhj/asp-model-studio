@@ -147,7 +147,76 @@ def simulate(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     season = int(payload.get("season", E.VAL_SEASON))
     n_games = int(payload.get("nGames", 60))
     n_sims = int(payload.get("nSims", 200))
+    mode = str(payload.get("mode", "quick")).lower()
+    if mode == "full":
+        return _guard(S.simulate_full_impact, config, season=season, n_games=n_games, n_sims=n_sims)
     return _guard(S.simulate_impact, config, season=season, n_games=n_games, n_sims=n_sims)
+
+
+@router.post("/cockpit/eligibility")
+def eligibility(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from . import provider as PROV
+    return _guard(PROV.simulator_eligibility, config)
+
+
+@router.post("/cockpit/provider/verify")
+def provider_verify(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from . import provider as PROV
+    return _guard(PROV.verify_fold_reproduces_model, config)
+
+
+@router.get("/cockpit/segmentation/summary")
+def seg_summary(population: str = "BATTERS") -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.population_summary, population)
+
+
+@router.post("/cockpit/segmentation/kmeans")
+def seg_kmeans(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.run_kmeans, payload.get("population", "BATTERS"), payload.get("features") or [],
+                  int(payload.get("kMin", 2)), int(payload.get("kMax", 10)))
+
+
+@router.post("/cockpit/segmentation/pca")
+def seg_pca(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.pca_scatter, payload.get("population", "BATTERS"), payload.get("features") or [], int(payload.get("k", 4)))
+
+
+@router.post("/cockpit/segmentation/stability")
+def seg_stability(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.cluster_stability, payload.get("population", "BATTERS"), payload.get("features") or [], int(payload.get("k", 4)))
+
+
+@router.post("/cockpit/segmentation/grid")
+def seg_grid(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.grid_3x3, payload.get("population", "BATTERS"), payload["dimX"], payload["dimY"])
+
+
+@router.get("/cockpit/feature/kinds")
+def feature_kinds() -> dict[str, Any]:
+    from . import features_builder as FB
+    return {
+        "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
+        "kinds": list(FB.FEATURE_KINDS),
+        "calendarSubkinds": list(FB.CALENDAR_SUBKINDS),
+        "calendarUnavailable": list(FB.CALENDAR_UNAVAILABLE),
+        "baseFeatures": list(E.ALL_FEATURES),
+    }
+
+
+@router.post("/cockpit/feature/profile")
+def feature_profile_engineered(spec: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from . import features_builder as FB
+    return _guard(FB.profile_engineered, spec)
+
+
+@router.post("/cockpit/feature/ablation")
+def feature_ablation(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    return _guard(M.run_ablation, payload)
 
 
 @router.get("/cockpit/feature-catalog")

@@ -9,10 +9,11 @@ import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
   type Objective, type Population, type Profile, type FeatureDetail, type OutlierSummary,
   type MissingSummary, type TemporalSplit, type FeatureCatalog,
+  type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
-  BeforeAfter, LineChart, fmt,
+  BeforeAfter, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 
 const ROLE_TONE: Record<string, "cyan" | "violet" | "amber"> = { context: "cyan", batter: "violet", pitcher: "amber" };
@@ -354,22 +355,28 @@ export function MissingStep() {
 export function FeatureEngineeringStep() {
   const cat = useEndpoint<FeatureCatalog>("/cockpit/feature-catalog");
   const { config, setFeatures } = useCockpitStore();
-  const STATUS_TONE: Record<string, any> = { AVAILABLE: "emerald", DERIVABLE_NEXT: "cyan", RESEARCHED_MARGINAL: "amber", AVAILABLE_IN_PARTICIPATION_LAYER: "violet" };
+  const engineered = config.engineeredFeatures || [];
   return (
-    <LoadGate state={cat}>
-      {cat.data && (
-        <div className="space-y-4">
-          <Card title="Selected feature set" description={`${config.features.length} of ${ALL_FEATURES.length} candidate predictors selected for the experiment.`} icon={Wand2}
-            action={<div className="flex gap-2"><Button size="sm" tone="ghost" onClick={() => setFeatures([...ALL_FEATURES])}>Select all</Button><Button size="sm" tone="ghost" onClick={() => setFeatures(ALL_FEATURES.filter((f) => f.startsWith("batter_") || f.startsWith("pitcher_")))}>Priors only</Button></div>}>
-            <div className="flex flex-wrap gap-1.5">
-              {ALL_FEATURES.map((f) => {
-                const on = config.features.includes(f);
-                return <button key={f} onClick={() => useCockpitStore.getState().toggleFeature(f)}
-                  className={`rounded-md border px-2 py-1 text-xs font-medium ${on ? "border-cyan-600 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-white text-slate-400 line-through"}`}>{f}</button>;
-              })}
-            </div>
-          </Card>
-          <Card title="Sports feature catalog" description="Available governed families and an honestly-labeled roadmap. No family is advertised that the data cannot support." icon={Boxes}>
+    <div className="space-y-4">
+      <Card title="Selected feature set" description={`${config.features.length} predictors selected (${ALL_FEATURES.length} base + ${engineered.length} engineered).`} icon={Wand2}
+        action={<div className="flex gap-2"><Button size="sm" tone="ghost" onClick={() => setFeatures([...ALL_FEATURES])}>Base all</Button><Button size="sm" tone="ghost" onClick={() => setFeatures(ALL_FEATURES.filter((f) => f.startsWith("batter_") || f.startsWith("pitcher_")))}>Priors only</Button></div>}>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_FEATURES.map((f) => {
+            const on = config.features.includes(f);
+            return <button key={f} onClick={() => useCockpitStore.getState().toggleFeature(f)}
+              className={`rounded-md border px-2 py-1 text-xs font-medium ${on ? "border-cyan-600 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-white text-slate-400 line-through"}`}>{f}</button>;
+          })}
+          {engineered.map((e) => (
+            <button key={e.name} onClick={() => useCockpitStore.getState().removeEngineered(e.name)}
+              className="rounded-md border border-violet-500 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800">{e.name} ✕</button>
+          ))}
+        </div>
+      </Card>
+      <FeatureBuilder />
+      <AblationPanel />
+      <LoadGate state={cat}>
+        {cat.data && (
+          <Card title="Sports feature catalog" description="Available governed families plus an honestly-labeled roadmap." icon={Boxes}>
             <div className="grid gap-3 md:grid-cols-3">
               {cat.data.available.map((a) => (
                 <div key={a.family} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
@@ -378,36 +385,211 @@ export function FeatureEngineeringStep() {
                 </div>
               ))}
             </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {cat.data.roadmap.map((r) => (
-                <div key={r.family} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-xs font-medium text-slate-700">{r.family}</span>
-                  <Pill label={r.status.replace(/_/g, " ")} tone={STATUS_TONE[r.status] || "slate"} />
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-slate-500">Custom arithmetic / interaction / calendar feature construction is the next cockpit increment; the engineering surface intentionally does not fabricate unavailable calendar or premium metadata.</p>
           </Card>
+        )}
+      </LoadGate>
+    </div>
+  );
+}
+
+const KINDS = [
+  { id: "arithmetic", label: "Arithmetic (a op b)" },
+  { id: "ratio", label: "Ratio (a / b)" },
+  { id: "interaction", label: "Interaction (a × b)" },
+  { id: "log", label: "Log1p(a)" },
+  { id: "power", label: "Power (a^p)" },
+  { id: "bin", label: "Quantile bin" },
+  { id: "indicator", label: "Indicator (a > t)" },
+  { id: "calendar", label: "Calendar" },
+];
+
+function FeatureBuilder() {
+  const store = useCockpitStore();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("arithmetic");
+  const [a, setA] = useState("batter_obp");
+  const [b, setB] = useState("pitcher_whip");
+  const [op, setOp] = useState("sub");
+  const [threshold, setThreshold] = useState(0.3);
+  const [exponent, setExponent] = useState(2);
+  const [bins, setBins] = useState(5);
+  const [subkind, setSubkind] = useState("month");
+  const profile = usePost<EngineeredProfile>();
+
+  const spec = (): EngineeredSpec => {
+    if (kind === "calendar") return { name: name || `cal_${subkind}`, kind, params: { subkind } };
+    if (kind === "log") return { name: name || `log_${a}`, kind, inputs: [a] };
+    if (kind === "power") return { name: name || `${a}_pow`, kind, inputs: [a], params: { exponent } };
+    if (kind === "bin") return { name: name || `${a}_bin`, kind, inputs: [a], params: { bins } };
+    if (kind === "indicator") return { name: name || `${a}_hi`, kind, inputs: [a], params: { threshold } };
+    if (kind === "ratio" || kind === "interaction") return { name: name || `${a}_${kind[0]}_${b}`, kind, inputs: [a, b] };
+    return { name: name || `${a}_${op}_${b}`, kind, inputs: [a, b], params: { op } };
+  };
+  const doProfile = () => profile.run("/cockpit/feature/profile", spec());
+  const add = () => { store.addEngineered(spec()); profile.reset(); setName(""); };
+
+  const oneInput = ["log", "power", "bin", "indicator"].includes(kind);
+  const twoInput = ["arithmetic", "ratio", "interaction"].includes(kind);
+  return (
+    <Card title="Create experiment feature" description="Build a real derived feature. It profiles instantly (IV/MI/missing/simulator-availability) and serializes into the experiment." icon={Wand2}
+      action={<Pill label="TEMPORALLY SAFE" tone="emerald" />}>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Kind</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select></label>
+        {(oneInput || twoInput) && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input a</span>
+          <select value={a} onChange={(e) => setA(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
+        {twoInput && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input b</span>
+          <select value={b} onChange={(e) => setB(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
+        {kind === "arithmetic" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Op</span>
+          <select value={op} onChange={(e) => setOp(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["add", "sub", "mul", "div"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
+        {kind === "calendar" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Calendar</span>
+          <select value={subkind} onChange={(e) => setSubkind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["month", "day_of_week", "week_of_year", "days_since_season_start"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
+        {kind === "indicator" && <NumberField label="threshold" value={threshold} step={0.05} onChange={setThreshold} />}
+        {kind === "power" && <NumberField label="exponent" value={exponent} step={0.5} onChange={setExponent} />}
+        {kind === "bin" && <NumberField label="bins" value={bins} step={1} onChange={setBins} />}
+        <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Name (optional)</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec().name} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
+      </div>
+      <div className="mt-3 flex gap-3">
+        <Button onClick={doProfile} tone="dark">{profile.status === "loading" ? "Profiling…" : "Profile feature"}</Button>
+        <Button onClick={add} tone="primary">Add to experiment</Button>
+      </div>
+      {profile.data && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard label="Max IV" value={fmt.n(profile.data.iv.maxIv, 3)} detail={profile.data.iv.maxIvClass || ""} />
+          <MetricCard label="MI" value={fmt.n(profile.data.mi, 4)} />
+          <MetricCard label="Missing" value={fmt.pct(profile.data.missingPct)} />
+          <MetricCard label="Drift" value={fmt.n(profile.data.drift, 3)} />
+          <div className="sm:col-span-2 lg:col-span-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+            <span className="font-semibold text-slate-600">Simulator availability:</span> <span className="text-slate-700">{profile.data.simulatorAvailability}</span>
+            <span className="ml-3 font-semibold text-slate-600">Sample:</span> <span className="tabular-nums text-slate-500">{profile.data.sampleValues.map((v) => fmt.n(v, 2)).join(", ")}</span>
+          </div>
         </div>
       )}
-    </LoadGate>
+    </Card>
+  );
+}
+
+function AblationPanel() {
+  const config = useCockpitStore((s) => s.config);
+  const engineered = config.engineeredFeatures || [];
+  const post = usePost<AblationResult>();
+  const run = () => post.run("/cockpit/feature/ablation", {
+    baseConfig: { features: [...ALL_FEATURES], family: config.family === "logistic" ? "logistic" : "logistic", hyperparameters: { C: 1.0 } },
+    addFeatures: engineered.map((e) => e.name),
+    addEngineered: engineered,
+  });
+  const VT: Record<string, any> = { VALUE_CONFIRMED: "emerald", VALUE_MARGINAL: "amber", NO_MATERIAL_VALUE: "slate", NEGATIVE_VALUE: "rose" };
+  return (
+    <Card title="Feature ablation" description="Controlled CONTROL vs CHALLENGER test: base 22 features vs base + your engineered features, same logistic pipeline. No Claude required." icon={Wand2}
+      action={<Button size="sm" onClick={run} disabled={post.status === "loading" || engineered.length === 0} tone="dark">{post.status === "loading" ? "Ablating…" : "Run ablation"}</Button>}>
+      {engineered.length === 0 ? <p className="text-sm text-slate-500">Create at least one engineered feature above to run an ablation.</p> : (
+        <p className="text-xs text-slate-500">Testing added features: {engineered.map((e) => e.name).join(", ")}</p>
+      )}
+      {post.data && (
+        <div className="mt-3 space-y-3">
+          <div className="flex items-center gap-3"><Pill label={post.data.verdict.replace(/_/g, " ")} tone={VT[post.data.verdict]} />
+            <span className="text-sm text-slate-600">{post.data.control.features} → {post.data.challenger.features} features</span></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm">
+            <thead><tr className="text-slate-500">{["", "Control (base)", "Challenger (+feat)", "Δ"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
+            <tbody>
+              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2024 log loss</td>
+                <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(post.data.control.val2024.logLoss)}</td>
+                <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(post.data.challenger.val2024.logLoss)}</td>
+                <td className={`border-b border-slate-100 px-3 py-2 tabular-nums ${post.data.delta2024.logLoss < 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt.signed(post.data.delta2024.logLoss, 5)}</td></tr>
+              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2025 log loss</td>
+                <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(post.data.control.frozen2025.logLoss)}</td>
+                <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(post.data.challenger.frozen2025.logLoss)}</td>
+                <td className={`border-b border-slate-100 px-3 py-2 tabular-nums ${post.data.delta2025.logLoss < 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt.signed(post.data.delta2025.logLoss, 5)}</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      )}
+    </Card>
   );
 }
 
 // ============================================================ 07 Player Segmentation
 export function SegmentationStep() {
+  const [population, setPopulation] = useState<"BATTERS" | "PITCHERS">("BATTERS");
+  const summary = useEndpoint<any>(`/cockpit/segmentation/summary?population=${population}`, [population]);
+  const km = usePost<any>();
+  const pca = usePost<any>();
+  const grid = usePost<any>();
+  const stab = usePost<any>();
+  const [dimX, setDimX] = useState("batter_hr_per_pa");
+  const [dimY, setDimY] = useState("batter_so_per_pa");
+  const feats: string[] = summary.data?.candidateFeatures || [];
+  const runK = () => km.run("/cockpit/segmentation/kmeans", { population, kMin: 2, kMax: 8 }).then((r: any) => {
+    pca.run("/cockpit/segmentation/pca", { population, k: r.recommendedK });
+    stab.run("/cockpit/segmentation/stability", { population, k: r.recommendedK });
+  });
+  const runGrid = () => grid.run("/cockpit/segmentation/grid", { population, dimX, dimY });
   return (
     <div className="space-y-4">
-      <Card title="Player segmentation — exploratory workbench" description="Segmentation is a research feature set, not a production model. It is deliberately kept out of the PA model until tested." icon={Boxes}
-        action={<Pill label="NEXT IMPLEMENTATION" tone="amber" />}>
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
-          <Boxes size={28} className="mx-auto text-slate-400" />
-          <h3 className="mt-3 text-base font-semibold text-slate-800">Batter / pitcher clustering &amp; 3×3 grid designer</h3>
-          <p className="mx-auto mt-1 max-w-xl text-sm text-slate-600">K-Means / Hierarchical / GMM with silhouette · Davies-Bouldin · Calinski-Harabasz, PCA visualization, and an interpretable Power×Contact / Dominance×Command grid are scoped for Phase 6B. This surface is honest: no clustering is silently injected into the production PA model, and no manual per-player boosts exist.</p>
+      <Card title="Player segmentation — exploratory workbench" description="Research-only: do natural batter/pitcher archetypes exist? Fitted on development player state. It never changes the PA model and creates no per-player boosts." icon={Boxes}
+        action={<Pill label="RESEARCH ONLY" tone="violet" />}>
+        <div className="flex flex-wrap items-end gap-4">
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Population</div>
+            <Segmented value={population} onChange={(v) => setPopulation(v as any)} options={[{ value: "BATTERS", label: "Batters" }, { value: "PITCHERS", label: "Pitchers" }]} /></div>
+          {summary.data && <div className="text-sm text-slate-600">{summary.data.players} players · {summary.data.candidateFeatures.length} features</div>}
+          <Button onClick={runK} tone="dark" disabled={km.status === "loading"}>{km.status === "loading" ? "Clustering…" : "▶ Run K-means (K=2–8)"}</Button>
         </div>
-        <ul className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-          {["K-Means / Hierarchical / Gaussian Mixture", "Silhouette / Davies-Bouldin / Calinski-Harabasz", "PA-weighted cluster prevalence", "3×3 interpretable grid (Power×Contact)", "Player detail: distance-to-centroid, YoY stability", "Saved as RESEARCH FEATURE SET only"].map((t) => <li key={t} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />{t}</li>)}
-        </ul>
+      </Card>
+      {km.data && (
+        <>
+          <Card title="Cluster diagnostics" description={km.data.recommendationRationale} icon={Boxes}
+            action={<Pill label={`Recommended K=${km.data.recommendedK}`} tone="cyan" />}>
+            <LineChart categories={km.data.results.map((r: any) => `K${r.k}`)}
+              series={[{ name: "Silhouette (↑)", data: km.data.results.map((r: any) => r.silhouette), color: "#0891b2" },
+                       { name: "Davies-Bouldin (↓)", data: km.data.results.map((r: any) => r.daviesBouldin), color: "#e11d48" }]} height={200} />
+            <p className="mt-2 text-xs text-slate-500">{km.data.note}</p>
+          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {pca.data && <Card title="PCA cluster map" description={`PC1 ${fmt.pct(pca.data.explainedVariance[0])} + PC2 ${fmt.pct(pca.data.explainedVariance[1])} of variance.`} icon={Boxes}>
+              <ScatterClusters points={pca.data.points} />
+            </Card>}
+            {stab.data && <Card title="Temporal cluster stability" description="2024 players projected onto 2023-fitted centroids." icon={Boxes}>
+              <div className="flex items-center gap-4">
+                <MetricCard label="Same cluster 2023→2024" value={stab.data.sameClusterPct != null ? fmt.pct(stab.data.sameClusterPct) : "—"} detail={`${stab.data.commonPlayers} common players`} />
+              </div>
+              <p className="mt-2 text-xs text-slate-500">{stab.data.note}</p>
+            </Card>}
+          </div>
+          {pca.data && <Card title="Cluster profiles" description="Mean prior-state characteristics per cluster (interpret, then label)." icon={Boxes}>
+            <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs">
+              <thead><tr className="text-slate-500"><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Cluster</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Players</th>{feats.map((f) => <th key={f} className="border-b border-slate-200 px-2 py-1.5 font-semibold">{f.replace(population === "BATTERS" ? "batter_" : "pitcher_", "")}</th>)}</tr></thead>
+              <tbody>{pca.data.profiles.map((p: any) => (
+                <tr key={p.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{p.cluster}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{p.players}</td>
+                  {feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(p.centroid[f], 3)}</td>)}</tr>))}</tbody>
+            </table></div>
+          </Card>}
+        </>
+      )}
+      <Card title="3×3 grid designer" description="Interpretable segmentation on two derived dimensions with development-only tercile boundaries." icon={Boxes}
+        action={<Button size="sm" tone="dark" onClick={runGrid} disabled={grid.status === "loading"}>{grid.status === "loading" ? "Building…" : "Build grid"}</Button>}>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension X</span>
+            <select value={dimX} onChange={(e) => setDimX(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
+          <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension Y</span>
+            <select value={dimY} onChange={(e) => setDimY(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
+        </div>
+        {grid.data && (
+          <div className="mt-4">
+            <div className="grid grid-cols-3 gap-1.5" style={{ maxWidth: 420 }}>
+              {["HIGH", "MED", "LOW"].map((yl) => ["LOW", "MED", "HIGH"].map((xl) => {
+                const cell = grid.data.cells.find((c: any) => c.x === xl && c.y === yl);
+                const share = cell?.paShare || 0;
+                return <div key={`${xl}-${yl}`} className="rounded-lg border border-slate-200 p-2 text-center" style={{ background: `rgba(8,145,178,${Math.min(share * 4, 0.6)})` }}>
+                  <div className="text-[10px] font-semibold uppercase text-slate-500">{xl}·{yl}</div>
+                  <div className="text-lg font-semibold tabular-nums text-slate-900">{cell?.players ?? 0}</div>
+                  <div className="text-[10px] text-slate-500">{fmt.pct(share)} PA</div>
+                </div>;
+              }))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">X = {grid.data.dimX} (→ LOW/MED/HIGH), Y = {grid.data.dimY} (↑). Boundaries: {grid.data.boundaryScope}. Grid is exploratory until predictive-tested via ablation.</p>
+          </div>
+        )}
       </Card>
     </div>
   );

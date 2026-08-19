@@ -29,6 +29,7 @@ from sklearn.neural_network import MLPClassifier
 from server.sports_modeling.metrics import PA_CLASS_ORDER, encode_labels, evaluate_multiclass
 
 from . import engine as E
+from . import features_builder as FB
 from .engine import (
     ALL_FEATURES,
     BINARY_FEATURES,
@@ -43,6 +44,12 @@ from .engine import (
     feature_kind,
     load_frame,
 )
+
+
+def working_frame(config: Mapping[str, Any]) -> tuple[Any, list[str]]:
+    """Frame with any engineered features materialized, plus their names."""
+    frame, names = FB.apply_engineered(load_frame(), config.get("engineeredFeatures") or [])
+    return frame, names
 
 _XGB = None
 _LGBM = None
@@ -469,6 +476,23 @@ def _fit_and_evaluate(
     return result
 
 
+def fit_cockpit_model(config: Mapping[str, Any]) -> tuple[Any, "Preprocessor"]:
+    """Fit a cockpit model on 2023 and return (estimator, preprocessor) for reuse/inference."""
+    frame, _ = working_frame(config)
+    features = list(config.get("features") or ALL_FEATURES)
+    family = config.get("family", "logistic")
+    hyper = dict(config.get("hyperparameters") or {})
+    outlier_policy = config.get("outlierPolicy") or {"globalMethod": "none"}
+    missing_policy = config.get("missingPolicy") or {"globalMethod": "median"}
+    pre = Preprocessor.fit(frame, features, outlier_policy, missing_policy)
+    dev_mask = frame["season"].to_numpy() == DEV_SEASON
+    X_dev = pre.transform(frame, dev_mask)
+    y_dev = encode_labels(frame.loc[dev_mask, "outcome"].to_numpy())
+    est = _build_estimator(family, hyper)
+    est.fit(X_dev, y_dev)
+    return est, pre
+
+
 _CHAMP_CACHE: dict[str, Any] = {}
 
 
@@ -500,8 +524,10 @@ def champion_baseline() -> dict[str, Any]:
 
 
 def run_experiment(config: Mapping[str, Any], persist: bool = True) -> dict[str, Any]:
+    frame, engineered_names = working_frame(config)
     features = list(config.get("features") or ALL_FEATURES)
-    unknown = [f for f in features if f not in ALL_FEATURES]
+    allowed = set(ALL_FEATURES) | set(engineered_names)
+    unknown = [f for f in features if f not in allowed]
     if unknown:
         raise CockpitError(f"unknown features requested: {unknown}")
     if not features:
@@ -515,7 +541,6 @@ def run_experiment(config: Mapping[str, Any], persist: bool = True) -> dict[str,
     outlier_policy = config.get("outlierPolicy") or {"globalMethod": "none"}
     missing_policy = config.get("missingPolicy") or {"globalMethod": "median"}
 
-    frame = load_frame()
     res = _fit_and_evaluate(frame, features, family, hyper, outlier_policy, missing_policy)
     champ = champion_baseline()
 
@@ -539,6 +564,7 @@ def run_experiment(config: Mapping[str, Any], persist: bool = True) -> dict[str,
         "hyperparameters": hyper,
         "outlierPolicy": outlier_policy,
         "missingPolicy": missing_policy,
+        "engineeredFeatures": list(config.get("engineeredFeatures") or []),
     }
     experiment_id = f"cockpit-exp-{_config_sha(config_norm)}"
     payload = {
@@ -602,6 +628,51 @@ def _persist_experiment(experiment_id: str, payload: Mapping[str, Any]) -> None:
     )
     index.sort(key=lambda e: e["val2024LogLoss"])
     index_path.write_text(json.dumps(index), encoding="utf-8")
+
+
+def run_ablation(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Controlled feature ablation: CONTROL (base) vs CHALLENGER (base + added features)."""
+    base = dict(payload.get("baseConfig") or {})
+    add_features = list(payload.get("addFeatures") or [])
+    add_engineered = list(payload.get("addEngineered") or [])
+    base_features = list(base.get("features") or ALL_FEATURES)
+    base_engineered = list(base.get("engineeredFeatures") or [])
+
+    control_cfg = {**base, "features": base_features, "engineeredFeatures": base_engineered}
+    challenger_cfg = {
+        **base,
+        "features": base_features + [f for f in add_features if f not in base_features],
+        "engineeredFeatures": base_engineered + add_engineered,
+    }
+    control = run_experiment(control_cfg, persist=False)
+    challenger = run_experiment(challenger_cfg, persist=False)
+
+    def _delta(a, b):
+        return {k: challenger["headline"][a][k] - control["headline"][a][k] for k in ("logLoss", "brierScore", "topLabelEce")}
+
+    d24 = _delta("val2024", "val2024")
+    d25 = _delta("frozen2025", "frozen2025")
+    # feature-family verdict (do not delete on one metric)
+    imp24 = d24["logLoss"] < -1e-4
+    imp25 = d25["logLoss"] < -1e-4
+    worse = d24["logLoss"] > 1e-3
+    if imp24 and imp25:
+        verdict = "VALUE_CONFIRMED"
+    elif imp24 or imp25:
+        verdict = "VALUE_MARGINAL"
+    elif worse:
+        verdict = "NEGATIVE_VALUE"
+    else:
+        verdict = "NO_MATERIAL_VALUE"
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "addedFeatures": add_features + [s.get("name") for s in add_engineered],
+        "control": {"features": len(base_features), "val2024": control["headline"]["val2024"], "frozen2025": control["headline"]["frozen2025"]},
+        "challenger": {"features": len(challenger_cfg["features"]), "val2024": challenger["headline"]["val2024"], "frozen2025": challenger["headline"]["frozen2025"]},
+        "delta2024": d24,
+        "delta2025": d25,
+        "verdict": verdict,
+    }
 
 
 def list_experiments() -> list[dict[str, Any]]:

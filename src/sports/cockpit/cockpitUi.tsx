@@ -209,6 +209,27 @@ export function GroupedBars({ categories, series, height = 260, valueFmt }:
   }, height);
 }
 
+const CLUSTER_COLORS = ["#0891b2", "#7c3aed", "#f59e0b", "#e11d48", "#10b981", "#6366f1", "#ec4899", "#14b8a6", "#f97316", "#8b5cf6", "#0ea5e9", "#84cc16", "#ef4444", "#a855f7", "#22d3ee"];
+
+export function ScatterClusters({ points, height = 320 }: { points: { x: number; y: number; cluster: number }[]; height?: number }) {
+  const byCluster = new Map<number, [number, number][]>();
+  for (const p of points) {
+    if (!byCluster.has(p.cluster)) byCluster.set(p.cluster, []);
+    byCluster.get(p.cluster)!.push([p.x, p.y]);
+  }
+  const series = [...byCluster.entries()].sort((a, b) => a[0] - b[0]).map(([c, data]) => ({
+    name: `Cluster ${c}`, type: "scatter", data, symbolSize: 7, itemStyle: { color: CLUSTER_COLORS[c % CLUSTER_COLORS.length], opacity: 0.75 },
+  }));
+  return chart({
+    grid: { left: 44, right: 16, top: 26, bottom: 30 },
+    legend: { top: 0, textStyle: { fontSize: 10 } },
+    xAxis: { type: "value", scale: true, name: "PC1", nameLocation: "middle", nameGap: 20, axisLabel: { fontSize: 10 } },
+    yAxis: { type: "value", scale: true, name: "PC2", axisLabel: { fontSize: 10 } },
+    tooltip: { trigger: "item" },
+    series,
+  }, height);
+}
+
 export function LineChart({ categories, series, height = 220 }:
   { categories: string[]; series: { name: string; data: (number | null)[]; color: string }[]; height?: number }) {
   return chart({
