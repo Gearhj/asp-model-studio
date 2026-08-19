@@ -566,6 +566,29 @@ export type SportsParticipationAblation = {
   limitations: string[];
 };
 
+// Phase 5F starter-identity projection + Q0->Q1 simulator ablation. Research component;
+// not a forecast, betting model, or market comparison.
+export type SportsStarterIdentity = {
+  runId: string;
+  contractName: string;
+  researchOnly: boolean;
+  devSeasons: number[];
+  modelDecision: string;
+  simulationsPerGame?: number;
+  comparableGames: SportsPhase4EvidenceRecord;
+  starterEvaluation: SportsPhase4EvidenceRecord;
+  baselines: SportsPhase4EvidenceRecord;
+  earlySeason: SportsPhase4EvidenceRecord;
+  bySeason: SportsPhase4EvidenceRecord;
+  bootstrap: SportsPhase4EvidenceRecord;
+  simulatorDecision: string;
+  pregameSimulatorReadiness: string;
+  remainingOracleParticipation: SportsPhase4EvidenceRecord;
+  priorities: SportsPhase4EvidenceRecord;
+  stateFallback: SportsPhase4EvidenceRecord;
+  limitations: string[];
+};
+
 export type SportsPhase4Study = {
   schemaVersion: string;
   studyId: string;
@@ -594,6 +617,7 @@ export type SportsPhase4Study = {
   simulationInput?: SportsSimulationInput;
   wholeGameMonteCarlo?: SportsWholeGameMonteCarlo;
   participationAblation?: SportsParticipationAblation;
+  starterIdentity?: SportsStarterIdentity;
 };
 
 export type RegisteredSportsProject = {
@@ -1263,6 +1287,34 @@ function normalizePhase4Study(value: unknown): SportsPhase4Study | undefined {
     simulationInput: normalizeSimulationInput(value.simulationInput),
     wholeGameMonteCarlo: normalizeWholeGameMonteCarlo(value.wholeGameMonteCarlo),
     participationAblation: normalizeParticipationAblation(value.participationAblation),
+    starterIdentity: normalizeStarterIdentity(value.starterIdentity),
+  };
+}
+
+function normalizeStarterIdentity(value: unknown): SportsStarterIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+  const runId = publicString(value.runId);
+  // Existence-gated: no governed starter-identity run -> honest not-run state.
+  if (!runId) return undefined;
+  return {
+    runId,
+    contractName: publicString(value.contractName),
+    researchOnly: value.researchOnly !== false,
+    devSeasons: numberArray(value.devSeasons),
+    modelDecision: publicString(value.modelDecision),
+    simulationsPerGame: optionalFiniteNumber(value.simulationsPerGame),
+    comparableGames: normalizePublicEvidenceRecord(value.comparableGames),
+    starterEvaluation: normalizePublicEvidenceRecord(value.starterEvaluation),
+    baselines: normalizePublicEvidenceRecord(value.baselines),
+    earlySeason: normalizePublicEvidenceRecord(value.earlySeason),
+    bySeason: normalizePublicEvidenceRecord(value.bySeason),
+    bootstrap: normalizePublicEvidenceRecord(value.bootstrap),
+    simulatorDecision: publicString(value.simulatorDecision),
+    pregameSimulatorReadiness: publicString(value.pregameSimulatorReadiness),
+    remainingOracleParticipation: normalizePublicEvidenceRecord(value.remainingOracleParticipation),
+    priorities: normalizePublicEvidenceRecord(value.priorities),
+    stateFallback: normalizePublicEvidenceRecord(value.stateFallback),
+    limitations: publicStringArray(value.limitations),
   };
 }
 

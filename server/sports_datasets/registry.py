@@ -653,6 +653,84 @@ def _load_active_severe_miss_forensics(registration: Mapping[str, Any]) -> dict[
         return None
 
 
+def _load_active_starter_identity(registration: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Authority-gated read of the Phase 5F starter-identity projection + Q0->Q1 study.
+
+    A research component — not a game forecast, betting model, or market comparison. Read-only and
+    defensive: absence / parse error / authority mismatch -> ``None``. Surfaces starter accuracy,
+    the Q0/Q1 simulator impact, and the decisions only.
+    """
+
+    import json
+    import os
+    from pathlib import Path
+
+    try:
+        configured = os.getenv("ASP_MODEL_STUDIO_PHASE5_RUNTIME_ROOT", "").strip()
+        root = (
+            Path(configured)
+            if configured
+            else Path(__file__).resolve().parents[2] / ".runtime" / "asp-model-studio" / "sports-phase5"
+        )
+        artifact = root / "starter-identity" / "latest.starter.json"
+        if not artifact.is_file():
+            return None
+        record = json.loads(artifact.read_text(encoding="utf-8"))
+        payload = record.get("starterIdentity") if isinstance(record, Mapping) else None
+        if not isinstance(payload, Mapping):
+            return None
+        authority = payload.get("datasetAuthority") or {}
+        if (
+            authority.get("registrationId") != registration.get("registration_id")
+            or authority.get("manifestSha") != registration.get("manifest_sha")
+        ):
+            return None
+        ev = payload.get("starterEvaluation") or {}
+        by_season = payload.get("bySeason") or {}
+
+        def _starter_season(s: str) -> dict[str, Any]:
+            m = (ev.get("bySeason") or {}).get(s) or {}
+            return {k: m.get(k) for k in ("candidatePoolCoverage", "top1Accuracy", "top2Accuracy",
+                                          "top3Accuracy", "logLoss", "brier", "mrr", "meanCandidateCount", "top1AccuracyCovered")}
+
+        def _sim_season(s: str) -> dict[str, Any]:
+            sv = by_season.get(s) or {}
+            def _branch(b):
+                br = sv.get(b) or {}
+                sm = br.get("scoreMetrics") or {}
+                return {"winner": br.get("winner"), "totalCrps": sm.get("crpsTotal"),
+                        "totalBias": (sm.get("total") or {}).get("bias"),
+                        "cov90Total": (br.get("coverage") or {}).get("intTotal", {}).get("90"),
+                        "meanSimulatedHomeWinProb": br.get("meanSimulatedHomeWinProb")}
+            return {"Q0": _branch("Q0"), "Q1": _branch("Q1"), "delta": sv.get("delta"),
+                    "starterCorrectRate": sv.get("starterCorrectRate"),
+                    "segmentBothCorrect": sv.get("segmentBothCorrect"), "segmentAnyWrong": sv.get("segmentAnyWrong")}
+
+        return {
+            "runId": payload.get("runId"),
+            "contractName": payload.get("contractName"),
+            "researchOnly": payload.get("researchOnly", True),
+            "devSeasons": payload.get("devSeasons"),
+            "modelDecision": payload.get("modelDecision"),
+            "simulationsPerGame": payload.get("simulationsPerGame"),
+            "comparableGames": payload.get("comparableGames"),
+            "starterEvaluation": {s: _starter_season(s) for s in ("2024", "2025")},
+            "baselines": ev.get("baselines"),
+            "earlySeason": ev.get("earlySeason"),
+            "bySeason": {s: _sim_season(s) for s in ("2024", "2025")},
+            "bootstrap": payload.get("bootstrap"),
+            "simulatorDecision": payload.get("simulatorDecision"),
+            "pregameSimulatorReadiness": payload.get("pregameSimulatorReadiness"),
+            "remainingOracleParticipation": payload.get("remainingOracleParticipation"),
+            "priorities": payload.get("priorities"),
+            "stateFallback": payload.get("stateFallback"),
+            "projectedStarterCanonicalMissing": payload.get("projectedStarterCanonicalMissing"),
+            "limitations": payload.get("limitations"),
+        }
+    except Exception:
+        return None
+
+
 class SportsDatasetRegistry:
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -1290,6 +1368,9 @@ class SportsDatasetRegistry:
             participation_ablation = _load_active_participation_ablation(registration)
             if participation_ablation is not None:
                 phase4 = {**phase4, "participationAblation": participation_ablation}
+            starter_identity = _load_active_starter_identity(registration)
+            if starter_identity is not None:
+                phase4 = {**phase4, "starterIdentity": starter_identity}
             result["phase4"] = phase4
         if project:
             workflow_evidence = project["workflow_evidence_json"]

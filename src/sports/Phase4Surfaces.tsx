@@ -22,6 +22,7 @@ import {
   type SportsSimulationInput,
   type SportsWholeGameMonteCarlo,
   type SportsParticipationAblation,
+  type SportsStarterIdentity,
 } from "./sportsEvidenceApi";
 
 function record(value: unknown): SportsPhase4EvidenceRecord {
@@ -1211,6 +1212,61 @@ export function ParticipationAblationSection({ ablation }: { ablation?: SportsPa
           }} />
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">P3 is <strong>PROJECTED_PARTICIPATION_RESEARCH_MODE</strong>: it still uses the actual starter identity (S2 is conditional on it) and a historical population — not a live pregame forecast. Remaining oracle dependencies: starter identity (CRITICAL), schedule/teams/date and injury/scratch feed (MODERATE). Prospective feed, starter-identity projection, premium data, and the interactive Model Studio cockpit remain NOT_CONFIGURED.</p></div>
           {ablation.limitations.length ? <Limitations values={ablation.limitations} /> : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function StarterIdentitySection({ starter }: { starter?: SportsStarterIdentity }) {
+  const e2024 = starter ? record(record(starter.starterEvaluation)["2024"]) : {};
+  const e2025 = starter ? record(record(starter.starterEvaluation)["2025"]) : {};
+  const sim2024 = starter ? record(record(starter.bySeason)["2024"]) : {};
+  const q0 = record(sim2024.Q0); const q1 = record(sim2024.Q1); const delta = record(sim2024.delta);
+  const acceptable = starter?.simulatorDecision?.includes("ACCEPTABLE");
+  const isComponent = starter?.modelDecision === "STARTER_IDENTITY_RESEARCH_COMPONENT";
+  return (
+    <Card
+      title="Phase 5F · starter-identity projection (last participation oracle)"
+      description="Predict who starts from prior-date rotation cadence only, then measure the game-level cost of dropping the oracle starter. Research diagnostic — no forecasts, odds, edge, or ROI."
+    >
+      {!starter ? (
+        <Empty>MLB_STARTER_IDENTITY_PROJECTION_V1 has not been run. Starter-identity status is NOT_RUN.</Empty>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(isComponent ? "AVAILABLE" : "PARTIAL")}`}>{text(starter.modelDecision)}</span>
+            <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${readinessChipClass(acceptable ? "AVAILABLE" : starter.simulatorDecision.includes("MATERIAL") ? "PARTIAL" : "BLOCKED")}`}>{text(starter.simulatorDecision)}</span>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{text(starter.pregameSimulatorReadiness)}</span>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Starter identity accuracy (2024 val / 2025 frozen)</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th><th className="py-1 pr-4">2024</th><th className="py-1 pr-4">2025</th></tr></thead>
+              <tbody>{[["candidate-pool coverage", "candidatePoolCoverage", 3], ["top-1 accuracy", "top1Accuracy", 3], ["top-2 accuracy", "top2Accuracy", 3], ["top-3 accuracy", "top3Accuracy", 3], ["MRR", "mrr", 3], ["mean candidates", "meanCandidateCount", 1]].map(([label, key, dp]) => (
+                <tr key={String(key)} className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">{label}</td><td className="py-1 pr-4">{metric(e2024[key as string], dp as number)}</td><td className="py-1 pr-4">{metric(e2025[key as string], dp as number)}</td></tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Simulator cost — oracle (Q0) vs projected starter (Q1), 2024</h3>
+            <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+              <thead className="text-slate-500"><tr><th className="py-1 pr-4">Metric</th><th className="py-1 pr-4">Q0 oracle</th><th className="py-1 pr-4">Q1 projected</th><th className="py-1 pr-4">Δ rel</th></tr></thead>
+              <tbody>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">home-win Brier</td><td className="py-1 pr-4">{metric(record(q0.winner).brier, 4)}</td><td className="py-1 pr-4">{metric(record(q1.winner).brier, 4)}</td><td className="py-1 pr-4">{metric(record(delta.winnerBrier).relPct, 2)}%</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">total-run CRPS</td><td className="py-1 pr-4">{metric(q0.totalCrps, 3)}</td><td className="py-1 pr-4">{metric(q1.totalCrps, 3)}</td><td className="py-1 pr-4">{metric(record(delta.totalCrps).relPct, 2)}%</td></tr>
+                <tr className="border-t border-slate-100"><td className="py-1 pr-4 text-slate-700">90% coverage</td><td className="py-1 pr-4">{metric(q0.cov90Total, 3)}</td><td className="py-1 pr-4">{metric(q1.cov90Total, 3)}</td><td className="py-1 pr-4">{metric(record(delta.cov90).abs, 3)}</td></tr>
+              </tbody>
+            </table></div>
+          </div>
+          <EvidenceGrid evidence={{
+            starterCorrectRate2024: sim2024.starterCorrectRate,
+            bullpenPriority: record(starter.priorities).bullpen,
+            prospectiveFeed: record(starter.priorities).prospectiveFeed,
+            modelStudioCockpit: record(starter.priorities).modelStudioCockpit,
+          }} />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm text-amber-900">With starter identity projected, all four participation layers (lineup, starter identity, starter duration, bullpen) are now projected. Remaining oracle: schedule/teams/date and no injury/scratch feed (MODERATE) — a historical population, not a live pregame forecast. Next: {text(record(starter.priorities).bullpen).includes("HIGH") ? "bullpen reliever-selection improvement or the interactive Model Studio cockpit" : "prospective feed integration"}.</p></div>
+          {starter.limitations.length ? <Limitations values={starter.limitations} /> : null}
         </div>
       )}
     </Card>

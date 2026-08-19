@@ -10,6 +10,7 @@ import {
   SimulationInputSection,
   WholeGameMonteCarloSection,
   ParticipationAblationSection,
+  StarterIdentitySection,
   Phase4EvaluationSection,
   Phase4GraphSection,
   Phase4ModelLaboratorySection,
@@ -535,6 +536,7 @@ export function SimulationStudioPage() {
       <SimulationInputSection input={phase4?.simulationInput} />
       <WholeGameMonteCarloSection mc={phase4?.wholeGameMonteCarlo} />
       <ParticipationAblationSection ablation={phase4?.participationAblation} />
+      <StarterIdentitySection starter={phase4?.starterIdentity} />
       <Phase4SimulationStatus study={phase4} />
 
       <SectionCard title="Sports simulation architecture" description="The studio is reserved for sports-native state propagation; inherited experimental-design simulation is not presented as a game simulator." icon={Workflow}>
