@@ -582,6 +582,10 @@ body {
     @apply resize-y leading-6;
   }
 
+  .wf-input {
+    @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-[15px] font-normal text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
   .sports-flow-line {
     background: linear-gradient(90deg, transparent, #2dd4bf, #67e8f9, transparent);
     background-size: 200% 100%;

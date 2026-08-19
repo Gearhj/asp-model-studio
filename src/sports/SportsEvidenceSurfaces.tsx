@@ -128,7 +128,28 @@ function SeasonCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
 
 function Populations({ dataset }: { dataset: ActiveSportsDataset }) {
   const total = Math.max(1, dataset.populations.reduce((sum, item) => sum + item.rows, 0));
-  return <><div className="flex h-6 overflow-hidden rounded-full bg-slate-100" role="img" aria-label="Dataset population composition">{dataset.populations.map((item, index) => <div key={item.populationId} className={index % 3 === 0 ? "bg-cyan-600" : index % 3 === 1 ? "bg-violet-500" : "bg-slate-500"} style={{ width: `${item.rows / total * 100}%` }} title={`${item.populationId}: ${number(item.rows)}`} />)}</div><div className="mt-4 grid gap-3 md:grid-cols-3">{dataset.populations.map((item) => <article key={item.populationId} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="text-sm font-semibold text-slate-950">{item.populationId.replaceAll("_", " ")}</h3><div className="mt-1 text-xl font-semibold tabular-nums">{number(item.rows)}</div><p className="mt-2 break-words font-mono text-[11px] leading-5 text-slate-500">{item.predicate}</p>{item.uses?.length ? <p className="mt-2 text-xs leading-5 text-emerald-800">Uses: {item.uses.join("; ")}</p> : null}{item.prohibitions?.length ? <p className="mt-1 text-xs leading-5 text-amber-800">Prohibited: {item.prohibitions.join("; ")}</p> : null}</article>)}</div></>;
+  return (
+    <>
+      <div className="flex h-6 overflow-hidden rounded-full bg-slate-100" role="img" aria-label="Dataset population composition">
+        {dataset.populations.map((item, index) => <div key={item.populationId} className={index % 3 === 0 ? "bg-cyan-600" : index % 3 === 1 ? "bg-violet-500" : "bg-slate-500"} style={{ width: `${item.rows / total * 100}%` }} title={`${item.populationId}: ${number(item.rows)}`} />)}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {dataset.populations.map((item) => (
+          <article key={item.populationId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-950">{item.populationId.replaceAll("_", " ")}</h3>
+            <div className="mt-1 text-xl font-semibold tabular-nums">{number(item.rows)}</div>
+            <div className="mt-1 text-xs text-slate-500">{Math.round((item.rows / total) * 100)}% of registered rows</div>
+            {item.uses?.length ? <div className="mt-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Permitted use</div><ul className="mt-1 grid gap-0.5 text-xs leading-5 text-emerald-900">{item.uses.map((u) => <li key={u}>· {u}</li>)}</ul></div> : null}
+            {item.prohibitions?.length ? <div className="mt-2"><div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Prohibited</div><ul className="mt-1 grid gap-0.5 text-xs leading-5 text-amber-900">{item.prohibitions.map((p) => <li key={p}>· {p}</li>)}</ul></div> : null}
+            <details className="mt-3 border-t border-slate-200 pt-2">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600">View technical query</summary>
+              <p className="mt-2 break-words font-mono text-[11px] leading-5 text-slate-500">{item.predicate}</p>
+            </details>
+          </article>
+        ))}
+      </div>
+    </>
+  );
 }
 
 function Folds({ dataset }: { dataset: ActiveSportsDataset }) {

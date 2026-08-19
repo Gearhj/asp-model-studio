@@ -14,6 +14,8 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import StudioHome from "../sports/StudioHome";
 import WorkflowLibrary from "../sports/WorkflowLibrary";
 import ForecastWorkflow from "../sports/ForecastWorkflow";
+import GuidedWorkflow from "../sports/workflow/GuidedWorkflow";
+import WorkflowReturnBar from "../sports/workflow/WorkflowReturnBar";
 import NewSportsProject from "../sports/NewSportsProject";
 import SportsProjects from "../sports/SportsProjects";
 import SportsProjectOverview from "../sports/SportsProjectOverview";
@@ -207,6 +209,7 @@ export default function ModelingApp() {
 
           <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
             <div className="mx-auto w-full max-w-[1880px]">
+              <WorkflowReturnBar />
               <ErrorBoundary title="This sports modeling surface could not be rendered safely." resetKey={location.pathname}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -219,7 +222,8 @@ export default function ModelingApp() {
                   <Route path="/project-overview" element={<SportsProjectOverview />} />
                   <Route path="/templates" element={<WorkflowLibrary />} />
                   <Route path="/workflows" element={<Navigate to="/templates" replace />} />
-                  <Route path="/workflows/mlb" element={<ForecastWorkflow workflowKey="mlb" />} />
+                  <Route path="/workflows/mlb" element={<GuidedWorkflow />} />
+                  <Route path="/workflows/mlb-spec" element={<ForecastWorkflow workflowKey="mlb" />} />
                   <Route path="/workflows/nfl" element={<ForecastWorkflow workflowKey="nfl" />} />
                   <Route path="/data-warehouse" element={<DataWarehousePage />} />
                   <Route path="/datasets" element={<Navigate to="/data-warehouse" replace />} />
