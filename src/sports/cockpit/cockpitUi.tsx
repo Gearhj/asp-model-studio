@@ -118,7 +118,20 @@ export function Spinner({ label }: { label?: string }) {
 
 export function LoadGate({ state, children }: { state: { status: string; error?: string }; children: ReactNode }) {
   if (state.status === "loading" || state.status === "idle") return <Spinner label="Loading governed evidence…" />;
-  if (state.status === "error") return <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">Failed to load: {state.error}</div>;
+  if (state.status === "error") {
+    const is404 = /\b404\b/.test(state.error || "");
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <div className="font-semibold">The modeling API could not be reached.</div>
+        {is404 ? (
+          <p className="mt-1 leading-6">The cockpit endpoint returned <b>404</b>. The backend service is likely running an older build that predates the modeling cockpit — restart the ASP Model Studio backend to load the <code>/api/cockpit</code> routes, then reload this page.</p>
+        ) : (
+          <p className="mt-1 leading-6">The backend may be unavailable. Confirm the ASP Model Studio backend is running, then reload.</p>
+        )}
+        <p className="mt-2 font-mono text-xs text-rose-500">{state.error}</p>
+      </div>
+    );
+  }
   return <>{children}</>;
 }
 

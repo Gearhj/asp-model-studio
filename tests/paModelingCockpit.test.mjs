@@ -44,6 +44,13 @@ test("every action button targets a real /cockpit backend endpoint", () => {
   }
 });
 
+test("cockpit surfaces an actionable error when the modeling API is unavailable (404)", () => {
+  // honest error, not a fake empty state; hints at the stale-backend / restart case
+  assert.ok(ui.includes("The modeling API could not be reached"));
+  assert.ok(ui.includes("404") && ui.includes("/api/cockpit"));
+  assert.ok(ui.includes("restart"));
+});
+
 test("no fabricated success or mock data path", () => {
   const src = shell + steps1 + steps2 + api + ui;
   for (const banned of ["mockData", "fakeMetrics", "Math.random(", "TODO_FAKE", "hardcodedResult"]) {
