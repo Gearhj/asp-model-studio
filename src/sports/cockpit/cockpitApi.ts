@@ -27,6 +27,15 @@ export type Objective = {
 };
 export type Metric = { logLoss: number; brierScore: number; topLabelEce: number };
 export type SeasonRow = { season: number; rows: number; games: number; batters: number | null; role: string };
+export type PreviewSchemaRow = { name: string; type: string; role: string; missingPct: number; example: any };
+export type DataPreview = {
+  matrix: string; grain: string; totalRows: number; filteredRows: number; columns: number; seasons: number[];
+  target: string; targetClassOrder: string[]; targetDistribution: ClassShare[];
+  splitCounts: { season: number; role: string; rows: number }[];
+  numericFeatureColumns: number; categoricalFeatureColumns: number; featureMissingPct: number;
+  sample: string; limit: number; season: number | null; previewColumns: string[];
+  rows: Record<string, any>[]; schema: PreviewSchemaRow[]; note: string;
+};
 export type Population = {
   perSeason: SeasonRow[];
   totalRows: number;

@@ -22,6 +22,7 @@ DYNAMIC_FRONTEND_PATHS = [
     "/cockpit/profile/feature/{name}",
     "/cockpit/experiments/{experiment_id}",
     "/cockpit/segmentation/summary",  # called as ...summary?population=BATTERS
+    "/cockpit/data-preview",  # called as ...data-preview?limit=25&sample=head (template literal)
 ]
 
 

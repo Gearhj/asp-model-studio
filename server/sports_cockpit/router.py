@@ -43,6 +43,11 @@ def profile(force: bool = False) -> dict[str, Any]:
     return _guard(E.feature_profile, force)
 
 
+@router.get("/cockpit/data-preview")
+def data_preview(season: int | None = None, limit: int = 25, sample: str = "head") -> dict[str, Any]:
+    return _guard(E.data_preview, season=season, limit=limit, sample=sample)
+
+
 @router.get("/cockpit/profile/feature/{name}")
 def feature_detail(name: str) -> dict[str, Any]:
     if name not in ALL_FEATURES:

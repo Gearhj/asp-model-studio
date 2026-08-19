@@ -51,6 +51,21 @@ test("cockpit surfaces an actionable error when the modeling API is unavailable 
   assert.ok(ui.includes("restart"));
 });
 
+test("cockpit Data & Population shows a real modeling-matrix preview", async () => {
+  const [steps1src, preview] = await Promise.all([
+    readFile(new URL("src/sports/cockpit/cockpitSteps1.tsx", ROOT), "utf8"),
+    readFile(new URL("src/sports/cockpit/DataPreviewPanel.tsx", ROOT), "utf8"),
+  ]);
+  assert.ok(steps1src.includes("DataPreviewPanel"));
+  // the preview fetches the governed bounded endpoint and shows real rows/schema/target/splits
+  assert.ok(preview.includes("/cockpit/data-preview"));
+  assert.ok(preview.includes("Target distribution") && preview.includes("splitCounts"));
+  assert.ok(preview.includes("Schema") && preview.includes("role"));
+  // bounded + no synthetic data + no file access
+  assert.ok(preview.includes('limit: "25"'));
+  assert.ok(!preview.includes("fixture") && !preview.includes("mockRows"));
+});
+
 test("no fabricated success or mock data path", () => {
   const src = shell + steps1 + steps2 + api + ui;
   for (const banned of ["mockData", "fakeMetrics", "Math.random(", "TODO_FAKE", "hardcodedResult"]) {

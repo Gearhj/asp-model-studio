@@ -274,3 +274,9 @@ test("Step 6 shows a foundation checkpoint and project context before the cockpi
 test("stepper labels auto-satisfied stages as Foundation ready", () => {
   assert.ok(guided.includes("Foundation ready"));
 });
+
+test("Step 2 shows the bound data (real preview), not only registry metadata", () => {
+  // after binding, the dataset panel embeds the governed data preview
+  assert.ok(bindPanel.includes("DataPreviewPanel"));
+  assert.ok(bindPanel.includes("Your selected data"));
+});

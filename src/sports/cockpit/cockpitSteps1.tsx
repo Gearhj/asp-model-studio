@@ -15,6 +15,7 @@ import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
   BeforeAfter, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
+import DataPreviewPanel from "./DataPreviewPanel";
 
 const ROLE_TONE: Record<string, "cyan" | "violet" | "amber"> = { context: "cyan", batter: "violet", pitcher: "amber" };
 
@@ -135,6 +136,7 @@ export function DataPopulationStep() {
               </ul>
             </Card>
           </div>
+          <DataPreviewPanel title="Modeling matrix preview" showWarehouseLink={false} />
         </div>
       )}
     </LoadGate>

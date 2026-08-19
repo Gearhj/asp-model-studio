@@ -499,6 +499,112 @@ def feature_profile(force: bool = False) -> dict[str, Any]:
     return payload
 
 
+def _column_role(name: str) -> str:
+    if name == "outcome":
+        return "TARGET"
+    if name in ("game_date", "season"):
+        return "TIME"
+    if name == "game_id":
+        return "GROUPING"
+    if name in ("plate_appearance_id", "batter_canonical_player_uuid", "pitcher_canonical_player_uuid"):
+        return "IDENTIFIER"
+    if name in ALL_FEATURES:
+        return "FEATURE"
+    return "EXCLUDED"
+
+
+# Curated, readable column order for the row preview (identifiers truncated in the UI).
+_PREVIEW_COLUMNS = (
+    "game_date", "season", "game_id", "batter_canonical_player_uuid", "pitcher_canonical_player_uuid",
+    "outcome", "context_inning", "context_outs_before", "context_base_mask_before",
+    "batter_avg", "batter_obp", "batter_so_per_pa", "batter_hr_per_pa",
+    "pitcher_era9", "pitcher_whip", "pitcher_so_per_bfp",
+)
+
+
+def data_preview(*, season: int | None = None, limit: int = 25, sample: str = "head", seed: int = 20260819) -> dict[str, Any]:
+    """Bounded, governed preview of the PA modeling matrix (feature view): schema + real rows +
+    target distribution + development/validation/frozen counts. No file paths, no client file access."""
+    frame = load_frame()
+    limit = int(max(1, min(limit, 50)))
+    view = frame if season is None else frame[frame["season"] == int(season)]
+    total = int(len(view))
+
+    if sample == "random" and total > limit:
+        rows_df = view.sample(limit, random_state=seed)
+    else:
+        rows_df = view.head(limit)
+
+    def _cell(name: str, v: Any) -> Any:
+        if v is None or (isinstance(v, float) and (math.isnan(v))):
+            return None
+        if name in ("game_id", "plate_appearance_id", "batter_canonical_player_uuid", "pitcher_canonical_player_uuid"):
+            return str(v)
+        if isinstance(v, float):
+            return round(float(v), 4)
+        try:
+            return int(v) if name in ("season", "context_inning", "context_outs_before", "context_base_mask_before") else (str(v) if not isinstance(v, (int, float)) else v)
+        except Exception:
+            return str(v)
+
+    preview_cols = [c for c in _PREVIEW_COLUMNS if c in view.columns]
+    rows = [{c: _cell(c, r[c]) for c in preview_cols} for _, r in rows_df[preview_cols].iterrows()]
+
+    # schema over the meaningful columns
+    schema_cols = ["plate_appearance_id", "game_id", "game_date", "season", "outcome",
+                   "batter_canonical_player_uuid", "pitcher_canonical_player_uuid", *ALL_FEATURES]
+    schema = []
+    numeric = 0
+    categorical = 0
+    for c in schema_cols:
+        if c not in view.columns:
+            continue
+        col = view[c]
+        miss = float(col.isna().mean()) if len(col) else 0.0
+        kind = feature_kind(c) if c in ALL_FEATURES else ("string" if col.dtype == object else str(col.dtype))
+        role = _column_role(c)
+        if role == "FEATURE":
+            if feature_kind(c) == "continuous":
+                numeric += 1
+            else:
+                categorical += 1
+        nonnull = col.dropna()
+        example = _cell(c, nonnull.iloc[0]) if len(nonnull) else None
+        schema.append({"name": c, "type": kind, "role": role, "missingPct": miss, "example": example})
+
+    counts = view["outcome"].value_counts()
+    target_dist = [{"class": cls, "count": int(counts.get(cls, 0)), "share": float(counts.get(cls, 0) / total) if total else 0.0} for cls in PA_CLASS_ORDER]
+
+    split_counts = []
+    for s, role in ((DEV_SEASON, "development"), (VAL_SEASON, "validation"), (FROZEN_SEASON, "frozen_final")):
+        split_counts.append({"season": int(s), "role": role, "rows": int((frame["season"] == s).sum())})
+
+    overall_missing = float(view[list(ALL_FEATURES)].isna().to_numpy().mean()) if total else 0.0
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "matrix": "MLB_PA_FEATURE_VIEW_V1",
+        "grain": "PLATE_APPEARANCE",
+        "totalRows": int(len(frame)),
+        "filteredRows": total,
+        "columns": len(schema),
+        "seasons": sorted(int(x) for x in frame["season"].dropna().unique().tolist()),
+        "target": "outcome",
+        "targetClassOrder": list(PA_CLASS_ORDER),
+        "targetDistribution": target_dist,
+        "splitCounts": split_counts,
+        "numericFeatureColumns": numeric,
+        "categoricalFeatureColumns": categorical,
+        "featureMissingPct": overall_missing,
+        "sample": "random" if (sample == "random" and total > limit) else "head",
+        "limit": limit,
+        "season": season,
+        "previewColumns": preview_cols,
+        "rows": rows,
+        "schema": schema,
+        "note": "This is the governed plate-appearance modeling matrix (feature view, 2023–2025). The registered evidence spans additional raw families/seasons available in the Data Warehouse.",
+    }
+
+
 def feature_detail(name: str) -> dict[str, Any]:
     if name not in ALL_FEATURES:
         raise CockpitError(f"unknown feature: {name}")
