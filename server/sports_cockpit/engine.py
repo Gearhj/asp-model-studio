@@ -658,6 +658,60 @@ def data_preview(*, season: int | None = None, limit: int = 25, sample: str = "h
     }
 
 
+def temporal_split_preview(policy: str = "SEASON_HOLDOUT", boundary_date: str | None = None) -> dict[str, Any]:
+    """Concrete fold preview for a chosen temporal policy, with REAL development-fold row counts. Frozen
+    2025 is never presented as a tuning/selection fold. Bounded (season/date aggregation only)."""
+    frame = load_frame()
+    season = frame["season"].to_numpy()
+    dates_dev = frame.loc[season == DEV_SEASON, "game_date"]
+    dmin, dmax = str(dates_dev.min()), str(dates_dev.max())
+    n23 = int((season == DEV_SEASON).sum())
+    n24 = int((season == VAL_SEASON).sum())
+    n25 = int((season == FROZEN_SEASON).sum())
+    pol = (policy or "SEASON_HOLDOUT").upper()
+    recommended = {"SEASON_HOLDOUT", "ROLLING_ORIGIN", "EXPANDING_WINDOW"}
+    frozen_note = "2025 is the frozen final season — never used for tuning, parameter selection, or model selection."
+
+    if pol == "SEASON_HOLDOUT":
+        folds = [{"foldId": "season-holdout", "training": {"seasons": [DEV_SEASON], "rows": n23},
+                  "validation": {"season": VAL_SEASON, "rows": n24},
+                  "frozen": {"season": FROZEN_SEASON, "rows": n25}}]
+    elif pol in ("ROLLING_ORIGIN", "EXPANDING_WINDOW"):
+        folds = [
+            {"foldId": "fold-1", "training": {"seasons": [DEV_SEASON], "rows": n23}, "validation": {"season": VAL_SEASON, "rows": n24}},
+            {"foldId": "frozen-refit", "training": {"seasons": [DEV_SEASON, VAL_SEASON], "rows": n23 + n24},
+             "validation": {"season": FROZEN_SEASON, "rows": n25, "role": "FROZEN_EVAL_ONLY"}},
+        ]
+    elif pol == "DATE_HOLDOUT":
+        bd = boundary_date or str(np.sort(dates_dev.to_numpy())[len(dates_dev) // 2])
+        dev_dates = frame["game_date"].to_numpy()
+        before = int(((season == DEV_SEASON) & (dev_dates < bd)).sum())
+        after = int(((season == DEV_SEASON) & (dev_dates >= bd)).sum())
+        folds = [{"foldId": "date-holdout", "boundaryDate": bd,
+                  "training": {"season": DEV_SEASON, "dateRange": [dmin, bd], "rows": before},
+                  "validation": {"season": DEV_SEASON, "dateRange": [bd, dmax], "rows": after},
+                  "frozen": {"season": FROZEN_SEASON, "rows": n25}}]
+    elif pol == "RANDOM":
+        tr = int(round(n23 * 0.8))
+        folds = [{"foldId": "random-80-20", "training": {"season": DEV_SEASON, "rows": tr},
+                  "validation": {"season": DEV_SEASON, "rows": n23 - tr}, "researchOnly": True}]
+    else:
+        raise CockpitError(f"unknown temporal policy: {policy}")
+
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "policy": pol,
+        "recommended": pol in recommended,
+        "researchOnly": pol == "RANDOM",
+        "eligible": True,
+        "devDateRange": [dmin, dmax],
+        "folds": folds,
+        "frozenNote": frozen_note,
+        "matchesGovernedContract": pol == "SEASON_HOLDOUT",
+        "leakageStatus": "FROZEN_2025_PROTECTED" if pol != "RANDOM" else "TEMPORAL_ORDER_NOT_PRESERVED",
+    }
+
+
 _CORR_CACHE: dict[str, Any] = {}
 
 

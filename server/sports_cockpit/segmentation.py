@@ -13,9 +13,12 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from sklearn.cluster import KMeans
+import itertools
+
+from sklearn.cluster import DBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 from . import engine as E
@@ -79,6 +82,9 @@ def run_kmeans(population: str, features: Sequence[str], k_min: int = 2, k_max: 
             "clusterSizes": sizes.tolist(),
             "paWeightedPrevalence": pa_prev.tolist(),
             "inertia": float(km.inertia_),
+            "minClusterShare": float(sizes.min() / sizes.sum()),   # smallest cluster fraction (stability cue)
+            "sizeBalance": float(sizes.min() / sizes.max()),       # 1.0 = perfectly even
+            "tinyCluster": bool(sizes.min() < max(5, int(0.03 * len(tbl)))),
         })
     # recommendation: best silhouette, tie-broken by lower Davies-Bouldin
     rec = max(results, key=lambda r: (round(r["silhouette"], 4), -r["daviesBouldin"]))
@@ -89,6 +95,98 @@ def run_kmeans(population: str, features: Sequence[str], k_min: int = 2, k_max: 
         "recommendedK": rec["k"],
         "recommendationRationale": f"highest silhouette ({rec['silhouette']:.3f}) with competitive Davies-Bouldin ({rec['daviesBouldin']:.2f})",
         "note": "Exploratory only — a lower validation-metric cluster count is not automatically 'best'; predictive value must be tested via a controlled ablation.",
+    }
+
+
+def run_dbscan(
+    population: str,
+    features: Sequence[str],
+    eps: float | None = None,
+    min_samples: int | None = None,
+    season: int = E.DEV_SEASON,
+    seed: int = 20260819,
+) -> dict[str, Any]:
+    """Density-based segmentation. Finds dense archetype cores and leaves genuine outliers as NOISE
+    (never forced into an archetype). Development-fitted; exploratory only. Provides a k-distance curve
+    and a suggested eps (the standard 'elbow' heuristic) so parameters are principled, not arbitrary."""
+    feats = list(features) if features else list(default_features(population))
+    tbl = _player_table(population, feats, season)
+    if len(tbl) < 10:
+        raise CockpitError("not enough players for density segmentation")
+    X = StandardScaler().fit_transform(tbl[feats].to_numpy(dtype=np.float64))
+    ms = int(min_samples) if min_samples else max(5, X.shape[1] + 1)  # heuristic: dimensionality + 1
+    # k-distance curve (k = min_samples): the eps 'knee' is where the sorted k-distance rises sharply.
+    nn = NearestNeighbors(n_neighbors=ms).fit(X)
+    dist, _ = nn.kneighbors(X)
+    kd = np.sort(dist[:, ms - 1])
+    suggested_eps = round(float(np.percentile(kd, 90)), 3)
+    used_eps = round(float(eps), 3) if eps else suggested_eps
+    labels = DBSCAN(eps=used_eps, min_samples=ms).fit(X).labels_
+    weight = tbl["weight"].to_numpy(dtype=np.float64)
+    raw = tbl[feats].to_numpy(dtype=np.float64)
+    uniq = [c for c in sorted(set(labels)) if c != -1]
+    clusters = []
+    for c in uniq:
+        sel = labels == c
+        clusters.append({
+            "cluster": int(c), "players": int(sel.sum()),
+            "paShare": float(weight[sel].sum() / weight.sum()) if weight.sum() else 0.0,
+            "centroid": {f: float(raw[sel, j].mean()) for j, f in enumerate(feats)},
+        })
+    noise = int((labels == -1).sum())
+    pca = PCA(n_components=2, random_state=seed)
+    coords = pca.fit_transform(X)
+    n = min(len(tbl), 800)
+    idx = np.linspace(0, len(tbl) - 1, n).astype(int)
+    points = [{"x": float(coords[i, 0]), "y": float(coords[i, 1]), "cluster": int(labels[i])} for i in idx]
+    m = min(len(kd), 200)
+    kidx = np.linspace(0, len(kd) - 1, m).astype(int)
+    k_distance = [{"rank": int(r), "dist": float(kd[j])} for r, j in enumerate(kidx)]
+    return {
+        "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
+        "population": population, "season": season, "features": feats, "players": int(len(tbl)),
+        "eps": used_eps, "minSamples": ms, "suggestedEps": suggested_eps,
+        "nClusters": len(uniq), "noise": noise, "noisePct": float(noise / len(tbl)) if len(tbl) else 0.0,
+        "clusters": clusters, "points": points, "kDistance": k_distance,
+        "note": "Exploratory density clustering. Noise points are genuinely unassigned outliers — never forced into an archetype. Predictive value, if any, must be proven via a controlled challenger ablation.",
+    }
+
+
+def grid_guidance(population: str, season: int = E.DEV_SEASON, top: int = 6) -> dict[str, Any]:
+    """Rank candidate X/Y grid dimensions from the REAL development data (not baseball opinion). Prefers
+    evenly-populated, non-redundant pairs so the 3×3 archetype grid is interpretable and well-covered."""
+    feats = list(default_features(population))
+    tbl = _player_table(population, feats, season)
+    if len(tbl) < 18:
+        raise CockpitError("not enough players for grid guidance")
+    sparse_floor = max(3, len(tbl) // 30)
+
+    def terciles(series: np.ndarray) -> np.ndarray:
+        qs = np.quantile(series, [1 / 3, 2 / 3])
+        return np.digitize(series, qs)
+
+    suggestions = []
+    for x, y in itertools.combinations(feats, 2):
+        vx = tbl[x].to_numpy(dtype=np.float64)
+        vy = tbl[y].to_numpy(dtype=np.float64)
+        r = abs(float(np.corrcoef(vx, vy)[0, 1])) if vx.std() and vy.std() else 0.0
+        gx, gy = terciles(vx), terciles(vy)
+        counts = np.array([int(((gx == ix) & (gy == iy)).sum()) for iy in range(3) for ix in range(3)])
+        p = counts / counts.sum()
+        entropy = float(-(p[p > 0] * np.log(p[p > 0])).sum())
+        balance = round(entropy / np.log(9), 3)          # 1.0 = perfectly even nine cells
+        min_cell = int(counts.min())
+        score = round(balance * (1.0 - r), 3)            # even AND non-redundant
+        suggestions.append({
+            "dimX": x, "dimY": y, "absCorr": round(r, 3), "cellBalance": balance,
+            "minCell": min_cell, "sparse": min_cell < sparse_floor, "score": score,
+        })
+    suggestions.sort(key=lambda d: -d["score"])
+    return {
+        "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
+        "population": population, "season": season, "players": int(len(tbl)),
+        "sparseFloor": sparse_floor, "suggestions": suggestions[:top],
+        "note": "Ranked by cell balance × (1 − |correlation|): evenly-populated, non-redundant dimensions make the most interpretable archetype grid. Signal and redundancy come from real development data — override freely.",
     }
 
 

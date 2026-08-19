@@ -133,8 +133,9 @@ export function ForecastContractPanel({
 
         {isRevised && (
           <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-amber-900"><TriangleAlert size={15} /> Revised temporal experiment — research draft</div>
-            <p className="mt-1 text-xs text-amber-900">A development start of <b>{devStart}</b> is <b>not part of the registered Gen-2 policy</b>. Saving here creates a separate research draft — it will <b>not overwrite</b> the governed contract (Dev 2023 · Val 2024 · Frozen 2025).</p>
+            <div className="flex items-center gap-2 text-sm font-semibold text-amber-900"><TriangleAlert size={15} /> Revised temporal experiment — research specification</div>
+            <p className="mt-1 text-xs text-amber-900">A development start of <b>{devStart}</b> is <b>not part of the registered Gen-2 policy</b>. Saving here records a separate research specification — it will <b>not overwrite</b> the governed contract (Dev 2023 · Val 2024 · Frozen 2025).</p>
+            <p className="mt-1 rounded-md bg-white/70 px-2 py-1 text-[11px] text-amber-900"><b>Not yet executable in this cockpit:</b> the materialized modeling matrix contains 2023–2025 only, so a {devStart}-development model cannot be trained here. Executing it would require a separate governed {devStart} research materialization (2021–2022 are registered as prior-only history). This tool records the intent; it does not fabricate the modeling rows.</p>
             {noPriorSeason && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-white p-3 text-xs">
                 <div className="font-semibold text-slate-900">2021 feasibility assessment</div>

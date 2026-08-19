@@ -1251,128 +1251,290 @@ function AblationPanel() {
 }
 
 // ============================================================ 07 Player Segmentation
+const SEG_METHODS = [{ value: "kmeans", label: "K-means guidance" }, { value: "dbscan", label: "DBSCAN (density)" }, { value: "grid", label: "3×3 grid" }];
+
 export function SegmentationStep() {
-  const [population, setPopulation] = useState<"BATTERS" | "PITCHERS">("BATTERS");
+  const { notes, setNote } = useCockpitStore();
+  const population = (notes["seg.population"] as "BATTERS" | "PITCHERS") || "BATTERS";
+  const setPopulation = (p: string) => setNote("seg.population", p);
+  const method = notes["seg.method"] || "kmeans";
+  const setMethod = (m: string) => setNote("seg.method", m);
   const summary = useEndpoint<any>(`/cockpit/segmentation/summary?population=${population}`, [population]);
-  const km = usePost<any>();
-  const pca = usePost<any>();
-  const grid = usePost<any>();
-  const stab = usePost<any>();
-  const [dimX, setDimX] = useState("batter_hr_per_pa");
-  const [dimY, setDimY] = useState("batter_so_per_pa");
   const feats: string[] = summary.data?.candidateFeatures || [];
-  const runK = () => km.run("/cockpit/segmentation/kmeans", { population, kMin: 2, kMax: 8 }).then((r: any) => {
-    pca.run("/cockpit/segmentation/pca", { population, k: r.recommendedK });
-    stab.run("/cockpit/segmentation/stability", { population, k: r.recommendedK });
-  });
+  const short = (f: string) => f.replace(population === "BATTERS" ? "batter_" : "pitcher_", "");
+
+  // K-means + PCA + stability at a chosen K (persisted)
+  const km = usePost<any>(); const pca = usePost<any>(); const stab = usePost<any>();
+  const selectedK = Number(notes["seg.k"]) || 0;
+  const runK = () => km.run("/cockpit/segmentation/kmeans", { population, kMin: 2, kMax: 8 }).then((r: any) => selectK(Number(notes["seg.k"]) || r.recommendedK));
+  const selectK = (k: number) => { setNote("seg.k", String(k)); pca.run("/cockpit/segmentation/pca", { population, k }); stab.run("/cockpit/segmentation/stability", { population, k }); };
+
+  // DBSCAN
+  const db = usePost<any>();
+  const [eps, setEps] = useState<number | "">("");
+  const [minSamples, setMinSamples] = useState<number | "">("");
+  const runDb = () => db.run("/cockpit/segmentation/dbscan", { population, ...(eps !== "" ? { eps } : {}), ...(minSamples !== "" ? { minSamples } : {}) });
+
+  // Grid + guidance
+  const grid = usePost<any>();
+  const guide = useEndpoint<any>(`/cockpit/segmentation/grid-guidance?population=${population}`, [population]);
+  const dimX = notes["seg.dimX"] || (population === "BATTERS" ? "batter_hr_per_pa" : "pitcher_whip");
+  const dimY = notes["seg.dimY"] || (population === "BATTERS" ? "batter_so_per_pa" : "pitcher_so_per_bfp");
+  const setDim = (axis: "X" | "Y", v: string) => setNote(axis === "X" ? "seg.dimX" : "seg.dimY", v);
   const runGrid = () => grid.run("/cockpit/segmentation/grid", { population, dimX, dimY });
+
   return (
     <div className="space-y-4">
-      <Card title="Player segmentation — exploratory workbench" description="Research-only: do natural batter/pitcher archetypes exist? Fitted on development player state. It never changes the PA model and creates no per-player boosts." icon={Boxes}
-        action={<Pill label="RESEARCH ONLY" tone="violet" />}>
+      <Card title="Player segmentation — exploratory workbench" icon={Boxes} action={<Pill label="RESEARCH ONLY" tone="violet" />}
+        description="Do natural batter/pitcher archetypes exist? Fitted on development (2023) player state. It never changes the PA model and creates no per-player boosts — any use as a feature must go through an explicit challenger.">
         <div className="flex flex-wrap items-end gap-4">
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Population</div>
-            <Segmented value={population} onChange={(v) => setPopulation(v as any)} options={[{ value: "BATTERS", label: "Batters" }, { value: "PITCHERS", label: "Pitchers" }]} /></div>
-          {summary.data && <div className="text-sm text-slate-600">{summary.data.players} players · {summary.data.candidateFeatures.length} features</div>}
-          <Button onClick={runK} tone="dark" disabled={km.status === "loading"}>{km.status === "loading" ? "Clustering…" : "▶ Run K-means (K=2–8)"}</Button>
+            <Segmented value={population} onChange={setPopulation as any} options={[{ value: "BATTERS", label: "Batters" }, { value: "PITCHERS", label: "Pitchers" }]} /></div>
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Method</div>
+            <Segmented value={method} onChange={setMethod as any} options={SEG_METHODS} /></div>
+          {summary.data && <div className="text-sm text-slate-600">{summary.data.players} players · {feats.length} features</div>}
         </div>
       </Card>
-      {km.data && (
+
+      {/* ---------------- K-means guidance ---------------- */}
+      {method === "kmeans" && (
         <>
-          <Card title="Cluster diagnostics" description={km.data.recommendationRationale} icon={Boxes}
-            action={<Pill label={`Recommended K=${km.data.recommendedK}`} tone="cyan" />}>
-            <LineChart categories={km.data.results.map((r: any) => `K${r.k}`)}
-              series={[{ name: "Silhouette (↑)", data: km.data.results.map((r: any) => r.silhouette), color: "#0891b2" },
-                       { name: "Davies-Bouldin (↓)", data: km.data.results.map((r: any) => r.daviesBouldin), color: "#e11d48" }]} height={200} />
-            <p className="mt-2 text-xs text-slate-500">{km.data.note}</p>
+          <Card title="K-means guidance" icon={Boxes} description="Fit K = 2–8 and read the diagnostics. Higher silhouette and lower Davies-Bouldin are generally better; very small clusters are often unstable. Statistical separation alone does not prove predictive usefulness."
+            action={<Button tone="dark" onClick={runK} disabled={km.status === "loading"}>{km.status === "loading" ? "Clustering…" : "▶ Fit K = 2–8"}</Button>}>
+            {km.data && (
+              <>
+                <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs"><Pill label={`Recommended exploratory K = ${km.data.recommendedK}`} tone="cyan" /><span className="text-slate-600">{km.data.recommendationRationale}</span></div>
+                <LineChart categories={km.data.results.map((r: any) => `K${r.k}`)}
+                  series={[{ name: "Silhouette (↑)", data: km.data.results.map((r: any) => r.silhouette), color: "#0891b2" }, { name: "Davies-Bouldin (↓)", data: km.data.results.map((r: any) => r.daviesBouldin), color: "#e11d48" }]} height={190} />
+                <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs">
+                  <thead><tr className="text-slate-500">{["K", "Silhouette", "Davies-Bouldin", "Size balance", "Smallest cluster", "", ""].map((h, i) => <th key={i} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
+                  <tbody>{km.data.results.map((r: any) => (
+                    <tr key={r.k} className={selectedK === r.k ? "bg-cyan-50" : ""}>
+                      <td className="border-b border-slate-100 px-2 py-1.5 font-semibold">{r.k}{r.k === km.data.recommendedK ? " ★" : ""}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.silhouette, 3)}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.daviesBouldin, 2)}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.sizeBalance, 2)}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.pct(r.minClusterShare)}{r.tinyCluster ? <Pill label="tiny" tone="amber" /> : null}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5" colSpan={2}><button onClick={() => selectK(r.k)} className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${selectedK === r.k ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>{selectedK === r.k ? "Selected" : "Explore this K"}</button></td>
+                    </tr>))}</tbody>
+                </table></div>
+                <p className="mt-2 text-xs text-slate-500">{km.data.note}</p>
+              </>
+            )}
           </Card>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {pca.data && <Card title="PCA cluster map" description={`PC1 ${fmt.pct(pca.data.explainedVariance[0])} + PC2 ${fmt.pct(pca.data.explainedVariance[1])} of variance.`} icon={Boxes}>
-              <ScatterClusters points={pca.data.points} />
-            </Card>}
-            {stab.data && <Card title="Temporal cluster stability" description="2024 players projected onto 2023-fitted centroids." icon={Boxes}>
-              <div className="flex items-center gap-4">
-                <MetricCard label="Same cluster 2023→2024" value={stab.data.sameClusterPct != null ? fmt.pct(stab.data.sameClusterPct) : "—"} detail={`${stab.data.commonPlayers} common players`} />
-              </div>
-              <p className="mt-2 text-xs text-slate-500">{stab.data.note}</p>
-            </Card>}
-          </div>
-          {pca.data && <Card title="Cluster profiles" description="Mean prior-state characteristics per cluster (interpret, then label)." icon={Boxes}>
-            <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs">
-              <thead><tr className="text-slate-500"><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Cluster</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Players</th>{feats.map((f) => <th key={f} className="border-b border-slate-200 px-2 py-1.5 font-semibold">{f.replace(population === "BATTERS" ? "batter_" : "pitcher_", "")}</th>)}</tr></thead>
-              <tbody>{pca.data.profiles.map((p: any) => (
-                <tr key={p.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{p.cluster}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{p.players}</td>
-                  {feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(p.centroid[f], 3)}</td>)}</tr>))}</tbody>
-            </table></div>
-          </Card>}
+          {(pca.data || stab.data) && <SegClusterViews pca={pca.data} stab={stab.data} feats={feats} short={short} titleK={selectedK} />}
         </>
       )}
-      <Card title="3×3 grid designer" description="Interpretable segmentation on two derived dimensions with development-only tercile boundaries." icon={Boxes}
-        action={<Button size="sm" tone="dark" onClick={runGrid} disabled={grid.status === "loading"}>{grid.status === "loading" ? "Building…" : "Build grid"}</Button>}>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension X</span>
-            <select value={dimX} onChange={(e) => setDimX(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
-          <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension Y</span>
-            <select value={dimY} onChange={(e) => setDimY(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
-        </div>
-        {grid.data && (
-          <div className="mt-4">
-            <div className="grid grid-cols-3 gap-1.5" style={{ maxWidth: 420 }}>
-              {["HIGH", "MED", "LOW"].map((yl) => ["LOW", "MED", "HIGH"].map((xl) => {
-                const cell = grid.data.cells.find((c: any) => c.x === xl && c.y === yl);
-                const share = cell?.paShare || 0;
-                return <div key={`${xl}-${yl}`} className="rounded-lg border border-slate-200 p-2 text-center" style={{ background: `rgba(8,145,178,${Math.min(share * 4, 0.6)})` }}>
-                  <div className="text-[10px] font-semibold uppercase text-slate-500">{xl}·{yl}</div>
-                  <div className="text-lg font-semibold tabular-nums text-slate-900">{cell?.players ?? 0}</div>
-                  <div className="text-[10px] text-slate-500">{fmt.pct(share)} PA</div>
-                </div>;
-              }))}
+
+      {/* ---------------- DBSCAN ---------------- */}
+      {method === "dbscan" && (
+        <>
+          <Card title="DBSCAN — density segmentation" icon={Boxes} description="Finds dense archetype cores and leaves genuine outliers as NOISE (never forced into a cluster). Leave eps / min-samples blank to use the k-distance heuristic."
+            action={<Button tone="dark" onClick={runDb} disabled={db.status === "loading"}>{db.status === "loading" ? "Clustering…" : "▶ Run DBSCAN"}</Button>}>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">epsilon (eps)</span><input type="number" step={0.1} value={eps} placeholder={db.data ? String(db.data.suggestedEps) : "auto"} onChange={(e) => setEps(e.target.value === "" ? "" : Number(e.target.value))} className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
+              <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">min samples</span><input type="number" step={1} value={minSamples} placeholder="dim+1" onChange={(e) => setMinSamples(e.target.value === "" ? "" : Number(e.target.value))} className="w-28 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
+              {db.data && <div className="text-xs text-slate-500">suggested eps <b>{db.data.suggestedEps}</b> (k-distance 90th pct)</div>}
             </div>
-            <p className="mt-2 text-xs text-slate-500">X = {grid.data.dimX} (→ LOW/MED/HIGH), Y = {grid.data.dimY} (↑). Boundaries: {grid.data.boundaryScope}. Grid is exploratory until predictive-tested via ablation.</p>
-          </div>
-        )}
-      </Card>
+            {db.data && (
+              <div className="mt-3 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <MetricCard label="Clusters" value={String(db.data.nClusters)} detail={`eps ${db.data.eps} · min ${db.data.minSamples}`} />
+                  <MetricCard label="Noise / unassigned" value={fmt.int(db.data.noise)} detail={fmt.pct(db.data.noisePct)} />
+                  <MetricCard label="Players" value={String(db.data.players)} detail="development" />
+                  <MetricCard label="Assigned" value={String(db.data.players - db.data.noise)} detail={fmt.pct(1 - db.data.noisePct)} />
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">k-distance (choose eps at the elbow)</div>
+                    <LineChart categories={db.data.kDistance.map((d: any) => String(d.rank))} series={[{ name: `${db.data.minSamples}-distance`, data: db.data.kDistance.map((d: any) => d.dist), color: "#7c3aed" }]} height={180} /></div>
+                  <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">PCA map — cluster -1 is noise</div><ScatterClusters points={db.data.points} height={200} /></div>
+                </div>
+                {db.data.clusters.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs">
+                  <thead><tr className="text-slate-500"><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Cluster</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Players</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">PA share</th>{feats.map((f) => <th key={f} className="border-b border-slate-200 px-2 py-1.5 font-semibold">{short(f)}</th>)}</tr></thead>
+                  <tbody>{db.data.clusters.map((c: any) => (<tr key={c.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{c.cluster}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.players}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.pct(c.paShare)}</td>{feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(c.centroid[f], 3)}</td>)}</tr>))}</tbody>
+                </table></div>}
+                <p className="text-xs text-slate-500">{db.data.note}{km.data ? ` K-means (recommended K=${km.data.recommendedK}) found ${km.data.recommendedK} clusters with no explicit noise set — DBSCAN isolates ${fmt.pct(db.data.noisePct)} as outliers.` : ""}</p>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* ---------------- 3×3 grid + guidance ---------------- */}
+      {method === "grid" && (
+        <>
+          <Card title="Grid guidance — suggested dimensions" icon={Boxes} description="Ranked from the real development data (cell balance × non-redundancy), not baseball opinion. Load a suggestion or override.">
+            <LoadGate state={guide}>
+              {guide.data && <div className="flex flex-wrap gap-2">
+                {guide.data.suggestions.map((s: any) => (
+                  <button key={`${s.dimX}-${s.dimY}`} onClick={() => { setDim("X", s.dimX); setDim("Y", s.dimY); }}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs ${dimX === s.dimX && dimY === s.dimY ? "border-cyan-600 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+                    <div className="font-semibold text-slate-800">{short(s.dimX)} × {short(s.dimY)}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">score {s.score} · |r| {s.absCorr} · balance {s.cellBalance}{s.sparse ? " · sparse ⚠" : ""}</div>
+                  </button>))}
+              </div>}
+              {guide.data && <p className="mt-2 text-[11px] text-slate-500">{guide.data.note}</p>}
+            </LoadGate>
+          </Card>
+          <Card title="3×3 grid designer" icon={Boxes} description="Interpretable segmentation on two dimensions with development-only tercile boundaries."
+            action={<Button size="sm" tone="dark" onClick={runGrid} disabled={grid.status === "loading"}>{grid.status === "loading" ? "Building…" : "Build grid"}</Button>}>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension X</span>
+                <select value={dimX} onChange={(e) => setDim("X", e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Dimension Y</span>
+                <select value={dimY} onChange={(e) => setDim("Y", e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{feats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
+            </div>
+            {grid.data && (() => {
+              const minCell = Math.min(...grid.data.cells.map((c: any) => c.players));
+              const sparse = minCell < Math.max(3, Math.round(grid.data.players / 30));
+              return (
+                <div className="mt-4">
+                  <div className="grid grid-cols-3 gap-1.5" style={{ maxWidth: 420 }}>
+                    {["HIGH", "MED", "LOW"].map((yl) => ["LOW", "MED", "HIGH"].map((xl) => {
+                      const cell = grid.data.cells.find((c: any) => c.x === xl && c.y === yl);
+                      const share = cell?.paShare || 0;
+                      const tiny = (cell?.players ?? 0) < Math.max(3, Math.round(grid.data.players / 30));
+                      return <div key={`${xl}-${yl}`} className={`rounded-lg border p-2 text-center ${tiny ? "border-amber-300" : "border-slate-200"}`} style={{ background: `rgba(8,145,178,${Math.min(share * 4, 0.6)})` }}>
+                        <div className="text-[10px] font-semibold uppercase text-slate-500">{xl}·{yl}</div>
+                        <div className="text-lg font-semibold tabular-nums text-slate-900">{cell?.players ?? 0}</div>
+                        <div className="text-[10px] text-slate-500">{fmt.pct(share)} PA</div>
+                      </div>;
+                    }))}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">X = {grid.data.dimX} (→ LOW/MED/HIGH), Y = {grid.data.dimY} (↑). Boundaries: {grid.data.boundaryScope}.{sparse ? <span className="font-semibold text-amber-700"> Sparse-cell warning: smallest cell has {minCell} players.</span> : ""} Grid is exploratory until predictive-tested via ablation.</p>
+                </div>
+              );
+            })()}
+          </Card>
+        </>
+      )}
     </div>
   );
 }
 
+function SegClusterViews({ pca, stab, feats, short, titleK }: { pca: any; stab: any; feats: string[]; short: (f: string) => string; titleK: number }) {
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {pca && <Card title={`PCA cluster map${titleK ? ` · K=${titleK}` : ""}`} description={`PC1 ${fmt.pct(pca.explainedVariance[0])} + PC2 ${fmt.pct(pca.explainedVariance[1])} of variance.`} icon={Boxes}>
+          <ScatterClusters points={pca.points} />
+        </Card>}
+        {stab && <Card title="Temporal cluster stability" description="2024 players projected onto 2023-fitted centroids (descriptive)." icon={Boxes}>
+          <MetricCard label="Same cluster 2023→2024" value={stab.sameClusterPct != null ? fmt.pct(stab.sameClusterPct) : "—"} detail={`${stab.commonPlayers} common players`} />
+          <p className="mt-2 text-xs text-slate-500">{stab.note}</p>
+        </Card>}
+      </div>
+      {pca && <Card title="Cluster profiles" description="Mean prior-state characteristics per cluster (interpret, then label)." icon={Boxes}>
+        <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs">
+          <thead><tr className="text-slate-500"><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Cluster</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Players</th>{feats.map((f) => <th key={f} className="border-b border-slate-200 px-2 py-1.5 font-semibold">{short(f)}</th>)}</tr></thead>
+          <tbody>{pca.profiles.map((p: any) => (<tr key={p.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{p.cluster}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{p.players}</td>{feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(p.centroid[f], 3)}</td>)}</tr>))}</tbody>
+        </table></div>
+      </Card>}
+    </>
+  );
+}
+
 // ============================================================ 08 Temporal Split
+const TEMPORAL_POLICIES = [
+  { id: "SEASON_HOLDOUT", label: "Season holdout", blurb: "Train 2023 → validate 2024 → frozen 2025. The governed Gen-2 pattern." },
+  { id: "ROLLING_ORIGIN", label: "Rolling origin", blurb: "Expanding rolling-origin folds; the frozen season is evaluation-only, never a tuning fold." },
+  { id: "EXPANDING_WINDOW", label: "Expanding window", blurb: "Accumulate development history, then validate the next window." },
+  { id: "DATE_HOLDOUT", label: "Date holdout", blurb: "Split the development season by an actual game-date boundary." },
+  { id: "RANDOM", label: "Random split", blurb: "Ignores time order — for research comparison only." },
+];
+
 export function TemporalSplitStep() {
   const split = useEndpoint<TemporalSplit>("/cockpit/temporal-split");
+  const { notes, setNote, markSaved } = useCockpitStore();
+  const savedPolicy = notes["temporal.policy"] || "SEASON_HOLDOUT";        // governed default
+  const [policy, setPolicy] = useState(notes["temporal.previewPolicy"] || savedPolicy);
+  const [boundaryDate, setBoundaryDate] = useState("2023-07-01");
+  const [ackRandom, setAckRandom] = useState(false);
+  const preview = usePost<any>();
+  const isRandom = policy === "RANDOM";
+  const isRevised = policy !== "SEASON_HOLDOUT";
+  const unsaved = policy !== savedPolicy;
+
+  useEffect(() => {
+    setNote("temporal.previewPolicy", policy);                             // persist the previewed choice
+    preview.run("/cockpit/temporal-split/preview", { policy, boundaryDate });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [policy, boundaryDate]);
+
+  const savePolicy = () => { setNote("temporal.policy", policy); markSaved("split"); };
+  const p = preview.data;
+
   return (
     <LoadGate state={split}>
       {split.data && (
         <div className="space-y-4">
-          <Card title="Temporal split policy" description="Sports-native. The default governed pattern trains on 2023, validates on 2024, and reserves 2025 as the frozen final." icon={CalendarClock}
-            action={<Pill label={split.data.policy.replace(/_/g, " ")} tone="cyan" />}>
+          <Card title="Temporal split policy" icon={CalendarClock}
+            description="Choose a validation policy and see the concrete folds with real row counts. Frozen 2025 is never a tuning/selection fold."
+            action={<Pill label={unsaved ? "Unsaved preview" : "Saved"} tone={unsaved ? "amber" : "emerald"} />}>
             <div className="flex flex-wrap gap-2">
-              {split.data.supported.map((s) => (
-                <div key={s.id} className={`rounded-lg border px-3 py-2 text-xs ${s.active ? "border-cyan-600 bg-cyan-50" : "border-slate-200 bg-white"}`}>
-                  <div className="font-semibold text-slate-800">{s.label}{s.active ? " ·active" : ""}</div>
-                  {s.warning ? <div className="mt-0.5 text-[11px] font-semibold text-rose-600">{s.warning}</div> : <div className="mt-0.5 text-[11px] text-slate-500">{s.recommended ? "recommended" : "available"}</div>}
-                </div>
+              {TEMPORAL_POLICIES.map((t) => (
+                <button key={t.id} onClick={() => setPolicy(t.id)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${policy === t.id ? "border-cyan-600 bg-cyan-50 ring-1 ring-cyan-300" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+                  <div className="font-semibold text-slate-800">{t.label}{t.id === "SEASON_HOLDOUT" ? " · governed" : ""}{t.id === "RANDOM" ? "" : ""}</div>
+                  <div className="mt-0.5 max-w-[220px] text-[11px] text-slate-500">{t.blurb}</div>
+                  {t.id === "RANDOM" && <div className="mt-1 text-[10px] font-semibold text-rose-600">NOT RECOMMENDED FOR TEMPORAL SPORTS FORECASTING</div>}
+                </button>
               ))}
             </div>
+            {policy === "DATE_HOLDOUT" && (
+              <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-600">Development date boundary
+                <input type="date" value={boundaryDate} min="2023-03-30" max="2023-12-31" onChange={(e) => setBoundaryDate(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1 text-sm" /></label>
+            )}
+            {isRandom && (
+              <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-rose-700"><input type="checkbox" checked={ackRandom} onChange={(e) => setAckRandom(e.target.checked)} className="h-4 w-4 rounded border-rose-300" /> I acknowledge a random split is research-only and breaks temporal integrity.</label>
+            )}
           </Card>
-          <Card title="Fold timeline" description="Row counts per fold." icon={CalendarClock}>
-            <div className="space-y-2">
-              {split.data.folds.map((f) => (
-                <div key={f.role} className="flex items-center gap-3">
-                  <div className="w-28 text-xs font-semibold uppercase text-slate-500">{f.role.replace("_", " ")}</div>
-                  <div className="flex-1"><div className="h-8 overflow-hidden rounded-lg"><div className={`flex h-full items-center px-3 text-xs font-semibold text-white ${f.role === "frozen_final" ? "bg-rose-500" : f.role === "validation" ? "bg-amber-500" : "bg-emerald-600"}`} style={{ width: `${(f.rows / 185000) * 100}%` }}>{f.seasons.join(",")} · {fmt.int(f.rows)}</div></div></div>
+
+          {preview.status === "loading" && !p && <Card title="Computing folds…"><div className="flex justify-center py-6"><span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" /></div></Card>}
+          {preview.status === "error" && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">Temporal preview could not be computed. {preview.error}</div>}
+
+          {p && (
+            <>
+              <Card title="Proposed folds" icon={CalendarClock}
+                description={`${p.policy.replace(/_/g, " ")} · ${p.recommended ? "recommended" : p.researchOnly ? "research only" : "eligible"} · ${p.matchesGovernedContract ? "matches the governed Gen-2 contract" : "differs from the governed contract"}.`}>
+                <div className="space-y-2">
+                  {p.folds.map((f: any, i: number) => (
+                    <div key={i} className="rounded-lg border border-slate-200 p-3">
+                      <div className="mb-1 text-xs font-semibold uppercase text-slate-500">{String(f.foldId).replace(/-/g, " ")}{f.researchOnly ? " · research only" : ""}{f.boundaryDate ? ` · boundary ${f.boundaryDate}` : ""}</div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">Train {(f.training.seasons || [f.training.season]).join(",")}{f.training.dateRange ? ` ${f.training.dateRange[0].slice(0,10)}→${String(f.training.dateRange[1]).slice(0,10)}` : ""} · {fmt.int(f.training.rows)}</span>
+                        <span className={`rounded px-2 py-1 font-semibold ${f.validation.role === "FROZEN_EVAL_ONLY" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{f.validation.role === "FROZEN_EVAL_ONLY" ? "Frozen eval" : "Validate"} {f.validation.season}{f.validation.dateRange ? ` ${String(f.validation.dateRange[0]).slice(0,10)}→${f.validation.dateRange[1].slice(0,10)}` : ""} · {fmt.int(f.validation.rows)}</span>
+                        {f.frozen && <span className="rounded bg-rose-50 px-2 py-1 font-semibold text-rose-700">Frozen {f.frozen.season} · {fmt.int(f.frozen.rows)} (held out)</span>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </Card>
-          <Card title="Leakage guards" description="Fail-closed temporal integrity." icon={CalendarClock}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {split.data.leakageGuards.map((g) => (
-                <div key={g.guard} className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
-                  <span className="text-xs font-medium text-slate-700">{g.guard}</span><Pill label={g.status.replace(/_/g, " ")} tone="emerald" />
+                <div className="mt-2 text-[11px] text-slate-500">{p.frozenNote} · development dates {p.devDateRange[0].slice(0,10)} → {p.devDateRange[1].slice(0,10)}.</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {isRevised ? (
+                    <>
+                      <Button tone="dark" onClick={savePolicy} disabled={isRandom && !ackRandom}>Create revised temporal experiment</Button>
+                      <span className="text-[11px] text-slate-500">Saves a research policy for a new challenger — never mutates the governed Gen-2 contract or D3.</span>
+                    </>
+                  ) : (
+                    <><Button tone="primary" onClick={savePolicy}>{unsaved ? "Save temporal policy" : "Saved ✓"}</Button>
+                      <span className="text-[11px] text-slate-500">Governed season-holdout — dev 2023 / val 2024 / frozen 2025.</span></>
+                  )}
+                  <Pill label={p.leakageStatus.replace(/_/g, " ")} tone={p.leakageStatus.includes("PROTECTED") ? "emerald" : "rose"} />
                 </div>
-              ))}
-            </div>
-          </Card>
+              </Card>
+
+              <Card title="Leakage guards" description="Fail-closed temporal integrity." icon={CalendarClock}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {split.data.leakageGuards.map((g) => (
+                    <div key={g.guard} className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2">
+                      <span className="text-xs font-medium text-slate-700">{g.guard}</span><Pill label={g.status.replace(/_/g, " ")} tone="emerald" />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </>
+          )}
         </div>
       )}
     </LoadGate>

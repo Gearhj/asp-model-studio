@@ -103,6 +103,13 @@ def temporal_split() -> dict[str, Any]:
     }
 
 
+@router.post("/cockpit/temporal-split/preview")
+def temporal_split_preview(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    policy = payload.get("policy") or "SEASON_HOLDOUT"
+    boundary_date = payload.get("boundaryDate")
+    return _guard(E.temporal_split_preview, policy, boundary_date)
+
+
 @router.get("/cockpit/model-families")
 def model_families() -> dict[str, Any]:
     fams = []
@@ -192,6 +199,21 @@ def seg_kmeans(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
 def seg_pca(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.pca_scatter, payload.get("population", "BATTERS"), payload.get("features") or [], int(payload.get("k", 4)))
+
+
+@router.post("/cockpit/segmentation/dbscan")
+def seg_dbscan(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    from . import segmentation as SEG
+    eps = payload.get("eps")
+    min_samples = payload.get("minSamples")
+    return _guard(SEG.run_dbscan, payload.get("population", "BATTERS"), payload.get("features") or [],
+                  float(eps) if eps else None, int(min_samples) if min_samples else None)
+
+
+@router.get("/cockpit/segmentation/grid-guidance")
+def seg_grid_guidance(population: str = "BATTERS") -> dict[str, Any]:
+    from . import segmentation as SEG
+    return _guard(SEG.grid_guidance, population)
 
 
 @router.post("/cockpit/segmentation/stability")
