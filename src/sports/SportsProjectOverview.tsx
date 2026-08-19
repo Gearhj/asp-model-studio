@@ -73,7 +73,7 @@ export default function SportsProjectOverview() {
           <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-5 backdrop-blur">
             <div className="flex items-end justify-between"><span className="text-sm font-medium text-slate-300">Program completion</span><strong className="text-3xl tabular-nums text-white">{summary.pct}%</strong></div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-gradient-to-r from-teal-400 to-cyan-300" style={{ width: `${summary.pct}%` }} /></div>
-            <p className="mt-3 text-xs leading-5 text-slate-400">{summary.complete} of {summary.total} complete · {summary.ready} ready · {summary.blocked} blocked</p>
+            <p className="mt-3 text-xs leading-5 text-slate-400">{summary.complete} of {summary.total} complete · {summary.ready} ready · {(summary as any).available ?? 0} evidence available · {summary.blocked} blocked</p>
           </div>
         </div>
       </section>
@@ -116,7 +116,7 @@ function StageCard({ r }: { r: StageResolution }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3 className="text-base font-semibold text-slate-950">{r.title}</h3>
-            <span className={`sports-status ${STATUS_CHIP[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+            <span className={`sports-status ${STATUS_CHIP[r.status]}`}>{r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE" && r.status !== "COMPLETE" ? "Available" : STATUS_LABEL[r.status]}</span>
           </div>
           {blocked ? (
             <p className="mt-2 text-sm text-slate-500">Requires: {r.blockedReason}</p>

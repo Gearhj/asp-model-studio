@@ -1,7 +1,6 @@
 // Stage 2 — Baseball Data Evidence. Detects the already-registered governed FD1 dataset and lets
 // the scientist bind (reference) it to this project. Binding is a local project→dataset reference:
 // no data copy, no duplicate registration, no change to immutable authority.
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Database, ExternalLink, TriangleAlert } from "lucide-react";
 import type { ActiveSportsDataset } from "../sportsEvidenceApi";
@@ -16,7 +15,6 @@ export function DatasetBindingPanel({
   bound: boolean;
   onBound: () => void;
 }) {
-  const [justBound, setJustBound] = useState(false);
 
   if (datasetStatus === "error") {
     return (
@@ -37,6 +35,7 @@ export function DatasetBindingPanel({
     );
   }
 
+  // Bind and advance immediately — no interstitial confirmation screen.
   const doBind = () => {
     saveBinding({
       projectId,
@@ -46,21 +45,20 @@ export function DatasetBindingPanel({
       seasons: dataset.seasons,
       boundAt: new Date().toISOString(),
     });
-    setJustBound(true);
+    onBound();
   };
 
-  if (bound || justBound) {
+  if (bound) {
     return (
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
-        <div className="flex items-center gap-2 text-emerald-800"><CheckCircle2 size={20} /><span className="text-lg font-semibold">Step 2 complete</span></div>
+        <div className="flex items-center gap-2 text-emerald-800"><CheckCircle2 size={20} /><span className="text-lg font-semibold">Dataset bound to this project</span></div>
         <div className="mt-3 grid gap-2 text-sm text-emerald-900 sm:grid-cols-2">
           <Fact label="Dataset" value={`${dataset.datasetId} · ${dataset.validationStatus}`} />
           <Fact label="Season coverage" value={dataset.seasons.join(", ")} />
           <Fact label="Rights" value={dataset.rightsStatus || "Local private research"} />
           <Fact label="Manifest authority" value={`${dataset.manifestSha.slice(0, 16)}…`} />
         </div>
-        {justBound && <button onClick={onBound} className="sports-primary-button mt-4">Continue to Identity, Coverage &amp; Leakage →</button>}
-        {!justBound && <p className="mt-3 text-xs text-emerald-800">This project references the governed dataset. No data was copied and no duplicate registration was created.</p>}
+        <p className="mt-3 text-xs text-emerald-800">This project references the governed dataset. No data was copied and no duplicate registration was created.</p>
       </section>
     );
   }

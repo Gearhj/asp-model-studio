@@ -2,7 +2,7 @@
 // and formalizes the target, temporal policy, and evidence mode, then registers a versioned
 // forecast contract. The 2025 frozen season is visually distinct and never used for selection.
 import { useState } from "react";
-import { CheckCircle2, ShieldCheck, Sparkles } from "lucide-react";
+import { ShieldCheck, Sparkles } from "lucide-react";
 import type { SportsProjectMetadata } from "../sportsConfig";
 import { TARGETS_BY_WORKFLOW, FORECAST_LIFECYCLES } from "../sportsConfig";
 import { DEFAULT_TEMPORAL, saveContract, type ForecastContract } from "./workflowState";
@@ -28,11 +28,10 @@ export function ForecastContractPanel({
   const [evidenceMode, setEvidenceMode] = useState<"STRICT" | "ENHANCED">(existing?.evidenceMode || "ENHANCED");
   const [purpose, setPurpose] = useState(existing?.researchPurpose || metadata?.researchPurpose || "");
   const [notes, setNotes] = useState(existing?.notes || metadata?.description || "");
-  const [saved, setSaved] = useState(false);
-
   const devSeasons = YEARS.filter((y) => y >= devStart && y <= devEnd);
   const valid = devSeasons.length > 0 && devEnd < valSeason && valSeason < frozenSeason;
 
+  // Save and advance immediately — no interstitial confirmation screen.
   const save = () => {
     if (!valid) return;
     const contract: ForecastContract = {
@@ -51,18 +50,8 @@ export function ForecastContractPanel({
       savedAt: new Date().toISOString(),
     };
     saveContract(contract);
-    setSaved(true);
+    onSaved();
   };
-
-  if (saved) {
-    return (
-      <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
-        <div className="flex items-center gap-2 text-emerald-800"><CheckCircle2 size={20} /><span className="text-lg font-semibold">Step 1 complete</span></div>
-        <p className="mt-2 text-sm text-emerald-900">Forecast contract registered · <b>mlb-forecast-contract v{(existing?.version ?? 0) + 1}</b> · target {target} · frozen {frozenSeason}.</p>
-        <button onClick={onSaved} className="sports-primary-button mt-4">Continue to Baseball Data Evidence →</button>
-      </section>
-    );
-  }
 
   return (
     <section className="sports-panel p-5 sm:p-6">
