@@ -596,6 +596,34 @@ export function SevereMissForensicsSection({ forensics }: { forensics?: SportsSe
   );
 }
 
+// Analytical body reused in both the standalone page and the guided workflow (Step 4).
+export function PlayerTeamStateBody({ study }: { study?: SportsPhase4Study }) {
+  const component = study?.components.dynamicState;
+  const descriptor = component?.descriptor ?? {};
+  return (
+    <>
+      {!component ? (
+        <Empty>MLB_DYNAMIC_PLAYER_STATE_V1 has not been registered. Phase 3 remains the active static research baseline.</Empty>
+      ) : (
+        <>
+          <Card title="Dynamic-state coverage" description="Missing history, effective sample size, and uncertainty remain explicit in the governed summary."><EvidenceGrid evidence={component.coverage} /></Card>
+          <Card title="D0–D4 temporal comparison" description="Candidate selection uses 2024 only; the 2025 rows are frozen retrospective evaluation evidence."><CandidateTable component={component} metricKeys={["logLoss", "brierScore", "topLabelEce"]} /></Card>
+          <Card title="History-coverage performance"><EffectiveSampleSizeChart component={component} /></Card>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <Card title="Recency and shrinkage selection"><EvidenceGrid evidence={descriptor} /></Card>
+            <Card title="Calibration and bootstrap"><EvidenceGrid evidence={{ ...record(component.calibration), bootstrapComparisons: component.bootstrap.length }} /></Card>
+          </div>
+          <Card title="Decision limitations"><Limitations values={component.limitations} /></Card>
+        </>
+      )}
+      <PitchSequenceProcessSection features={study?.pitchSequenceFeatures} />
+      <ProcessInteractionsSection interactions={study?.processInteractions} />
+      <IncrementalSignalStudySection study={study?.incrementalSignalStudy} />
+      <SevereMissForensicsSection forensics={study?.severeMissForensics} />
+    </>
+  );
+}
+
 export function PlayerTeamStatePage() {
   const evidence = useActiveSportsDataset();
   const study = evidence.status === "ready" ? evidence.data.phase4 : undefined;
@@ -615,24 +643,7 @@ export function PlayerTeamStatePage() {
         { label: "Phase 3 comparator", value: "D0 · frozen raw C4" },
       ]}
     >
-      {!component ? (
-        <Empty>MLB_DYNAMIC_PLAYER_STATE_V1 has not been registered. Phase 3 remains the active static research baseline.</Empty>
-      ) : (
-        <>
-          <Card title="Dynamic-state coverage" description="Missing history, effective sample size, and uncertainty remain explicit in the governed summary."><EvidenceGrid evidence={component.coverage} /></Card>
-          <Card title="D0–D4 temporal comparison" description="Candidate selection uses 2024 only; the 2025 rows are frozen retrospective evaluation evidence."><CandidateTable component={component} metricKeys={["logLoss", "brierScore", "topLabelEce"]} /></Card>
-          <Card title="History-coverage performance"><EffectiveSampleSizeChart component={component} /></Card>
-          <div className="grid gap-5 xl:grid-cols-2">
-            <Card title="Recency and shrinkage selection"><EvidenceGrid evidence={descriptor} /></Card>
-            <Card title="Calibration and bootstrap"><EvidenceGrid evidence={{ ...record(component.calibration), bootstrapComparisons: component.bootstrap.length }} /></Card>
-          </div>
-          <Card title="Decision limitations"><Limitations values={component.limitations} /></Card>
-        </>
-      )}
-      <PitchSequenceProcessSection features={study?.pitchSequenceFeatures} />
-      <ProcessInteractionsSection interactions={study?.processInteractions} />
-      <IncrementalSignalStudySection study={study?.incrementalSignalStudy} />
-      <SevereMissForensicsSection forensics={study?.severeMissForensics} />
+      <PlayerTeamStateBody study={study} />
     </SurfaceFrame>
   );
 }
@@ -771,6 +782,32 @@ export function CatcherInfluenceReadinessSection({ readiness }: { readiness?: Sp
   );
 }
 
+// Analytical body reused in both the standalone page and the guided workflow (Step 5).
+export function ParticipationUsageBody({ study }: { study?: SportsPhase4Study }) {
+  return (
+    <>
+      {PARTICIPATION_DEFINITIONS.map(({ key, title, distinction, metrics }) => {
+        const component = study?.components[key];
+        return (
+          <Card key={key} title={title} description={distinction}>
+            {!component ? <Empty>{title} evidence has not been registered.</Empty> : (
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3"><Status value={component.status} /><span className="text-sm text-slate-600">{component.decisionReason}</span></div>
+                <EvidenceGrid evidence={component.coverage} />
+                <CandidateTable component={component} metricKeys={metrics.slice(0, 2)} />
+                <Limitations values={component.limitations} />
+              </div>
+            )}
+          </Card>
+        );
+      })}
+      <StarterIdentitySection starter={study?.starterIdentity} />
+      <ParticipationAblationSection ablation={study?.participationAblation} />
+      <CatcherInfluenceReadinessSection readiness={study?.catcherReadiness} />
+    </>
+  );
+}
+
 export function ParticipationUsagePage() {
   const evidence = useActiveSportsDataset();
   const study = evidence.status === "ready" ? evidence.data.phase4 : undefined;
@@ -789,22 +826,7 @@ export function ParticipationUsagePage() {
         { label: "Simulator status", value: "NOT CONFIGURED" },
       ]}
     >
-      {PARTICIPATION_DEFINITIONS.map(({ key, title, distinction, metrics }) => {
-        const component = study?.components[key];
-        return (
-          <Card key={key} title={title} description={distinction}>
-            {!component ? <Empty>{title} evidence has not been registered.</Empty> : (
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-3"><Status value={component.status} /><span className="text-sm text-slate-600">{component.decisionReason}</span></div>
-                <EvidenceGrid evidence={component.coverage} />
-                <CandidateTable component={component} metricKeys={metrics.slice(0, 2)} />
-                <Limitations values={component.limitations} />
-              </div>
-            )}
-          </Card>
-        );
-      })}
-      <CatcherInfluenceReadinessSection readiness={study?.catcherReadiness} />
+      <ParticipationUsageBody study={study} />
     </SurfaceFrame>
   );
 }

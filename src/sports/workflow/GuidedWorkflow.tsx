@@ -2,10 +2,11 @@
 // shown as AVAILABLE / READY TO ADOPT, never silently COMPLETE — the project must adopt it. Steps 1
 // and 2 auto-advance (no interstitials); Step 3 reviews identity/leakage evidence inline; Steps
 // 4–11 review & adopt available evidence or open the real module to configure. No dead-end routes.
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, CircleDashed, CircleDot, Database, ExternalLink, Info, Lock,
+  PanelLeftClose, PanelLeftOpen,
   Target, ShieldCheck, UsersRound, SlidersHorizontal, GitBranch, Gauge, FlaskConical, Clock3,
   Network, PackageCheck, TriangleAlert,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
 } from "./workflowState";
 import { ForecastContractPanel } from "./ForecastContractPanel";
 import { DatasetBindingPanel } from "./DatasetBindingPanel";
+import { GuidedStageContent, AdoptBar } from "./GuidedStageContent";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, ShieldCheck, UsersRound, SlidersHorizontal, GitBranch, Gauge, FlaskConical, Clock3, CheckCircle2, Network, PackageCheck];
 
@@ -53,6 +55,7 @@ export default function GuidedWorkflow() {
   const focusNumber = Number(params.get("step")) || firstActionableStage(resolutions);
   const focus = resolutions.find((r) => r.number === focusNumber) || resolutions[0];
   const justDone = Number(params.get("done")) || 0;
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
 
   const goStep = (n: number) => setParams((p) => { const np = new URLSearchParams(p); np.set("step", String(n)); np.delete("done"); return np; });
@@ -85,30 +88,37 @@ export default function GuidedWorkflow() {
         </div>
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className={`grid gap-5 ${navCollapsed ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
         <nav className="lg:sticky lg:top-4 lg:self-start" aria-label="Workflow stages">
-          <ol className="space-y-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            {resolutions.map((r, i) => {
-              const Icon = STEP_ICONS[i];
-              const active = r.number === focus.number;
-              const style = STATUS_STYLE[r.status];
-              const avail = r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE";
-              return (
-                <li key={r.id}>
-                  <button onClick={() => goStep(r.number)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? "bg-slate-900 text-white" : "hover:bg-slate-50"}`}>
-                    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold tabular-nums ${r.status === "COMPLETE" ? "bg-emerald-100 text-emerald-700" : active ? "bg-cyan-400/20 text-cyan-200" : "bg-slate-100 text-slate-500"}`}>
-                      {r.status === "COMPLETE" ? <CheckCircle2 size={15} /> : r.number}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className={`block truncate text-sm font-semibold ${active ? "text-white" : "text-slate-800"}`}>{r.title}</span>
-                      <span className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${active ? "text-slate-300" : "text-slate-400"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{avail && r.status !== "COMPLETE" ? "Evidence available" : style.label}</span>
-                    </span>
-                    {!active && <Icon size={15} className="shrink-0 text-slate-300" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+          <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+            <button onClick={() => setNavCollapsed((c) => !c)} className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50" title={navCollapsed ? "Expand stages" : "Collapse stages"}>
+              {navCollapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /> Collapse</>}
+            </button>
+            <ol className="space-y-1">
+              {resolutions.map((r, i) => {
+                const Icon = STEP_ICONS[i];
+                const active = r.number === focus.number;
+                const style = STATUS_STYLE[r.status];
+                const avail = r.evidenceState === "WORKSPACE_EVIDENCE_AVAILABLE";
+                return (
+                  <li key={r.id}>
+                    <button onClick={() => goStep(r.number)} title={r.title} className={`flex w-full items-center gap-3 rounded-xl ${navCollapsed ? "justify-center px-1.5" : "px-3"} py-2.5 text-left transition ${active ? "bg-slate-900 text-white" : "hover:bg-slate-50"}`}>
+                      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-bold tabular-nums ${r.status === "COMPLETE" ? "bg-emerald-100 text-emerald-700" : active ? "bg-cyan-400/20 text-cyan-200" : "bg-slate-100 text-slate-500"}`}>
+                        {r.status === "COMPLETE" ? <CheckCircle2 size={15} /> : r.number}
+                      </span>
+                      {!navCollapsed && <>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block truncate text-sm font-semibold ${active ? "text-white" : "text-slate-800"}`}>{r.title}</span>
+                          <span className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${active ? "text-slate-300" : "text-slate-400"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{avail && r.status !== "COMPLETE" ? "Evidence available" : style.label}</span>
+                        </span>
+                        {!active && <Icon size={15} className="shrink-0 text-slate-300" />}
+                      </>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
         </nav>
 
         <div className="min-w-0 space-y-4">
@@ -193,7 +203,13 @@ function StageWorkspace({
       {focus.number === 1 && <ForecastContractPanel projectId={projectId} metadata={metadata} existing={loadContract(projectId)} onSaved={() => onCompleted(2, 1)} />}
       {focus.number === 2 && <DatasetBindingPanel projectId={projectId} dataset={dataset} datasetStatus={datasetStatus} bound={focus.status === "COMPLETE"} onBound={() => onCompleted(3, 2)} />}
       {focus.number === 3 && <IdentityEvidenceStage focus={focus} dataset={dataset} onAdopt={() => { adoptStage(projectId, 3); onCompleted(4, 3); }} />}
-      {focus.number >= 4 && <AdoptOrConfigureStage focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); onCompleted(focus.number + 1, focus.number); }} />}
+      {focus.number >= 4 && focus.number <= 11 && (
+        <>
+          <GuidedStageContent number={focus.number} dataset={dataset} />
+          <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); onCompleted(focus.number + 1, focus.number); }} />
+        </>
+      )}
+      {focus.number === 12 && <AdoptOrConfigureStage focus={focus} onAdopt={() => {}} />}
 
       {focus.status === "COMPLETE" && focus.evidence.length > 0 && (
         <section className="sports-panel p-5">

@@ -177,3 +177,47 @@ test("no functional regression: sidebar modules preserved", () => {
     assert.ok(sidebar.includes(mod), `sidebar missing ${mod}`);
   }
 });
+
+// ---- Phase 6C.2: continuous project workspace (embedded content) ----
+const [stageContent, cockpit, phase4] = await Promise.all([
+  readFile(new URL("src/sports/workflow/GuidedStageContent.tsx", ROOT), "utf8"),
+  readFile(new URL("src/sports/cockpit/PaModelingCockpit.tsx", ROOT), "utf8"),
+  readFile(new URL("src/sports/Phase4Surfaces.tsx", ROOT), "utf8"),
+]);
+
+test("guided steps 4-11 embed analytical content inside the shell (no route-out primary)", () => {
+  assert.ok(guided.includes("GuidedStageContent") && guided.includes("AdoptBar"));
+  assert.ok(guided.includes("focus.number >= 4 && focus.number <= 11"));
+});
+
+test("Step 6 embeds the PA Modeling Cockpit (reuse, not duplicate)", () => {
+  assert.ok(stageContent.includes("<PaModelingCockpit embedded />"));
+  assert.ok(cockpit.includes("embedded = false") || cockpit.includes("embedded?:"));
+  // embedded mode suppresses the standalone hero
+  assert.ok(cockpit.includes("{!embedded &&"));
+});
+
+test("Steps 4 & 5 reuse the standalone content bodies (single implementation)", () => {
+  assert.ok(phase4.includes("export function PlayerTeamStateBody"));
+  assert.ok(phase4.includes("export function ParticipationUsageBody"));
+  assert.ok(stageContent.includes("PlayerTeamStateBody") && stageContent.includes("ParticipationUsageBody"));
+});
+
+test("standalone module pages and routes are preserved", () => {
+  // standalone pages still exist and wrap the shared bodies
+  assert.ok(phase4.includes("export function PlayerTeamStatePage"));
+  assert.ok(phase4.includes("export function ParticipationUsagePage"));
+  for (const r of ["/player-team-state", "/participation-usage", "/pa-modeling-cockpit", "/simulation-studio"]) {
+    assert.ok(modelingApp.includes(r), `standalone route ${r} removed`);
+  }
+});
+
+test("embedded workspace offers optional expert escape, not a required return", () => {
+  assert.ok(stageContent.includes("Open full"));
+  assert.ok(!stageContent.includes("<iframe")); // reuse components, never iframe-embed pages
+});
+
+test("Step 4 shows adopted baseline plus honest optional research", () => {
+  assert.ok(stageContent.includes("Adopted player-state baseline"));
+  assert.ok(stageContent.includes("Optional / advanced research"));
+});

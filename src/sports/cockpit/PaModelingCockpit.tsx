@@ -35,7 +35,7 @@ const STEPS: Step[] = [
   { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: () => <RegistryStep /> },
 ];
 
-export default function PaModelingCockpit() {
+export default function PaModelingCockpit({ embedded = false }: { embedded?: boolean } = {}) {
   const [active, setActive] = useState("objective");
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { config, savedSteps, lastResult } = useCockpitStore();
@@ -44,8 +44,8 @@ export default function PaModelingCockpit() {
 
   return (
     <div className="min-w-0 space-y-4 pb-10">
-      {/* Persistent context header */}
-      <header className="relative isolate overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-xl">
+      {/* Persistent context header — suppressed when embedded in the guided workflow shell */}
+      {!embedded && <header className="relative isolate overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-xl">
         <div className="pointer-events-none absolute inset-0 opacity-70" aria-hidden="true"
           style={{ backgroundImage: "radial-gradient(circle at 85% 12%, rgba(34,211,238,.20), transparent 26%), linear-gradient(rgba(148,163,184,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.05) 1px, transparent 1px)", backgroundSize: "auto, 32px 32px, 32px 32px" }} />
         <div className="relative flex flex-col gap-4 p-5 sm:p-6 lg:flex-row lg:items-end lg:justify-between">
@@ -70,7 +70,7 @@ export default function PaModelingCockpit() {
             ))}
           </dl>
         </div>
-      </header>
+      </header>}
 
       <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         {/* Step navigation */}
