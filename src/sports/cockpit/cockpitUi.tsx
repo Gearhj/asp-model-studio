@@ -235,6 +235,29 @@ export function OutlierHistogramPair({ before, after, lower, upper, treated, hei
   );
 }
 
+// Missing-value before/after pair: observed distribution (excluding missing) on the left and the
+// post-imputation distribution on the right, both sharing the observed x-axis. A violet marker shows
+// the development-fold fill value so the scientist can see the mass imputation introduces.
+export function ImputationHistogramPair({ before, after, fill, fillLabel, height = 150 }:
+  { before: HistBin[]; after: HistBin[]; fill: number | null; fillLabel?: string; height?: number }) {
+  if (!before.length) return null;
+  const min = before[0].lo;
+  const max = before[before.length - 1].hi;
+  const markers = fill !== null && fill !== undefined ? [{ value: fill, label: fillLabel ?? "Fill", color: "#7c3aed" }] : [];
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Observed · before imputation</div>
+        {chart(outlierHistOption(before, { color: "#0891b2", markers, min, max }), height)}
+      </div>
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">After imputation · fill marked</div>
+        {chart(outlierHistOption(after, { color: "#7c3aed", markers, min, max }), height)}
+      </div>
+    </div>
+  );
+}
+
 export function CalibrationChart({ reliability, height = 240 }: { reliability: { meanPredicted: number; observed: number; count: number }[]; height?: number }) {
   const pts = reliability.filter((r) => r.count > 0).map((r) => [r.meanPredicted, r.observed]);
   return chart({

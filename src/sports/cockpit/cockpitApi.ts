@@ -81,11 +81,19 @@ export type OutlierSummary = {
   scope: string; totalObservations: number; featuresAnalyzed: number; featuresWithOutliers: number;
   totalFlagged: number; flaggedPct: number; features: OutlierEntry[];
 };
+export type HistBin = { lo: number; hi: number; count: number };
 export type MissingEntry = {
-  feature: string; role: string; kind: string; missing: number; missingPct: number; method: string;
-  indicator: boolean; bySeason: Record<string, number>;
+  feature: string; role: string; kind: string; missing: number; missingPct: number; nonMissing: number;
+  method: string; resolvedMethod: string; fillValue: number | null; indicator: boolean;
+  bySeason: Record<string, number>;
+  beforeHistogram: HistBin[] | null; afterHistogram: HistBin[] | null;
 };
-export type MissingSummary = { scope: string; featuresWithMissing: number; totalMissing: number; rowsAffected: number; features: MissingEntry[] };
+export type MissingSummary = {
+  scope: string; totalObservations: number; featuresAnalyzed: number;
+  continuousFeatures: number; categoricalFeatures: number;
+  featuresWithMissing: number; totalMissing: number; missingCellPct: number;
+  rowsAffected: number; rowsAffectedPct: number; addIndicator: boolean; features: MissingEntry[];
+};
 export type ModelFamily = { id: string; label: string; available: boolean; simulatorEligible: boolean; status: string };
 export type Champion = {
   family: string; featureCount: number; C: number; val2024: Metric; frozen2025: Metric;

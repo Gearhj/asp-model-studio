@@ -9,12 +9,12 @@ import {
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
   type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureDetail, type OutlierSummary, type OutlierEntry,
-  type MissingSummary, type TemporalSplit, type FeatureCatalog,
+  type MissingSummary, type MissingEntry, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
-  OutlierHistogramPair, LineChart, ScatterClusters, fmt,
+  OutlierHistogramPair, ImputationHistogramPair, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
 
@@ -474,49 +474,184 @@ export function OutliersStep() {
 }
 
 // ============================================================ 05 Missing Values
+const MISSING_METHODS = [
+  { value: "median", label: "Median" }, { value: "mean", label: "Mean" }, { value: "most_frequent", label: "Most frequent" },
+  { value: "constant", label: "Constant 0" }, { value: "none", label: "No imputation" },
+];
+const MISSING_METHOD_LABELS: Record<string, string> = { median: "Median", mean: "Mean", most_frequent: "Most frequent", constant: "Constant 0", none: "No imputation", none_median_fallback: "Median (fallback)" };
+const missingMethodLabel = (m: string) => MISSING_METHOD_LABELS[m] ?? m;
+const MISSING_METHOD_HELP: Record<string, string> = {
+  median: "Fills missing cells with the development-fold median — robust to outliers.",
+  mean: "Fills missing cells with the development-fold mean.",
+  most_frequent: "Fills missing cells with the most frequent development value (mode).",
+  constant: "Uses literal 0 as the fill value. For a baseball rate 0 is a real domain value — use only when zero is defensible, not as a neutral default.",
+  none: "The governed model matrix must be complete; no cockpit model family accepts raw NaN, so this falls back to the development-fold median. Enable the missing indicator to preserve the missingness signal.",
+};
+
 export function MissingStep() {
-  const { config, setMissingPolicy, markSaved, savedSteps } = useCockpitStore();
-  const [method, setMethod] = useState(config.missingPolicy.globalMethod);
-  const [indicator, setIndicator] = useState(!!config.missingPolicy.addIndicator);
+  const { config, setMissingPolicy, markSaved } = useCockpitStore();
+  const saved = config.missingPolicy;
+  const [method, setMethod] = useState(saved.globalMethod || "median");
+  const [indicator, setIndicator] = useState(!!saved.addIndicator);
+  const [overrides, setOverrides] = useState<Record<string, { method: string }>>((saved.overrides as any) ?? {});
+  const [sort, setSort] = useState<{ key: "feature" | "missing" | "missingPct"; dir: 1 | -1 }>({ key: "missing", dir: -1 });
+  const [onlyMissing, setOnlyMissing] = useState(true);
   const post = usePost<MissingSummary>();
-  const preview = () => post.run("/cockpit/missing", { policy: { globalMethod: method, addIndicator: indicator, overrides: {} } });
-  const save = () => { setMissingPolicy({ globalMethod: method, addIndicator: indicator, overrides: {} }); markSaved("missing"); };
+  const [d, setD] = useState<MissingSummary | undefined>();
+
+  const previewPolicy = { globalMethod: method, addIndicator: indicator, overrides };
+  const savedKey = JSON.stringify({ globalMethod: saved.globalMethod, addIndicator: !!saved.addIndicator, overrides: saved.overrides ?? {} });
+  const previewKey = JSON.stringify(previewPolicy);
+  const unsaved = savedKey !== previewKey;
+
+  // Reactive preview (debounced): one bounded fold-local (2023) call returns counts, fill statistics,
+  // per-season rates, and before/after histograms. The analytical body renders on load — never blank.
+  useEffect(() => {
+    const t = setTimeout(() => { post.run("/cockpit/missing", { policy: JSON.parse(previewKey) }); }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey]);
+  useEffect(() => { if (post.data) setD(post.data); }, [post.data]);
+
+  const save = () => { setMissingPolicy(previewPolicy); markSaved("missing"); };
+  const setOverride = (feature: string, m: string) => setOverrides((o) => {
+    const next = { ...o }; if (m === "global") delete next[feature]; else next[feature] = { method: m }; return next;
+  });
+
+  const rows = useMemo(() => {
+    if (!d) return [] as MissingEntry[];
+    const base = onlyMissing ? d.features.filter((f) => f.missing > 0) : d.features;
+    const val = (f: MissingEntry) => (sort.key === "feature" ? f.feature : (f as any)[sort.key]);
+    return [...base].sort((a, b) => (val(a) > val(b) ? sort.dir : val(a) < val(b) ? -sort.dir : 0));
+  }, [d, sort, onlyMissing]);
+
+  const Th = ({ k: key, label }: { k: "feature" | "missing" | "missingPct"; label: string }) => (
+    <th className="cursor-pointer border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:text-slate-900"
+      onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : -1 }))}>
+      <span className="inline-flex items-center gap-1">{label}<ArrowUpDown size={11} className={sort.key === key ? "text-cyan-600" : "text-slate-300"} /></span>
+    </th>
+  );
 
   return (
     <div className="space-y-4">
-      <Card title="Missing-value treatment" description="Comes after outliers. Fill statistics are learned fold-local on development. An optional indicator column preserves the missingness signal." icon={CircleSlash}
-        action={<Pill label="FOLD-LOCAL PREPROCESSING" tone="cyan" />}>
+      <Card title="Missing-value treatment" icon={CircleSlash} action={<Pill label="FOLD-LOCAL PREPROCESSING · DEV 2023" tone="cyan" />}
+        description="Applied after outlier capping. Fill statistics are learned on development (2023) only — validation (2024) and frozen final (2025) never determine imputation values. An optional indicator column preserves the missingness signal.">
         <div className="flex flex-wrap items-end gap-4">
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Global method</div>
-            <Segmented value={method} onChange={setMethod as any} options={[
-              { value: "median", label: "Median" }, { value: "mean", label: "Mean" }, { value: "most_frequent", label: "Most frequent" }, { value: "constant", label: "Constant 0" }, { value: "none", label: "No imputation" }]} /></div>
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={indicator} onChange={(e) => setIndicator(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />Add missing indicator</label>
-          <Button onClick={preview} tone="dark">{post.status === "loading" ? "Computing…" : "Preview"}</Button>
-          <Button onClick={save} tone={savedSteps.missing ? "ghost" : "primary"}>{savedSteps.missing ? "Saved ✓" : "Save missing policy"}</Button>
+            <Segmented value={method} onChange={setMethod as any} options={MISSING_METHODS} /></div>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <input type="checkbox" checked={indicator} onChange={(e) => setIndicator(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />Add missing indicator</label>
+          <Button onClick={save} tone={unsaved ? "primary" : "ghost"}>{unsaved ? "Save missing policy" : "Saved ✓"}</Button>
+        </div>
+        <p className="mt-2 max-w-3xl text-[11px] leading-4 text-slate-500">{MISSING_METHOD_HELP[method]}</p>
+        <p className="mt-1 max-w-3xl text-[11px] leading-4 text-slate-500"><b>Missing indicator:</b> when enabled, a binary column is added <b>only for continuous features that have missing values</b>, so the model can learn whether missingness itself carries signal (no predictive claim is made here).</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <Pill label={`Previewing · ${missingMethodLabel(method)} · indicators ${indicator ? "ON" : "OFF"}`} tone={unsaved ? "amber" : "emerald"} />
+          <span className="text-slate-400">Saved policy · {missingMethodLabel(saved.globalMethod || "median")} · indicators {saved.addIndicator ? "ON" : "OFF"}</span>
+          {unsaved && <span className="rounded bg-amber-100 px-2 py-0.5 font-semibold uppercase tracking-wide text-amber-800">Unsaved preview</span>}
+          {post.status === "loading" && d && <span className="text-slate-400">updating…</span>}
         </div>
       </Card>
-      {post.data && (
+
+      {/* State machine — the analytical region always renders a state, never blank. */}
+      {!d && post.status === "loading" && (
+        <Card title="Calculating development-fold missingness…"><div className="flex justify-center py-6"><span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" /></div></Card>
+      )}
+      {!d && post.status === "error" && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <div className="font-semibold">Missing-value analysis could not be loaded.</div>
+          <p className="mt-1 leading-6">The development-fold missingness calculation did not return. Confirm the ASP Model Studio backend is running with the <code>/api/cockpit</code> routes, then reload this page.</p>
+          <p className="mt-2 font-mono text-xs text-rose-500">{post.error}</p>
+        </div>
+      )}
+
+      {d && d.featuresWithMissing === 0 && (
+        <Card title="No missing values" icon={CircleSlash}>
+          <p className="text-sm text-slate-600">No missing values were detected in the governed development feature set ({d.featuresAnalyzed} predictors, {fmt.int(d.totalObservations)} rows). No imputation is required.</p>
+        </Card>
+      )}
+
+      {d && d.featuresWithMissing > 0 && (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MetricCard label="Features with missingness" value={String(post.data.featuresWithMissing)} />
-            <MetricCard label="Total missing values" value={fmt.int(post.data.totalMissing)} />
-            <MetricCard label="Rows affected" value={fmt.int(post.data.rowsAffected)} detail={fmt.pct(post.data.rowsAffected / 549479)} />
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MetricCard label="Observations" value={fmt.int(d.totalObservations)} detail="development (2023) rows" />
+            <MetricCard label="Features analyzed" value={String(d.featuresAnalyzed)} detail={`${d.continuousFeatures} continuous + ${d.categoricalFeatures} categorical/binary`} />
+            <MetricCard label="Features with missing values" value={String(d.featuresWithMissing)} />
+            <MetricCard label="Missing values" value={fmt.int(d.totalMissing)} detail={`${fmt.pct(d.missingCellPct, 2)} of evaluated cells`} />
           </div>
-          <Card title="Missingness by feature and season" description="Prior-season player state is unavailable for debut players." icon={CircleSlash}>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <b>{d.featuresWithMissing}</b> of <b>{d.featuresAnalyzed}</b> predictors contain missing values. <b>{fmt.int(d.totalMissing)}</b> feature cells ({fmt.pct(d.missingCellPct, 2)}) are missing across <b>{fmt.int(d.rowsAffected)}</b> development rows ({fmt.pct(d.rowsAffectedPct, 2)}). Missingness is concentrated in prior-history batter and pitcher features and primarily represents players without eligible prior-season history — so it may carry information about player experience / history availability.
+          </div>
+
+          <Card title="Missingness summary" icon={CircleSlash}
+            description="Sorted by missing count. Fill statistics are learned on development (2023) only. Change the method or a per-feature override above to update every value."
+            action={<label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} className="h-4 w-4 rounded border-slate-300" />Only features with missing values</label>}>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
-                <thead><tr className="text-slate-500">{["Feature", "Role", "Missing", "Miss%", "Method", "Indicator", "2023", "2024", "2025"].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-2 font-semibold uppercase">{h}</th>)}</tr></thead>
-                <tbody>{post.data.features.filter((f) => f.missing > 0).map((f) => (
-                  <tr key={f.feature}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-800">{f.feature}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5"><Pill label={f.role} tone={ROLE_TONE[f.role]} /></td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.int(f.missing)}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold">{fmt.pct(f.missingPct)}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5">{f.method}</td>
-                    <td className="border-b border-slate-100 px-2 py-1.5">{f.indicator ? "yes" : "—"}</td>
-                    {["2023", "2024", "2025"].map((y) => <td key={y} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{fmt.pct(f.bySeason[y])}</td>)}</tr>))}</tbody>
+              <table className="w-full min-w-[860px] text-left text-sm">
+                <thead><tr>
+                  <Th k="feature" label="Feature" />
+                  <Th k="missing" label="Missing" />
+                  <Th k="missingPct" label="Missing %" />
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Type</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Treatment</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Fill value</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Indicator</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">Override</th>
+                </tr></thead>
+                <tbody>{rows.map((f) => (
+                  <tr key={f.feature} className="hover:bg-cyan-50/40">
+                    <td className="border-b border-slate-100 px-3 py-2"><a href={`#missing-${f.feature}`} className="font-semibold text-slate-800 hover:text-cyan-700">{f.feature}</a> <span className="ml-1 text-[10px] uppercase text-slate-400">{f.role}</span></td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold text-slate-900">{fmt.int(f.missing)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.pct(f.missingPct, 2)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 text-xs uppercase text-slate-500">{f.kind}</td>
+                    <td className="border-b border-slate-100 px-3 py-2">{f.missing > 0 ? <Pill label={missingMethodLabel(f.resolvedMethod)} tone="cyan" /> : <span className="text-slate-300">—</span>}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-600">{f.fillValue !== null ? fmt.n(f.fillValue, 3) : "—"}</td>
+                    <td className="border-b border-slate-100 px-3 py-2">{f.indicator ? <Pill label="yes" tone="violet" /> : <span className="text-slate-300">—</span>}</td>
+                    <td className="border-b border-slate-100 px-3 py-2">
+                      <select value={overrides[f.feature]?.method ?? "global"} onChange={(e) => setOverride(f.feature, e.target.value)} disabled={f.missing === 0} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs disabled:opacity-40">
+                        <option value="global">Use global</option>
+                        {f.kind === "continuous"
+                          ? <><option value="median">Median</option><option value="mean">Mean</option><option value="constant">Constant 0</option><option value="none">No imputation</option></>
+                          : <><option value="most_frequent">Most frequent</option><option value="constant">Constant 0</option><option value="none">No imputation</option></>}
+                      </select>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">{d.featuresAnalyzed} predictors analyzed ({d.continuousFeatures} continuous + {d.categoricalFeatures} categorical / binary). Categorical / binary predictors carry no missing values in the governed feature set.</p>
+          </Card>
+
+          <Card title="Missingness by season" icon={CalendarClock}
+            description="Descriptive missing rates only — validation (2024) and frozen final (2025) never determine imputation values. Watch for temporal drift in availability.">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-sm">
+                <thead><tr className="text-slate-500">{["Feature", "2023 development", "2024 validation", "2025 frozen"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
+                <tbody>{rows.map((f) => (
+                  <tr key={f.feature}>
+                    <td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-800">{f.feature}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-emerald-700">{fmt.pct(f.bySeason["2023"], 2)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-amber-700">{fmt.pct(f.bySeason["2024"], 2)}</td>
+                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-rose-700">{fmt.pct(f.bySeason["2025"], 2)}</td>
+                  </tr>
+                ))}</tbody>
               </table>
             </div>
           </Card>
+
+          {rows.filter((f) => f.beforeHistogram && f.afterHistogram).map((f) => (
+            <Card key={f.feature} title={f.feature}>
+              <div id={`missing-${f.feature}`} className="-mt-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                <span className="text-sm font-semibold text-slate-900">{fmt.int(f.missing)} / {fmt.int(d.totalObservations)} missing · {fmt.pct(f.missingPct, 2)}</span>
+                <Pill label={missingMethodLabel(f.resolvedMethod)} tone="cyan" />
+                {f.fillValue !== null && <span>Development-fold fill <b>{fmt.n(f.fillValue, 3)}</b></span>}
+                <span className="text-slate-400">Observed non-missing {fmt.int(f.nonMissing)}</span>
+                <span>Missing indicator: <b>{f.indicator ? "Yes" : "No"}</b></span>
+              </div>
+              <ImputationHistogramPair before={f.beforeHistogram!} after={f.afterHistogram!} fill={f.fillValue} fillLabel={`${missingMethodLabel(f.resolvedMethod)} ${f.fillValue !== null ? fmt.n(f.fillValue, 3) : ""}`} />
+            </Card>
+          ))}
         </>
       )}
     </div>

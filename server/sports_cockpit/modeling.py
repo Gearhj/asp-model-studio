@@ -397,44 +397,103 @@ def _hist(values: np.ndarray, ref: np.ndarray, bins: int = 24) -> list[dict[str,
     return [{"lo": float(edges[i]), "hi": float(edges[i + 1]), "count": int(counts[i])} for i in range(bins)]
 
 
+def _dev_fill_value(method: str, finite: np.ndarray, constant: float) -> tuple[float | None, str]:
+    """Development-fold fill value matching the Preprocessor exactly. The governed model matrix must
+    be complete (no cockpit model family accepts raw NaN), so 'none' resolves to the median fallback."""
+    if finite.size == 0:
+        return None, method
+    if method == "mean":
+        return float(finite.mean()), "mean"
+    if method == "most_frequent":
+        return float(pd.Series(finite).mode().iloc[0]), "most_frequent"
+    if method == "constant":
+        return float(constant), "constant"
+    if method == "none":
+        return float(np.median(finite)), "none_median_fallback"
+    return float(np.median(finite)), "median"
+
+
+def _impute_after_hist(before: list[dict[str, Any]], fill: float, missing: int) -> list[dict[str, Any]]:
+    """After-imputation histogram: the observed histogram plus the imputed mass as a spike in the bin
+    that contains the fill value (bins are shared with the before histogram for a valid comparison)."""
+    after = [dict(b) for b in before]
+    if not after:
+        return after
+    clamped = min(max(fill, after[0]["lo"]), after[-1]["hi"])
+    idx = next((i for i, b in enumerate(after) if clamped >= b["lo"] and (clamped < b["hi"] or i == len(after) - 1)), 0)
+    after[idx]["count"] += missing
+    return after
+
+
 def missing_summary(policy: Mapping[str, Any] | None, features: Sequence[str] | None = None) -> dict[str, Any]:
+    """Fold-local (development 2023) missingness: real per-feature counts, dev-fold fill statistics,
+    per-season descriptive rates, and before/after imputation histograms for continuous features.
+    Validation (2024) and frozen final (2025) contribute descriptive rates only — never fill values."""
     frame = load_frame()
+    season = frame["season"].to_numpy()
+    dev_mask = season == DEV_SEASON
+    total = int(dev_mask.sum())
     features = list(features or ALL_FEATURES)
-    total = int(len(frame))
+    add_indicator = bool((policy or {}).get("addIndicator", False))
+    global_method = (policy or {}).get("globalMethod", "median")
+    global_constant = float((policy or {}).get("constant", 0.0))
     entries = []
     total_missing = 0
     for name in features:
+        kind = feature_kind(name)
         col = frame[name].to_numpy()
-        missing = int((~np.isfinite(col)).sum())
-        if missing == 0 and feature_kind(name) != "continuous":
-            continue
+        dev_col = col[dev_mask]
+        finite_mask = np.isfinite(dev_col)
+        missing = int((~finite_mask).sum())
+        finite = dev_col[finite_mask]
         total_missing += missing
         mv = dict((policy or {}).get("overrides", {}).get(name, {}))
-        method = mv.get("method", (policy or {}).get("globalMethod", "median"))
-        # by-season missingness
+        method = mv.get("method", global_method)
+        constant = float(mv.get("value", global_constant))
+        fill, resolved = _dev_fill_value(method, finite, constant) if missing > 0 else (None, method)
         by_season = {}
-        for season in (DEV_SEASON, VAL_SEASON, FROZEN_SEASON):
-            sc = col[frame["season"].to_numpy() == season]
-            by_season[str(season)] = float((~np.isfinite(sc)).sum() / len(sc)) if len(sc) else 0.0
+        for s in (DEV_SEASON, VAL_SEASON, FROZEN_SEASON):
+            sc = col[season == s]
+            by_season[str(s)] = float((~np.isfinite(sc)).sum() / len(sc)) if len(sc) else 0.0
+        indicator_applied = bool(add_indicator and kind == "continuous" and missing > 0)
+        before_hist = after_hist = None
+        if kind == "continuous" and missing > 0 and fill is not None and finite.size:
+            before_hist = _hist(finite, finite)
+            after_hist = _impute_after_hist(before_hist, fill, missing)
         entries.append(
             {
                 "feature": name,
                 "role": E.feature_role(name),
-                "kind": feature_kind(name),
+                "kind": kind,
                 "missing": missing,
-                "missingPct": float(missing / total),
+                "missingPct": float(missing / total) if total else 0.0,
+                "nonMissing": total - missing,
                 "method": method,
-                "indicator": bool((policy or {}).get("addIndicator", False)) and feature_kind(name) == "continuous",
+                "resolvedMethod": resolved,
+                "fillValue": fill,
+                "indicator": indicator_applied,
                 "bySeason": by_season,
+                "beforeHistogram": before_hist,
+                "afterHistogram": after_hist,
             }
         )
     entries.sort(key=lambda e: e["missing"], reverse=True)
+    total_cells = total * max(len(features), 1)
+    dev_matrix = frame.loc[dev_mask, features].to_numpy() if features else np.empty((total, 0))
+    rows_affected = int((~np.isfinite(dev_matrix)).any(axis=1).sum()) if features else 0
     return {
         "schemaVersion": COCKPIT_SCHEMA_VERSION,
         "scope": "FOLD_LOCAL_DEVELOPMENT_2023",
+        "totalObservations": total,
+        "featuresAnalyzed": len(features),
+        "continuousFeatures": sum(1 for n in features if feature_kind(n) == "continuous"),
+        "categoricalFeatures": sum(1 for n in features if feature_kind(n) != "continuous"),
         "featuresWithMissing": sum(1 for e in entries if e["missing"] > 0),
         "totalMissing": total_missing,
-        "rowsAffected": int((~np.isfinite(frame[list(features)].to_numpy())).any(axis=1).sum()),
+        "missingCellPct": float(total_missing / total_cells) if total_cells else 0.0,
+        "rowsAffected": rows_affected,
+        "rowsAffectedPct": float(rows_affected / total) if total else 0.0,
+        "addIndicator": add_indicator,
         "features": entries,
     }
 
