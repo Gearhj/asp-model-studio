@@ -238,8 +238,8 @@ export function OutlierHistogramPair({ before, after, lower, upper, treated, hei
 // Missing-value before/after pair: observed distribution (excluding missing) on the left and the
 // post-imputation distribution on the right, both sharing the observed x-axis. A violet marker shows
 // the development-fold fill value so the scientist can see the mass imputation introduces.
-export function ImputationHistogramPair({ before, after, fill, fillLabel, height = 150 }:
-  { before: HistBin[]; after: HistBin[]; fill: number | null; fillLabel?: string; height?: number }) {
+export function ImputationHistogramPair({ before, after, fill, fillLabel, afterLabel, height = 160 }:
+  { before: HistBin[]; after: HistBin[]; fill: number | null; fillLabel?: string; afterLabel?: string; height?: number }) {
   if (!before.length) return null;
   const min = before[0].lo;
   const max = before[before.length - 1].hi;
@@ -247,11 +247,11 @@ export function ImputationHistogramPair({ before, after, fill, fillLabel, height
   return (
     <div className="grid grid-cols-2 gap-3">
       <div>
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Observed · before imputation</div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Before — observed values</div>
         {chart(outlierHistOption(before, { color: "#0891b2", markers, min, max }), height)}
       </div>
       <div>
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">After imputation · fill marked</div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{afterLabel ?? "After — imputation preview"}</div>
         {chart(outlierHistOption(after, { color: "#7c3aed", markers, min, max }), height)}
       </div>
     </div>
@@ -317,6 +317,32 @@ export function ScatterClusters({ points, height = 320 }: { points: { x: number;
     xAxis: { type: "value", scale: true, name: "PC1", nameLocation: "middle", nameGap: 20, axisLabel: { fontSize: 10 } },
     yAxis: { type: "value", scale: true, name: "PC2", axisLabel: { fontSize: 10 } },
     tooltip: { trigger: "item" },
+    series,
+  }, height);
+}
+
+// Feature signal map: X = Information Value, Y = Mutual Information, one point per feature. Colour by
+// family (batter/pitcher/context/engineered); selected features are solid, excluded are faded. Lets the
+// scientist see high-signal, weak, nonlinear-only, and redundant features at a glance.
+export function FeatureSignalScatter({ points, height = 300 }:
+  { points: { name: string; iv: number; mi: number; family: string; selected: boolean }[]; height?: number }) {
+  const colorFor = (fam: string) => fam === "engineered" ? "#7c3aed" : fam === "batter" ? "#0891b2" : fam === "pitcher" ? "#f59e0b" : "#64748b";
+  const families = [...new Set(points.map((p) => p.family))];
+  const series = families.map((fam) => ({
+    name: fam,
+    type: "scatter",
+    data: points.filter((p) => p.family === fam).map((p) => ({
+      value: [p.iv, p.mi], name: p.name,
+      itemStyle: { color: colorFor(fam), opacity: p.selected ? 0.9 : 0.28, borderColor: p.selected ? "#0f172a" : "transparent", borderWidth: p.selected ? 0.5 : 0 },
+    })),
+    symbolSize: 11,
+  }));
+  return chart({
+    grid: { left: 52, right: 16, top: 26, bottom: 40 },
+    legend: { top: 0, textStyle: { fontSize: 10 } },
+    xAxis: { type: "value", name: "Information Value (IV)", nameLocation: "middle", nameGap: 24, scale: true, axisLabel: { fontSize: 10 } },
+    yAxis: { type: "value", name: "Mutual Information (MI)", scale: true, axisLabel: { fontSize: 10 } },
+    tooltip: { trigger: "item", formatter: (p: any) => `${p.data.name}<br/>IV ${p.value[0].toFixed(3)} · MI ${p.value[1].toFixed(4)}` },
     series,
   }, height);
 }

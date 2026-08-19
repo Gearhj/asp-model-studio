@@ -148,7 +148,7 @@ test("workflow uses ?stage routing with legacy ?step compatibility", () => {
 
 test("Stage 2 merges data preview + data-quality; Stage 3 embeds the cockpit", () => {
   assert.ok(stageContent.includes("DataQualitySummary") && stageContent.includes("DataPreviewPanel"));
-  assert.ok(stageContent.includes("<PaModelingCockpit embedded />"));
+  assert.ok(stageContent.includes("<PaModelingCockpit embedded projectId="));
   // identity/leakage lives in the data-quality summary, not a separate program stage
   assert.ok(stageContent.includes("Identity mapping") && stageContent.includes("Leakage gate"));
 });

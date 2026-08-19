@@ -71,10 +71,10 @@ test("add-missing-indicator has a clear, claim-free explanation scoped to missin
 test("feature detail shows the fold-local fill statistic and before/after imputation histograms", () => {
   assert.ok(missing.includes("Development-fold fill"));
   assert.ok(missing.includes("<ImputationHistogramPair"));
-  assert.ok(missing.includes("before={f.beforeHistogram!}") && missing.includes("after={f.afterHistogram!}") && missing.includes("fill={f.fillValue}"));
+  assert.ok(missing.includes("before={f.beforeHistogram}") && missing.includes("after={f.afterHistogram}") && missing.includes("fill={f.fillValue}"));
   // the imputation pair draws a fill marker; component exists
   assert.ok(ui.includes("export function ImputationHistogramPair"));
-  assert.ok(ui.includes("fill marked") && ui.includes("before imputation"));
+  assert.ok(ui.includes("Before — observed values"));
 });
 
 test("missingness-by-season is descriptive only (2024/2025 never fit)", () => {

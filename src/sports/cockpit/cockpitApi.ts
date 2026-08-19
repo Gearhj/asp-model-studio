@@ -156,8 +156,9 @@ export type ExperimentConfig = {
 };
 export type EngineeredProfile = {
   name: string; kind: string; simulatorAvailability: string; missing: number; missingPct: number;
-  mean: number | null; std: number | null; min: number | null; max: number | null;
-  iv: FeatureIV; mi: number; seasonMeans: Record<string, number | null>; drift: number | null; sampleValues: number[];
+  mean: number | null; median?: number | null; std: number | null; min: number | null; max: number | null;
+  iv: FeatureIV; mi: number; seasonMeans: Record<string, number | null>; drift: number | null;
+  histogram?: HistBin[]; sampleValues: number[];
 };
 export type AblationResult = {
   addedFeatures: string[];
@@ -179,6 +180,7 @@ export type FullSimResult = {
 type CockpitStore = {
   config: ExperimentConfig;
   notes: Record<string, string>;
+  engineeredProfiles: Record<string, EngineeredProfile>;
   lastResult?: ExperimentResult;
   lastAutopilot?: AutopilotResult;
   lastSim?: SimResult;
@@ -190,12 +192,13 @@ type CockpitStore = {
   setOutlierPolicy: (p: OutlierPolicy) => void;
   setMissingPolicy: (p: MissingPolicy) => void;
   setNote: (k: string, v: string) => void;
-  addEngineered: (spec: EngineeredSpec) => void;
+  addEngineered: (spec: EngineeredSpec, profile?: EngineeredProfile) => void;
   removeEngineered: (name: string) => void;
   setLastResult: (r: ExperimentResult) => void;
   setLastAutopilot: (r: AutopilotResult) => void;
   setLastSim: (r: SimResult) => void;
   markSaved: (step: string) => void;
+  hydrate: (snapshot: Partial<CockpitStore>) => void;
 };
 
 export const ALL_FEATURES = [
@@ -214,6 +217,7 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
     engineeredFeatures: [],
   },
   notes: {},
+  engineeredProfiles: {},
   savedSteps: {},
   setFeatures: (features) => set((s) => ({ config: { ...s.config, features } })),
   toggleFeature: (f) =>
@@ -227,25 +231,32 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   setOutlierPolicy: (outlierPolicy) => set((s) => ({ config: { ...s.config, outlierPolicy } })),
   setMissingPolicy: (missingPolicy) => set((s) => ({ config: { ...s.config, missingPolicy } })),
   setNote: (k, v) => set((s) => ({ notes: { ...s.notes, [k]: v } })),
-  addEngineered: (spec) =>
+  addEngineered: (spec, profile) =>
     set((s) => {
       const existing = (s.config.engineeredFeatures || []).filter((e) => e.name !== spec.name);
       const eng = [...existing, spec];
       const features = s.config.features.includes(spec.name) ? s.config.features : [...s.config.features, spec.name];
-      return { config: { ...s.config, engineeredFeatures: eng, features } };
+      const engineeredProfiles = profile ? { ...s.engineeredProfiles, [spec.name]: profile } : s.engineeredProfiles;
+      return { config: { ...s.config, engineeredFeatures: eng, features }, engineeredProfiles };
     }),
   removeEngineered: (name) =>
-    set((s) => ({
-      config: {
-        ...s.config,
-        engineeredFeatures: (s.config.engineeredFeatures || []).filter((e) => e.name !== name),
-        features: s.config.features.filter((f) => f !== name),
-      },
-    })),
+    set((s) => {
+      const { [name]: _dropped, ...engineeredProfiles } = s.engineeredProfiles;
+      return {
+        config: {
+          ...s.config,
+          engineeredFeatures: (s.config.engineeredFeatures || []).filter((e) => e.name !== name),
+          features: s.config.features.filter((f) => f !== name),
+        },
+        engineeredProfiles,
+      };
+    }),
   setLastResult: (lastResult) => set({ lastResult }),
   setLastAutopilot: (lastAutopilot) => set({ lastAutopilot }),
   setLastSim: (lastSim) => set({ lastSim }),
   markSaved: (step) => set((s) => ({ savedSteps: { ...s.savedSteps, [step]: true } })),
+  // Replace persisted slices on rehydration (project-scoped autosave restore).
+  hydrate: (snapshot) => set((s) => ({ ...s, ...snapshot })),
 }));
 
 // ---------------------------------------------------------------------------- fetch hooks

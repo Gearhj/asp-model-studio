@@ -14,7 +14,7 @@ import {
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
-  OutlierHistogramPair, ImputationHistogramPair, LineChart, ScatterClusters, fmt,
+  OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
 
@@ -640,18 +640,32 @@ export function MissingStep() {
             </div>
           </Card>
 
-          {rows.filter((f) => f.beforeHistogram && f.afterHistogram).map((f) => (
-            <Card key={f.feature} title={f.feature}>
-              <div id={`missing-${f.feature}`} className="-mt-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
-                <span className="text-sm font-semibold text-slate-900">{fmt.int(f.missing)} / {fmt.int(d.totalObservations)} missing · {fmt.pct(f.missingPct, 2)}</span>
-                <Pill label={missingMethodLabel(f.resolvedMethod)} tone="cyan" />
-                {f.fillValue !== null && <span>Development-fold fill <b>{fmt.n(f.fillValue, 3)}</b></span>}
-                <span className="text-slate-400">Observed non-missing {fmt.int(f.nonMissing)}</span>
-                <span>Missing indicator: <b>{f.indicator ? "Yes" : "No"}</b></span>
+          {/* Feature treatment visuals — one before/after card per affected continuous feature (Outliers-parity). */}
+          {(() => {
+            const affected = rows.filter((f) => f.kind === "continuous" && f.missing > 0);
+            if (affected.length === 0) return null;
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><CircleSlash size={14} /> Feature treatment visuals — before / after imputation</div>
+                {affected.map((f) => (
+                  <Card key={f.feature} title={f.feature}>
+                    <div id={`missing-${f.feature}`} className="-mt-2 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                      <span className="text-sm font-semibold text-slate-900">{fmt.int(f.missing)} / {fmt.int(d.totalObservations)} missing · {fmt.pct(f.missingPct, 2)}</span>
+                      <Pill label={missingMethodLabel(f.resolvedMethod)} tone="cyan" />
+                      {f.fillValue !== null && <span>Development-fold fill <b>{fmt.n(f.fillValue, 3)}</b></span>}
+                      <span className="text-slate-400">Observed non-missing {fmt.int(f.nonMissing)}</span>
+                      <span>Missing indicator: <b>{f.indicator ? "Yes" : "No"}</b></span>
+                    </div>
+                    {f.beforeHistogram && f.afterHistogram
+                      ? <ImputationHistogramPair before={f.beforeHistogram} after={f.afterHistogram} fill={f.fillValue}
+                          fillLabel={`${missingMethodLabel(f.resolvedMethod)} ${f.fillValue !== null ? fmt.n(f.fillValue, 3) : ""}`}
+                          afterLabel={`After — ${missingMethodLabel(f.resolvedMethod).toLowerCase()} imputation`} />
+                      : <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Distribution charts are unavailable from the current backend response. Restart the ASP Model Studio backend to load the before/after imputation histograms.</div>}
+                  </Card>
+                ))}
               </div>
-              <ImputationHistogramPair before={f.beforeHistogram!} after={f.afterHistogram!} fill={f.fillValue} fillLabel={`${missingMethodLabel(f.resolvedMethod)} ${f.fillValue !== null ? fmt.n(f.fillValue, 3) : ""}`} />
-            </Card>
-          ))}
+            );
+          })()}
         </>
       )}
     </div>
@@ -659,44 +673,178 @@ export function MissingStep() {
 }
 
 // ============================================================ 06 Feature Engineering
+const baseRole = (name: string) => (name.startsWith("batter_") ? "batter" : name.startsWith("pitcher_") ? "pitcher" : "context");
+const OP_SYMBOL: Record<string, string> = { add: "+", sub: "−", mul: "×", div: "÷" };
+function engineeredFormula(e: EngineeredSpec): string {
+  const [a, b] = e.inputs ?? [];
+  const p: any = e.params ?? {};
+  switch (e.kind) {
+    case "arithmetic": return `${a} ${OP_SYMBOL[p.op] ?? p.op} ${b}`;
+    case "ratio": return `${a} ÷ ${b}`;
+    case "interaction": return `${a} × ${b}`;
+    case "log": return `log1p(${a})`;
+    case "power": return `${a} ^ ${p.exponent}`;
+    case "bin": return `quantile_bin(${a}, ${p.bins})`;
+    case "indicator": return `[ ${a} > ${p.threshold} ]`;
+    case "calendar": return `calendar(${p.subkind})`;
+    default: return e.name;
+  }
+}
+
 export function FeatureEngineeringStep() {
+  const prof = useEndpoint<Profile>("/cockpit/profile");
   const cat = useEndpoint<FeatureCatalog>("/cockpit/feature-catalog");
-  const { config, setFeatures } = useCockpitStore();
+  const { config } = useCockpitStore();
   const engineered = config.engineeredFeatures || [];
+  const [inputA, setInputA] = useState("batter_obp");
+  const [inputB, setInputB] = useState("pitcher_whip");
+  const useInput = (slot: "A" | "B", name: string) => (slot === "A" ? setInputA(name) : setInputB(name));
+  const total = ALL_FEATURES.length + engineered.length;
+
   return (
     <div className="space-y-4">
-      <Card title="Selected feature set" description={`${config.features.length} predictors selected (${ALL_FEATURES.length} base + ${engineered.length} engineered).`} icon={Wand2}
-        action={<div className="flex gap-2"><Button size="sm" tone="ghost" onClick={() => setFeatures([...ALL_FEATURES])}>Base all</Button><Button size="sm" tone="ghost" onClick={() => setFeatures(ALL_FEATURES.filter((f) => f.startsWith("batter_") || f.startsWith("pitcher_")))}>Priors only</Button></div>}>
-        <div className="flex flex-wrap gap-1.5">
-          {ALL_FEATURES.map((f) => {
-            const on = config.features.includes(f);
-            return <button key={f} onClick={() => useCockpitStore.getState().toggleFeature(f)}
-              className={`rounded-md border px-2 py-1 text-xs font-medium ${on ? "border-cyan-600 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-white text-slate-400 line-through"}`}>{f}</button>;
-          })}
-          {engineered.map((e) => (
-            <button key={e.name} onClick={() => useCockpitStore.getState().removeEngineered(e.name)}
-              className="rounded-md border border-violet-500 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800">{e.name} ✕</button>
+      {/* Compact header — the scientist's inventory at a glance (no passive walls before the workspace) */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Current features" value={String(total)} detail={`${ALL_FEATURES.length} base + ${engineered.length} engineered`} />
+        <MetricCard label="Selected" value={String(config.features.length)} detail="in the experiment" />
+        <MetricCard label="Engineered" value={String(engineered.length)} detail={engineered.length ? "durable in this project" : "none yet"} />
+        <MetricCard label="Research families" value="3" detail="advanced — below" />
+      </div>
+
+      {/* Prime workspace: signal landscape + creation studio side-by-side on wide screens */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Feature signal map" description="X = Information Value, Y = Mutual Information. Selected features are solid; faded points are excluded. Find the high-signal, weak, and nonlinear-only features." icon={ScanSearch}>
+          <LoadGate state={prof}>
+            {prof.data && (
+              <FeatureSignalScatter points={[
+                ...prof.data.features.map((f) => ({ name: f.name, iv: f.iv.maxIv, mi: f.mi, family: f.role, selected: config.features.includes(f.name) })),
+                ...engineered.map((e) => { const p = useCockpitStore.getState().engineeredProfiles[e.name]; return { name: e.name, iv: p?.iv.maxIv ?? 0, mi: p?.mi ?? 0, family: "engineered", selected: config.features.includes(e.name) }; }),
+              ]} />
+            )}
+          </LoadGate>
+        </Card>
+        <FeatureBuilder inputA={inputA} inputB={inputB} setInputA={setInputA} setInputB={setInputB} />
+      </div>
+
+      {/* The primary feature inventory — updates live as features are created / toggled / removed */}
+      <FeatureSummaryTable profile={prof.data} onUseInput={useInput} />
+
+      <AblationPanel />
+
+      {/* Advanced research families — accessible but de-emphasized (collapsed) */}
+      <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">Advanced feature families — player-state, dynamic recent-form, E1 / E2, handedness</summary>
+        <div className="px-2 pb-2"><PlayerStateFeatureFamilies /></div>
+      </details>
+
+      {/* Feature catalog — compact expandable with per-family counts */}
+      <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">Feature catalog {cat.data ? `— ${cat.data.available.length} governed families` : ""}</summary>
+        <div className="px-5 pb-4">
+          <LoadGate state={cat}>
+            {cat.data && (
+              <>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {cat.data.available.map((a) => (
+                    <div key={a.family} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+                      <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-900">{a.family}</div><Pill label={`${a.features.length}`} tone="emerald" /></div>
+                      <div className="mt-2 text-[11px] leading-5 text-slate-600">{a.features.join(", ")}</div>
+                    </div>
+                  ))}
+                </div>
+                {cat.data.roadmap?.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Roadmap — future / premium families (honestly labelled, not fabricated)</div>
+                    <div className="mt-1.5 flex flex-wrap gap-2">{cat.data.roadmap.map((r) => <Pill key={r.family} label={`${r.family} · ${r.status}`} tone="slate" />)}</div>
+                  </div>
+                )}
+              </>
+            )}
+          </LoadGate>
+        </div>
+      </details>
+
+      {/* Selected-feature chips — compressed behind a disclosure so they no longer dominate the page */}
+      <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-slate-800">View selected feature set — {config.features.length} selected</summary>
+        <div className="flex flex-wrap gap-1.5 px-5 pb-4">
+          {config.features.map((f) => (
+            <button key={f} onClick={() => useCockpitStore.getState().toggleFeature(f)}
+              className="rounded-md border border-cyan-600 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-800">{f} ✕</button>
           ))}
         </div>
-      </Card>
-      <PlayerStateFeatureFamilies />
-      <FeatureBuilder />
-      <AblationPanel />
-      <LoadGate state={cat}>
-        {cat.data && (
-          <Card title="Sports feature catalog" description="Available governed families plus an honestly-labeled roadmap." icon={Boxes}>
-            <div className="grid gap-3 md:grid-cols-3">
-              {cat.data.available.map((a) => (
-                <div key={a.family} className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-                  <div className="flex items-center justify-between"><div className="text-sm font-semibold text-slate-900">{a.family}</div><Pill label="AVAILABLE" tone="emerald" /></div>
-                  <div className="mt-2 text-[11px] leading-5 text-slate-600">{a.features.join(", ")}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
-      </LoadGate>
+      </details>
     </div>
+  );
+}
+
+// Live feature inventory. Reads the governed profile (base features) + engineered-feature profiles from
+// the store; updates immediately when a feature is created, toggled, or removed — no page reload.
+function FeatureSummaryTable({ profile, onUseInput }: { profile: Profile | undefined; onUseInput: (slot: "A" | "B", name: string) => void }) {
+  const { config, engineeredProfiles, toggleFeature, removeEngineered } = useCockpitStore();
+  const engineered = config.engineeredFeatures || [];
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 }>({ key: "iv", dir: -1 });
+  const profByName = new Map((profile?.features ?? []).map((f) => [f.name, f]));
+
+  type Row = { name: string; source: "BASE" | "ENGINEERED"; kind: string; role: string; missingPct: number | null; outliers: number | null; iv: number | null; mi: number | null; drift: number | null; selected: boolean; profiled: boolean; formula?: string };
+  const rows: Row[] = [
+    ...ALL_FEATURES.map((name): Row => { const p = profByName.get(name); return { name, source: "BASE", kind: p?.kind ?? "—", role: p?.role ?? baseRole(name), missingPct: p?.missingPct ?? null, outliers: p?.outlierCount ?? null, iv: p?.iv.maxIv ?? null, mi: p?.mi ?? null, drift: p?.drift ?? null, selected: config.features.includes(name), profiled: !!p }; }),
+    ...engineered.map((e): Row => { const p = engineeredProfiles[e.name]; return { name: e.name, source: "ENGINEERED", kind: p?.kind ?? "—", role: "engineered", missingPct: p?.missingPct ?? null, outliers: null, iv: p?.iv.maxIv ?? null, mi: p?.mi ?? null, drift: p?.drift ?? null, selected: config.features.includes(e.name), profiled: !!p, formula: engineeredFormula(e) }; }),
+  ];
+  const num = (v: number | null) => (v === null ? -Infinity : v);
+  const sorted = [...rows].sort((a, b) => {
+    const va = sort.key === "name" ? a.name : num((a as any)[sort.key]);
+    const vb = sort.key === "name" ? b.name : num((b as any)[sort.key]);
+    return va > vb ? sort.dir : va < vb ? -sort.dir : 0;
+  });
+  const Th = ({ k, label }: { k: string; label: string }) => (
+    <th className="cursor-pointer border-b border-slate-200 px-2.5 py-2 text-xs font-semibold uppercase text-slate-500 hover:text-slate-900"
+      onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? (s.dir === 1 ? -1 : 1) : -1 }))}>
+      <span className="inline-flex items-center gap-1">{label}<ArrowUpDown size={11} className={sort.key === k ? "text-cyan-600" : "text-slate-300"} /></span>
+    </th>
+  );
+  const cell = (v: number | null, dec = 3, profiled = true) => (v !== null ? fmt.n(v, dec) : profiled ? "—" : <span className="text-[10px] uppercase text-amber-600">not profiled</span>);
+
+  return (
+    <Card title="Feature set summary" description={`${rows.length} features in the experiment inventory (${ALL_FEATURES.length} base + ${engineered.length} engineered). Sort by any signal column; toggle Selected to include or exclude.`} icon={Wand2}>
+      <div className="max-h-[560px] overflow-auto rounded-lg border border-slate-200">
+        <table className="w-full min-w-[900px] text-left text-xs">
+          <thead className="sticky top-0 bg-slate-50">
+            <tr>
+              <Th k="name" label="Feature" /><Th k="source" label="Source" />
+              <th className="border-b border-slate-200 px-2.5 py-2 text-xs font-semibold uppercase text-slate-500">Type</th>
+              <Th k="missingPct" label="Missing %" /><Th k="outliers" label="Outliers" />
+              <Th k="iv" label="IV" /><Th k="mi" label="MI" /><Th k="drift" label="Drift" />
+              <th className="border-b border-slate-200 px-2.5 py-2 text-xs font-semibold uppercase text-slate-500">Selected</th>
+              <th className="border-b border-slate-200 px-2.5 py-2 text-xs font-semibold uppercase text-slate-500">Actions</th>
+            </tr>
+          </thead>
+          <tbody>{sorted.map((r) => (
+            <tr key={r.name} className="hover:bg-cyan-50/40">
+              <td className="border-b border-slate-100 px-2.5 py-1.5"><span className="font-semibold text-slate-800">{r.name}</span> <span className="ml-1 text-[10px] uppercase text-slate-400">{r.role}</span>{r.formula ? <div className="font-mono text-[10px] text-violet-600">{r.formula}</div> : null}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5"><Pill label={r.source} tone={r.source === "ENGINEERED" ? "violet" : "slate"} /></td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 text-slate-500">{r.kind}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 tabular-nums">{r.missingPct !== null ? fmt.pct(r.missingPct, 1) : (r.profiled ? "—" : <span className="text-[10px] uppercase text-amber-600">not profiled</span>)}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 tabular-nums">{r.outliers !== null ? fmt.int(r.outliers) : "—"}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 tabular-nums font-semibold text-slate-900">{cell(r.iv, 3, r.profiled)}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 tabular-nums">{cell(r.mi, 4, r.profiled)}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5 tabular-nums">{cell(r.drift, 2, r.profiled)}</td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5">
+                <button onClick={() => toggleFeature(r.name)} className={`inline-flex h-5 w-5 items-center justify-center rounded border ${r.selected ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 bg-white"}`}>{r.selected ? <Check size={13} /> : null}</button>
+              </td>
+              <td className="border-b border-slate-100 px-2.5 py-1.5">
+                <div className="flex items-center gap-1">
+                  <button onClick={() => onUseInput("A", r.name)} className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">A</button>
+                  <button onClick={() => onUseInput("B", r.name)} className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50">B</button>
+                  {r.source === "ENGINEERED" && <button onClick={() => removeEngineered(r.name)} className="rounded border border-rose-300 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 hover:bg-rose-50">Remove</button>}
+                </div>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Base features carry governed profile metrics; a freshly created engineered feature shows <b>not profiled</b> until you click <b>Profile feature</b>. Governed source features are never deleted — only included or excluded.</p>
+    </Card>
   );
 }
 
@@ -766,70 +914,136 @@ const KINDS = [
   { id: "calendar", label: "Calendar" },
 ];
 
-function FeatureBuilder() {
+function FeatureBuilder({ inputA, inputB, setInputA, setInputB }:
+  { inputA: string; inputB: string; setInputA: (v: string) => void; setInputB: (v: string) => void }) {
   const store = useCockpitStore();
   const [name, setName] = useState("");
   const [kind, setKind] = useState("arithmetic");
-  const [a, setA] = useState("batter_obp");
-  const [b, setB] = useState("pitcher_whip");
   const [op, setOp] = useState("sub");
   const [threshold, setThreshold] = useState(0.3);
   const [exponent, setExponent] = useState(2);
   const [bins, setBins] = useState(5);
   const [subkind, setSubkind] = useState("month");
+  const [error, setError] = useState<string | null>(null);
   const profile = usePost<EngineeredProfile>();
+  const a = inputA, b = inputB;
 
-  const spec = (): EngineeredSpec => {
-    if (kind === "calendar") return { name: name || `cal_${subkind}`, kind, params: { subkind } };
-    if (kind === "log") return { name: name || `log_${a}`, kind, inputs: [a] };
-    if (kind === "power") return { name: name || `${a}_pow`, kind, inputs: [a], params: { exponent } };
-    if (kind === "bin") return { name: name || `${a}_bin`, kind, inputs: [a], params: { bins } };
-    if (kind === "indicator") return { name: name || `${a}_hi`, kind, inputs: [a], params: { threshold } };
-    if (kind === "ratio" || kind === "interaction") return { name: name || `${a}_${kind[0]}_${b}`, kind, inputs: [a, b] };
-    return { name: name || `${a}_${op}_${b}`, kind, inputs: [a, b], params: { op } };
+  const defaultName = () => {
+    if (kind === "calendar") return `cal_${subkind}`;
+    if (kind === "log") return `log_${a}`;
+    if (kind === "power") return `${a}_pow${exponent}`;
+    if (kind === "bin") return `${a}_bin${bins}`;
+    if (kind === "indicator") return `${a}_gt_${String(threshold).replace(".", "p")}`;
+    if (kind === "ratio") return `${a}_over_${b}`;
+    if (kind === "interaction") return `${a}_x_${b}`;
+    return `${a}_${op}_${b}`;
   };
-  const doProfile = () => profile.run("/cockpit/feature/profile", spec());
-  const add = () => { store.addEngineered(spec()); profile.reset(); setName(""); };
+  const spec = (): EngineeredSpec => {
+    const nm = name.trim() || defaultName();
+    if (kind === "calendar") return { name: nm, kind, params: { subkind } };
+    if (kind === "log") return { name: nm, kind, inputs: [a] };
+    if (kind === "power") return { name: nm, kind, inputs: [a], params: { exponent } };
+    if (kind === "bin") return { name: nm, kind, inputs: [a], params: { bins } };
+    if (kind === "indicator") return { name: nm, kind, inputs: [a], params: { threshold } };
+    if (kind === "ratio" || kind === "interaction") return { name: nm, kind, inputs: [a, b] };
+    return { name: nm, kind, inputs: [a, b], params: { op } };
+  };
 
   const oneInput = ["log", "power", "bin", "indicator"].includes(kind);
   const twoInput = ["arithmetic", "ratio", "interaction"].includes(kind);
+  const formula = engineeredFormula(spec());
+
+  const validate = (): string | null => {
+    const nm = spec().name;
+    const engineered = store.config.engineeredFeatures || [];
+    if (ALL_FEATURES.includes(nm)) return `"${nm}" collides with a base feature name — choose another name.`;
+    if (engineered.some((e) => e.name === nm)) return `An engineered feature named "${nm}" already exists.`;
+    if ((kind === "ratio" || (kind === "arithmetic" && op === "div")) && a === b) return "Ratio / divide of a feature by itself is constant — pick different inputs.";
+    if (twoInput && a === b && kind === "interaction") return "Interaction of a feature with itself is a square — use Power instead, or pick different inputs.";
+    return null;
+  };
+  const doProfile = () => { const v = validate(); setError(v); if (!v) profile.run("/cockpit/feature/profile", spec()); };
+  const add = () => {
+    const v = validate(); setError(v); if (v) return;
+    store.addEngineered(spec(), profile.data ?? undefined);   // persist the profile snapshot too
+    profile.reset(); setName("");
+  };
+
+  const p = profile.data;
   return (
-    <Card title="Create experiment feature" description="Build a real derived feature. It profiles instantly (IV/MI/missing/simulator-availability) and serializes into the experiment." icon={Wand2}
+    <Card title="Create feature studio" description="Compose a real derived feature, profile it fold-local (2023), then add it to the experiment." icon={Wand2}
       action={<Pill label="TEMPORALLY SAFE" tone="emerald" />}>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Kind</span>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Feature type</span>
           <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}</select></label>
-        {(oneInput || twoInput) && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input a</span>
-          <select value={a} onChange={(e) => setA(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
-        {twoInput && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input b</span>
-          <select value={b} onChange={(e) => setB(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
-        {kind === "arithmetic" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Op</span>
-          <select value={op} onChange={(e) => setOp(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["add", "sub", "mul", "div"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
-        {kind === "calendar" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Calendar</span>
-          <select value={subkind} onChange={(e) => setSubkind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["month", "day_of_week", "week_of_year", "days_since_season_start"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
-        {kind === "indicator" && <NumberField label="threshold" value={threshold} step={0.05} onChange={setThreshold} />}
-        {kind === "power" && <NumberField label="exponent" value={exponent} step={0.5} onChange={setExponent} />}
-        {kind === "bin" && <NumberField label="bins" value={bins} step={1} onChange={setBins} />}
         <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Name (optional)</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={spec().name} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={defaultName()} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
+        {(oneInput || twoInput) && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input A</span>
+          <select value={a} onChange={(e) => setInputA(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
+        {twoInput && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Input B</span>
+          <select value={b} onChange={(e) => setInputB(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{ALL_FEATURES.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>}
+        {kind === "arithmetic" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Operator</span>
+          <select value={op} onChange={(e) => setOp(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["add", "sub", "mul", "div"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
+        {kind === "calendar" && <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-500">Calendar field</span>
+          <select value={subkind} onChange={(e) => setSubkind(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{["month", "day_of_week", "week_of_year", "days_since_season_start"].map((o) => <option key={o} value={o}>{o}</option>)}</select></label>}
+        {kind === "indicator" && <NumberField label="Threshold" value={threshold} step={0.05} onChange={setThreshold} />}
+        {kind === "power" && <NumberField label="Exponent" value={exponent} step={0.5} onChange={setExponent} />}
+        {kind === "bin" && <NumberField label="Quantile bins" value={bins} step={1} min={2} onChange={setBins} />}
       </div>
+
+      {/* Prominent live formula */}
+      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300">Live formula</div>
+        <div className="mt-1 font-mono text-lg text-white">{spec().name} <span className="text-slate-500">=</span> {formula}</div>
+      </div>
+
+      {error && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+
       <div className="mt-3 flex gap-3">
         <Button onClick={doProfile} tone="dark">{profile.status === "loading" ? "Profiling…" : "Profile feature"}</Button>
         <Button onClick={add} tone="primary">Add to experiment</Button>
       </div>
-      {profile.data && (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Max IV" value={fmt.n(profile.data.iv.maxIv, 3)} detail={profile.data.iv.maxIvClass || ""} />
-          <MetricCard label="MI" value={fmt.n(profile.data.mi, 4)} />
-          <MetricCard label="Missing" value={fmt.pct(profile.data.missingPct)} />
-          <MetricCard label="Drift" value={fmt.n(profile.data.drift, 3)} />
-          <div className="sm:col-span-2 lg:col-span-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-            <span className="font-semibold text-slate-600">Simulator availability:</span> <span className="text-slate-700">{profile.data.simulatorAvailability}</span>
-            <span className="ml-3 font-semibold text-slate-600">Sample:</span> <span className="tabular-nums text-slate-500">{profile.data.sampleValues.map((v) => fmt.n(v, 2)).join(", ")}</span>
+
+      {p && (
+        <div className="mt-4 space-y-3">
+          {/* Quality scorecard — multi-dimensional, never a single magic score */}
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <ScoreTile label="Information (IV)" value={fmt.n(p.iv.maxIv, 3)} sub={p.iv.maxIvClass || ""} />
+            <ScoreTile label="Nonlinear (MI)" value={fmt.n(p.mi, 4)} />
+            <ScoreTile label="Missingness" value={fmt.pct(p.missingPct, 1)} />
+            <ScoreTile label="Temporal drift" value={fmt.n(p.drift, 2)} />
+            <ScoreTile label="Type" value={p.kind} />
+            <ScoreTile label="Simulator" value={p.simulatorAvailability.includes("FULL") || p.simulatorAvailability === "AVAILABLE" ? "Available" : "QUICK-only"} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <MetricCard label="Min" value={fmt.n(p.min, 3)} />
+            <MetricCard label="Median" value={fmt.n(p.median ?? null, 3)} />
+            <MetricCard label="Mean" value={fmt.n(p.mean, 3)} />
+            <MetricCard label="Max" value={fmt.n(p.max, 3)} />
+            <MetricCard label="Std dev" value={fmt.n(p.std, 3)} />
+          </div>
+          {p.histogram && p.histogram.length > 0 && (
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Development-fold distribution</div>
+              <Histogram bins={p.histogram} color="#7c3aed" height={170} />
+            </div>
+          )}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            Temporal safety: <b className="text-emerald-700">fold-local (2023)</b> — IV / MI / statistics learned on development only; validation 2024 and frozen 2025 never determine this feature's parameters. Season means: {Object.entries(p.seasonMeans).map(([y, v]) => `${y} ${v !== null ? fmt.n(v, 3) : "—"}`).join(" · ")}.
           </div>
         </div>
       )}
     </Card>
+  );
+}
+
+function ScoreTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-0.5 text-base font-semibold tabular-nums text-slate-900">{value}</div>
+      {sub ? <div className="text-[10px] text-slate-400">{sub}</div> : null}
+    </div>
   );
 }
 

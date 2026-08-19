@@ -140,13 +140,25 @@ def profile_engineered(spec: Mapping[str, Any]) -> dict[str, Any]:
         season_means[str(s)] = float(scf.mean()) if scf.size else None
     present = [v for v in season_means.values() if v is not None]
     drift = float((max(present) - min(present)) / (np.std(vals) or 1.0)) if len(present) >= 2 and vals.size else None
+    # Development-fold distribution (bounded) so the studio can chart the new feature immediately.
+    dev_vals = col[dev_mask]
+    dev_vals = dev_vals[np.isfinite(dev_vals)]
+    histogram: list[dict[str, Any]] = []
+    if dev_vals.size:
+        lo, hi = float(np.percentile(dev_vals, 0.5)), float(np.percentile(dev_vals, 99.5))
+        if hi <= lo:
+            hi = lo + 1.0
+        edges = np.linspace(lo, hi, 25)
+        counts, _ = np.histogram(np.clip(dev_vals, lo, hi), bins=edges)
+        histogram = [{"lo": float(edges[i]), "hi": float(edges[i + 1]), "count": int(counts[i])} for i in range(len(counts))]
     return {
         "name": spec.get("name"),
-        "kind": spec.get("kind"),
+        "kind": kind,
         "simulatorAvailability": _sim_availability(spec),
         "missing": int((~finite).sum()),
         "missingPct": float((~finite).sum() / len(col)),
         "mean": float(vals.mean()) if vals.size else None,
+        "median": float(np.median(vals)) if vals.size else None,
         "std": float(vals.std()) if vals.size else None,
         "min": float(vals.min()) if vals.size else None,
         "max": float(vals.max()) if vals.size else None,
@@ -154,6 +166,7 @@ def profile_engineered(spec: Mapping[str, Any]) -> dict[str, Any]:
         "mi": mi,
         "seasonMeans": season_means,
         "drift": drift,
+        "histogram": histogram,
         "sampleValues": [float(v) for v in vals[:8]],
     }
 

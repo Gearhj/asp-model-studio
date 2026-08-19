@@ -130,7 +130,7 @@ export function GuidedStageContent({ number, dataset, contract }: { number: numb
     case 2:
       return <div className="space-y-4"><DataQualitySummary dataset={dataset} /><DataPreviewPanel title="Your selected data" /></div>;
     case 3:
-      return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded /></div>;
+      return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} /></div>;
     case 4:
       return <div className="space-y-4"><ParticipationUsageBody study={p4} /></div>;
     case 5:

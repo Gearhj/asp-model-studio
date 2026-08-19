@@ -3,10 +3,11 @@ import { useRef, useState } from "react";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
   FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Check, CloudOff, RefreshCw, Loader2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEndpoint, useCockpitStore, type Objective } from "./cockpitApi";
+import { useCockpitPersistence, type AutosaveStatus } from "./cockpitPersistence";
 import {
   ObjectiveStep, DataPopulationStep, ProfileStep, OutliersStep, MissingStep,
   FeatureEngineeringStep, SegmentationStep, TemporalSplitStep,
@@ -36,10 +37,11 @@ const STEPS: Step[] = [
   { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: () => <RegistryStep /> },
 ];
 
-export default function PaModelingCockpit({ embedded = false }: { embedded?: boolean } = {}) {
+export default function PaModelingCockpit({ embedded = false, projectId = "mlb-cockpit" }: { embedded?: boolean; projectId?: string } = {}) {
   const [active, setActive] = useState("objective");
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { config, savedSteps, lastResult } = useCockpitStore();
+  const autosave = useCockpitPersistence(projectId, active, setActive);
   const step = STEPS.find((s) => s.id === active)!;
   const groups = [...new Set(STEPS.map((s) => s.group))];
   const contentRef = useRef<HTMLDivElement>(null);
@@ -52,6 +54,8 @@ export default function PaModelingCockpit({ embedded = false }: { embedded?: boo
 
   return (
     <div className="min-w-0 space-y-4 pb-10">
+      {/* Autosave status — the scientist's draft work is preserved continuously, project-scoped. */}
+      <div className="flex items-center justify-end"><AutosaveBadge status={autosave.status} lastSavedAt={autosave.lastSavedAt} onRetry={autosave.retry} /></div>
       {/* Persistent context header — suppressed when embedded in the guided workflow shell */}
       {!embedded && <header className="relative isolate overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-xl">
         <div className="pointer-events-none absolute inset-0 opacity-70" aria-hidden="true"
@@ -120,6 +124,27 @@ export default function PaModelingCockpit({ embedded = false }: { embedded?: boo
         </div>
       </div>
     </div>
+  );
+}
+
+// Compact, non-intrusive autosave indicator. Draft progress persists continuously; a failure never
+// discards in-memory work — it surfaces a warning with a manual Retry.
+function AutosaveBadge({ status, lastSavedAt, onRetry }: { status: AutosaveStatus; lastSavedAt: string | null; onRetry: () => void }) {
+  const time = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+  if (status === "error") {
+    return (
+      <button onClick={onRetry} className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100">
+        <CloudOff size={12} /> Autosave failed — retry <RefreshCw size={11} />
+      </button>
+    );
+  }
+  if (status === "saving") {
+    return <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500"><Loader2 size={12} className="animate-spin" /> Saving…</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+      <Check size={12} /> {status === "saved" && time ? `Saved ${time}` : "Progress autosaved"}
+    </span>
   );
 }
 
