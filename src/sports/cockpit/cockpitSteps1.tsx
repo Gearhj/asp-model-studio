@@ -4,11 +4,11 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
-  X, ArrowUpDown, Check,
+  X, ArrowUpDown, Check, Layers, Info, Archive,
 } from "lucide-react";
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
-  type Objective, type Population, type Profile, type FeatureDetail, type OutlierSummary,
+  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureDetail, type OutlierSummary,
   type MissingSummary, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
@@ -87,60 +87,111 @@ function RefBlock({ title, m }: { title: string; m: { logLoss: number; brierScor
 }
 
 // ============================================================ 02 Data & Population
+const roleTone = (role: string): "rose" | "amber" | "emerald" | "slate" =>
+  /FROZEN/i.test(role) ? "rose" : /VALID/i.test(role) ? "amber" : /DEVELOP/i.test(role) ? "emerald" : "slate";
+
 export function DataPopulationStep() {
   const pop = useEndpoint<Population>("/cockpit/population");
+  return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} /> : null}</LoadGate>;
+}
+
+function PopulationBody({ pop }: { pop: Population }) {
+  const src = pop.sourceEvidence;
+  // Games/batters are only materialized for the modeling seasons (2023–2025).
+  const modeling = new Map(pop.perSeason.map((s) => [s.season, s]));
+  const seasons: SourceSeasonRow[] = src?.perSeason
+    ?? pop.perSeason.map((s) => ({ season: s.season, rows: s.rows, role: s.role.toUpperCase() }));
+  const registeredTotal = src?.registeredTotalRows ?? seasons.reduce((a, s) => a + s.rows, 0);
+  const modelingTotal = src?.modelingTotalRows ?? pop.totalRows;
+  const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
-    <LoadGate state={pop}>
-      {pop.data && (
-        <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-4">
-            <MetricCard label="Total PAs" value={fmt.int(pop.data.totalRows)} detail="2023–2025" />
-            <MetricCard label="Candidate predictors" value={String(pop.data.candidatePredictors)} detail="governed feature view" />
-            <MetricCard label="Development" value={fmt.int(pop.data.perSeason.find((s) => s.role === "development")?.rows)} detail="2023" />
-            <MetricCard label="Frozen final" value={fmt.int(pop.data.perSeason.find((s) => s.role === "frozen_final")?.rows)} detail="2025 · protected" />
-          </div>
-          <Card title="Season populations" description="Real governed row / game / player counts per season." icon={Database}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left text-sm">
-                <thead><tr className="text-slate-500">{["Season", "Role", "Plate appearances", "Games", "Batters"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
-                <tbody>{pop.data.perSeason.map((s) => (
-                  <tr key={s.season}><td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{s.season}</td>
-                    <td className="border-b border-slate-100 px-3 py-2"><Pill label={s.role.replace("_", " ")} tone={s.role === "frozen_final" ? "rose" : s.role === "validation" ? "amber" : "emerald"} /></td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.int(s.rows)}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.int(s.games)}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.int(s.batters)}</td></tr>))}</tbody>
-              </table>
-            </div>
-          </Card>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Population funnel" description="Source PAs → resolved feature view → development population." icon={Database}>
-              <div className="space-y-2">
-                {pop.data.waterfall.map((w, i) => {
-                  const pctW = (w.rows / (pop.data!.waterfall[0]?.rows || 1)) * 100;
-                  return (
-                    <div key={i}>
-                      <div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{w.stage}</span><span className="tabular-nums text-slate-500">{fmt.int(w.rows)}</span></div>
-                      <div className="mt-1 h-6 overflow-hidden rounded bg-slate-100"><div className={`h-full ${w.kind === "final" ? "bg-cyan-600" : w.kind === "source" ? "bg-slate-800" : "bg-slate-400"}`} style={{ width: `${pctW}%` }} /></div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-            <Card title="Temporal policy & known limitations" description="Development / validation / frozen governance." icon={CalendarClock}>
-              <div className="flex flex-wrap gap-2">
-                <Pill label={`Dev ${pop.data.temporalPolicy.development.join(",")}`} tone="emerald" />
-                <Pill label={`Val ${pop.data.temporalPolicy.validation}`} tone="amber" />
-                <Pill label={`Frozen ${pop.data.temporalPolicy.frozenFinal}`} tone="rose" />
-              </div>
-              <ul className="mt-3 space-y-2 text-xs text-slate-600">
-                {pop.data.knownLimitations.map((l, i) => <li key={i} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />{l}</li>)}
-              </ul>
-            </Card>
-          </div>
-          <DataPreviewPanel title="Modeling matrix preview" showWarehouseLink={false} />
+    <div className="space-y-5">
+      {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Archive size={13} /> Registered source evidence</div>
+          <div className="mt-1 text-3xl font-semibold tabular-nums text-slate-900">{fmt.int(registeredTotal)}</div>
+          <div className="mt-0.5 text-xs text-slate-500">plate appearances · 2021–2025 · all governed FD1 seasons</div>
         </div>
-      )}
-    </LoadGate>
+        <div className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-cyan-700"><Layers size={13} /> Gen-2 modeling / evaluation matrix</div>
+          <div className="mt-1 text-3xl font-semibold tabular-nums text-slate-900">{fmt.int(modelingTotal)}</div>
+          <div className="mt-0.5 text-xs text-slate-500">plate appearances · 2023–2025 · target / training rows</div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <MetricCard label="Development" value={fmt.int(modeling.get(2023)?.rows)} detail="2023 · target season" />
+        <MetricCard label="Validation" value={fmt.int(modeling.get(2024)?.rows)} detail="2024" />
+        <MetricCard label="Frozen final" value={fmt.int(modeling.get(2025)?.rows)} detail="2025 · protected" />
+        <MetricCard label="Candidate predictors" value={String(pop.candidatePredictors)} detail="governed feature view" />
+      </div>
+
+      {/* Plain-language explanation of the two-layer population */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><Info size={15} className="text-cyan-600" /> Why aren't 2021–2022 in training?</div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          ASP has registered plate-appearance evidence beginning in 2021. Under the governed Gen-2 temporal
+          contract, <b>2021–2022 are retained as historical evidence for prior construction</b>, <b>2023</b> is
+          the development target season, <b>2024</b> is validation, and <b>2025</b> is frozen final evaluation.
+          The {fmt.int(priorTotal)} prior-history rows are <b>not discarded</b> — they build temporally valid
+          Y−1 player features and are simply not eligible as Gen-2 target/training rows.
+        </p>
+      </div>
+
+      <Card title="Season populations" description="All five registered seasons. 2021–2022 are prior history; 2023–2025 are the modeling matrix." icon={Database}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[620px] text-left text-sm">
+            <thead><tr className="text-slate-500">{["Season", "Role", "Plate appearances", "Games", "Batters"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
+            <tbody>{seasons.map((s) => {
+              const m = modeling.get(s.season);
+              const prior = roleTone(s.role) === "slate";
+              return (
+                <tr key={s.season} className={prior ? "bg-slate-50/60" : ""}>
+                  <td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{s.season}</td>
+                  <td className="border-b border-slate-100 px-3 py-2"><Pill label={s.role.replace(/_/g, " ")} tone={roleTone(s.role)} /></td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.int(s.rows)}</td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{m ? fmt.int(m.games) : "—"}</td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{m ? fmt.int(m.batters) : "—"}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">Prior-history seasons are used only to construct temporally valid historical player features. They are not eligible as Gen-2 target / training rows (games / batters are materialized for the modeling matrix only).</p>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title="Evidence lineage" description="Registered evidence splits into prior-history and the modeling matrix — nothing is dropped for quality." icon={Database}>
+          <div className="space-y-2">
+            {pop.waterfall.map((w, i) => {
+              const pctW = (w.rows / (pop.waterfall[0]?.rows || 1)) * 100;
+              const barColor = w.kind === "final" ? "bg-cyan-700" : w.kind === "retained" ? "bg-cyan-500" : w.kind === "prior" ? "bg-slate-300" : "bg-slate-800";
+              return (
+                <div key={i}>
+                  <div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{w.stage}</span><span className="tabular-nums text-slate-500">{fmt.int(w.rows)}</span></div>
+                  <div className="mt-1 h-6 overflow-hidden rounded bg-slate-100"><div className={`h-full ${barColor}`} style={{ width: `${pctW}%` }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+        <Card title="Temporal policy & known limitations" description="Model policy vs. full source-evidence coverage." icon={CalendarClock}>
+          <div className="flex flex-wrap gap-2">
+            <Pill label={`Dev ${pop.temporalPolicy.development.join(",")}`} tone="emerald" />
+            <Pill label={`Val ${pop.temporalPolicy.validation}`} tone="amber" />
+            <Pill label={`Frozen ${pop.temporalPolicy.frozenFinal}`} tone="rose" />
+            <Pill label="Evidence 2021–2025" tone="slate" />
+          </div>
+          <ul className="mt-3 space-y-2 text-xs text-slate-600">
+            {pop.knownLimitations.map((l, i) => <li key={i} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />{l}</li>)}
+          </ul>
+        </Card>
+      </div>
+
+      <DataPreviewPanel title="Gen-2 modeling matrix preview" showWarehouseLink={false} />
+      <p className="text-xs text-slate-500">2021–2022 source rows are prior-history evidence and therefore do not appear as target rows in this preview.</p>
+    </div>
   );
 }
 

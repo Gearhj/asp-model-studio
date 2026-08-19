@@ -87,6 +87,37 @@ def test_population_payload_declares_source_vs_development_authority():
 
 
 @view_required
+def test_source_evidence_two_layer_counts_and_roles():
+    # Phase 6E.1 — Data & Population shows registered evidence (2021-2025) AND the modeling matrix
+    # (2023-2025) as two distinct layers, with every season's role visible.
+    src = E.population_payload()["sourceEvidence"]
+    assert src["registeredTotalRows"] == 913_349
+    assert src["priorHistoryTotalRows"] == 363_870
+    assert src["modelingTotalRows"] == 549_479
+    assert src["priorHistoryTotalRows"] + src["modelingTotalRows"] == src["registeredTotalRows"]
+    roles = {row["season"]: row["role"] for row in src["perSeason"]}
+    counts = {row["season"]: row["rows"] for row in src["perSeason"]}
+    assert roles == {
+        2021: "PRIOR_HISTORY", 2022: "PRIOR_HISTORY",
+        2023: "DEVELOPMENT", 2024: "VALIDATION", 2025: "FROZEN_FINAL",
+    }
+    assert counts == {2021: 181_818, 2022: 182_052, 2023: 184_104, 2024: 182_449, 2025: 182_926}
+
+
+@view_required
+def test_lineage_waterfall_does_not_drop_prior_history():
+    # The funnel must show the prior-history split, not a quality "drop", and start at 913,349.
+    wf = E.population_payload()["waterfall"]
+    assert wf[0]["rows"] == 913_349 and wf[0]["kind"] == "source"
+    kinds = {w["kind"] for w in wf}
+    assert "prior" in kinds  # prior-history stage is present as its own parallel role
+    prior_stage = next(w for w in wf if w["kind"] == "prior")
+    assert prior_stage["rows"] == 363_870
+    final_stage = next(w for w in wf if w["kind"] == "final")
+    assert final_stage["rows"] == 184_104  # development target population (2023)
+
+
+@view_required
 def test_matrix_contains_no_prior_only_history_rows():
     # Identity/leakage: 2021-2022 remain prior-only; the modeling matrix must contain only 2023-2025.
     frame = E.load_frame()

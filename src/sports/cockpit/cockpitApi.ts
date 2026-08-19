@@ -36,12 +36,20 @@ export type DataPreview = {
   sample: string; limit: number; season: number | null; previewColumns: string[];
   rows: Record<string, any>[]; schema: PreviewSchemaRow[]; note: string;
 };
+export type SourceSeasonRow = { season: number; rows: number; role: string };
+export type SourceEvidence = {
+  registeredSeasons: number[]; priorOnlyHistory: number[]; modelingDevelopment: number[];
+  validation: number; frozenFinal: number;
+  registeredTotalRows: number; priorHistoryTotalRows: number; modelingTotalRows: number;
+  perSeason: SourceSeasonRow[]; note: string;
+};
 export type Population = {
   perSeason: SeasonRow[];
   totalRows: number;
   waterfall: { stage: string; rows: number; kind: string }[];
   candidatePredictors: number;
   temporalPolicy: { development: number[]; validation: number; frozenFinal: number };
+  sourceEvidence?: SourceEvidence;
   knownLimitations: string[];
 };
 export type FeatureIV = { perClass: Record<string, number>; maxIv: number; meanIv: number; maxIvClass: string | null };

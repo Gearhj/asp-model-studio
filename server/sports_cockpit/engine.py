@@ -62,6 +62,21 @@ VAL_SEASON = 2024
 FROZEN_SEASON = 2025
 TARGET_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)
 
+# Phase 6E.1 — full registered source-evidence authority. Counts and season roles are read from the
+# governed FD1 dataset manifest `seasons` block (2021-2022 = PRIOR_ONLY_HISTORY, 2023-2025 =
+# PRIMARY_GEN2_MODELING); the modeling-season counts mirror feature_contract.EXPECTED_SEASON_ROWS. The
+# feature view materializes only 2023-2025, so 2021-2022 counts are sourced from this frozen authority.
+SOURCE_EVIDENCE_SEASONS: tuple[dict[str, Any], ...] = (
+    {"season": 2021, "rows": 181_818, "role": "PRIOR_HISTORY"},
+    {"season": 2022, "rows": 182_052, "role": "PRIOR_HISTORY"},
+    {"season": 2023, "rows": 184_104, "role": "DEVELOPMENT"},
+    {"season": 2024, "rows": 182_449, "role": "VALIDATION"},
+    {"season": 2025, "rows": 182_926, "role": "FROZEN_FINAL"},
+)
+REGISTERED_TOTAL_ROWS = 913_349          # 2021-2025 registered PA evidence
+PRIOR_HISTORY_TOTAL_ROWS = 363_870       # 2021-2022 prior-only history (181,818 + 182,052)
+MODELING_TOTAL_ROWS = 549_479            # 2023-2025 Gen-2 modeling / evaluation matrix
+
 # One-hot categorical context features (mirrors the D3 fold preprocessor authority).
 CATEGORICAL_VALUES: Mapping[str, tuple[int, ...]] = {
     "context_top_bottom": (0, 1),
@@ -303,13 +318,16 @@ def population_payload() -> dict[str, Any]:
                 "role": "development" if season == DEV_SEASON else "validation" if season == VAL_SEASON else "frozen_final",
             }
         )
-    # Population waterfall: source PA -> strict-eligible view -> final development population.
+    # Population lineage: registered evidence (2021-2025) splits into prior-history (2021-2022, a
+    # parallel role — NOT dropped) and the Gen-2 modeling matrix (2023-2025), which narrows to the
+    # 2023 development target population. No rows are discarded for quality.
     total = int(len(frame))
     dev_rows = int(_season_mask(frame, DEV_SEASON).sum())
     waterfall = [
-        {"stage": "Governed FD1 plate appearances (2023-2025)", "rows": total, "kind": "source"},
-        {"stage": "Canonical-identity resolved feature view", "rows": total, "kind": "retained"},
-        {"stage": "Development population (2023)", "rows": dev_rows, "kind": "final"},
+        {"stage": "Registered PA evidence (2021-2025)", "rows": REGISTERED_TOTAL_ROWS, "kind": "source"},
+        {"stage": "Prior-history evidence (2021-2022)", "rows": PRIOR_HISTORY_TOTAL_ROWS, "kind": "prior"},
+        {"stage": "Gen-2 modeling / evaluation matrix (2023-2025)", "rows": MODELING_TOTAL_ROWS, "kind": "retained"},
+        {"stage": "Development target population (2023)", "rows": dev_rows, "kind": "final"},
     ]
     return {
         "schemaVersion": COCKPIT_SCHEMA_VERSION,
@@ -332,6 +350,10 @@ def population_payload() -> dict[str, Any]:
             "modelingDevelopment": [DEV_SEASON],
             "validation": VAL_SEASON,
             "frozenFinal": FROZEN_SEASON,
+            "registeredTotalRows": REGISTERED_TOTAL_ROWS,
+            "priorHistoryTotalRows": PRIOR_HISTORY_TOTAL_ROWS,
+            "modelingTotalRows": MODELING_TOTAL_ROWS,
+            "perSeason": [dict(row) for row in SOURCE_EVIDENCE_SEASONS],
             "note": (
                 "Registered evidence spans 2021-2025. 2021-2022 are PRIOR_ONLY_HISTORY: retained only "
                 "to build Y-1 player priors for the 2023-2025 primary modeling seasons and prohibited "

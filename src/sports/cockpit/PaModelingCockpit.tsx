@@ -1,8 +1,9 @@
 // Interactive MLB PA Modeling Cockpit (Phase 6A) — the 15-step scientist workbench shell.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
   FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEndpoint, useCockpitStore, type Objective } from "./cockpitApi";
@@ -41,6 +42,13 @@ export default function PaModelingCockpit({ embedded = false }: { embedded?: boo
   const { config, savedSteps, lastResult } = useCockpitStore();
   const step = STEPS.find((s) => s.id === active)!;
   const groups = [...new Set(STEPS.map((s) => s.group))];
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Internal step navigation: swaps the rendered step only. Experiment state lives in the zustand
+  // store (config / savedSteps / lastResult), so Previous/Next never reload the app or lose selections.
+  const go = (id: string) => {
+    setActive(id);
+    contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="min-w-0 space-y-4 pb-10">
@@ -64,7 +72,8 @@ export default function PaModelingCockpit({ embedded = false }: { embedded?: boo
               ["Champion", obj.data ? obj.data.champion.modelId : "…"],
               ["Feature set", `${config.features.length} selected`],
               ["Active experiment", lastResult ? lastResult.family : "none"],
-              ["Temporal policy", "2023→2024→2025"],
+              ["Model policy", "DEV 2023 → VAL 2024 → FROZEN 2025"],
+              ["Source evidence", "2021–2025 (2021–22 prior history)"],
             ].map(([k, v]) => (
               <div key={k} className="min-w-0 bg-slate-950/70 px-3.5 py-2.5 backdrop-blur-sm"><dt className="text-[11px] text-slate-400">{k}</dt><dd className="mt-0.5 break-words font-semibold text-white">{v}</dd></div>
             ))}
@@ -100,15 +109,44 @@ export default function PaModelingCockpit({ embedded = false }: { embedded?: boo
         </nav>
 
         {/* Active step */}
-        <div className="min-w-0">
+        <div className="min-w-0" ref={contentRef}>
           <div className="mb-3 flex items-center gap-3">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-cyan-200"><step.icon size={18} /></span>
             <div><div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-700">Step {step.n} · {step.group}</div>
               <h2 className="text-xl font-semibold tracking-tight text-slate-950">{step.label}</h2></div>
           </div>
           {step.render()}
+          <StepFooter active={active} go={go} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Consistent Previous / Next workflow footer at the bottom of every cockpit step. Uses the in-scope
+// STEPS order so destinations can never diverge from the left navigator; Step 1 has no Previous and
+// Step 15 has no Next. Navigation is internal step state — it does not route outside the cockpit.
+function StepFooter({ active, go }: { active: string; go: (id: string) => void }) {
+  const idx = STEPS.findIndex((s) => s.id === active);
+  const prev = idx > 0 ? STEPS[idx - 1] : null;
+  const next = idx < STEPS.length - 1 ? STEPS[idx + 1] : null;
+  return (
+    <div className="mt-6 flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
+      {prev ? (
+        <button onClick={() => go(prev.id)}
+          className="inline-flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
+          <ChevronLeft size={16} className="shrink-0 text-slate-400" />
+          <span className="truncate"><span className="hidden sm:inline">{prev.label}</span><span className="sm:hidden">Previous</span></span>
+        </button>
+      ) : <span aria-hidden="true" />}
+      <div className="shrink-0 text-xs font-semibold tabular-nums text-slate-500">Step {idx + 1} of {STEPS.length}</div>
+      {next ? (
+        <button onClick={() => go(next.id)}
+          className="inline-flex min-w-0 items-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800">
+          <span className="truncate"><span className="hidden sm:inline">{next.label}</span><span className="sm:hidden">Next</span></span>
+          <ChevronRight size={16} className="shrink-0 text-cyan-300" />
+        </button>
+      ) : <span aria-hidden="true" />}
     </div>
   );
 }
