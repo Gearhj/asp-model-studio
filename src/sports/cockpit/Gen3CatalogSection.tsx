@@ -3,7 +3,7 @@
 // "selection" mode the scientist selects an EXACT immutable version -> the backend creates a project
 // binding; the active binding auto-restores on mount (server wins over any local cache). The sealed
 // 2025 object is shown as restricted/non-selectable and never exposes analytical distributions.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, ShieldCheck, Lock, CheckCircle2, TriangleAlert, Loader2 } from "lucide-react";
 import { getJSON, postJSON } from "../../lib/api";
 
@@ -21,6 +21,29 @@ export type Binding = {
 const short = (s?: string) => (s ? s.slice(0, 12) + "…" : "—");
 const roleRows = (rows: number) => rows.toLocaleString("en-US");
 
+const STATE_MSG: Record<string, string> = {
+  LOADING: "Resolving the project's active modeling dataset…",
+  NO_BINDING: "No active modeling dataset — select one below.",
+  STALE: "The binding changed on the server — reload to get the current authority.",
+  UNAUTHENTICATED: "Your session expired — sign in again.",
+  UNAUTHORIZED: "You do not have permission to access this project's modeling dataset.",
+  NOT_FOUND: "No active modeling dataset — select one below.",
+  SERVER_ERROR: "The dataset authority service returned an error — retry shortly.",
+  NETWORK_ERROR: "Could not reach the dataset authority service — check your connection.",
+  ACTIVE: "Active binding restored.",
+};
+const STATE_TONE: Record<string, string> = {
+  LOADING: "border-slate-200 bg-slate-50 text-slate-600",
+  NO_BINDING: "border-amber-200 bg-amber-50 text-amber-800",
+  NOT_FOUND: "border-amber-200 bg-amber-50 text-amber-800",
+  STALE: "border-amber-300 bg-amber-50 text-amber-900",
+  UNAUTHENTICATED: "border-rose-200 bg-rose-50 text-rose-800",
+  UNAUTHORIZED: "border-rose-200 bg-rose-50 text-rose-800",
+  SERVER_ERROR: "border-rose-200 bg-rose-50 text-rose-800",
+  NETWORK_ERROR: "border-rose-200 bg-rose-50 text-rose-800",
+  ACTIVE: "border-emerald-200 bg-emerald-50 text-emerald-800",
+};
+
 export function useGen3Catalog() {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -35,19 +58,43 @@ export function useGen3Catalog() {
   return { catalog, error };
 }
 
-// Server-authoritative active binding with auto-restore (Gate 4). Returns null when the project has none.
+// Server-authoritative active binding with auto-restore + an explicit state machine (Gate 4/5). Never
+// collapses failures to null and never silently selects a default dataset. Aborts stale in-flight
+// requests when the project changes (server state wins over any local cache).
+export type BindingState = "LOADING" | "NO_BINDING" | "ACTIVE" | "STALE" | "UNAUTHENTICATED"
+  | "UNAUTHORIZED" | "NOT_FOUND" | "SERVER_ERROR" | "NETWORK_ERROR";
+
+function classify(err: unknown): BindingState {
+  const m = /failed:\s*(\d+)/.exec(String(err));
+  if (!m) return "NETWORK_ERROR";
+  const s = Number(m[1]);
+  if (s === 401) return "UNAUTHENTICATED";
+  if (s === 403) return "UNAUTHORIZED";
+  if (s === 404) return "NO_BINDING";
+  if (s === 409 || s === 422) return "STALE";
+  if (s >= 500) return "SERVER_ERROR";
+  return "SERVER_ERROR";
+}
+
 export function useActiveBinding(projectId: string) {
   const [binding, setBinding] = useState<Binding | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [state, setState] = useState<BindingState>("LOADING");
+  const reqId = useRef(0);
   const refresh = useCallback(async () => {
+    const mine = ++reqId.current;
+    setState("LOADING");
     try {
-      setBinding(await getJSON<Binding>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`));
-    } catch {
-      setBinding(null); // 404 = no active binding yet
-    } finally { setLoaded(true); }
+      const b = await getJSON<Binding>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`);
+      if (mine !== reqId.current) return;           // a newer project request superseded this one
+      setBinding(b); setState("ACTIVE");
+    } catch (e) {
+      if (mine !== reqId.current) return;
+      setBinding(null); setState(classify(e));       // never a silent null-collapse
+    }
   }, [projectId]);
-  useEffect(() => { refresh(); }, [refresh]);
-  return { binding, loaded, refresh, setBinding };
+  // Gate 5 — on project switch, immediately clear display state and re-enter LOADING for the new project.
+  useEffect(() => { setBinding(null); setState("LOADING"); reqId.current++; refresh(); }, [refresh]);
+  return { binding, state, loaded: state !== "LOADING", refresh, setBinding };
 }
 
 function DatasetCard({ e, selectable, onSelect, active, busy }: {
@@ -119,12 +166,20 @@ export default function Gen3CatalogSection({ mode, projectId }: { mode: "warehou
       </div>
       <h3 className="mt-1 text-lg font-semibold text-slate-950">{mode === "warehouse" ? "Data Warehouse — registered feature views" : "Select the authoritative modeling dataset"}</h3>
 
-      {mode === "selection" && active.loaded && active.binding && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold uppercase text-white"><CheckCircle2 size={12} /> Active binding restored</span>
-          <span>Server authority: <b>{active.binding.datasetVersionId.split(":")[0]}</b> · content {short(active.binding.datasetContentSha256)} · dev {active.binding.developmentSeasons.join(",")} · val {active.binding.validationSeason} · sealed {active.binding.sealedSeasons.join(",") || "—"}</span>
-          <span className="ml-auto text-[10px] text-emerald-700">server state wins over local cache</span>
-        </div>
+      {mode === "selection" && (
+        active.state === "ACTIVE" && active.binding ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold uppercase text-white"><CheckCircle2 size={12} /> Active binding restored</span>
+            <span>Server authority: <b>{active.binding.datasetVersionId.split(":")[0]}</b> · content {short(active.binding.datasetContentSha256)} · dev {active.binding.developmentSeasons.join(",")} · val {active.binding.validationSeason} · sealed {active.binding.sealedSeasons.join(",") || "—"}</span>
+            <span className="ml-auto text-[10px] text-emerald-700">server state wins over local cache</span>
+          </div>
+        ) : (
+          <div className={`mt-2 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${STATE_TONE[active.state]}`}>
+            {active.state === "LOADING" ? <Loader2 size={12} className="animate-spin" /> : <TriangleAlert size={12} />}
+            <span className="font-semibold">{STATE_MSG[active.state]}</span>
+            {active.state !== "LOADING" && active.state !== "NO_BINDING" && <span className="ml-auto text-[10px] opacity-80">no dataset is silently selected</span>}
+          </div>
+        )
       )}
       {error && <p className="mt-2 text-xs text-rose-700"><TriangleAlert size={12} className="mr-1 inline" />catalog unavailable: {error}</p>}
       {bindError && <p className="mt-2 text-xs text-rose-700"><TriangleAlert size={12} className="mr-1 inline" />{bindError}</p>}

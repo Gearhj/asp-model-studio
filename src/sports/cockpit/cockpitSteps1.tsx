@@ -410,12 +410,16 @@ function PopulationBody({ pop, projectId }: { pop: Population; projectId: string
   const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
     <div className="space-y-5">
-      {/* Phase 7A.2 — server-authoritative dataset selection + active-binding auto-restore (Gate 3/4/5).
-          The server catalog/binding is the authority; the legacy notes-based section below is retained
-          for its population/lineage detail. */}
+      {/* Phase 7A.2/7A.4 — the server active binding is the SOLE modeling-dataset authority (Gate 1/2).
+          Everything below the selector is explicitly SOURCE LINEAGE / HISTORICAL EVIDENCE — read-only,
+          non-selectable, non-authoritative — and must not be mistaken for the active modeling dataset. */}
       <Gen3CatalogSection mode="selection" projectId={projectId} />
-      <DatasetSection projectId={projectId} />
       <TargetSelector projectId={projectId} />
+      <div className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500"><Archive size={11} /> Source lineage · historical evidence</span>
+        <span className="ml-2">The panels below describe the registered FD1 source evidence and are <b>not</b> the active modeling dataset. The active modeling authority is the server binding above.</span>
+      </div>
+      <DatasetSection projectId={projectId} />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

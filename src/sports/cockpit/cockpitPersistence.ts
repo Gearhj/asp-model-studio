@@ -81,6 +81,9 @@ export function useCockpitPersistence(projectId: string, activeStep: string, onR
   // Hydrate before paint so children render the restored state (no flash of defaults).
   useLayoutEffect(() => {
     if (hydratedFor.current === projectId) return;
+    // Gate 6 — clear the previous project's scientific state BEFORE applying this project's snapshot, so a
+    // project with no saved snapshot never inherits another project's state from the singleton store.
+    useCockpitStore.getState().resetProjectScopedState();
     const snap = loadCockpitSnapshot(projectId);
     if (snap) {
       useCockpitStore.getState().hydrate({

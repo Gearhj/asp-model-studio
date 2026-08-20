@@ -231,6 +231,7 @@ type CockpitStore = {
   upsertLabCandidate: (key: string, patch: Partial<LabCandidate>) => void;
   clearLabSuite: () => void;
   invalidateForDatasetChange: () => void;
+  resetProjectScopedState: () => void;
   hydrate: (snapshot: Partial<CockpitStore>) => void;
 };
 
@@ -239,6 +240,28 @@ export const ALL_FEATURES = [
   "batter_log1p_pa", "batter_avg", "batter_obp", "batter_slg", "batter_so_per_pa", "batter_bb_hbp_per_pa", "batter_hr_per_pa", "batter_prior_missing",
   "pitcher_log1p_bfp", "pitcher_era9", "pitcher_whip", "pitcher_so_per_bfp", "pitcher_bb_per_bfp", "pitcher_hr_per_bfp", "pitcher_hbp_per_bfp", "pitcher_gs_per_g", "pitcher_prior_missing",
 ];
+
+// A safe empty/default snapshot of all PROJECT-SCOPED state (Phase 7A.4 Gate 6). Applied before hydrating
+// a new project so a singleton store can never bleed one project's scientific state into another.
+const BASE_PROJECT_STATE = {
+  config: {
+    features: [...ALL_FEATURES],
+    family: "logistic",
+    hyperparameters: { C: 1.0, maxIter: 2000 },
+    outlierPolicy: { globalMethod: "none", params: { k: 3.0 }, overrides: {} },
+    missingPolicy: { globalMethod: "median", addIndicator: false, overrides: {} },
+    engineeredFeatures: [],
+  } as ExperimentConfig,
+  notes: {} as Record<string, string>,
+  engineeredProfiles: {} as Record<string, EngineeredProfile>,
+  labSelected: [] as string[],
+  labTuneSelected: [] as string[],
+  labSuite: {} as Record<string, LabCandidate>,
+  savedSteps: {} as Record<string, boolean>,
+  lastResult: undefined,
+  lastAutopilot: undefined,
+  lastSim: undefined,
+};
 
 export const useCockpitStore = create<CockpitStore>((set) => ({
   config: {
@@ -296,6 +319,9 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   setLabTuneSelected: (labTuneSelected) => set({ labTuneSelected }),
   upsertLabCandidate: (key, patch) => set((s) => ({ labSuite: { ...s.labSuite, [key]: { ...(s.labSuite[key] || { key, family: key, label: key, status: "queued", source: "suite" }), ...patch } as LabCandidate } })),
   clearLabSuite: () => set({ labSuite: {} }),
+  // Project-scope reset (Phase 7A.4 Gate 6): wipe all project-scoped state to base defaults before a new
+  // project's snapshot is applied, so no project ever inherits another's scientific state.
+  resetProjectScopedState: () => set(() => ({ ...BASE_PROJECT_STATE })),
   // Dataset-change invalidation (Phase 6G.2). Changing the modeling dataset makes every dataset-derived
   // artifact stale, so we clear the cockpit/project-scoped downstream state: target confirmation, the
   // selected predictor set + engineered features, EDA/segmentation UI selections, outlier/missing policy,
