@@ -207,6 +207,15 @@ def gen3_execute(payload: dict[str, Any] = Body(...), user: dict = Depends(requi
     return _guard(G3A.execute, actor=_actor(user), project_id=pid, run_authority_id=payload.get("runAuthorityId", ""))
 
 
+@router.post("/cockpit/gen3/run-suite")
+def gen3_run_suite(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    # Authorized autopilot / tuning: every candidate uses the single server-authorized run path.
+    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+    return _guard(G3A.run_authorized_suite, actor=_actor(user), project_id=pid,
+                  binding_id=payload.get("bindingId", ""), candidates=payload.get("candidates") or [],
+                  source=str(payload.get("source", "suite")))
+
+
 @router.get("/cockpit/gen3/runs/{project_id}")
 def gen3_runs(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, project_id, "view")

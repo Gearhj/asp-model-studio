@@ -11,6 +11,11 @@ import {
   type SimResult, type ExperimentIndexRow, type Eligibility, type FullSimResult,
 } from "./cockpitApi";
 import Gen3AuthorityPanel from "./Gen3AuthorityPanel";
+
+// Phase 7A.4 Gate 10 — no scientist-facing component may call a binding-free execution path. The legacy
+// candidate suite, Autopilot, and Grid execution are contained behind this flag; model execution is
+// server-authorized only (active binding -> run authority -> authorized execution; never scores 2025).
+const LEGACY_BINDING_FREE_EXECUTION_DISABLED = true;
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
   ConfusionHeatmap, CalibrationChart, ModelScatter, fmt,
@@ -333,6 +338,7 @@ function AutopilotPanel() {
   const post = usePost<AutopilotResult>();
   const [budget, setBudget] = useState<"quick" | "standard" | "deep">("quick");
   const run = async () => {
+    if (LEGACY_BINDING_FREE_EXECUTION_DISABLED) return;  // authorized suite path only (Gate 8/10)
     const r = await post.run("/cockpit/autopilot", { config: store.config, budget });
     store.setLastAutopilot(r);
     // Autopilot results enter the same leaderboard, tagged AUTOPILOT.
@@ -355,7 +361,8 @@ function AutopilotPanel() {
       <div className="flex flex-wrap items-end gap-4">
         <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Budget</div>
           <Segmented value={budget} onChange={setBudget as any} options={[{ value: "quick", label: "Quick" }, { value: "standard", label: "Standard" }, { value: "deep", label: "Deep" }]} /></div>
-        <Button onClick={run} disabled={post.status === "loading"} tone="dark">{post.status === "loading" ? "Running Autopilot…" : "▶ Run Autopilot benchmark"}</Button>
+        <Button onClick={run} disabled={LEGACY_BINDING_FREE_EXECUTION_DISABLED || post.status === "loading"} tone="dark">▶ Run Autopilot benchmark</Button>
+        <p className="mt-1 text-[11px] text-amber-700">Autopilot now runs through the server-authorized suite (active binding → run authority) in the Model Laboratory; the legacy benchmark is disabled.</p>
         {post.status === "loading" && <span className="flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Searching a bounded candidate set on 2023→2024…</span>}
       </div>
       {ap && <p className="mt-3 text-xs text-slate-500">Autopilot best: <b>{ap.best?.label}</b> ({ap.best?.val2024 ? fmt.n(ap.best.val2024.logLoss) : "—"}) · {ap.candidates.length} candidates added to the leaderboard. {ap.limitations.join(" ")}</p>}
@@ -373,6 +380,7 @@ export function TuningStep() {
   const combos = grid.split(",").map((x) => Number(x.trim())).filter((x) => !Number.isNaN(x));
 
   const runGrid = async () => {
+    if (LEGACY_BINDING_FREE_EXECUTION_DISABLED) return;  // authorized suite path only (Gate 9/10)
     if (config.family !== "logistic") return;
     setRunning(true); setRows(null);
     const out: any[] = [];
@@ -405,7 +413,7 @@ export function TuningStep() {
               <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase tracking-wide text-slate-500">C grid (comma-separated)</span>
                 <input value={grid} onChange={(e) => setGrid(e.target.value)} className="w-64 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none" /></label>
               <div className="text-xs text-slate-500">{combos.length} candidate fits · 1 fold each · ~{combos.length} logistic fits on 2023</div>
-              <Button onClick={runGrid} disabled={running || combos.length === 0} tone="dark">{running ? "Searching…" : "▶ Run grid search"}</Button>
+              <Button onClick={runGrid} disabled={LEGACY_BINDING_FREE_EXECUTION_DISABLED || running || combos.length === 0} tone="dark">▶ Run grid search</Button>
             </div>
             {running && <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Fitting {combos.length} candidates…</div>}
             {rows && (

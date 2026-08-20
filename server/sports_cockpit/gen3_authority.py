@@ -45,6 +45,25 @@ _OPAQUE_RE = re.compile(r"^[0-9a-f]{32}$")
 _ALLOWED_FAMILIES = {"governed_logistic", "governed_hgb"}
 
 
+# Object-open instrumentation (Gate 13): every read of a registered object parquet is recorded here so a
+# hermetic test can behaviorally prove the sealed 2025 object is opened 0 times by the ordinary workflow.
+_OBJECT_OPEN_LOG: list[str] = []
+
+
+def reset_object_open_log() -> None:
+    _OBJECT_OPEN_LOG.clear()
+
+
+def object_open_log() -> list[str]:
+    return list(_OBJECT_OPEN_LOG)
+
+
+def _record_open(path) -> Path:
+    p = Path(path)
+    _OBJECT_OPEN_LOG.append(str(p.resolve()))
+    return p
+
+
 class AuthorityError(CockpitError):
     """Fail-closed authority/binding/run violation (route maps to HTTP 422)."""
 
@@ -104,7 +123,7 @@ def _write_json_atomic(path: Path, payload: Any) -> None:
 
 # --------------------------------------------------------------------------- catalog / registration (A2-06 read of registry)
 def _gen2_catalog_entry() -> dict[str, Any]:
-    path = _feature_view_path()
+    path = _record_open(_feature_view_path())
     meta = pq.read_schema(path).metadata or {}
     content_sha = (meta.get(b"featureContentSha") or b"").decode() or hashlib.sha256(path.read_bytes()).hexdigest()
     return {
@@ -168,7 +187,7 @@ def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- object integrity (A2-05)
 def _verify_object(entry: Mapping[str, Any]) -> tuple[Path, dict[str, Any]]:
     """Verify the exact registered content-addressed object before it is opened. Returns (path, receipt)."""
-    path = Path(entry["objectPath"]) if entry.get("objectPath") else None
+    path = _record_open(entry["objectPath"]) if entry.get("objectPath") else None
     if path is None or not path.is_file() or path.is_symlink():
         raise AuthorityError("registered object missing or is a link")
     physical = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -384,7 +403,7 @@ def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[
 
 def _load_authorized_frame(path: Path):
     cols = ["plate_appearance_id", "game_id", "game_date", "season", "outcome", *FEATURE_NAMES]
-    table = pq.read_table(path, columns=cols)
+    table = pq.read_table(_record_open(path), columns=cols)
     seasons = np.asarray(table["season"].to_pylist(), dtype=np.int64)
     fv = {n: np.asarray(table[n].to_pylist(), dtype=np.float64) for n in FEATURE_NAMES}
     return fv, seasons, np.asarray(table["outcome"].to_pylist(), dtype=object), np.asarray(table["game_date"].to_pylist(), dtype=object)
@@ -482,6 +501,32 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
     assert evidence["canonicalEffectiveConfigSha256"] == authority["canonicalEffectiveConfigSha256"]
     assert evidence["datasetContentSha256"] == authority["datasetContentSha256"] == receipt["logicalContentSha256"]
     return evidence
+
+
+def run_authorized_suite(*, actor: str, project_id: str, binding_id: str,
+                         candidates: list[Mapping[str, Any]], source: str = "suite") -> dict[str, Any]:
+    """Autopilot / tuning migration (A2/Gate 8-9): every candidate goes through the SINGLE authorized path
+    (active-binding-checked run authority -> object-verified execution -> immutable run evidence). No
+    legacy binding-free execution; never scores 2025. Bounded to <= 8 candidates per call."""
+    if not isinstance(candidates, list) or not (1 <= len(candidates) <= 8):
+        raise AuthorityError("suite requires 1..8 candidates")
+    _require_active_binding(project_id, binding_id)  # blocked without a current active binding
+    results = []
+    for spec in candidates:
+        family = spec.get("family", "governed_hgb")
+        hyper = spec.get("hyperparameters") or {}
+        au = issue_run_authority(actor=actor, project_id=project_id, binding_id=binding_id,
+                                 model_family=family, hyperparameters=hyper)
+        ev = execute(actor=actor, project_id=project_id, run_authority_id=au["runAuthorityId"])
+        results.append({"label": spec.get("label", family), "source": source, "runAuthorityId": au["runAuthorityId"],
+                        "experimentRunId": ev["experimentRunId"], "modelFamily": family, "generation": ev["generation"],
+                        "metrics": ev["metrics"], "developmentRows": ev["developmentRows"],
+                        "validationRows": ev["validationRows"], "sealedSeasonsAccessed": ev["sealedSeasonsAccessed"]})
+    ok = [r for r in results if "logLoss" in r["metrics"]]
+    best = min(ok, key=lambda r: r["metrics"]["logLoss"]) if ok else None
+    return {"source": source, "candidateCount": len(results), "candidates": results,
+            "best": best["experimentRunId"] if best else None,
+            "bestLogLoss": best["metrics"]["logLoss"] if best else None}
 
 
 def get_run(*, project_id: str, run_id: str) -> dict[str, Any]:
