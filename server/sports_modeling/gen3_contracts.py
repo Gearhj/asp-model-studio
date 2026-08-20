@@ -70,12 +70,22 @@ def base_feature_contract() -> dict[str, Any]:
 
 
 def knowledge_time_contract() -> dict[str, Any]:
-    return _contract("MLB_GEN3_KNOWLEDGE_TIME_CONTRACT_V1", "1.0.0", {
-        "rule": "pregame -> final; every feature must use only information known before the scheduled start of the target game",
+    # V2 (Phase 7A.3 / A2-12): the honest correction. The base-22 model is NOT "pregame-safe": the 5
+    # context features (inning, half, outs, base state, score differential) are IN-GAME state known
+    # immediately before the target PA, not before game start. It is CONDITIONALLY simulator-safe because
+    # the whole-game simulator supplies the evolving pre-PA state; only post-PA/target information is
+    # prohibited. Truly pregame-known features arrive in Phase 7B.
+    return _contract("MLB_GEN3_KNOWLEDGE_TIME_CONTRACT_V2", "2.0.0", {
+        "predecessor": "MLB_GEN3_KNOWLEDGE_TIME_CONTRACT_V1",
+        "safetyClass": "CONDITIONAL_PRE_TERMINAL_PA_STATE",
+        "pregameFeatures": ["player_prior-derived batter/pitcher rate features (known before game start)"],
+        "inGamePreTerminalPaState": ["context_inning", "context_top_bottom", "context_outs_before",
+                                     "context_base_mask_before", "context_batting_score_diff_before"],
+        "prohibitedPostPaOrTarget": ["outcome", "same-game post-PA events", "launch_speed/angle",
+                                     "woba/babip/iso value", "delta_run_exp", "final score", "actual PA count", "post scores"],
         "priorEligibility": "player_prior for target season S resolves latest row with prior_season <= S-1 and eligible_from <= S; strict < knowledge_time",
         "priorBlind2021": "no <=2020 player_prior exists -> all 2021 target PAs are prior-blind (surfaced via *_prior_missing)",
-        "prohibited": ["same-game events", "launch_speed/angle", "woba/babip/iso value",
-                       "delta_run_exp", "final score", "actual PA count", "post scores"],
+        "note": "NOT labelled pregame-safe; conditionally simulator-safe because the simulator provides the evolving pre-PA state.",
     })
 
 
@@ -120,6 +130,7 @@ def population_contract() -> dict[str, Any]:
 
 
 def all_contracts() -> dict[str, dict[str, Any]]:
+    """Gen-3 contract bundle (the default). Gen-2 must use gen2_contracts()."""
     return {
         "target": target_contract(),
         "featureSchema": feature_schema_contract(),
@@ -129,6 +140,48 @@ def all_contracts() -> dict[str, dict[str, Any]]:
         "preprocessing": preprocessing_contract(),
         "population": population_contract(),
     }
+
+
+# --------------------------------------------------------------------------- Gen-2 bundle (A2-04)
+# Gen-2 resolves its OWN authoritative contracts. It shares the target taxonomy, the governed
+# preprocessing policy, and the honest knowledge-time semantics, but its schema/feature contract are the
+# frozen Gen-2 MLB_PA_FEATURE_* authorities and its temporal/population are the Gen-2 2023-2025 authority.
+def gen2_contracts() -> dict[str, dict[str, Any]]:
+    from .feature_contract import (
+        FEATURE_CONTRACT_NAME, FEATURE_CONTRACT_VERSION, TARGET_SEASONS,
+        feature_contract_payload, feature_contract_sha, feature_schema_sha,
+    )
+    target = _contract("MLB_GEN2_TARGET_CONTRACT_V1", "1.0.0",
+                       {"targetColumn": "outcome", "classOrder": list(PA_CLASS_ORDER), "problemType": "MULTICLASS_CLASSIFICATION"})
+    temporal = _contract("MLB_GEN2_TEMPORAL_CONTRACT_V1", "1.0.0",
+                         {"development": [2023], "validationSelection": 2024, "frozenFinal": 2025,
+                          "researchFrameSeasons": [2023, 2024], "invariants": ["2025 is Gen-2 frozen; never a dev/tuning/selection fold; not scored in ordinary development"]})
+    population = _contract("MLB_GEN2_POPULATION_CONTRACT_V1", "1.0.0",
+                          {"population": "GEN2_PRIMARY_2023_2025", "developmentSeasons": [2023], "validationSeason": 2024, "sealedSeasons": [2025]})
+    # feature schema / feature contract reuse the frozen Gen-2 authorities by their real digests.
+    feature_schema = {"id": f"MLB_PA_FEATURE_SCHEMA_V1:sha256:{feature_schema_sha()}", "sha256": feature_schema_sha(),
+                      "payload": {"contract": "MLB_PA_FEATURE_SCHEMA_V1", "semanticVersion": "1.0.0"}}
+    base_feature = {"id": f"{FEATURE_CONTRACT_VERSION}:sha256:{feature_contract_sha(feature_contract_payload())}",
+                    "sha256": feature_contract_sha(feature_contract_payload()),
+                    "payload": {"contract": FEATURE_CONTRACT_NAME, "semanticVersion": "1.0.0"}}
+    return {
+        "target": target, "featureSchema": feature_schema, "baseFeature": base_feature,
+        "knowledgeTime": knowledge_time_contract(),  # shared honest knowledge-time semantics
+        "temporal": temporal, "preprocessing": preprocessing_contract(), "population": population,
+    }
+
+
+def contracts_for_generation(generation: str) -> dict[str, dict[str, Any]]:
+    if generation == "GEN2":
+        return gen2_contracts()
+    if generation in ("GEN3", "GEN3_SEALED"):
+        return all_contracts()
+    raise ValueError(f"unknown generation for contracts: {generation}")
+
+
+def contract_bundle_sha_for(generation: str) -> str:
+    c = contracts_for_generation(generation)
+    return sha256_bytes(canonical_json_bytes({name: v["sha256"] for name, v in sorted(c.items())}))
 
 
 def contract_digests() -> dict[str, str]:

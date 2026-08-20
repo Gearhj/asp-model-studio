@@ -1,20 +1,21 @@
 """Server-side Gen-3 dataset registry, project binding, run authority, and governed execution
-(Phase 7A.1). Realizes the invariant UI = SERVER = TRAINING = RESULT authority, fail-closed on any
-mismatch — additively, WITHOUT touching the D3/C4-serving cockpit execution path.
+(Phase 7A.1 → hardened in 7A.3). Realizes UI = ACTIVE BINDING = RUN AUTHORITY = OBJECT RECEIPT =
+TRAINING = RESULT, fail-closed on any mismatch — additively, WITHOUT touching the D3/C4-serving path.
 
-The scientist selects an EXACT immutable dataset version; the server resolves it from the registry,
-issues a project dataset binding, then a run authority carrying every contract/version/content digest,
-validates it fail-closed immediately before training, executes the GOVERNED pipeline on the exact
-registered object (never opening the sealed 2025 object), and binds immutable run evidence that echoes
-the same authority. Retries get new opaque run ids but the same canonical effective-config fingerprint.
+7A.3 hardening: safe opaque project storage keys (no raw projectId in a path, A2-02); generation-specific
+contract bundles (A2-04); object-integrity verification before load (A2-05); binding revision / CAS /
+supersession (A2-06); code+worktree+environment identity recomputed at execution (A2-11); complete
+contract/receipt echo in result evidence (A2-10); strict resource bounds on model hyperparameters
+(A2-13). Callers pass an ALREADY-AUTHORIZED canonical project id (the route enforces the project ACL).
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
-import platform
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -41,27 +42,53 @@ STATE_ROOT = GEN3_ROOT / "authority"
 ASP_REGISTRY = RUNTIME_ROOT / "artifacts" / "datasets" / "registry.json"
 _ID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
 _OPAQUE_RE = re.compile(r"^[0-9a-f]{32}$")
+_ALLOWED_FAMILIES = {"governed_logistic", "governed_hgb"}
 
 
 class AuthorityError(CockpitError):
-    """Fail-closed authority/binding/run violation."""
+    """Fail-closed authority/binding/run violation (route maps to HTTP 422)."""
 
 
-# --------------------------------------------------------------------------- helpers
+class StaleAuthorityError(AuthorityError):
+    """A superseded binding or drifted code/environment was used (route maps to HTTP 409)."""
+
+
+# --------------------------------------------------------------------------- safe storage (A2-02)
+def _project_key(project_id: str) -> str:
+    """Opaque, deterministic storage key derived from the AUTHORIZED canonical project id. Never a raw
+    projectId in a filesystem path — no separators, drive letters, dots, or reparse semantics survive."""
+    cleaned = str(project_id or "").strip()
+    if not cleaned:
+        raise AuthorityError("project id is required")
+    return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:32]
+
+
+def _state(project_id: str, *parts: str) -> Path:
+    """Resolve a path strictly beneath the single fixed STATE_ROOT/<project-key>/ — containment checked."""
+    root = STATE_ROOT.resolve()
+    p = (root / _project_key(project_id)).joinpath(*parts).resolve()
+    if root != p and root not in p.parents:
+        raise AuthorityError("resolved authority path escapes the fixed root")
+    return p
+
+
+# --------------------------------------------------------------------------- identity helpers
 def _env_sha() -> str:
     import pandas, sklearn, pyarrow
     return sha256_bytes(canonical_json_bytes({"python": sys.version.split()[0], "pyarrow": pyarrow.__version__,
                                               "numpy": np.__version__, "pandas": pandas.__version__, "sklearn": sklearn.__version__}))
 
 
-def _code_revision() -> tuple[str, bool]:
-    import subprocess
+def _code_identity() -> dict[str, Any]:
+    """Current git HEAD + a CONTENT digest of the worktree diff (not merely a dirty boolean, A2-11)."""
     try:
         rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT).decode().strip()
-        dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO_ROOT).decode().strip())
-        return rev, dirty
+        diff = subprocess.check_output(["git", "diff", "HEAD"], cwd=REPO_ROOT)
+        untracked = subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO_ROOT)
+        worktree_sha = hashlib.sha256(diff + b"\x00" + untracked).hexdigest()
+        return {"codeRevision": rev, "worktreeContentSha256": worktree_sha, "dirty": bool(diff.strip() or untracked.strip())}
     except Exception:
-        return "UNKNOWN", True
+        return {"codeRevision": "UNKNOWN", "worktreeContentSha256": "UNKNOWN", "dirty": True}
 
 
 def _read_json(path: Path) -> Any:
@@ -71,36 +98,22 @@ def _read_json(path: Path) -> Any:
 def _write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.parent / f".tmp-{uuid.uuid4().hex}"
-    tmp.write_bytes(canonical_json_bytes(payload) if isinstance(payload, (dict, list)) else json.dumps(payload).encode())
+    tmp.write_bytes(canonical_json_bytes(payload))
     os.replace(tmp, path)
 
 
-def _contained(root: Path, child: Path) -> Path:
-    root = root.resolve()
-    p = (root / child).resolve()
-    if root not in p.parents and p != root:
-        raise AuthorityError("path escapes authorized root")
-    return p
-
-
-# --------------------------------------------------------------------------- catalog / registration (Gate 1/2)
+# --------------------------------------------------------------------------- catalog / registration (A2-06 read of registry)
 def _gen2_catalog_entry() -> dict[str, Any]:
     path = _feature_view_path()
     meta = pq.read_schema(path).metadata or {}
     content_sha = (meta.get(b"featureContentSha") or b"").decode() or hashlib.sha256(path.read_bytes()).hexdigest()
     return {
-        "datasetVersionId": f"mlb-pa-feature-view:sha256:{content_sha}",
-        "label": "MLB FD1 Gen-2 Feature View",
-        "generation": "GEN2",
-        "status": "GOVERNED_MODELING_DATASET",
-        "selectable": True,
-        "logicalContentSha256": content_sha,
-        "physicalParquetSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "objectPath": str(path),
-        "seasons": [2023, 2024, 2025],
+        "datasetVersionId": f"mlb-pa-feature-view:sha256:{content_sha}", "label": "MLB FD1 Gen-2 Feature View",
+        "generation": "GEN2", "status": "GOVERNED_MODELING_DATASET", "selectable": True,
+        "logicalContentSha256": content_sha, "physicalParquetSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "objectPath": str(path), "seasons": [2023, 2024, 2025],
         "developmentSeasons": [2023], "validationSeason": 2024, "sealedSeasons": [2025],
         "rows": 549_479, "featureCount": len(FEATURE_NAMES), "target": "outcome",
-        "targetContractId": None, "temporalContractId": None,
     }
 
 
@@ -108,31 +121,22 @@ def _gen3_catalog_entries() -> list[dict[str, Any]]:
     reg = _read_json(GEN3_ROOT / "registration.json")
     contracts = reg["contracts"]
     research = {
-        "datasetVersionId": reg["registrationId"],
-        "label": "MLB Gen-3 Base Research View",
+        "datasetVersionId": reg["registrationId"], "label": "MLB Gen-3 Base Research View",
         "generation": "GEN3", "status": "GOVERNED_RESEARCH_DATASET", "selectable": True,
-        "logicalContentSha256": reg["research"]["logicalContentSha256"],
-        "physicalParquetSha256": reg["research"]["physicalParquetSha256"],
+        "logicalContentSha256": reg["research"]["logicalContentSha256"], "physicalParquetSha256": reg["research"]["physicalParquetSha256"],
         "objectPath": str(GEN3_ROOT / "objects" / "sha256" / reg["research"]["logicalContentSha256"] / "research.parquet"),
-        "seasons": [2021, 2022, 2023, 2024],
-        "developmentSeasons": [2021, 2022, 2023], "validationSeason": 2024, "sealedSeasons": [2025],
-        "rows": reg["research"]["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
-        "targetContractId": contracts["target"], "featureSchemaId": contracts["featureSchema"],
-        "temporalContractId": contracts["temporal"], "populationContractId": contracts["population"],
-        "preprocessingContractId": contracts["preprocessing"], "knowledgeTimeContractId": contracts["knowledgeTime"],
-        "contractBundleSha256": reg["contractBundleSha256"],
-        "quarantineLedgerSha256": reg["quarantineLedgerSha256"], "quarantineTotal": reg["quarantineTotal"],
-        "sourceDatasetId": GC.PARENT_DATASET_ID, "partitionAuthoritySha256": GC.PARENT_PARTITION_AUTHORITY_SHA,
-        "bridgeManifestSha256": GC.PARENT_BRIDGE_MANIFEST_SHA,
+        "seasons": [2021, 2022, 2023, 2024], "developmentSeasons": [2021, 2022, 2023], "validationSeason": 2024,
+        "sealedSeasons": [2025], "rows": reg["research"]["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
+        "contractBundleSha256": reg["contractBundleSha256"], "quarantineLedgerSha256": reg["quarantineLedgerSha256"],
+        "quarantineTotal": reg["quarantineTotal"], "sourceDatasetId": GC.PARENT_DATASET_ID,
     }
     sealed = {
         "datasetVersionId": f"mlb-pa-gen3-sealed-2025:sha256:{reg['sealed2025']['logicalContentSha256']}",
-        "label": "MLB Gen-3 Sealed 2025 OOT Evidence",
-        "generation": "GEN3_SEALED", "status": "SEALED_OOT_RESTRICTED", "selectable": False,
-        "logicalContentSha256": reg["sealed2025"]["logicalContentSha256"],
-        "seasons": [2025], "developmentSeasons": [], "validationSeason": None, "sealedSeasons": [2025],
-        "rows": reg["sealed2025"]["rows"], "target": "outcome",
-        "restriction": "NOT selectable for ordinary development; structural registration/lineage only",
+        "label": "MLB Gen-3 Sealed 2025 OOT Evidence", "generation": "GEN3_SEALED",
+        "status": "SEALED_OOT_RESTRICTED", "selectable": False,
+        "logicalContentSha256": reg["sealed2025"]["logicalContentSha256"], "seasons": [2025],
+        "developmentSeasons": [], "validationSeason": None, "sealedSeasons": [2025], "rows": reg["sealed2025"]["rows"],
+        "target": "outcome", "restriction": "NOT selectable for ordinary development; structural registration/lineage only",
     }
     return [research, sealed]
 
@@ -142,16 +146,14 @@ def catalog() -> list[dict[str, Any]]:
 
 
 def register_gen3() -> dict[str, Any]:
-    """Idempotently write the Gen-3 (+ sealed) versions into the ASP dataset registry."""
+    """Explicit registry write (admin/build action). The catalog is READ from the registry by consumers."""
     reg = _read_json(ASP_REGISTRY) if ASP_REGISTRY.is_file() else {"datasets": []}
     existing = {d.get("datasetVersionId") for d in reg.get("datasets", [])}
-    added = []
     for entry in catalog():
         if entry["datasetVersionId"] not in existing:
             reg["datasets"].append({k: v for k, v in entry.items() if k != "objectPath"})
-            added.append(entry["datasetVersionId"])
     _write_json_atomic(ASP_REGISTRY, reg)
-    return {"registered": [d["datasetVersionId"] for d in reg["datasets"]], "added": added}
+    return {"registered": [d["datasetVersionId"] for d in reg["datasets"]]}
 
 
 def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
@@ -163,161 +165,224 @@ def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     raise AuthorityError(f"dataset version not found in registry: {dataset_version_id}")
 
 
-def _verify_object(entry: Mapping[str, Any]) -> Path:
+# --------------------------------------------------------------------------- object integrity (A2-05)
+def _verify_object(entry: Mapping[str, Any]) -> tuple[Path, dict[str, Any]]:
+    """Verify the exact registered content-addressed object before it is opened. Returns (path, receipt)."""
     path = Path(entry["objectPath"]) if entry.get("objectPath") else None
     if path is None or not path.is_file() or path.is_symlink():
         raise AuthorityError("registered object missing or is a link")
-    seasons = set(pq.read_table(path, columns=["season"])["season"].to_pylist())
-    if 2025 in seasons or 2026 in seasons:
-        # Gen-2 view legitimately contains 2025 as its OWN frozen season; the executor never uses it.
-        if entry["generation"] != "GEN2":
-            raise AuthorityError("sealed season present in a research object")
-    return path
+    physical = hashlib.sha256(path.read_bytes()).hexdigest()
+    if entry.get("physicalParquetSha256") and physical != entry["physicalParquetSha256"]:
+        raise AuthorityError("registered object bytes differ from the registry receipt (tampered)")
+    schema = pq.read_schema(path)
+    md = pq.read_metadata(path)
+    rows = int(md.num_rows)
+    if entry.get("rows") and rows != entry["rows"]:
+        raise AuthorityError("registered object row count differs from the registry")
+    seasons = sorted(set(int(s) for s in pq.read_table(path, columns=["season"])["season"].to_pylist()))
+    if seasons != sorted(set(entry["seasons"])):
+        raise AuthorityError("registered object season set differs from the registry")
+    schema_sha = sha256_bytes(canonical_json_bytes([{"name": f.name, "type": str(f.type)} for f in schema]))
+    receipt = {"physicalParquetSha256": physical, "logicalContentSha256": entry["logicalContentSha256"],
+               "schemaSha256": schema_sha, "rows": rows, "seasons": seasons, "generation": entry["generation"],
+               "verifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    return path, receipt
 
 
-# --------------------------------------------------------------------------- project dataset binding (Gate 4)
+# --------------------------------------------------------------------------- binding lifecycle (A2-06)
+def _active_pointer(project_id: str) -> dict[str, Any] | None:
+    ptr = _state(project_id, "active-binding.json")
+    return _read_json(ptr) if ptr.is_file() else None
+
+
 def create_binding(*, actor: str, project_id: str, dataset_version_id: str,
-                   expected_content_sha: str | None = None) -> dict[str, Any]:
+                   expected_content_sha: str | None = None, expected_revision: int | None = None) -> dict[str, Any]:
     entry = _resolve_version(dataset_version_id)
     if not entry.get("selectable", False):
         raise AuthorityError("dataset version is not selectable for ordinary development")
     if expected_content_sha and expected_content_sha != entry["logicalContentSha256"]:
         raise AuthorityError("client-asserted content sha does not match the registered object")
     _verify_object(entry)
+    contracts = GC.contracts_for_generation(entry["generation"])
+    prev = _active_pointer(project_id)
+    if expected_revision is not None and (prev or {}).get("revision", 0) != expected_revision:
+        raise StaleAuthorityError("binding CAS failed: expected revision does not match the active binding")
+    revision = int((prev or {}).get("revision", 0)) + 1
     binding_id = uuid.uuid4().hex
-    contracts = GC.all_contracts()
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if prev:  # supersede the previous active binding revision (A2-06)
+        prev_path = _state(project_id, "bindings", f"{prev['bindingId']}.json")
+        if prev_path.is_file():
+            pb = _read_json(prev_path)
+            pb.update({"status": "SUPERSEDED", "supersededBy": binding_id, "supersededAt": now})
+            _write_json_atomic(prev_path, pb)
     binding = {
-        "schemaVersion": "PROJECT_MODELING_DATASET_BINDING_V1",
-        "bindingId": binding_id, "actor": actor, "projectId": project_id,
+        "schemaVersion": "PROJECT_MODELING_DATASET_BINDING_V1", "bindingId": binding_id, "revision": revision,
+        "status": "ACTIVE", "actor": actor, "projectId": project_id,
         "datasetVersionId": dataset_version_id, "datasetContentSha256": entry["logicalContentSha256"],
-        "generation": entry["generation"], "featureViewId": dataset_version_id,
+        "generation": entry["generation"],
+        "contractBundleSha256": GC.contract_bundle_sha_for(entry["generation"]),
         "targetContractId": contracts["target"]["id"], "targetContractSha256": contracts["target"]["sha256"],
         "populationContractId": contracts["population"]["id"], "populationContractSha256": contracts["population"]["sha256"],
         "temporalContractId": contracts["temporal"]["id"], "temporalContractSha256": contracts["temporal"]["sha256"],
         "featureContractId": contracts["baseFeature"]["id"], "featureContractSha256": contracts["baseFeature"]["sha256"],
         "preprocessingContractId": contracts["preprocessing"]["id"], "preprocessingContractSha256": contracts["preprocessing"]["sha256"],
+        "knowledgeTimeContractId": contracts["knowledgeTime"]["id"], "knowledgeTimeContractSha256": contracts["knowledgeTime"]["sha256"],
         "developmentSeasons": entry["developmentSeasons"], "validationSeason": entry["validationSeason"],
-        "sealedSeasons": entry["sealedSeasons"], "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "revision": 1, "status": "ACTIVE",
+        "sealedSeasons": entry["sealedSeasons"], "createdAt": now,
     }
-    _write_json_atomic(_contained(STATE_ROOT / "bindings" / project_id, f"{binding_id}.json"), binding)
-    _write_json_atomic(STATE_ROOT / "bindings" / project_id / "active.json", {"bindingId": binding_id})
+    _write_json_atomic(_state(project_id, "bindings", f"{binding_id}.json"), binding)
+    _write_json_atomic(_state(project_id, "active-binding.json"), {"bindingId": binding_id, "revision": revision})
+    _invalidate_downstream(project_id, binding_id)  # A2-08/A2-09
     return binding
 
 
 def get_binding(*, project_id: str, binding_id: str) -> dict[str, Any]:
     if not _OPAQUE_RE.match(binding_id or ""):
         raise AuthorityError("invalid binding id")
-    path = _contained(STATE_ROOT / "bindings" / project_id, f"{binding_id}.json")
+    path = _state(project_id, "bindings", f"{binding_id}.json")
     if not path.is_file():
         raise AuthorityError("binding not found for project")
     return _read_json(path)
 
 
 def active_binding(*, project_id: str) -> dict[str, Any] | None:
-    ptr = STATE_ROOT / "bindings" / project_id / "active.json"
-    if not ptr.is_file():
+    ptr = _active_pointer(project_id)
+    if not ptr:
         return None
-    return get_binding(project_id=project_id, binding_id=_read_json(ptr)["bindingId"])
+    b = get_binding(project_id=project_id, binding_id=ptr["bindingId"])
+    return b if b.get("status") == "ACTIVE" else None
 
 
-# --------------------------------------------------------------------------- run authority (Gate 5/6/7)
-_ALLOWED_FAMILIES = {"governed_logistic", "governed_hgb"}
+def _require_active_binding(project_id: str, binding_id: str) -> dict[str, Any]:
+    b = get_binding(project_id=project_id, binding_id=binding_id)
+    ptr = _active_pointer(project_id) or {}
+    if b.get("status") != "ACTIVE" or ptr.get("bindingId") != binding_id:
+        raise StaleAuthorityError("binding is superseded or is not the active binding revision")
+    return b
 
 
-def _effective_hyperparameters(model_family: str, hyper: Mapping[str, Any]) -> dict[str, Any]:
-    if model_family == "governed_logistic":
+# --------------------------------------------------------------------------- downstream invalidation (A2-08/09)
+def _invalidate_downstream(project_id: str, new_binding_id: str) -> None:
+    """On a dataset binding change, the active candidate + downstream review become STALE server-side."""
+    act = _state(project_id, "active-candidate.json")
+    if act.is_file():
+        rec = _read_json(act)
+        rec.update({"status": "STALE", "invalidatedByBinding": new_binding_id,
+                    "invalidatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        _write_json_atomic(_state(project_id, "activations", f"{rec['experimentRunId']}.json"), rec)
+        act.unlink()
+
+
+# --------------------------------------------------------------------------- resource bounds (A2-13)
+def _validate_hyperparameters(family: str, hyper: Mapping[str, Any]) -> dict[str, Any]:
+    def num(v):
+        f = float(v)
+        if not math.isfinite(f):
+            raise AuthorityError("hyperparameter must be a finite number")
+        return f
+    if family == "governed_logistic":
         return {"penalty": "l2", "solver": "lbfgs", "maxIter": DEFAULT_MAX_ITER, "tol": DEFAULT_TOLERANCE,
                 "cGrid": list(C_GRID), "cSelection": "chronological_dev_inner_split_0.8"}
-    return {"maxIter": int(hyper.get("maxIter", 200)), "learningRate": float(hyper.get("learningRate", 0.1)),
-            "earlyStopping": False, "randomState": 20260819}
+    max_iter = int(num(hyper.get("maxIter", 200)))
+    lr = num(hyper.get("learningRate", 0.1))
+    if not (10 <= max_iter <= 1000):
+        raise AuthorityError("governed_hgb maxIter must be in [10, 1000]")
+    if not (0.001 <= lr <= 1.0):
+        raise AuthorityError("governed_hgb learningRate must be in [0.001, 1.0]")
+    max_depth = hyper.get("maxDepth")
+    if max_depth is not None:
+        max_depth = int(num(max_depth))
+        if not (1 <= max_depth <= 16):
+            raise AuthorityError("governed_hgb maxDepth must be in [1, 16]")
+    return {"maxIter": max_iter, "learningRate": lr, "maxDepth": max_depth, "earlyStopping": False, "randomState": 20260819}
 
 
+# --------------------------------------------------------------------------- run authority (A2-04/06/10/11/13)
 def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_family: str,
                         hyperparameters: Mapping[str, Any] | None = None, seed: int = 20260819) -> dict[str, Any]:
     if model_family not in _ALLOWED_FAMILIES:
         raise AuthorityError(f"unsupported model family: {model_family}")
-    binding = get_binding(project_id=project_id, binding_id=binding_id)
+    binding = _require_active_binding(project_id, binding_id)  # only the current active binding may authorize
     entry = _resolve_version(binding["datasetVersionId"])
     if entry["logicalContentSha256"] != binding["datasetContentSha256"]:
-        raise AuthorityError("binding is stale: registered content sha changed")
-    eff_hyper = _effective_hyperparameters(model_family, hyperparameters or {})
-    rev, dirty = _code_revision()
+        raise StaleAuthorityError("binding is stale: registered content sha changed")
+    eff_hyper = _validate_hyperparameters(model_family, hyperparameters or {})
+    code = _code_identity()
     env_sha = _env_sha()
     effective_config = {
         "datasetVersionId": binding["datasetVersionId"], "datasetContentSha256": binding["datasetContentSha256"],
-        "featureViewId": binding["featureViewId"], "targetContractSha256": binding["targetContractSha256"],
+        "generation": binding["generation"], "targetContractSha256": binding["targetContractSha256"],
         "populationContractSha256": binding["populationContractSha256"], "temporalContractSha256": binding["temporalContractSha256"],
         "featureContractSha256": binding["featureContractSha256"], "preprocessingContractSha256": binding["preprocessingContractSha256"],
+        "knowledgeTimeContractSha256": binding["knowledgeTimeContractSha256"],
         "featureSet": list(FEATURE_NAMES), "modelFamily": model_family, "effectiveHyperparameters": eff_hyper,
         "seed": seed, "developmentSeasons": binding["developmentSeasons"], "validationSeason": binding["validationSeason"],
-        "codeRevision": rev, "environmentSha256": env_sha,
+        "codeRevision": code["codeRevision"], "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": env_sha,
     }
     config_sha = sha256_bytes(canonical_json_bytes(effective_config))
     authority = {
-        "schemaVersion": "MODEL_EXPERIMENT_RUN_AUTHORITY_V1",
-        "runAuthorityId": uuid.uuid4().hex, "actor": actor, "projectId": project_id,
-        "bindingId": binding_id, "authorityRevision": 1,
-        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "canonicalEffectiveConfigSha256": config_sha, "dirtyTree": dirty,
-        **effective_config,
+        "schemaVersion": "MODEL_EXPERIMENT_RUN_AUTHORITY_V1", "runAuthorityId": uuid.uuid4().hex, "actor": actor,
+        "projectId": project_id, "bindingId": binding_id, "bindingRevision": binding["revision"], "authorityRevision": 1,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "canonicalEffectiveConfigSha256": config_sha,
+        **effective_config, "contractBundleSha256": binding["contractBundleSha256"],
         "targetContractId": binding["targetContractId"], "populationContractId": binding["populationContractId"],
         "temporalContractId": binding["temporalContractId"], "featureContractId": binding["featureContractId"],
-        "preprocessingContractId": binding["preprocessingContractId"], "generation": binding["generation"],
+        "preprocessingContractId": binding["preprocessingContractId"], "knowledgeTimeContractId": binding["knowledgeTimeContractId"],
     }
-    _write_json_atomic(_contained(STATE_ROOT / "authorities" / project_id, f"{authority['runAuthorityId']}.json"), authority)
+    _write_json_atomic(_state(project_id, "authorities", f"{authority['runAuthorityId']}.json"), authority)
     return authority
 
 
 def get_run_authority(*, project_id: str, run_authority_id: str) -> dict[str, Any]:
     if not _OPAQUE_RE.match(run_authority_id or ""):
         raise AuthorityError("invalid run authority id")
-    path = _contained(STATE_ROOT / "authorities" / project_id, f"{run_authority_id}.json")
+    path = _state(project_id, "authorities", f"{run_authority_id}.json")
     if not path.is_file():
         raise AuthorityError("run authority not found for project")
     return _read_json(path)
 
 
-# --------------------------------------------------------------------------- validation (Gate 8) + execution (9/11/13)
-def _validate_authority(authority: Mapping[str, Any], project_id: str, actor: str) -> tuple[dict[str, Any], Path]:
+def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[dict[str, Any], Path, dict[str, Any]]:
     if authority.get("projectId") != project_id:
         raise AuthorityError("run authority does not belong to this project")
+    _require_active_binding(project_id, authority["bindingId"])  # superseded binding cannot execute (A2-06)
     entry = _resolve_version(authority["datasetVersionId"])
     if entry["logicalContentSha256"] != authority["datasetContentSha256"]:
-        raise AuthorityError("STALE authority: registered content sha changed")
-    contracts = GC.all_contracts()
-    checks = {
-        "targetContractSha256": contracts["target"]["sha256"],
-        "populationContractSha256": contracts["population"]["sha256"],
-        "temporalContractSha256": contracts["temporal"]["sha256"],
-        "featureContractSha256": contracts["baseFeature"]["sha256"],
-        "preprocessingContractSha256": contracts["preprocessing"]["sha256"],
-    }
-    for field, expected in checks.items():
-        if authority.get(field) != expected:
-            raise AuthorityError(f"FORGED/STALE authority: {field} mismatch")
+        raise StaleAuthorityError("registered content sha changed since authority issue")
+    contracts = GC.contracts_for_generation(authority["generation"])  # generation-correct (A2-04)
+    for field, key in (("targetContractSha256", "target"), ("populationContractSha256", "population"),
+                       ("temporalContractSha256", "temporal"), ("featureContractSha256", "baseFeature"),
+                       ("preprocessingContractSha256", "preprocessing"), ("knowledgeTimeContractSha256", "knowledgeTime")):
+        if authority.get(field) != contracts[key]["sha256"]:
+            raise AuthorityError(f"FORGED/STALE authority: {field} mismatch for {authority['generation']}")
     if list(authority.get("featureSet", [])) != list(FEATURE_NAMES):
         raise AuthorityError("FORGED authority: feature set mismatch")
     if authority.get("modelFamily") not in _ALLOWED_FAMILIES:
         raise AuthorityError("unsupported model family in authority")
-    # recompute the canonical effective-config fingerprint and require exact match (forgery rejection)
+    # A2-11: recompute current code/environment and require the authority still represents this software.
+    code = _code_identity()
+    if authority.get("codeRevision") != code["codeRevision"] or authority.get("worktreeContentSha256") != code["worktreeContentSha256"] \
+            or authority.get("environmentSha256") != _env_sha():
+        raise StaleAuthorityError("code/worktree/environment drifted since authority issue; re-issue required")
+    # recompute + require the canonical effective-config fingerprint (forgery rejection)
     recomputed = sha256_bytes(canonical_json_bytes({
         "datasetVersionId": authority["datasetVersionId"], "datasetContentSha256": authority["datasetContentSha256"],
-        "featureViewId": authority["featureViewId"], "targetContractSha256": authority["targetContractSha256"],
+        "generation": authority["generation"], "targetContractSha256": authority["targetContractSha256"],
         "populationContractSha256": authority["populationContractSha256"], "temporalContractSha256": authority["temporalContractSha256"],
         "featureContractSha256": authority["featureContractSha256"], "preprocessingContractSha256": authority["preprocessingContractSha256"],
-        "featureSet": list(authority["featureSet"]), "modelFamily": authority["modelFamily"],
-        "effectiveHyperparameters": authority["effectiveHyperparameters"], "seed": authority["seed"],
-        "developmentSeasons": authority["developmentSeasons"], "validationSeason": authority["validationSeason"],
-        "codeRevision": authority["codeRevision"], "environmentSha256": authority["environmentSha256"],
+        "knowledgeTimeContractSha256": authority["knowledgeTimeContractSha256"], "featureSet": list(authority["featureSet"]),
+        "modelFamily": authority["modelFamily"], "effectiveHyperparameters": authority["effectiveHyperparameters"],
+        "seed": authority["seed"], "developmentSeasons": authority["developmentSeasons"], "validationSeason": authority["validationSeason"],
+        "codeRevision": authority["codeRevision"], "worktreeContentSha256": authority["worktreeContentSha256"], "environmentSha256": authority["environmentSha256"],
     }))
     if recomputed != authority["canonicalEffectiveConfigSha256"]:
         raise AuthorityError("FORGED authority: canonical effective-config sha does not verify")
-    path = _verify_object(entry)
-    return entry, path
+    path, receipt = _verify_object(entry)  # A2-05: integrity before load
+    return entry, path, receipt
 
 
-def _load_authorized_frame(entry: Mapping[str, Any], path: Path):
+def _load_authorized_frame(path: Path):
     cols = ["plate_appearance_id", "game_id", "game_date", "season", "outcome", *FEATURE_NAMES]
     table = pq.read_table(path, columns=cols)
     seasons = np.asarray(table["season"].to_pylist(), dtype=np.int64)
@@ -327,21 +392,20 @@ def _load_authorized_frame(entry: Mapping[str, Any], path: Path):
 
 def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
     authority = get_run_authority(project_id=project_id, run_authority_id=run_authority_id)
-    entry, path = _validate_authority(authority, project_id, actor)
-    dev_seasons = list(authority["developmentSeasons"])
-    val_season = int(authority["validationSeason"])
+    entry, path, receipt = _validate_authority(authority, project_id)
+    dev_seasons = list(authority["developmentSeasons"]); val_season = int(authority["validationSeason"])
     sealed = set(entry.get("sealedSeasons") or [])
 
-    fv, seasons, labels, dates = _load_authorized_frame(entry, path)
-    # Gate 13: the training/validation frames must contain NO sealed season row.
-    if sealed & set(int(s) for s in seasons if int(s) in sealed) and entry["generation"] != "GEN2":
-        raise AuthorityError("sealed season present in authorized object")
-    dev_mask = np.isin(seasons, dev_seasons)
-    val_mask = seasons == val_season
+    fv, seasons, labels, dates = _load_authorized_frame(path)
+    seasons_in_object = sorted(set(int(s) for s in seasons))
+    if entry["generation"] != "GEN2" and (sealed & set(seasons_in_object)):
+        raise AuthorityError("sealed season present in a research object")
+    dev_mask = np.isin(seasons, dev_seasons); val_mask = seasons == val_season
     if int(val_mask.sum()) == 0 or int(dev_mask.sum()) == 0:
         raise AuthorityError("authorized development/validation population is empty")
-    if 2025 in set(int(s) for s in seasons[dev_mask]) or 2025 in set(int(s) for s in seasons[val_mask]):
-        raise AuthorityError("2025 leaked into an executed fold")
+    for s in sealed:  # A2-04/A2-03: a sealed season may never enter dev or val, for any generation
+        if s in set(int(x) for x in seasons[dev_mask]) or s in set(int(x) for x in seasons[val_mask]):
+            raise AuthorityError(f"sealed season {s} leaked into an executed fold")
     encoded = encode_labels(labels)
 
     import warnings
@@ -367,62 +431,70 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
         if any(issubclass(x.category, ConvergenceWarning) for x in w) or n_iter >= DEFAULT_MAX_ITER:
             raise AuthorityError("FAIL-CLOSED: logistic did not converge on full development fold")
         proba = est.predict_proba(pre.transform(fv, val_mask))
+        model_repr = {"estimator": "LogisticRegression", "C": c_star, "coefShape": list(est.coef_.shape)}
         convergence = {"solver": "lbfgs", "converged": True, "nIter": n_iter, "maxIter": DEFAULT_MAX_ITER, "selectedC": c_star}
     else:
+        eff = authority["effectiveHyperparameters"]
         pre = FoldPreprocessor.fit(fv, FEATURE_NAMES, dev_mask)
-        est = HistGradientBoostingClassifier(max_iter=int(authority["effectiveHyperparameters"]["maxIter"]),
-                                             learning_rate=float(authority["effectiveHyperparameters"]["learningRate"]),
-                                             early_stopping=False, random_state=int(authority["seed"]))
+        est = HistGradientBoostingClassifier(max_iter=int(eff["maxIter"]), learning_rate=float(eff["learningRate"]),
+                                             max_depth=eff.get("maxDepth"), early_stopping=False, random_state=int(authority["seed"]))
         est.fit(pre.transform(fv, dev_mask), encoded[dev_mask])
         proba = np.zeros((int(val_mask.sum()), len(PA_CLASS_ORDER))); proba[:, est.classes_] = est.predict_proba(pre.transform(fv, val_mask))
-        convergence = {"earlyStopping": False, "nIter": int(est.n_iter_), "maxIter": int(authority["effectiveHyperparameters"]["maxIter"])}
+        model_repr = {"estimator": "HistGradientBoostingClassifier", "nIter": int(est.n_iter_)}
+        convergence = {"earlyStopping": False, "nIter": int(est.n_iter_), "maxIter": int(eff["maxIter"])}
 
     metrics = evaluate_multiclass(labels[val_mask], proba)
-    runtime = round(time.time() - t0, 2)
     scalar_metrics = {k: float(metrics[k]) for k in ("logLoss", "brierScore", "topLabelEce", "top1Accuracy", "macroF1")}
-    run_id = uuid.uuid4().hex   # unique per attempt (retries differ); config fingerprint stays constant
+    run_id = uuid.uuid4().hex
     preproc_fp = sha256_bytes(canonical_json_bytes(pre.state()))
+    model_fp = sha256_bytes(canonical_json_bytes(model_repr))
+    pred_fp = hashlib.sha256(np.ascontiguousarray(proba, dtype=np.float64).tobytes()).hexdigest()
+    metric_fp = sha256_bytes(canonical_json_bytes(scalar_metrics))
+    code = _code_identity()
+    # A2-10 — complete authority + receipt echo. Every id + sha the run authority carries is echoed.
     evidence = {
-        "schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1",
-        "experimentRunId": run_id, "runAuthorityId": authority["runAuthorityId"], "projectId": project_id, "actor": actor,
-        "canonicalEffectiveConfigSha256": authority["canonicalEffectiveConfigSha256"],
+        "schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1", "experimentRunId": run_id, "runAuthorityId": authority["runAuthorityId"],
+        "projectId": project_id, "actor": actor, "canonicalEffectiveConfigSha256": authority["canonicalEffectiveConfigSha256"],
+        "bindingId": authority["bindingId"], "bindingRevision": authority["bindingRevision"], "generation": authority["generation"],
         "datasetVersionId": authority["datasetVersionId"], "datasetContentSha256": authority["datasetContentSha256"],
-        "featureViewId": authority["featureViewId"], "generation": authority["generation"],
-        "targetContractId": authority["targetContractId"], "temporalContractId": authority["temporalContractId"],
-        "populationContractId": authority["populationContractId"], "featureContractId": authority["featureContractId"],
-        "preprocessingContractId": authority["preprocessingContractId"],
+        "contractBundleSha256": authority["contractBundleSha256"], "objectReceipt": receipt,
+        "targetContractId": authority["targetContractId"], "targetContractSha256": authority["targetContractSha256"],
+        "populationContractId": authority["populationContractId"], "populationContractSha256": authority["populationContractSha256"],
+        "temporalContractId": authority["temporalContractId"], "temporalContractSha256": authority["temporalContractSha256"],
+        "featureContractId": authority["featureContractId"], "featureContractSha256": authority["featureContractSha256"],
+        "preprocessingContractId": authority["preprocessingContractId"], "preprocessingContractSha256": authority["preprocessingContractSha256"],
+        "knowledgeTimeContractId": authority["knowledgeTimeContractId"], "knowledgeTimeContractSha256": authority["knowledgeTimeContractSha256"],
         "developmentSeasons": dev_seasons, "developmentRows": int(dev_mask.sum()),
         "validationSeason": val_season, "validationRows": int(val_mask.sum()),
-        "seasonsInObject": sorted(set(int(s) for s in seasons)), "sealedSeasonsLoaded": [],
+        "seasonsInObject": seasons_in_object, "sealedSeasonsAccessed": [],
         "modelFamily": authority["modelFamily"], "effectiveHyperparameters": authority["effectiveHyperparameters"],
         "seed": authority["seed"], "classOrder": list(PA_CLASS_ORDER), "convergence": convergence,
-        "preprocessorFingerprint": preproc_fp, "metrics": scalar_metrics, "runtimeSeconds": runtime,
-        "codeRevision": authority["codeRevision"], "environmentSha256": authority["environmentSha256"],
+        "preprocessorFingerprint": preproc_fp, "modelFingerprint": model_fp, "predictionFingerprint": pred_fp,
+        "metricFingerprint": metric_fp, "metrics": scalar_metrics, "runtimeSeconds": round(time.time() - t0, 2),
+        "codeRevision": code["codeRevision"], "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": _env_sha(),
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "COMPLETE",
     }
-    # append-only immutable evidence (never overwrite a prior run id)
-    out = _contained(STATE_ROOT / "runs" / project_id, f"{run_id}.json")
+    out = _state(project_id, "runs", f"{run_id}.json")
     if out.exists():
         raise AuthorityError("run id collision")
     _write_json_atomic(out, evidence)
-    # Result-authority echo assertion (Gate 11): result identity must equal the run authority identity.
     assert evidence["runAuthorityId"] == authority["runAuthorityId"]
     assert evidence["canonicalEffectiveConfigSha256"] == authority["canonicalEffectiveConfigSha256"]
-    assert evidence["datasetContentSha256"] == authority["datasetContentSha256"]
+    assert evidence["datasetContentSha256"] == authority["datasetContentSha256"] == receipt["logicalContentSha256"]
     return evidence
 
 
 def get_run(*, project_id: str, run_id: str) -> dict[str, Any]:
     if not _OPAQUE_RE.match(run_id or ""):
         raise AuthorityError("invalid run id")
-    path = _contained(STATE_ROOT / "runs" / project_id, f"{run_id}.json")
+    path = _state(project_id, "runs", f"{run_id}.json")
     if not path.is_file():
         raise AuthorityError("run not found for project")
     return _read_json(path)
 
 
 def list_runs(*, project_id: str) -> list[dict[str, Any]]:
-    d = STATE_ROOT / "runs" / project_id
+    d = _state(project_id, "runs")
     if not d.is_dir():
         return []
     out = []
@@ -433,15 +505,36 @@ def list_runs(*, project_id: str) -> list[dict[str, Any]]:
     return out
 
 
-# --------------------------------------------------------------------------- activation (Gate 14)
+# --------------------------------------------------------------------------- active candidate (A2-09/A2-14)
 def activate_candidate(*, actor: str, project_id: str, run_id: str) -> dict[str, Any]:
     run = get_run(project_id=project_id, run_id=run_id)
+    # the run must be for the CURRENT active binding revision (no stale candidate activation)
+    if run["bindingId"] != (_active_pointer(project_id) or {}).get("bindingId"):
+        raise StaleAuthorityError("run does not belong to the active binding revision")
     activation = {
-        "schemaVersion": "CANDIDATE_ACTIVATION_V1", "projectId": project_id, "actor": actor,
-        "experimentRunId": run_id, "runAuthorityId": run["runAuthorityId"],
-        "resultFingerprint": sha256_bytes(canonical_json_bytes(run["metrics"])),
-        "datasetVersionId": run["datasetVersionId"], "activatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "schemaVersion": "ACTIVE_CANDIDATE_REVIEW_V1", "projectId": project_id, "actor": actor,
+        "experimentRunId": run_id, "runAuthorityId": run["runAuthorityId"], "bindingId": run["bindingId"],
+        "bindingRevision": run["bindingRevision"], "generation": run["generation"],
+        "datasetVersionId": run["datasetVersionId"], "datasetContentSha256": run["datasetContentSha256"],
+        "resultFingerprint": sha256_bytes(canonical_json_bytes({
+            "metrics": run["metricFingerprint"], "prediction": run["predictionFingerprint"],
+            "preprocessor": run["preprocessorFingerprint"], "model": run["modelFingerprint"]})),
+        "activatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "ACTIVE",
     }
-    _write_json_atomic(_contained(STATE_ROOT / "activations" / project_id, f"{run_id}.json"), activation)
-    _write_json_atomic(STATE_ROOT / "activations" / project_id / "active.json", {"experimentRunId": run_id})
+    _write_json_atomic(_state(project_id, "activations", f"{run_id}.json"), activation)
+    _write_json_atomic(_state(project_id, "active-candidate.json"), activation)
     return activation
+
+
+def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
+    """Downstream stages resolve the active candidate here by run id — never a browser/last-file result."""
+    p = _state(project_id, "active-candidate.json")
+    if not p.is_file():
+        return None
+    act = _read_json(p)
+    # verify the referenced run still exists and its parent fingerprints match (A2-14)
+    run = get_run(project_id=project_id, run_id=act["experimentRunId"])
+    if run["runAuthorityId"] != act["runAuthorityId"] or run["datasetContentSha256"] != act["datasetContentSha256"]:
+        raise AuthorityError("active candidate parent fingerprints do not verify")
+    return {**act, "run": {k: run[k] for k in ("experimentRunId", "runAuthorityId", "datasetVersionId", "generation",
+                                               "developmentSeasons", "validationSeason", "metrics", "objectReceipt")}}

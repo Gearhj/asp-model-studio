@@ -124,6 +124,9 @@ def main() -> int:
         "createdAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     (AUTHORITY_ROOT / "registration.json").write_text(json.dumps(registration, indent=2), encoding="utf-8")
+    # Explicit registry write (A2-06/Gate 6): registration is a build/admin action, never a UI side effect.
+    from server.sports_cockpit import gen3_authority as _G3A
+    _G3A.register_gen3()
     _log("REGISTRATION")
     print(json.dumps(registration, indent=2))
     print(json.dumps({"quarantined": recon["quarantined"], "seasonRows": recon["seasonRows"],

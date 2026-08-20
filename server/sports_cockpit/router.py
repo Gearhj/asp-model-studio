@@ -17,6 +17,7 @@ from . import simulation as S
 from . import gen3_authority as G3A
 from .engine import ALL_FEATURES, CockpitError
 from ..security.security_store import require_user
+from ..core.modeling_scope import authorize_modeling_scope
 
 router = APIRouter()
 
@@ -24,6 +25,8 @@ router = APIRouter()
 def _guard(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except G3A.StaleAuthorityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except CockpitError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except FileNotFoundError as exc:
@@ -160,36 +163,31 @@ def experiment(experiment_id: str) -> dict[str, Any]:
     return rec
 
 
-# ---------------------------------------------------------------- Gen-3 server authority (Phase 7A.1)
-# Additive, authenticated, project-scoped. UI = SERVER = TRAINING = RESULT authority; fail-closed on any
-# mismatch. Never touches the D3/C4-serving /cockpit/experiment/run path or the sealed 2025 object.
-def _project(payload: dict[str, Any]) -> str:
-    pid = payload.get("projectId")
-    if not isinstance(pid, str) or not pid.strip():
-        raise HTTPException(status_code=422, detail="projectId is required")
-    return pid
-
-
+# ---------------------------------------------------------------- Gen-3 server authority (Phase 7A.1/7A.3)
+# Additive. Every route enforces the canonical PROJECT ACL (A2-01): authorize_modeling_scope resolves the
+# authorized canonical project id (401 unauth / 403 no permission / 404 unknown project) and ONLY that id
+# is passed to the service, which derives an opaque storage key (A2-02). UI = ACTIVE BINDING = RUN
+# AUTHORITY = OBJECT RECEIPT = TRAINING = RESULT; StaleAuthorityError -> 409. The D3/C4-serving
+# /cockpit/experiment/run path and the sealed 2025 object are never touched. Registration is an explicit
+# build/admin action (scripts/phase7a_build_gen3.py), never a route/UI side effect (A2-06/Gate 6).
 @router.get("/cockpit/gen3/catalog")
 def gen3_catalog(user: dict = Depends(require_user)) -> dict[str, Any]:
     return {"datasets": _guard(G3A.catalog)}
 
 
-@router.post("/cockpit/gen3/register")
-def gen3_register(user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.register_gen3)
-
-
 @router.post("/cockpit/gen3/bind")
 def gen3_bind(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.create_binding, actor=_actor(user), project_id=_project(payload),
+    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+    return _guard(G3A.create_binding, actor=_actor(user), project_id=pid,
                   dataset_version_id=payload.get("datasetVersionId", ""),
-                  expected_content_sha=payload.get("expectedContentSha"))
+                  expected_content_sha=payload.get("expectedContentSha"),
+                  expected_revision=payload.get("expectedRevision"))
 
 
 @router.get("/cockpit/gen3/binding/{project_id}")
 def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
-    b = _guard(G3A.active_binding, project_id=project_id)
+    pid = authorize_modeling_scope(user, project_id, "view")
+    b = _guard(G3A.active_binding, project_id=pid)
     if b is None:
         raise HTTPException(status_code=404, detail="no active binding for project")
     return b
@@ -197,30 +195,43 @@ def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> 
 
 @router.post("/cockpit/gen3/run-authority")
 def gen3_run_authority(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.issue_run_authority, actor=_actor(user), project_id=_project(payload),
+    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+    return _guard(G3A.issue_run_authority, actor=_actor(user), project_id=pid,
                   binding_id=payload.get("bindingId", ""), model_family=payload.get("modelFamily", ""),
                   hyperparameters=payload.get("hyperparameters") or {}, seed=int(payload.get("seed", 20260819)))
 
 
 @router.post("/cockpit/gen3/execute")
 def gen3_execute(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.execute, actor=_actor(user), project_id=_project(payload),
-                  run_authority_id=payload.get("runAuthorityId", ""))
+    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+    return _guard(G3A.execute, actor=_actor(user), project_id=pid, run_authority_id=payload.get("runAuthorityId", ""))
 
 
 @router.get("/cockpit/gen3/runs/{project_id}")
 def gen3_runs(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
-    return {"runs": _guard(G3A.list_runs, project_id=project_id)}
+    pid = authorize_modeling_scope(user, project_id, "view")
+    return {"runs": _guard(G3A.list_runs, project_id=pid)}
 
 
 @router.get("/cockpit/gen3/run/{project_id}/{run_id}")
 def gen3_run(project_id: str, run_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.get_run, project_id=project_id, run_id=run_id)
+    pid = authorize_modeling_scope(user, project_id, "view")
+    return _guard(G3A.get_run, project_id=pid, run_id=run_id)
 
 
 @router.post("/cockpit/gen3/activate")
 def gen3_activate(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    return _guard(G3A.activate_candidate, actor=_actor(user), project_id=_project(payload), run_id=payload.get("runId", ""))
+    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+    return _guard(G3A.activate_candidate, actor=_actor(user), project_id=pid, run_id=payload.get("runId", ""))
+
+
+@router.get("/cockpit/gen3/active-candidate/{project_id}")
+def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    pid = authorize_modeling_scope(user, project_id, "view")
+    c = _guard(G3A.get_active_candidate, project_id=pid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return c
 
 
 @router.post("/cockpit/autopilot")
