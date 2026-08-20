@@ -75,10 +75,11 @@ def build_gen3_feature_table(
     season_counts: Counter[int] = Counter()
     prior_missing = {(s, role): 0 for s in target_seasons for role in ("BATTER", "PITCHER")}
     prior_eligible = {(s, role): 0 for s in target_seasons for role in ("BATTER", "PITCHER")}
-    # Fail-closed quarantine (Phase 7 Gate 3/4/17): rows with known real-world anomalies are excluded
-    # from the modeling view with an explicit reason + count — never silently dropped. Truly corrupt
-    # lineage (null/duplicate pa_id, bad outcome, out-of-range context) still hard-fails.
+    # Fail-closed quarantine (Phase 7A Gate 2): rows with a structural, outcome-independent anomaly are
+    # excluded from the modeling view with an explicit reason and a ROW-LEVEL LEDGER entry — never
+    # silently dropped, never outcome/metric-conditioned. Truly corrupt lineage still hard-fails.
     quarantine: Counter[tuple[int, str]] = Counter()
+    quarantine_ledger: list[dict[str, Any]] = []
 
     for index in range(pa_table.num_rows):
         season = values["season"][index]
@@ -115,13 +116,11 @@ def build_gen3_feature_table(
         base_mask = values["base_mask_before"][index]
         visiting_score = values["visiting_score_before"][index]
         home_score = values["home_score_before"][index]
-        if isinstance(inning, int) and inning > 14:
-            # Rare 2021-2022 extra-inning tail (15th-16th) beyond the frozen context_inning contract
-            # (2023-2025 never exceed 14). Quarantined to preserve identical Gen-2 feature semantics.
-            quarantine[(season, "EXTRA_INNING_BEYOND_CONTRACT")] += 1
-            continue
+        # Schema V2 (Gate 2): legitimate innings 15-16 are INCLUDED (Gen-2 V1 capped at 14). context_inning
+        # is int16 and the feature semantics are unchanged; excluding long games conditioned the target
+        # population, so those 27 real PAs are now materialized.
         if (
-            not isinstance(inning, int) or inning < 1 or inning > 14
+            not isinstance(inning, int) or inning < 1 or inning > 16
             or top_bottom not in (0, 1) or outs_before not in (0, 1, 2)
             or not isinstance(base_mask, int) or base_mask < 0 or base_mask > 7
             or not isinstance(visiting_score, int) or visiting_score < 0
@@ -132,11 +131,17 @@ def build_gen3_feature_table(
             values["visiting_team_id"][index] if top_bottom == 0 else values["home_team_id"][index]
         )
         if values["batting_team_id"][index] != expected_batting_team:
-            # Real 2021-2022 relocated / neutral-site "home" games (e.g. Toronto at Dunedin/Buffalo)
-            # where the home/visiting labels do not follow the batting-half convention. The frozen
-            # Gen-2 score_difference depends on that convention, so these rows are quarantined rather
-            # than fed a possibly-wrong score feature. Zero such rows exist in 2023-2025.
+            # Batting-team convention anomaly: the stored batting_team_id conflicts with the
+            # home/visitor-by-half convention that score_difference depends on. The exact cause is not
+            # proven by a persisted source flag, so we fail closed rather than emit a possibly signed-
+            # wrong score feature. Zero such rows exist in 2023-2025. Recorded in the row-level ledger.
             quarantine[(season, "BATTING_TEAM_CONVENTION_ANOMALY")] += 1
+            quarantine_ledger.append({
+                "plate_appearance_id": pa_id, "game_id": game_id, "season": season,
+                "reasonCode": "BATTING_TEAM_CONVENTION_ANOMALY",
+                "reasonDetail": "batting_team_id conflicts with home/visitor-by-half convention used for score_difference",
+                "decisionRuleVersion": "MLB_GEN3_POPULATION_CONTRACT_V1",
+            })
             continue
         score_difference = (
             visiting_score - home_score if top_bottom == 0 else home_score - visiting_score
@@ -197,5 +202,6 @@ def build_gen3_feature_table(
         "priorMissing": {f"{s}:{r}": prior_missing[(s, r)] for (s, r) in sorted(prior_missing)},
         "quarantined": {f"{s}:{reason}": n for (s, reason), n in sorted(quarantine.items())},
         "quarantinedTotal": int(sum(quarantine.values())),
+        "quarantineLedger": quarantine_ledger,
     }
     return table, reconciliation
