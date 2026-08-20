@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -752,9 +753,26 @@ def list_experiments() -> list[dict[str, Any]]:
         return []
 
 
+# Opaque experiment-id allowlist (Phase 7A Gate 11A). Experiment ids are server-generated as
+# ``cockpit-exp-<16-64 hex>`` (config-hash) or the autopilot label; anything else is rejected before
+# a filesystem path is ever constructed, closing the inherited path-traversal sink where a route
+# parameter like ``..%2f..%2fsecret`` could reach arbitrary ``.json`` under the shared runtime root.
+_EXPERIMENT_ID_RE = re.compile(r"^cockpit-(exp|autopilot)-[0-9a-f]{8,64}$")
+
+
+def _validate_experiment_id(experiment_id: str) -> str:
+    if not isinstance(experiment_id, str) or not _EXPERIMENT_ID_RE.match(experiment_id):
+        raise CockpitError("invalid experiment id")
+    return experiment_id
+
+
 def get_experiment(experiment_id: str) -> dict[str, Any] | None:
-    path = COCKPIT_ROOT / "experiments" / f"{experiment_id}.json"
-    if not path.is_file():
+    _validate_experiment_id(experiment_id)
+    root = (COCKPIT_ROOT / "experiments").resolve()
+    path = (root / f"{experiment_id}.json").resolve()
+    # Defense in depth: the resolved path must stay strictly within the experiments root and must be a
+    # regular file (never a symlink / reparse point escaping the boundary).
+    if root not in path.parents or path.is_symlink() or not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
 

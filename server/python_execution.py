@@ -108,7 +108,11 @@ TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_RUN_TIMEOUT_SECONDS", "60"))
 DIAGNOSTIC_TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_DIAGNOSTIC_TIMEOUT_SECONDS", "30"))
 RUNTIME_ROOT = Path(os.getenv("ATLAS_PYTHON_RUNTIME_DIR", ".tmp/python-execution")).resolve()
 HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "").strip().lower() in {"1", "true", "yes"}
-EXECUTION_ENABLED = os.getenv("ATLAS_ENABLE_PYTHON_RUN", "1").strip().lower() not in {"0", "false", "no"} and not HOSTED_MODE
+# Phase 7A Gate 11B: user-submitted Python execution is host execution without a true OS/container
+# sandbox, so it is now DISABLED BY DEFAULT (opt-in). It must be explicitly enabled with
+# ATLAS_ENABLE_PYTHON_RUN in {1,true,yes} AND must never run in hosted/shared-host mode. A real
+# sandbox is required before it is re-enabled on any shared deployment.
+EXECUTION_ENABLED = os.getenv("ATLAS_ENABLE_PYTHON_RUN", "0").strip().lower() in {"1", "true", "yes"} and not HOSTED_MODE
 SANDBOX_COMMAND = os.getenv("ATLAS_CODE_SANDBOX_COMMAND", "").strip()
 SAS_CONFIG_DIR = Path(os.getenv("ATLAS_SAS_CONFIG_DIR", "server/artifacts/config")).resolve()
 SAS_CONFIG_PATH = SAS_CONFIG_DIR / "sas_runtime.json"
