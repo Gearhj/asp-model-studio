@@ -50,7 +50,14 @@ export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string
   const clear = () => store.setLabSelected([]);
   const championVal = obj.data?.champion?.reference?.val2024?.logLoss as number | undefined;
 
+  // A2-03 — the legacy binding-free candidate suite (which posted model configs to the D3/C4
+  // /cockpit/experiment/run path and returned 2025 metrics) is DISABLED in the scientist workflow.
+  // Model execution now flows exclusively through the server-authorized Gen-3 run plan above
+  // (active binding -> run authority -> authorized execution -> immutable result). This gallery is
+  // retained for viewing prior challenger evidence only.
+  const LEGACY_EXECUTION_DISABLED = true;
   const runSuite = async () => {
+    if (LEGACY_EXECUTION_DISABLED) return;
     const sel = labSelected.filter((f) => available.includes(f));
     if (!sel.length || !config.features.length) return;
     setRunning(true);
@@ -86,6 +93,11 @@ export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string
           {/* Phase 7A.1 — server-authorized Gen-3 run plan + execution (additive; the existing champion
               reference + candidate suite below are unchanged). */}
           <Gen3AuthorityPanel projectId={projectId} />
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-900">
+            <b>One execution authority.</b> Model execution is server-authorized only (run plan above). The
+            legacy binding-free candidate suite below is disabled and retained for viewing prior evidence —
+            it no longer posts model configs and never scores 2025.
+          </div>
           <ChampionReferenceCard championVal={championVal} obj={obj.data} />
 
           {/* Candidate model suite gallery (multi-select) */}
@@ -128,7 +140,7 @@ export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string
 
           {/* Launch panel — exactly what will happen */}
           <LaunchPanel obj={obj.data} config={config} savedSteps={store.savedSteps} selectedCount={labSelected.length}
-            onRun={runSuite} running={running} disabled={!labSelected.length || !config.features.length} />
+            onRun={runSuite} running={running} disabled={true} />
 
           {/* Live candidate status + leaderboard */}
           {candidates.length > 0 && (

@@ -27,7 +27,7 @@ export function useGen3Catalog() {
   useEffect(() => {
     (async () => {
       try {
-        await postJSON("/cockpit/gen3/register", {}); // idempotent server registration
+        // Registration is an explicit build/admin action (A2-06); the UI only READS the server catalog.
         setCatalog((await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog")).datasets);
       } catch (e) { setError(String(e)); }
     })();
@@ -73,7 +73,7 @@ function DatasetCard({ e, selectable, onSelect, active, busy }: {
         <Field label="Validation" value={e.validationSeason ? String(e.validationSeason) : "—"} />
         <Field label="Sealed OOT" value={e.sealedSeasons.length ? `${e.sealedSeasons.join(", ")} · separate` : "—"} />
         <Field label="Target" value={`${e.target} · 8-class`} />
-        <Field label="Knowledge time" value="Pregame-safe (governed)" />
+        <Field label="Knowledge time" value="Conditional pre-PA state (governed)" />
         <Field label="Governance" value={sealed ? "SEALED / not selectable" : "GOVERNED research"} />
       </div>
       {sealed && <p className="mt-2 text-[11px] text-amber-700">Sealed 2025 evidence — not selectable for model development; no target distribution or metrics are exposed.</p>}

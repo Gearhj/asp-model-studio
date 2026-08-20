@@ -41,7 +41,7 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
   useEffect(() => {
     (async () => {
       try {
-        await postJSON("/cockpit/gen3/register", {}); // idempotent registration
+        // Registration is an explicit build/admin action (A2-06); the UI only READS the catalog.
         const res = await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog");
         setCatalog(res.datasets);
         // Gate 4/9 — consume the project's active server binding chosen earlier in Data & Population.
