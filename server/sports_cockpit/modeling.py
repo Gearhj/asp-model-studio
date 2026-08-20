@@ -697,10 +697,18 @@ def run_ablation(payload: Mapping[str, Any]) -> dict[str, Any]:
     base_features = list(base.get("features") or ALL_FEATURES)
     base_engineered = list(base.get("engineeredFeatures") or [])
 
+    # Engineered features are only exercised by the estimator when their NAMES are selected. Derive the
+    # names from the added specs so a caller that passes addEngineered (specs) without also passing
+    # addFeatures (names) still gets a real comparison instead of a silent no-op (materialized-but-unused).
+    add_eng_names = [s.get("name") for s in add_engineered if isinstance(s, Mapping) and s.get("name")]
+    extra: list[str] = []
+    for f in list(add_features) + add_eng_names:
+        if f not in base_features and f not in extra:
+            extra.append(f)
     control_cfg = {**base, "features": base_features, "engineeredFeatures": base_engineered}
     challenger_cfg = {
         **base,
-        "features": base_features + [f for f in add_features if f not in base_features],
+        "features": base_features + extra,
         "engineeredFeatures": base_engineered + add_engineered,
     }
     control = run_experiment(control_cfg, persist=False)

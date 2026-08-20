@@ -725,7 +725,19 @@ def temporal_split_preview(policy: str = "SEASON_HOLDOUT", boundary_date: str | 
              "validation": {"season": FROZEN_SEASON, "rows": n25, "role": "FROZEN_EVAL_ONLY"}},
         ]
     elif pol == "DATE_HOLDOUT":
-        bd = boundary_date or str(np.sort(dates_dev.to_numpy())[len(dates_dev) // 2])
+        if boundary_date:
+            parsed = pd.to_datetime(boundary_date, errors="coerce")
+            if pd.isna(parsed):
+                raise CockpitError(f"invalid boundary date: {boundary_date!r} (expected YYYY-MM-DD)")
+            lo, hi = pd.to_datetime(dmin), pd.to_datetime(dmax)
+            if parsed <= lo or parsed >= hi:
+                raise CockpitError(
+                    f"boundary date {boundary_date} must fall within the {DEV_SEASON} development window "
+                    f"({str(lo)[:10]}..{str(hi)[:10]}) so both sides are non-empty"
+                )
+            bd = str(parsed.date())
+        else:
+            bd = str(np.sort(dates_dev.to_numpy())[len(dates_dev) // 2])
         dev_dates = frame["game_date"].to_numpy()
         before = int(((season == DEV_SEASON) & (dev_dates < bd)).sum())
         after = int(((season == DEV_SEASON) & (dev_dates >= bd)).sum())
