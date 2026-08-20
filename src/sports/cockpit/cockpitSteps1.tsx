@@ -95,6 +95,44 @@ export function DataPopulationStep() {
   return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} /> : null}</LoadGate>;
 }
 
+// Modeling dataset authority (Phase 6G.1). The scientist explicitly selects the registered dataset
+// before choosing a target. Only one compatible governed dataset exists today — shown honestly, not
+// silently bound. The selection persists and would invalidate dependent analysis if changed.
+function DatasetSection() {
+  const obj = useEndpoint<Objective>("/cockpit/objective");
+  const { notes, setNote } = useCockpitStore();
+  const selected = notes["dataset.selected"] || "asp.mlb.open-data.fd1";
+  const auth = obj.data?.datasetAuthority;
+  return (
+    <section className="sports-panel rounded-2xl border border-slate-800 bg-slate-950 p-4 text-white">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300"><Database size={14} /> Modeling dataset</div>
+        <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">1 compatible registered dataset available</span>
+      </div>
+      <div className="mt-2 text-lg font-semibold">MLB FD1 — Gen-2 plate-appearance feature view</div>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+        <DField label="Dataset / version" value={auth ? `${auth.registration}` : "asp.mlb.open-data.fd1"} />
+        <DField label="Manifest SHA" value={auth ? `${auth.manifestSha.slice(0, 16)}…` : "…"} mono />
+        <DField label="Sport · grain" value="MLB · plate appearance" />
+        <DField label="Registered seasons" value="2021–2025" />
+        <DField label="Modeling rows" value={obj.data ? `${fmt.int(obj.data.totalRows)} (2023–2025)` : "…"} />
+        <DField label="Registered rows" value="913,349 (2021–2025)" />
+        <DField label="Predictors" value={obj.data ? `${obj.data.champion.featureCount} governed` : "…"} />
+        <DField label="Governed · eligible" value="RETROSHEET/Lahman · yes" />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link to="/data-warehouse" className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">Select from Data Warehouse ↗</Link>
+        <Link to="/data-warehouse" className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10">Preview dataset ↗</Link>
+        <button onClick={() => setNote("dataset.selected", selected)} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-400" title="Only one compatible registered dataset exists; changing it would invalidate target, predictors, profiles, and challengers.">Change dataset</button>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">Changing the dataset would invalidate the target, predictor selection, IV/MI profiles, preprocessing, engineered features, segmentation, and trained challengers — the registered D3 champion is never wiped.</p>
+    </section>
+  );
+}
+function DField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return <div className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5"><div className="text-[9px] font-semibold uppercase text-slate-400">{label}</div><div className={`mt-0.5 font-semibold ${mono ? "font-mono text-[11px]" : ""}`}>{value}</div></div>;
+}
+
 // Explicit target-variable authority (Phase 6G). The platform RECOMMENDS a target; the scientist
 // confirms it. Confirmation persists in the store notes (autosaved). Downstream target-dependent
 // analysis is "scientist-approved" only once confirmed.
@@ -132,7 +170,30 @@ function TargetSelector() {
           <p className="mt-1">Confirming <b>{selected}</b> would invalidate IV / MI, target relationships, engineered-feature target profiles, trained challengers, calibration, and candidate rankings computed under <b>{confirmed}</b>. This never overwrites the registered D3 champion. Re-confirm only as part of a deliberate revised experiment.</p>
         </div>
       )}
-      <p className="mt-2 text-[11px] text-slate-500">The platform recommends a target; it does not silently choose one. Downstream target-dependent analysis is scientist-approved once confirmed. For the migrated Gen-2 project the existing registered target is <b>outcome</b>.</p>
+
+      {/* Immediate target distribution (Part C) — overall + per-season composition */}
+      {ta.data && (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">Overall class distribution
+              <span className="normal-case text-slate-400">dominant {classShort(ta.data.dominantClass.class)} {fmt.pct(ta.data.dominantClass.share)} · imbalance {ta.data.imbalanceRatio != null ? `${fmt.n(ta.data.imbalanceRatio, 0)}×` : "—"}</span></div>
+            <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={170} valueFmt={(v) => fmt.pct(v)} xLabel="Plate-appearance outcome" yLabel="Share of PAs" />
+          </div>
+          <div>
+            <div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">Target composition over time (modeling rows)</div>
+            <div className="space-y-1.5">
+              {ta.data.perSeason.map((s) => (
+                <div key={s.season} className="flex items-center gap-2">
+                  <div className="w-20 text-[11px] font-semibold text-slate-600">{s.season} <span className="text-[9px] font-normal text-slate-400">{s.season === 2023 ? "dev" : s.season === 2024 ? "val" : "frozen"}</span></div>
+                  <div className="flex h-5 flex-1 overflow-hidden rounded">{s.distribution.map((d) => d.share > 0 ? <div key={d.class} title={`${classShort(d.class)} ${(d.share * 100).toFixed(1)}%`} style={{ width: `${d.share * 100}%`, background: CLASS_COLORS[d.class] }} /> : null)}</div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500">Development 2023 · validation 2024 · frozen 2025. 2021–2022 are prior history — their raw outcomes are source-history only, not modeling target rows.</p>
+          </div>
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500"><b>1 eligible target detected in this dataset.</b> The platform recommends a target; it does not silently choose one. Downstream target-dependent analysis is scientist-approved once confirmed. For the migrated Gen-2 project the registered target is <b>outcome</b>.</p>
     </section>
   );
 }
@@ -148,6 +209,7 @@ function PopulationBody({ pop }: { pop: Population }) {
   const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
     <div className="space-y-5">
+      <DatasetSection />
       <TargetSelector />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -185,23 +247,25 @@ function PopulationBody({ pop }: { pop: Population }) {
       <Card title="Season populations" description="All five registered seasons. 2021–2022 are prior history; 2023–2025 are the modeling matrix." icon={Database}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[620px] text-left text-sm">
-            <thead><tr className="text-slate-500">{["Season", "Role", "Plate appearances", "Games", "Batters"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
+            <thead><tr className="text-slate-500">{["Season", "Role", "Plate appearances", "Games", "Batters", "Pitchers"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
             <tbody>{seasons.map((s) => {
-              const m = modeling.get(s.season);
+              const g = s.games ?? modeling.get(s.season)?.games ?? null;
+              const b = s.batters ?? modeling.get(s.season)?.batters ?? null;
               const prior = roleTone(s.role) === "slate";
               return (
                 <tr key={s.season} className={prior ? "bg-slate-50/60" : ""}>
                   <td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{s.season}</td>
                   <td className="border-b border-slate-100 px-3 py-2"><Pill label={s.role.replace(/_/g, " ")} tone={roleTone(s.role)} /></td>
                   <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{fmt.int(s.rows)}</td>
-                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{m ? fmt.int(m.games) : "—"}</td>
-                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{m ? fmt.int(m.batters) : "—"}</td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{g != null ? fmt.int(g) : "—"}</td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{b != null ? fmt.int(b) : "—"}</td>
+                  <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{s.pitchers != null ? fmt.int(s.pitchers) : "—"}</td>
                 </tr>
               );
             })}</tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-slate-500">Prior-history seasons are used only to construct temporally valid historical player features. They are not eligible as Gen-2 target / training rows (games / batters are materialized for the modeling matrix only).</p>
+        <p className="mt-2 text-xs text-slate-500">Games / batters / pitchers are derived from distinct registered identifiers in every season, including 2021–2022 (2021 has more distinct batters because NL pitchers batted before the 2022 universal DH). 2021–2022 remain prior-history evidence — not Gen-2 target / training rows.</p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -293,7 +357,8 @@ export function ProfileStep() {
           <FeatureExplorer prof={prof.data} corr={corr.data} selected={selected} setSelected={setSelected} ivThr={ivThr} ivWeak={ivWeak} config={config} toggleFeature={toggleFeature} />
 
           <Card title="Correlation heatmap — development predictors" icon={ScanSearch}
-            description="Pairwise |Pearson correlation| on the 2023 development fold (continuous predictors). Correlation is diagnostic evidence, not automatic exclusion.">
+            description="Pearson correlation on the 2023 development fold (continuous predictors). Correlation is diagnostic evidence, not automatic exclusion."
+            action={<Segmented value={notes["eda.heatmapMode"] || "full"} onChange={(v) => setNote("eda.heatmapMode", v)} options={[{ value: "full", label: "Full matrix" }, { value: "strong", label: `Strong only (|r| ≥ ${corr.data?.threshold ?? 0.8})` }]} />}>
             <LoadGate state={corr}>
               {corr.data && (
                 <>
@@ -301,14 +366,14 @@ export function ProfileStep() {
                     <Pill label={`Strong pairs |r| ≥ ${corr.data.threshold}: ${corr.data.strongPairCount}`} tone={corr.data.strongPairCount > 0 ? "amber" : "emerald"} />
                     {corr.data.strongPairs.map((p) => <span key={`${p.a}-${p.b}`} className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{shortName(p.a)} ~ {shortName(p.b)} = {fmt.n(p.r, 2)}</span>)}
                   </div>
-                  <CorrelationHeatmap features={corr.data.features} matrix={corr.data.matrix} />
+                  <CorrelationHeatmap features={corr.data.features} matrix={corr.data.matrix} strongOnly={(notes["eda.heatmapMode"] || "full") === "strong"} threshold={corr.data.threshold} />
                 </>
               )}
             </LoadGate>
           </Card>
 
           <Card title="Predictor screening" icon={ScanSearch}
-            description={`Sortable. IV ≥ ${ivThr} is highlighted green (notable screening signal); ${ivWeak}–${ivThr} amber (weak). Click a feature to load it into the explorer above; Include/Exclude stays in sync with Feature Engineering.`}>
+            description={`One-vs-rest IV is a class-specific screening signal for this 8-class target (not standard binary IV). Max OVR IV ≥ ${ivThr} is highlighted green (notable); ${ivWeak}–${ivThr} amber (weak). Thresholds are heuristic and never imply automatic inclusion. Click a feature to load the explorer; Include/Exclude stays in sync with Feature Engineering.`}>
             <div className="max-h-[540px] overflow-auto rounded-lg border border-slate-200">
               <table className="w-full min-w-[900px] text-left text-xs">
                 <thead className="sticky top-0 bg-slate-50">
@@ -316,7 +381,7 @@ export function ProfileStep() {
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Feature</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Role</th>
                     <Th k="missingPct" label="Miss%" /><Th k="outlierCount" label="Outliers" />
-                    <Th k="maxIv" label="IV" /><Th k="mi" label="MI" /><Th k="drift" label="Drift" />
+                    <Th k="maxIv" label="Max OVR IV" /><th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Mean OVR IV</th><th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Strongest class</th><Th k="mi" label="MI" /><Th k="drift" label="Drift" />
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Strongest corr</th>
                     <th className="border-b border-slate-200 px-2 py-2 text-xs font-semibold uppercase text-slate-500">Include</th>
                   </tr>
@@ -334,8 +399,9 @@ export function ProfileStep() {
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.pct(r.missingPct)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.int(r.outlierCount)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">
-                          <span className={`rounded px-1.5 py-0.5 font-semibold ${tone === "emerald" ? "bg-emerald-100 text-emerald-800" : tone === "amber" ? "bg-amber-50 text-amber-700" : "text-slate-900"}`}>{fmt.n(r.iv.maxIv, 3)}</span>
-                          <span className="ml-1 text-[10px] text-slate-400">{r.iv.maxIvClass?.slice(0, 3)}</span></td>
+                          <span className={`rounded px-1.5 py-0.5 font-semibold ${tone === "emerald" ? "bg-emerald-100 text-emerald-800" : tone === "amber" ? "bg-amber-50 text-amber-700" : "text-slate-900"}`}>{fmt.n(r.iv.maxIv, 3)}</span></td>
+                        <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{fmt.n(r.iv.meanIv, 3)}</td>
+                        <td className="border-b border-slate-100 px-2 py-1.5"><span className="text-[10px] font-semibold uppercase text-slate-500">{r.iv.maxIvClass ? classShort(r.iv.maxIvClass) : "—"}</span></td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.mi, 4)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.drift, 2)}</td>
                         <td className="border-b border-slate-100 px-2 py-1.5 text-[11px] text-slate-500">{strong?.feature ? `${shortName(strong.feature)} ${fmt.n(strong.r, 2)}` : "—"}</td>
@@ -351,9 +417,9 @@ export function ProfileStep() {
               </table>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded bg-emerald-100" /> IV ≥ {ivThr} notable</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded bg-emerald-100" /> Max OVR IV ≥ {ivThr} notable</span>
               <span className="inline-flex items-center gap-1"><span className="h-2 w-3 rounded bg-amber-50" /> {ivWeak}–{ivThr} weak</span>
-              <span>{prof.data.ivMethod}. Screening signal only — not automatic inclusion.</span>
+              <span>{prof.data.ivMethod}. One-vs-rest IV is a class-specific screening signal — not standard binary IV, and not automatic inclusion. MI is the general multiclass dependency measure.</span>
             </div>
           </Card>
         </div>
@@ -392,7 +458,7 @@ function TargetAnalysisSection() {
 
             <div>
               <div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">Overall class distribution</div>
-              <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={200} valueFmt={(v) => fmt.pct(v)} />
+              <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={210} valueFmt={(v) => fmt.pct(v)} xLabel="Plate-appearance outcome" yLabel="Share of PAs" />
             </div>
 
             <div>
@@ -498,9 +564,19 @@ function FeatureExplorer({ prof, corr, selected, setSelected, ivThr, ivWeak, con
                 <Insight label="Missing" value={fmt.pct(row.missingPct)} />
                 <Insight label="Outliers" value={fmt.int(row.outlierCount)} />
                 <Insight label="Drift" value={fmt.n(row.drift, 2)} />
-                <Insight label="IV" value={fmt.n(row.iv.maxIv, 3)} tone={ivTone(row.iv.maxIv, ivThr, ivWeak)} />
+                <Insight label="Max OVR IV" value={fmt.n(row.iv.maxIv, 3)} tone={ivTone(row.iv.maxIv, ivThr, ivWeak)} />
                 <Insight label="MI" value={fmt.n(row.mi, 4)} />
               </div>
+              {row.iv.perClass && (
+                <div className="rounded-lg border border-slate-200 p-2">
+                  <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">One-vs-rest IV by class (strongest: {row.iv.maxIvClass ? classShort(row.iv.maxIvClass) : "—"})</div>
+                  <div className="space-y-0.5">
+                    {Object.entries(row.iv.perClass).sort((a, b) => (b[1] as number) - (a[1] as number)).map(([cls, v]) => (
+                      <div key={cls} className="flex items-center gap-1.5"><span className="w-8 text-[10px] font-semibold text-slate-500">{classShort(cls)}</span><div className="h-2 flex-1 overflow-hidden rounded bg-slate-100"><div className="h-full bg-cyan-500" style={{ width: `${Math.min((v as number) / Math.max(row.iv.maxIv, 0.001) * 100, 100)}%` }} /></div><span className="w-10 text-right text-[10px] tabular-nums text-slate-500">{fmt.n(v as number, 3)}</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="rounded-lg border border-slate-200 p-2">
                 <div className="mb-1 text-[10px] font-semibold uppercase text-slate-400">Development summary</div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-slate-600">
@@ -1409,24 +1485,27 @@ export function SegmentationStep() {
               <>
                 <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs"><Pill label={`Recommended exploratory K = ${km.data.recommendedK}`} tone="cyan" /><span className="text-slate-600">{km.data.recommendationRationale}</span></div>
                 <LineChart categories={km.data.results.map((r: any) => `K${r.k}`)}
-                  series={[{ name: "Silhouette (↑)", data: km.data.results.map((r: any) => r.silhouette), color: "#0891b2" }, { name: "Davies-Bouldin (↓)", data: km.data.results.map((r: any) => r.daviesBouldin), color: "#e11d48" }]} height={190} />
-                <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs">
-                  <thead><tr className="text-slate-500">{["K", "Silhouette", "Davies-Bouldin", "Size balance", "Smallest cluster", "", ""].map((h, i) => <th key={i} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
+                  series={[{ name: "Silhouette (↑)", data: km.data.results.map((r: any) => r.silhouette), color: "#0891b2" }, { name: "Davies-Bouldin (↓)", data: km.data.results.map((r: any) => r.daviesBouldin), color: "#e11d48" }]} height={190}
+                  xLabel="Number of clusters (K)" yLabel="Diagnostic value" />
+                <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs">
+                  <thead><tr className="text-slate-500">{["K", "Score", "Silhouette", "Davies-Bouldin", "Stability 23→24", "Size balance", "Smallest cluster", ""].map((h, i) => <th key={i} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
                   <tbody>{km.data.results.map((r: any) => (
                     <tr key={r.k} className={selectedK === r.k ? "bg-cyan-50" : ""}>
                       <td className="border-b border-slate-100 px-2 py-1.5 font-semibold">{r.k}{r.k === km.data.recommendedK ? " ★" : ""}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold text-cyan-700" title={r.scoreComponents ? `silhouette ${r.scoreComponents.normSilhouette} · invDB ${r.scoreComponents.invNormDaviesBouldin} · stability ${r.scoreComponents.temporalStability} · balance ${r.scoreComponents.sizeBalance} · usable ${r.scoreComponents.usableClusterFraction}` : ""}>{fmt.n(r.explorScore, 2)}</td>
                       <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.silhouette, 3)}</td>
                       <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.daviesBouldin, 2)}</td>
+                      <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{r.temporalStability != null ? fmt.pct(r.temporalStability) : "—"}</td>
                       <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(r.sizeBalance, 2)}</td>
                       <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.pct(r.minClusterShare)}{r.tinyCluster ? <Pill label="tiny" tone="amber" /> : null}</td>
-                      <td className="border-b border-slate-100 px-2 py-1.5" colSpan={2}><button onClick={() => selectK(r.k)} className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${selectedK === r.k ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>{selectedK === r.k ? "Selected" : "Explore this K"}</button></td>
+                      <td className="border-b border-slate-100 px-2 py-1.5"><button onClick={() => selectK(r.k)} className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${selectedK === r.k ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}>{selectedK === r.k ? "Selected" : "Explore this K"}</button></td>
                     </tr>))}</tbody>
                 </table></div>
-                <p className="mt-2 text-xs text-slate-500">{km.data.note}</p>
+                <p className="mt-2 text-xs text-slate-500"><b>Exploratory Segmentation Score</b> = {km.data.scoreWeights ? `${km.data.scoreWeights.normSilhouette}·silhouette + ${km.data.scoreWeights.invNormDaviesBouldin}·(inv Davies-Bouldin) + ${km.data.scoreWeights.temporalStability}·stability + ${km.data.scoreWeights.sizeBalance}·size-balance + ${km.data.scoreWeights.usableClusterFraction}·usable-clusters` : "documented composite"} (hover a score for components). {km.data.note}</p>
               </>
             )}
           </Card>
-          {(pca.data || stab.data) && <SegClusterViews pca={pca.data} stab={stab.data} feats={feats} short={short} titleK={selectedK} />}
+          {(pca.data || stab.data) && <SegClusterViews pca={pca.data} stab={stab.data} feats={feats} short={short} titleK={selectedK} population={population} />}
         </>
       )}
 
@@ -1442,6 +1521,9 @@ export function SegmentationStep() {
             </div>
             {db.data && (
               <div className="mt-3 space-y-3">
+                <div className={`rounded-xl border p-3 text-sm ${db.data.recommendation === "PLAUSIBLE_DENSITY_STRUCTURE" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                  <span className="font-semibold">{db.data.recommendation.replace(/_/g, " ")}:</span> {db.data.recommendationLabel} <span className="text-xs opacity-80">(eps meaning: neighborhood radius; min-samples: points needed to form a dense core.)</span>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-4">
                   <MetricCard label="Clusters" value={String(db.data.nClusters)} detail={`eps ${db.data.eps} · min ${db.data.minSamples}`} />
                   <MetricCard label="Noise / unassigned" value={fmt.int(db.data.noise)} detail={fmt.pct(db.data.noisePct)} />
@@ -1450,7 +1532,7 @@ export function SegmentationStep() {
                 </div>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">k-distance (choose eps at the elbow)</div>
-                    <LineChart categories={db.data.kDistance.map((d: any) => String(d.rank))} series={[{ name: `${db.data.minSamples}-distance`, data: db.data.kDistance.map((d: any) => d.dist), color: "#7c3aed" }]} height={180} /></div>
+                    <LineChart categories={db.data.kDistance.map((d: any) => String(d.rank))} series={[{ name: `${db.data.minSamples}-distance`, data: db.data.kDistance.map((d: any) => d.dist), color: "#7c3aed" }]} height={180} xLabel="Players sorted by k-distance" yLabel="Distance to k-th neighbor" /></div>
                   <div><div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">PCA map — cluster -1 is noise</div><ScatterClusters points={db.data.points} height={200} /></div>
                 </div>
                 {db.data.clusters.length > 0 && <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs">
@@ -1467,14 +1549,14 @@ export function SegmentationStep() {
       {/* ---------------- 3×3 grid + guidance ---------------- */}
       {method === "grid" && (
         <>
-          <Card title="Grid guidance — suggested dimensions" icon={Boxes} description="Ranked from the real development data (cell balance × non-redundancy), not baseball opinion. Load a suggestion or override.">
+          <Card title="Grid guidance — suggested dimensions" icon={Boxes} description="Ranked by a transparent Grid Quality Score from real development data, not baseball opinion. Load a suggestion or override.">
             <LoadGate state={guide}>
-              {guide.data && <div className="flex flex-wrap gap-2">
+              {guide.data && <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {guide.data.suggestions.map((s: any) => (
                   <button key={`${s.dimX}-${s.dimY}`} onClick={() => { setDim("X", s.dimX); setDim("Y", s.dimY); }}
                     className={`rounded-lg border px-3 py-2 text-left text-xs ${dimX === s.dimX && dimY === s.dimY ? "border-cyan-600 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-                    <div className="font-semibold text-slate-800">{short(s.dimX)} × {short(s.dimY)}</div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">score {s.score} · |r| {s.absCorr} · balance {s.cellBalance}{s.sparse ? " · sparse ⚠" : ""}</div>
+                    <div className="flex items-center justify-between"><span className="font-semibold text-slate-800">{short(s.dimX)} × {short(s.dimY)}</span><span className="rounded bg-cyan-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">{s.gridQualityScore}</span></div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">balance {s.cellBalance} · non-redund {(1 - s.absCorr).toFixed(2)} · stability {s.temporalStability != null ? `${(s.temporalStability * 100).toFixed(0)}%` : "—"} · coverage {(s.coverage * 100).toFixed(0)}%{s.sparse ? " · sparse ⚠" : ""}</div>
                   </button>))}
               </div>}
               {guide.data && <p className="mt-2 text-[11px] text-slate-500">{guide.data.note}</p>}
@@ -1516,11 +1598,13 @@ export function SegmentationStep() {
   );
 }
 
-function SegClusterViews({ pca, stab, feats, short, titleK }: { pca: any; stab: any; feats: string[]; short: (f: string) => string; titleK: number }) {
+function SegClusterViews({ pca, stab, feats, short, titleK, population }: { pca: any; stab: any; feats: string[]; short: (f: string) => string; titleK: number; population: string }) {
+  const { notes, setNote } = useCockpitStore();
+  const labelKey = (c: number) => `seg.label.${population}.${titleK}.${c}`;
   return (
     <>
       <div className="grid gap-4 lg:grid-cols-2">
-        {pca && <Card title={`PCA cluster map${titleK ? ` · K=${titleK}` : ""}`} description={`PC1 ${fmt.pct(pca.explainedVariance[0])} + PC2 ${fmt.pct(pca.explainedVariance[1])} of variance.`} icon={Boxes}>
+        {pca && <Card title={`PCA cluster map${titleK ? ` · K=${titleK}` : ""}`} description={`PC1 ${fmt.pct(pca.explainedVariance[0])} + PC2 ${fmt.pct(pca.explainedVariance[1])} of variance. PC1 (x) / PC2 (y).`} icon={Boxes}>
           <ScatterClusters points={pca.points} />
         </Card>}
         {stab && <Card title="Temporal cluster stability" description="2024 players projected onto 2023-fitted centroids (descriptive)." icon={Boxes}>
@@ -1528,10 +1612,19 @@ function SegClusterViews({ pca, stab, feats, short, titleK }: { pca: any; stab: 
           <p className="mt-2 text-xs text-slate-500">{stab.note}</p>
         </Card>}
       </div>
-      {pca && <Card title="Cluster profiles" description="Mean prior-state characteristics per cluster (interpret, then label)." icon={Boxes}>
+      {pca && <Card title="Cluster profiles & interpretation" description="Descriptive labels are auto-generated from the strongest standardized differences (not invented). Rename any cluster — labels persist." icon={Boxes}>
+        <div className="mb-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {pca.profiles.map((p: any) => (
+            <div key={p.cluster} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+              <div className="flex items-center gap-2"><span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">C{p.cluster}</span><span className="text-xs font-semibold text-slate-800">{notes[labelKey(p.cluster)] || p.autoLabel}</span></div>
+              <input value={notes[labelKey(p.cluster)] ?? ""} onChange={(e) => setNote(labelKey(p.cluster), e.target.value)} placeholder={`rename (auto: ${p.autoLabel})`} className="mt-1 w-full rounded border border-slate-300 px-1.5 py-0.5 text-[11px]" />
+              <div className="mt-1 text-[10px] text-slate-500">{p.players} players · {(p.distinguishing || []).slice(0, 2).map((d: any) => `${short(d.feature)} ${d.stdDiff > 0 ? "+" : ""}${d.stdDiff}σ`).join(" · ")}</div>
+            </div>
+          ))}
+        </div>
         <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs">
           <thead><tr className="text-slate-500"><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Cluster</th><th className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">Players</th>{feats.map((f) => <th key={f} className="border-b border-slate-200 px-2 py-1.5 font-semibold">{short(f)}</th>)}</tr></thead>
-          <tbody>{pca.profiles.map((p: any) => (<tr key={p.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{p.cluster}</td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{p.players}</td>{feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(p.centroid[f], 3)}</td>)}</tr>))}</tbody>
+          <tbody>{pca.profiles.map((p: any) => (<tr key={p.cluster}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold">C{p.cluster} <span className="font-normal text-slate-500">{notes[labelKey(p.cluster)] || p.autoLabel}</span></td><td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{p.players}</td>{feats.map((f) => <td key={f} className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-600">{fmt.n(p.centroid[f], 3)}</td>)}</tr>))}</tbody>
         </table></div>
       </Card>}
     </>

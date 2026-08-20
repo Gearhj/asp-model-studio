@@ -76,10 +76,10 @@ def test_dbscan_produces_clusters_and_labels_noise(pop):
 def test_grid_guidance_ranks_real_pairs(pop):
     g = SEG.grid_guidance(pop)
     assert len(g["suggestions"]) >= 3
-    scores = [s["score"] for s in g["suggestions"]]
-    assert scores == sorted(scores, reverse=True)   # ranked
+    scores = [s["gridQualityScore"] for s in g["suggestions"]]
+    assert scores == sorted(scores, reverse=True)   # ranked by Grid Quality Score (Phase 6G.1)
     top = g["suggestions"][0]
-    assert set(["dimX", "dimY", "absCorr", "cellBalance", "minCell", "score"]).issubset(top)
+    assert set(["dimX", "dimY", "absCorr", "cellBalance", "minCell", "gridQualityScore"]).issubset(top)
 
 
 def test_kmeans_exposes_size_balance_decision_fields():

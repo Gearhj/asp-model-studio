@@ -36,7 +36,7 @@ export type DataPreview = {
   sample: string; limit: number; season: number | null; previewColumns: string[];
   rows: Record<string, any>[]; schema: PreviewSchemaRow[]; note: string;
 };
-export type SourceSeasonRow = { season: number; rows: number; role: string };
+export type SourceSeasonRow = { season: number; rows: number; role: string; games?: number; batters?: number; pitchers?: number };
 export type SourceEvidence = {
   registeredSeasons: number[]; priorOnlyHistory: number[]; modelingDevelopment: number[];
   validation: number; frozenFinal: number;

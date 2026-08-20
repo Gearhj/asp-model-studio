@@ -74,11 +74,14 @@ TARGET_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)
 # PRIMARY_GEN2_MODELING); the modeling-season counts mirror feature_contract.EXPECTED_SEASON_ROWS. The
 # feature view materializes only 2023-2025, so 2021-2022 counts are sourced from this frozen authority.
 SOURCE_EVIDENCE_SEASONS: tuple[dict[str, Any], ...] = (
-    {"season": 2021, "rows": 181_818, "role": "PRIOR_HISTORY"},
-    {"season": 2022, "rows": 182_052, "role": "PRIOR_HISTORY"},
-    {"season": 2023, "rows": 184_104, "role": "DEVELOPMENT"},
-    {"season": 2024, "rows": 182_449, "role": "VALIDATION"},
-    {"season": 2025, "rows": 182_926, "role": "FROZEN_FINAL"},
+    # games / batters / pitchers are DERIVED from the registered source PA partitions (distinct
+    # game_id / batter_id / pitcher_id). 2021 has more distinct batters because NL pitchers batted
+    # before the 2022 universal DH. These are real counts — never "—" — for the source-history display.
+    {"season": 2021, "rows": 181_818, "games": 2_429, "batters": 1_049, "pitchers": 909, "role": "PRIOR_HISTORY"},
+    {"season": 2022, "rows": 182_052, "games": 2_430, "batters": 693, "pitchers": 871, "role": "PRIOR_HISTORY"},
+    {"season": 2023, "rows": 184_104, "games": 2_430, "batters": 656, "pitchers": 863, "role": "DEVELOPMENT"},
+    {"season": 2024, "rows": 182_449, "games": 2_429, "batters": 651, "pitchers": 855, "role": "VALIDATION"},
+    {"season": 2025, "rows": 182_926, "games": 2_430, "batters": 673, "pitchers": 873, "role": "FROZEN_FINAL"},
 )
 REGISTERED_TOTAL_ROWS = 913_349          # 2021-2025 registered PA evidence
 PRIOR_HISTORY_TOTAL_ROWS = 363_870       # 2021-2022 prior-only history (181,818 + 182,052)

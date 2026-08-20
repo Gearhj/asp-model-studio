@@ -61,19 +61,34 @@ def population_summary(population: str, season: int = E.DEV_SEASON) -> dict[str,
     }
 
 
+SEG_SCORE_WEIGHTS = {"normSilhouette": 0.35, "invNormDaviesBouldin": 0.25, "temporalStability": 0.20, "sizeBalance": 0.10, "usableClusterFraction": 0.10}
+
+
 def run_kmeans(population: str, features: Sequence[str], k_min: int = 2, k_max: int = 10, season: int = E.DEV_SEASON, seed: int = 20260819) -> dict[str, Any]:
     feats = list(features) if features else list(default_features(population))
     tbl = _player_table(population, feats, season)
     if len(tbl) < (k_max + 2):
         raise CockpitError("not enough players for the requested cluster range")
-    X = StandardScaler().fit_transform(tbl[feats].to_numpy(dtype=np.float64))
+    scaler = StandardScaler().fit(tbl[feats].to_numpy(dtype=np.float64))
+    X = scaler.transform(tbl[feats].to_numpy(dtype=np.float64))
     weight = tbl["weight"].to_numpy(dtype=np.float64)
+    uuid_col = "batter_canonical_player_uuid" if population == "BATTERS" else "pitcher_canonical_player_uuid"
+    # 2024 projection for per-K temporal stability (development-fitted scaler + centroids; descriptive).
+    t24 = _player_table(population, feats, E.VAL_SEASON)
+    X24 = scaler.transform(t24[feats].to_numpy(dtype=np.float64)) if len(t24) else None
+    tiny_floor = max(5, int(0.03 * len(tbl)))
     results = []
     for k in range(max(2, k_min), min(k_max, 15) + 1):
         km = KMeans(n_clusters=k, n_init=10, random_state=seed).fit(X)
         labels = km.labels_
         sizes = np.bincount(labels, minlength=k)
         pa_prev = np.array([weight[labels == c].sum() for c in range(k)]) / weight.sum()
+        stability = None
+        if X24 is not None and len(t24):
+            a23 = dict(zip(tbl[uuid_col], labels))
+            a24 = dict(zip(t24[uuid_col], km.predict(X24)))
+            common = [u for u in a23 if u in a24]
+            stability = float(sum(1 for u in common if a23[u] == a24[u]) / len(common)) if common else None
         results.append({
             "k": k,
             "silhouette": float(silhouette_score(X, labels)),
@@ -82,19 +97,44 @@ def run_kmeans(population: str, features: Sequence[str], k_min: int = 2, k_max: 
             "clusterSizes": sizes.tolist(),
             "paWeightedPrevalence": pa_prev.tolist(),
             "inertia": float(km.inertia_),
-            "minClusterShare": float(sizes.min() / sizes.sum()),   # smallest cluster fraction (stability cue)
-            "sizeBalance": float(sizes.min() / sizes.max()),       # 1.0 = perfectly even
-            "tinyCluster": bool(sizes.min() < max(5, int(0.03 * len(tbl)))),
+            "minClusterShare": float(sizes.min() / sizes.sum()),
+            "sizeBalance": float(sizes.min() / sizes.max()),
+            "tinyCluster": bool(sizes.min() < tiny_floor),
+            "temporalStability": stability,
+            "usableClusterFraction": float(int((sizes >= tiny_floor).sum()) / k),
         })
-    # recommendation: best silhouette, tie-broken by lower Davies-Bouldin
-    rec = max(results, key=lambda r: (round(r["silhouette"], 4), -r["daviesBouldin"]))
+    # Transparent exploratory-segmentation score (documented composite — NOT proof of predictive value).
+    sils = [r["silhouette"] for r in results]
+    dbs = [r["daviesBouldin"] for r in results]
+
+    def _norm(vals: list[float], x: float) -> float:
+        lo, hi = min(vals), max(vals)
+        return (x - lo) / (hi - lo) if hi > lo else 0.5
+
+    for r in results:
+        n_sil = _norm(sils, r["silhouette"])
+        inv_db = 1.0 - _norm(dbs, r["daviesBouldin"])
+        stab = r["temporalStability"] if r["temporalStability"] is not None else 0.5
+        comps = {"normSilhouette": round(n_sil, 3), "invNormDaviesBouldin": round(inv_db, 3),
+                 "temporalStability": round(stab, 3), "sizeBalance": round(r["sizeBalance"], 3),
+                 "usableClusterFraction": round(r["usableClusterFraction"], 3)}
+        r["scoreComponents"] = comps
+        r["explorScore"] = round(sum(SEG_SCORE_WEIGHTS[k] * comps[k] for k in SEG_SCORE_WEIGHTS), 3)
+    rec = max(results, key=lambda r: r["explorScore"])
+    rationale = (
+        f"highest exploratory score ({rec['explorScore']:.2f}): silhouette {rec['silhouette']:.3f}, "
+        f"Davies-Bouldin {rec['daviesBouldin']:.2f}"
+        + (f", membership {rec['temporalStability']*100:.0f}% stable 2023→2024" if rec['temporalStability'] is not None else "")
+        + (", no critically small clusters" if not rec["tinyCluster"] else ", but watch a small cluster")
+    )
     return {
         "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
         "population": population, "season": season, "features": feats, "players": int(len(tbl)),
         "results": results,
         "recommendedK": rec["k"],
-        "recommendationRationale": f"highest silhouette ({rec['silhouette']:.3f}) with competitive Davies-Bouldin ({rec['daviesBouldin']:.2f})",
-        "note": "Exploratory only — a lower validation-metric cluster count is not automatically 'best'; predictive value must be tested via a controlled ablation.",
+        "recommendationRationale": rationale,
+        "scoreWeights": SEG_SCORE_WEIGHTS,
+        "note": "Exploratory structural quality only. The composite score measures cluster structure, NOT predictive usefulness — that requires a downstream challenger test.",
     }
 
 
@@ -134,6 +174,21 @@ def run_dbscan(
             "centroid": {f: float(raw[sel, j].mean()) for j, f in enumerate(feats)},
         })
     noise = int((labels == -1).sum())
+    # Recommendation state — DBSCAN answers a DIFFERENT question than K-means (density/outliers), so
+    # it is never ranked against K-means on silhouette.
+    noise_pct = noise / len(tbl)
+    assigned = len(tbl) - noise
+    biggest_share = float(max((int((labels == c).sum()) for c in uniq), default=0) / assigned) if assigned else 0.0
+    if noise_pct > 0.5:
+        rec, rec_label = "EXCESSIVE_NOISE", "Excessive noise — most players are unassigned; raise eps or lower min-samples."
+    elif len(uniq) <= 1:
+        rec, rec_label = "MOSTLY_ONE_CLUSTER_PLUS_OUTLIERS", "Mostly one dense cluster plus outliers — lower eps to split archetypes."
+    elif len(uniq) >= 6:
+        rec, rec_label = "FRAGMENTED_UNSTABLE", "Fragmented into many small clusters — raise eps or min-samples."
+    elif biggest_share > 0.85:
+        rec, rec_label = "ONE_GIANT_CLUSTER", "One giant cluster dominates — lower eps for finer structure."
+    else:
+        rec, rec_label = "PLAUSIBLE_DENSITY_STRUCTURE", "Plausible density structure — multiple cores with a modest outlier set."
     pca = PCA(n_components=2, random_state=seed)
     coords = pca.fit_transform(X)
     n = min(len(tbl), 800)
@@ -146,9 +201,11 @@ def run_dbscan(
         "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
         "population": population, "season": season, "features": feats, "players": int(len(tbl)),
         "eps": used_eps, "minSamples": ms, "suggestedEps": suggested_eps,
-        "nClusters": len(uniq), "noise": noise, "noisePct": float(noise / len(tbl)) if len(tbl) else 0.0,
+        "nClusters": len(uniq), "noise": noise, "noisePct": float(noise_pct),
+        "biggestClusterShare": biggest_share,
+        "recommendation": rec, "recommendationLabel": rec_label,
         "clusters": clusters, "points": points, "kDistance": k_distance,
-        "note": "Exploratory density clustering. Noise points are genuinely unassigned outliers — never forced into an archetype. Predictive value, if any, must be proven via a controlled challenger ablation.",
+        "note": "Exploratory density clustering. Noise points are genuinely unassigned outliers — never forced into an archetype. DBSCAN answers a different question than K-means (density/outliers, not archetype count) and is not compared on silhouette.",
     }
 
 
@@ -160,33 +217,48 @@ def grid_guidance(population: str, season: int = E.DEV_SEASON, top: int = 6) -> 
     if len(tbl) < 18:
         raise CockpitError("not enough players for grid guidance")
     sparse_floor = max(3, len(tbl) // 30)
+    uuid_col = "batter_canonical_player_uuid" if population == "BATTERS" else "pitcher_canonical_player_uuid"
+    t24 = _player_table(population, feats, E.VAL_SEASON)
+    weights = {"cellBalance": 0.35, "nonRedundancy": 0.30, "temporalStability": 0.20, "coverage": 0.15}
 
-    def terciles(series: np.ndarray) -> np.ndarray:
-        qs = np.quantile(series, [1 / 3, 2 / 3])
-        return np.digitize(series, qs)
+    def tercile_cuts(series: np.ndarray) -> np.ndarray:
+        return np.quantile(series, [1 / 3, 2 / 3])
 
     suggestions = []
     for x, y in itertools.combinations(feats, 2):
         vx = tbl[x].to_numpy(dtype=np.float64)
         vy = tbl[y].to_numpy(dtype=np.float64)
         r = abs(float(np.corrcoef(vx, vy)[0, 1])) if vx.std() and vy.std() else 0.0
-        gx, gy = terciles(vx), terciles(vy)
+        cx, cy = tercile_cuts(vx), tercile_cuts(vy)
+        gx, gy = np.digitize(vx, cx), np.digitize(vy, cy)
         counts = np.array([int(((gx == ix) & (gy == iy)).sum()) for iy in range(3) for ix in range(3)])
         p = counts / counts.sum()
         entropy = float(-(p[p > 0] * np.log(p[p > 0])).sum())
-        balance = round(entropy / np.log(9), 3)          # 1.0 = perfectly even nine cells
+        balance = round(entropy / np.log(9), 3)
         min_cell = int(counts.min())
-        score = round(balance * (1.0 - r), 3)            # even AND non-redundant
+        coverage = round(float((counts > 0).sum() / 9.0), 3)
+        # temporal stability: apply the 2023 cut points to 2024 players; same-cell fraction for common ids.
+        stability = None
+        if len(t24):
+            cell23 = dict(zip(tbl[uuid_col], gx * 3 + gy))
+            g24x, g24y = np.digitize(t24[x].to_numpy(dtype=np.float64), cx), np.digitize(t24[y].to_numpy(dtype=np.float64), cy)
+            cell24 = dict(zip(t24[uuid_col], g24x * 3 + g24y))
+            common = [u for u in cell23 if u in cell24]
+            stability = round(float(sum(1 for u in common if cell23[u] == cell24[u]) / len(common)), 3) if common else None
+        stab_v = stability if stability is not None else 0.5
+        quality = round(weights["cellBalance"] * balance + weights["nonRedundancy"] * (1 - r) + weights["temporalStability"] * stab_v + weights["coverage"] * coverage, 3)
         suggestions.append({
-            "dimX": x, "dimY": y, "absCorr": round(r, 3), "cellBalance": balance,
-            "minCell": min_cell, "sparse": min_cell < sparse_floor, "score": score,
+            "dimX": x, "dimY": y, "absCorr": round(r, 3), "cellBalance": balance, "coverage": coverage,
+            "temporalStability": stability, "minCell": min_cell, "sparse": min_cell < sparse_floor,
+            "gridQualityScore": quality,
+            "components": {"cellBalance": balance, "nonRedundancy": round(1 - r, 3), "temporalStability": stab_v, "coverage": coverage},
         })
-    suggestions.sort(key=lambda d: -d["score"])
+    suggestions.sort(key=lambda d: -d["gridQualityScore"])
     return {
         "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
         "population": population, "season": season, "players": int(len(tbl)),
-        "sparseFloor": sparse_floor, "suggestions": suggestions[:top],
-        "note": "Ranked by cell balance × (1 − |correlation|): evenly-populated, non-redundant dimensions make the most interpretable archetype grid. Signal and redundancy come from real development data — override freely.",
+        "sparseFloor": sparse_floor, "scoreWeights": weights, "suggestions": suggestions[:top],
+        "note": "Grid Quality Score = 0.35·cell-balance + 0.30·non-redundancy + 0.20·year-over-year stability + 0.15·coverage (all from real development data). Target-separation across cells is a descriptive component computed at the modeling-matrix level and is not folded into this structural score.",
     }
 
 
@@ -201,12 +273,23 @@ def pca_scatter(population: str, features: Sequence[str], k: int, season: int = 
     n = min(len(tbl), 800)
     idx = np.linspace(0, len(tbl) - 1, n).astype(int)
     points = [{"x": float(coords[i, 0]), "y": float(coords[i, 1]), "cluster": int(labels[i])} for i in idx]
-    # cluster profiles (mean of raw features per cluster)
+    # cluster profiles + auto-labels from the strongest standardized differences (not LLM-invented).
     raw = tbl[feats].to_numpy(dtype=np.float64)
+    overall_mean = raw.mean(axis=0)
+    overall_std = raw.std(axis=0) + 1e-9
+    short = lambda f: f.replace("batter_", "").replace("pitcher_", "").replace("_per_pa", "").replace("_per_bfp", "")
     profiles = []
     for c in range(k):
         sel = labels == c
-        profiles.append({"cluster": c, "players": int(sel.sum()), "centroid": {f: float(raw[sel, j].mean()) for j, f in enumerate(feats)}})
+        diffs = sorted(((f, float((raw[sel, j].mean() - overall_mean[j]) / overall_std[j]), j) for j, f in enumerate(feats)), key=lambda x: -abs(x[1]))
+        top = diffs[:2]
+        auto_label = " / ".join(f"{'Higher' if d > 0 else 'Lower'} {short(f)}" for f, d, _ in top) if top else f"Cluster {c}"
+        distinguishing = [{"feature": f, "clusterMean": float(raw[sel, j].mean()), "overallMean": float(overall_mean[j]), "stdDiff": round(d, 2)} for f, d, j in diffs[:4]]
+        profiles.append({
+            "cluster": c, "players": int(sel.sum()),
+            "centroid": {f: float(raw[sel, j].mean()) for j, f in enumerate(feats)},
+            "autoLabel": auto_label, "distinguishing": distinguishing,
+        })
     return {
         "schemaVersion": E.COCKPIT_SCHEMA_VERSION,
         "population": population, "k": k, "features": feats,

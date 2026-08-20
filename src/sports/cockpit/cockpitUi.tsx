@@ -140,14 +140,16 @@ function chart(option: any, height = 220) {
   return <ReactECharts option={option} style={{ height, width: "100%" }} opts={{ renderer: "svg" }} notMerge lazyUpdate />;
 }
 
-export function BarChart({ categories, values, height = 220, color = ACCENT, horizontal = false, valueFmt }:
-  { categories: string[]; values: number[]; height?: number; color?: string; horizontal?: boolean; valueFmt?: (v: number) => string }) {
-  const cat = { type: "category", data: categories, axisLabel: { fontSize: 10, color: "#64748b" } };
-  const val = { type: "value", axisLabel: { fontSize: 10, color: "#64748b" } };
+export function BarChart({ categories, values, height = 220, color = ACCENT, horizontal = false, valueFmt, xLabel, yLabel }:
+  { categories: string[]; values: number[]; height?: number; color?: string; horizontal?: boolean; valueFmt?: (v: number) => string; xLabel?: string; yLabel?: string }) {
+  const nameStyle = { fontSize: 10, color: "#475569", fontWeight: 600 as const };
+  const cat = { type: "category", data: categories, axisLabel: { fontSize: 10, color: "#64748b" }, name: horizontal ? undefined : xLabel, nameLocation: "middle", nameGap: 26, nameTextStyle: nameStyle };
+  const val = { type: "value", axisLabel: { fontSize: 10, color: "#64748b" }, name: horizontal ? xLabel : yLabel, nameLocation: "middle", nameGap: horizontal ? 26 : 44, nameTextStyle: nameStyle };
+  const catY = { ...cat, inverse: true, name: yLabel, nameLocation: "middle", nameGap: 90, nameTextStyle: nameStyle };
   return chart({
-    grid: GRID,
+    grid: { left: horizontal ? 100 : 56, right: 16, top: 16, bottom: xLabel || yLabel ? 40 : 28 },
     xAxis: horizontal ? val : cat,
-    yAxis: horizontal ? { ...cat, inverse: true } : val,
+    yAxis: horizontal ? catY : val,
     tooltip: { trigger: "axis", valueFormatter: (v: number) => (valueFmt ? valueFmt(v) : String(v)) },
     series: [{ type: "bar", data: values, itemStyle: { color, borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] } }],
   }, height);
@@ -290,20 +292,27 @@ export function ConfusionHeatmap({ matrix, labels, height = 300 }: { matrix: num
 
 const shortFeat = (f: string) => f.replace("batter_", "b·").replace("pitcher_", "p·").replace("context_", "c·");
 
-// Development-fold correlation heatmap for numeric predictors. Diverging scale centred at 0.
-export function CorrelationHeatmap({ features, matrix, height = 440 }: { features: string[]; matrix: (number | null)[][]; height?: number }) {
+// Development-fold correlation heatmap for numeric predictors. Diverging scale centred at 0. In
+// "strong only" mode, cells with |r| below the threshold are blanked so strong pairs stand out.
+export function CorrelationHeatmap({ features, matrix, height = 560, strongOnly = false, threshold = 0.8 }:
+  { features: string[]; matrix: (number | null)[][]; height?: number; strongOnly?: boolean; threshold?: number }) {
   const labels = features.map(shortFeat);
   const data: [number, number, number][] = [];
   for (let i = 0; i < matrix.length; i++)
-    for (let j = 0; j < matrix[i].length; j++)
-      if (matrix[i][j] !== null) data.push([j, matrix.length - 1 - i, matrix[i][j] as number]);
+    for (let j = 0; j < matrix[i].length; j++) {
+      const v = matrix[i][j];
+      if (v === null) continue;
+      if (strongOnly && i !== j && Math.abs(v as number) < threshold) continue;
+      data.push([j, matrix.length - 1 - i, v as number]);
+    }
+  const strength = (r: number) => (Math.abs(r) >= 0.8 ? "very strong" : Math.abs(r) >= 0.6 ? "strong" : Math.abs(r) >= 0.3 ? "moderate" : "weak");
   return chart({
-    grid: { left: 92, right: 16, top: 8, bottom: 96 },
-    xAxis: { type: "category", data: labels, splitArea: { show: true }, axisLabel: { fontSize: 8, rotate: 60 } },
-    yAxis: { type: "category", data: [...labels].reverse(), splitArea: { show: true }, axisLabel: { fontSize: 8 } },
-    visualMap: { min: -1, max: 1, calculable: true, orient: "horizontal", left: "center", bottom: 4, itemWidth: 12, itemHeight: 90, precision: 2, inRange: { color: ["#1e40af", "#93c5fd", "#f8fafc", "#fca5a5", "#b91c1c"] }, textStyle: { fontSize: 9 } },
-    tooltip: { formatter: (p: any) => `${features[features.length - 1 - p.value[1]]} ~ ${features[p.value[0]]}<br/>r = ${(p.value[2] as number).toFixed(3)}` },
-    series: [{ type: "heatmap", data, label: { show: false }, emphasis: { itemStyle: { borderColor: "#0f172a", borderWidth: 1 } } }],
+    grid: { left: 108, right: 16, top: 8, bottom: 120 },
+    xAxis: { type: "category", data: labels, name: "Predictor", nameLocation: "middle", nameGap: 92, splitArea: { show: true }, axisLabel: { fontSize: 9, rotate: 55 }, nameTextStyle: { fontSize: 10, color: "#475569", fontWeight: 600 } },
+    yAxis: { type: "category", data: [...labels].reverse(), name: "Predictor", nameLocation: "middle", nameGap: 96, splitArea: { show: true }, axisLabel: { fontSize: 9 }, nameTextStyle: { fontSize: 10, color: "#475569", fontWeight: 600 } },
+    visualMap: { min: -1, max: 1, calculable: true, orient: "horizontal", left: "center", bottom: 4, itemWidth: 14, itemHeight: 110, precision: 2, text: ["Pearson r = +1", "−1"], inRange: { color: ["#1e40af", "#93c5fd", "#f8fafc", "#fca5a5", "#b91c1c"] }, textStyle: { fontSize: 9 } },
+    tooltip: { formatter: (p: any) => { const r = p.value[2] as number; return `${features[features.length - 1 - p.value[1]]} ~ ${features[p.value[0]]}<br/>Pearson r = ${r.toFixed(3)} (${r >= 0 ? "positive" : "negative"}, ${strength(r)})${Math.abs(r) >= threshold && p.value[0] !== features.length - 1 - p.value[1] ? "<br/><b>redundancy flag</b>" : ""}`; } },
+    series: [{ type: "heatmap", data, label: { show: false }, emphasis: { itemStyle: { borderColor: "#0f172a", borderWidth: 1.5 } } }],
   }, height);
 }
 
@@ -379,9 +388,9 @@ export function FeatureSignalScatter({ points, height = 300 }:
   return chart({
     grid: { left: 52, right: 16, top: 26, bottom: 40 },
     legend: { top: 0, textStyle: { fontSize: 10 } },
-    xAxis: { type: "value", name: "Information Value (IV)", nameLocation: "middle", nameGap: 24, scale: true, axisLabel: { fontSize: 10 } },
-    yAxis: { type: "value", name: "Mutual Information (MI)", scale: true, axisLabel: { fontSize: 10 } },
-    tooltip: { trigger: "item", formatter: (p: any) => `${p.data.name}<br/>IV ${p.value[0].toFixed(3)} · MI ${p.value[1].toFixed(4)}` },
+    xAxis: { type: "value", name: "Max One-vs-Rest IV", nameLocation: "middle", nameGap: 24, scale: true, axisLabel: { fontSize: 10 }, nameTextStyle: { fontSize: 10, color: "#475569", fontWeight: 600 } },
+    yAxis: { type: "value", name: "Mutual Information (MI)", scale: true, axisLabel: { fontSize: 10 }, nameTextStyle: { fontSize: 10, color: "#475569", fontWeight: 600 } },
+    tooltip: { trigger: "item", formatter: (p: any) => `${p.data.name}<br/>Max OVR IV ${p.value[0].toFixed(3)} · MI ${p.value[1].toFixed(4)}` },
     series,
   }, height);
 }
@@ -403,13 +412,14 @@ export function ModelScatter({ points, xLabel, yLabel, yRef, height = 300 }:
   }, height);
 }
 
-export function LineChart({ categories, series, height = 220 }:
-  { categories: string[]; series: { name: string; data: (number | null)[]; color: string }[]; height?: number }) {
+export function LineChart({ categories, series, height = 220, xLabel, yLabel }:
+  { categories: string[]; series: { name: string; data: (number | null)[]; color: string }[]; height?: number; xLabel?: string; yLabel?: string }) {
+  const nameStyle = { fontSize: 10, color: "#475569", fontWeight: 600 as const };
   return chart({
-    grid: { left: 48, right: 16, top: 28, bottom: 28 },
+    grid: { left: 52, right: 16, top: 28, bottom: xLabel ? 42 : 28 },
     legend: { top: 0, textStyle: { fontSize: 11 } },
-    xAxis: { type: "category", data: categories, axisLabel: { fontSize: 10 } },
-    yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
+    xAxis: { type: "category", data: categories, axisLabel: { fontSize: 10 }, name: xLabel, nameLocation: "middle", nameGap: 26, nameTextStyle: nameStyle },
+    yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 }, name: yLabel, nameLocation: "middle", nameGap: 40, nameTextStyle: nameStyle },
     tooltip: { trigger: "axis" },
     series: series.map((s) => ({ name: s.name, type: "line", data: s.data, smooth: true, itemStyle: { color: s.color }, lineStyle: { color: s.color } })),
   }, height);

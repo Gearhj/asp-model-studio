@@ -48,7 +48,7 @@ test("compact header cards lead the page (current / selected / engineered / rese
 
 test("the signal map (IV vs MI) and create studio occupy the prime workspace", () => {
   assert.ok(feat.includes('title="Feature signal map"') && feat.includes("<FeatureSignalScatter"));
-  assert.ok(ui.includes("export function FeatureSignalScatter") && ui.includes("Information Value (IV)") && ui.includes("Mutual Information (MI)"));
+  assert.ok(ui.includes("export function FeatureSignalScatter") && ui.includes("Max One-vs-Rest IV") && ui.includes("Mutual Information (MI)"));
   assert.ok(feat.includes('title="Create feature studio"'));
 });
 
