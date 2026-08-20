@@ -44,8 +44,14 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
         await postJSON("/cockpit/gen3/register", {}); // idempotent registration
         const res = await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog");
         setCatalog(res.datasets);
-        const first = res.datasets.find((d) => d.selectable);
-        if (first) setVersionId(first.datasetVersionId);
+        // Gate 4/9 — consume the project's active server binding chosen earlier in Data & Population.
+        try {
+          const b = await getJSON<Binding>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`);
+          setBinding(b); setVersionId(b.datasetVersionId);
+        } catch {
+          const first = res.datasets.find((d) => d.selectable);
+          if (first) setVersionId(first.datasetVersionId);
+        }
       } catch (e) { setError(String(e)); }
     })();
   }, []);

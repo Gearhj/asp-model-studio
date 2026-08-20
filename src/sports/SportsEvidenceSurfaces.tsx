@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CheckCircle2, CircleDashed, Database, Fingerprint, LockKeyhole, RefreshCw, Scale, ShieldCheck } from "lucide-react";
 import { me } from "../lib/auth";
+import Gen3CatalogSection from "./cockpit/Gen3CatalogSection";
 import {
   logicalExchangeUri,
   logicalSportsEvidenceUri,
@@ -306,6 +307,7 @@ export function DataWarehouseEvidencePage() {
   const status = evidence.status === "ready" ? evidence.data.validationStatus : evidence.status === "loading" ? "Loading" : "Not registered";
   const summary = useMemo(() => evidence.status === "ready" ? `${evidence.data.datasetId} · ${evidence.data.registrationId}` : "", [evidence]);
   return <Page status={status}>
+    <div className="mb-4"><Gen3CatalogSection mode="warehouse" /></div>
     {evidence.status === "loading" ? <StateMessage kind="loading" title="Loading governed dataset evidence" detail="Reading the target-local registration service." /> : evidence.status === "error" ? <StateMessage kind="error" title="Dataset evidence unavailable" detail={evidence.error}><button type="button" onClick={evidence.refresh} className="mt-5 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950"><RefreshCw size={15} /> Retry</button></StateMessage> : evidence.status === "empty" ? <StateMessage kind="empty" title="No Sports Dataset Registered" detail="No governed sports manifest is registered in this workspace. No warehouse values are inferred or prefilled."><div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-700">SPORTS_DATASET_MANIFEST_V1</div><RegistrationAction onRegistered={evidence.refresh} /></StateMessage> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span className="flex items-center gap-2 font-semibold"><ShieldCheck size={17} /> Registered evidence is {evidence.data.validationStatus}</span><span className="break-all font-mono text-xs">{summary}</span></div><DatasetDetails dataset={evidence.data} /></>}
   </Page>;
 }

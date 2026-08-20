@@ -18,6 +18,7 @@ import {
   OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
+import Gen3CatalogSection from "./Gen3CatalogSection";
 
 const ROLE_TONE: Record<string, "cyan" | "violet" | "amber"> = { context: "cyan", batter: "violet", pitcher: "amber" };
 
@@ -409,6 +410,10 @@ function PopulationBody({ pop, projectId }: { pop: Population; projectId: string
   const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
     <div className="space-y-5">
+      {/* Phase 7A.2 — server-authoritative dataset selection + active-binding auto-restore (Gate 3/4/5).
+          The server catalog/binding is the authority; the legacy notes-based section below is retained
+          for its population/lineage detail. */}
+      <Gen3CatalogSection mode="selection" projectId={projectId} />
       <DatasetSection projectId={projectId} />
       <TargetSelector projectId={projectId} />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
