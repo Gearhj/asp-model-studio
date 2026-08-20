@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from . import engine as E
 from . import modeling as M
 from . import simulation as S
+from . import gen3_authority as G3A
 from .engine import ALL_FEATURES, CockpitError
+from ..security.security_store import require_user
 
 router = APIRouter()
 
@@ -26,6 +28,10 @@ def _guard(fn, *args, **kwargs):
         raise HTTPException(status_code=422, detail=str(exc))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=f"required artifact unavailable: {exc}")
+
+
+def _actor(user: dict) -> str:
+    return str(user.get("email") or user.get("userId") or user.get("id") or "unknown")
 
 
 @router.get("/cockpit/objective")
@@ -152,6 +158,69 @@ def experiment(experiment_id: str) -> dict[str, Any]:
     if rec is None:
         raise HTTPException(status_code=404, detail="experiment not found")
     return rec
+
+
+# ---------------------------------------------------------------- Gen-3 server authority (Phase 7A.1)
+# Additive, authenticated, project-scoped. UI = SERVER = TRAINING = RESULT authority; fail-closed on any
+# mismatch. Never touches the D3/C4-serving /cockpit/experiment/run path or the sealed 2025 object.
+def _project(payload: dict[str, Any]) -> str:
+    pid = payload.get("projectId")
+    if not isinstance(pid, str) or not pid.strip():
+        raise HTTPException(status_code=422, detail="projectId is required")
+    return pid
+
+
+@router.get("/cockpit/gen3/catalog")
+def gen3_catalog(user: dict = Depends(require_user)) -> dict[str, Any]:
+    return {"datasets": _guard(G3A.catalog)}
+
+
+@router.post("/cockpit/gen3/register")
+def gen3_register(user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.register_gen3)
+
+
+@router.post("/cockpit/gen3/bind")
+def gen3_bind(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.create_binding, actor=_actor(user), project_id=_project(payload),
+                  dataset_version_id=payload.get("datasetVersionId", ""),
+                  expected_content_sha=payload.get("expectedContentSha"))
+
+
+@router.get("/cockpit/gen3/binding/{project_id}")
+def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    b = _guard(G3A.active_binding, project_id=project_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail="no active binding for project")
+    return b
+
+
+@router.post("/cockpit/gen3/run-authority")
+def gen3_run_authority(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.issue_run_authority, actor=_actor(user), project_id=_project(payload),
+                  binding_id=payload.get("bindingId", ""), model_family=payload.get("modelFamily", ""),
+                  hyperparameters=payload.get("hyperparameters") or {}, seed=int(payload.get("seed", 20260819)))
+
+
+@router.post("/cockpit/gen3/execute")
+def gen3_execute(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.execute, actor=_actor(user), project_id=_project(payload),
+                  run_authority_id=payload.get("runAuthorityId", ""))
+
+
+@router.get("/cockpit/gen3/runs/{project_id}")
+def gen3_runs(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    return {"runs": _guard(G3A.list_runs, project_id=project_id)}
+
+
+@router.get("/cockpit/gen3/run/{project_id}/{run_id}")
+def gen3_run(project_id: str, run_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.get_run, project_id=project_id, run_id=run_id)
+
+
+@router.post("/cockpit/gen3/activate")
+def gen3_activate(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    return _guard(G3A.activate_candidate, actor=_actor(user), project_id=_project(payload), run_id=payload.get("runId", ""))
 
 
 @router.post("/cockpit/autopilot")

@@ -29,7 +29,7 @@ const STEPS: Step[] = [
   { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: () => <FeatureEngineeringStep /> },
   { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: () => <SegmentationStep /> },
   { id: "split", n: "08", label: "Temporal Split", icon: CalendarClock, group: "Prepare", render: () => <TemporalSplitStep /> },
-  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: () => <ModelLabStep /> },
+  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => <ModelLabStep projectId={c.projectId} /> },
   { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: () => <TuningStep /> },
   { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: () => <EvaluationStep /> },
   { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: () => <CalibrationStep /> },

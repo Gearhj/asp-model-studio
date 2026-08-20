@@ -10,6 +10,7 @@ import {
   type ModelFamily, type Champion, type ExperimentResult, type AutopilotResult,
   type SimResult, type ExperimentIndexRow, type Eligibility, type FullSimResult,
 } from "./cockpitApi";
+import Gen3AuthorityPanel from "./Gen3AuthorityPanel";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
   ConfusionHeatmap, CalibrationChart, ModelScatter, fmt,
@@ -36,7 +37,7 @@ const MODEL_META: Record<string, FamilyMeta> = {
 const GROUP_ORDER = ["Linear / interpretable", "Tree ensembles", "Neural"];
 const chip = (v: string) => (v === "High" ? "rose" : v === "Medium" ? "amber" : "emerald") as any;
 
-export function ModelLabStep() {
+export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const fams = useEndpoint<{ families: ModelFamily[] }>("/cockpit/model-families");
   const obj = useEndpoint<any>("/cockpit/objective");
   const store = useCockpitStore();
@@ -82,6 +83,9 @@ export function ModelLabStep() {
     <LoadGate state={fams}>
       {fams.data && (
         <div className="space-y-4">
+          {/* Phase 7A.1 — server-authorized Gen-3 run plan + execution (additive; the existing champion
+              reference + candidate suite below are unchanged). */}
+          <Gen3AuthorityPanel projectId={projectId} />
           <ChampionReferenceCard championVal={championVal} obj={obj.data} />
 
           {/* Candidate model suite gallery (multi-select) */}
