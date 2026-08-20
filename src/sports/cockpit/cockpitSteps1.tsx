@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
-  X, ArrowUpDown, Check, Layers, Info, Archive,
+  X, ArrowUpDown, Check, Layers, Info, Archive, ArrowRight, CheckCircle2, ShieldCheck, Lock,
 } from "lucide-react";
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
@@ -12,6 +12,7 @@ import {
   type MissingSummary, type MissingEntry, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
+import { loadContract, loadBinding } from "../workflow/workflowState";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
   OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
@@ -20,14 +21,63 @@ import DataPreviewPanel from "./DataPreviewPanel";
 
 const ROLE_TONE: Record<string, "cyan" | "violet" | "amber"> = { context: "cyan", batter: "violet", pitcher: "amber" };
 
+// ---------------------------------------------------------------------------- dataset / target authority
+// Phase 6G.2 — explicit scientific sequence: Select Dataset → Confirm Target → analyze. The cockpit's
+// authority state is derived from (a) explicit in-cockpit acts persisted in the autosave notes, and
+// (b) the project's registered governed contracts (Stage 1 Forecast Contract locks the target; Stage 2
+// Dataset Binding binds the dataset). A migrated Gen-2 project inherits those governed registrations as
+// its authority (labelled as inherited, never fabricated); a fresh cockpit with no registration must
+// select the dataset and confirm the target explicitly. Confirmation is NEVER auto-granted from mere
+// presence of legacy metadata — only from an explicit act or an explicit registered contract.
+export const RECOMMENDED_TARGET = "outcome";
+export type AuthorityMode = "explicit" | "inherited" | "none";
+export type AuthorityState = {
+  projectId: string;
+  datasetSelected: boolean; datasetMode: AuthorityMode; datasetId: string | null;
+  boundDatasetId: string | null; boundManifestSha: string | null;
+  targetConfirmed: boolean; targetMode: AuthorityMode; selectedTarget: string;
+  contractTarget: string | null;
+};
+export function readAuthorityState(projectId: string, notes: Record<string, string>): AuthorityState {
+  const binding = loadBinding(projectId);
+  const contract = loadContract(projectId);
+  const noteSel = notes["dataset.selected"] || "";
+  const datasetMode: AuthorityMode = noteSel ? "explicit" : binding ? "inherited" : "none";
+  const datasetId = noteSel || binding?.datasetId || null;
+  const selectedTarget = notes["target.selected"] || RECOMMENDED_TARGET;
+  const noteConfirmed = !!notes["target.confirmed"] && notes["target.confirmed"] === selectedTarget;
+  const contractTarget = contract?.target || null;
+  const targetMode: AuthorityMode = noteConfirmed ? "explicit" : contractTarget ? "inherited" : "none";
+  return {
+    projectId,
+    datasetSelected: datasetMode !== "none", datasetMode, datasetId,
+    boundDatasetId: binding?.datasetId || null, boundManifestSha: binding?.manifestSha || null,
+    targetConfirmed: targetMode !== "none", targetMode, selectedTarget, contractTarget,
+  };
+}
+
 // ============================================================ 01 Objective
-export function ObjectiveStep() {
+// State-aware (Phase 6G.2): the project objective can only present target-dependent facts once the
+// modeling dataset is selected AND the target is confirmed. Before that it guides the scientist back to
+// Data & Population instead of showing PA-Outcome distributions as if they were settled.
+export function ObjectiveStep({ projectId = "mlb-cockpit", go }: { projectId?: string; go?: (id: string) => void }) {
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { notes, setNote, markSaved, savedSteps } = useCockpitStore();
+  const auth = readAuthorityState(projectId, notes);
+  if (!auth.datasetSelected) return <ObjectiveNoDataset go={go} />;
+  if (!auth.targetConfirmed) return <ObjectiveTargetPending auth={auth} go={go} />;
   return (
     <LoadGate state={obj}>
       {obj.data && (
         <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+            <CheckCircle2 size={16} className="shrink-0" />
+            <span className="font-semibold">Target confirmed</span>
+            <span className="text-emerald-700">— objective is authoritative.</span>
+            <span className="ml-auto rounded-full border border-emerald-300 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              {auth.targetMode === "inherited" ? "via registered Forecast Contract" : "confirmed in cockpit"}
+            </span>
+          </div>
           <div className="grid gap-3 sm:grid-cols-4">
             <MetricCard label="Objective" value="PA Outcome" detail="8-class multinomial" />
             <MetricCard label="Prediction unit" value="Plate Appearance" detail={fmt.int(obj.data.totalRows) + " PAs"} />
@@ -40,6 +90,7 @@ export function ObjectiveStep() {
               values={obj.data.targetDistribution.map((d) => d.share)}
               valueFmt={(v) => fmt.pct(v)}
               height={240}
+              xLabel="Plate-appearance outcome" yLabel="Share of plate appearances"
             />
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-xs">
@@ -86,46 +137,169 @@ function RefBlock({ title, m }: { title: string; m: { logLoss: number; brierScor
   );
 }
 
+// C1 — no modeling dataset selected. Target-dependent facts are withheld until the scientist selects a
+// dataset in Data & Population. Only dataset-independent project framing is shown.
+function ObjectiveNoDataset({ go }: { go?: (id: string) => void }) {
+  return (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700"><Database size={14} /> Objective not yet finalized</div>
+        <h3 className="mt-1 text-xl font-semibold text-slate-950">Modeling data not yet selected</h3>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-700">Select a modeling dataset in <b>Data &amp; Population</b> before the project objective can be finalized. Target, prediction unit, class distribution, and modeling row counts all depend on the selected dataset and are withheld until then.</p>
+        <button onClick={() => go?.("population")} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800">Go to Data &amp; Population <ArrowRight size={15} className="text-cyan-300" /></button>
+      </section>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Downstream use" value="Game Simulator" detail="Whole-game Monte Carlo" />
+        <MetricCard label="Prediction unit" value="Plate Appearance" detail="proposed project unit" />
+        <MetricCard label="Champion" value="Existing D3 reference" detail="registered, read-only" />
+      </div>
+      <p className="text-xs text-slate-500">These are project-level facts known independently of the dataset. The target taxonomy, distributions, and modeling counts appear here once a dataset is selected and the target is confirmed.</p>
+    </div>
+  );
+}
+
+// C2 — dataset selected, target not yet confirmed. The target distribution and target-dependent counts
+// are intentionally NOT rendered as settled facts; a compact decision status guides confirmation.
+function ObjectiveTargetPending({ auth, go }: { auth: AuthorityState; go?: (id: string) => void }) {
+  const rows: [string, string, "ok" | "pending"][] = [
+    ["Modeling dataset", auth.datasetMode === "explicit" ? "Selected" : "Selected · inherited from dataset binding", "ok"],
+    ["Target variable", "Awaiting confirmation", "pending"],
+    ["Prediction unit", "Proposed / inherited (Plate Appearance)", "ok"],
+    ["Downstream use", "Game Simulator", "ok"],
+    ["Champion", "Existing D3 reference", "ok"],
+  ];
+  return (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700"><Target size={14} /> Awaiting confirmation</div>
+        <h3 className="mt-1 text-xl font-semibold text-slate-950">Target definition pending</h3>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-700">The modeling dataset has been selected, but the target variable has not yet been confirmed. Target-dependent analysis (class distribution, imbalance, modeling counts) is withheld until you confirm the target.</p>
+        <button onClick={() => go?.("population")} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800">Confirm Target in Data &amp; Population <ArrowRight size={15} className="text-cyan-300" /></button>
+      </section>
+      <div className="overflow-hidden rounded-xl border border-slate-200">
+        <table className="w-full text-left text-sm">
+          <thead><tr className="bg-slate-50 text-slate-500">{["Decision", "Status"].map((h) => <th key={h} className="px-4 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
+          <tbody>{rows.map(([k, v, s]) => (
+            <tr key={k}><td className="border-t border-slate-100 px-4 py-2 font-semibold text-slate-800">{k}</td>
+              <td className="border-t border-slate-100 px-4 py-2"><span className={`inline-flex items-center gap-1.5 ${s === "pending" ? "text-amber-700" : "text-slate-700"}`}>{s === "pending" ? <TriangleAlert size={13} /> : <Check size={13} className="text-emerald-600" />}{v}</span></td></tr>))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================ 02 Data & Population
 const roleTone = (role: string): "rose" | "amber" | "emerald" | "slate" =>
   /FROZEN/i.test(role) ? "rose" : /VALID/i.test(role) ? "amber" : /DEVELOP/i.test(role) ? "emerald" : "slate";
 
-export function DataPopulationStep() {
+export function DataPopulationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const pop = useEndpoint<Population>("/cockpit/population");
-  return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} /> : null}</LoadGate>;
+  return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} projectId={projectId} /> : null}</LoadGate>;
 }
 
-// Modeling dataset authority (Phase 6G.1). The scientist explicitly selects the registered dataset
-// before choosing a target. Only one compatible governed dataset exists today — shown honestly, not
-// silently bound. The selection persists and would invalidate dependent analysis if changed.
-function DatasetSection() {
+// Modeling dataset authority (Phase 6G / 6G.2). Selecting the modeling dataset is the first, dominant
+// action of the workflow. When nothing is selected the page leads with a large selection panel; once a
+// dataset is selected (explicitly here, or inherited from the project's Stage-2 dataset binding) it
+// collapses to a compact authoritative summary. Changing the dataset explicitly invalidates every
+// dataset-derived artifact — the registered D3 · C4 champion is never deleted or overwritten.
+const MODELING_DATASET_ID = "asp.mlb.open-data.fd1";
+const DATASET_INVALIDATION_ITEMS = [
+  "target confirmation", "selected predictors", "IV / MI / EDA profiles", "outlier policy",
+  "missing-value policy", "engineered features", "segmentation", "trained challengers",
+  "calibration / evaluation artifacts",
+];
+function DatasetSection({ projectId }: { projectId: string }) {
   const obj = useEndpoint<Objective>("/cockpit/objective");
-  const { notes, setNote } = useCockpitStore();
-  const selected = notes["dataset.selected"] || "asp.mlb.open-data.fd1";
-  const auth = obj.data?.datasetAuthority;
+  const { notes, setNote, invalidateForDatasetChange } = useCockpitStore();
+  const [changing, setChanging] = useState(false);
+  const auth = readAuthorityState(projectId, notes);
+  const dsa = obj.data?.datasetAuthority;
+  const currentId = auth.datasetId;
+
+  const doSelect = (id: string) => {
+    if (currentId && currentId !== id) invalidateForDatasetChange(); // only a genuine change invalidates
+    setNote("dataset.selected", id);
+    setNote("dataset.selectedAt", new Date().toISOString());
+    setChanging(false);
+  };
+
+  // A1 — unselected (or actively changing): large, unmistakable selection panel is the dominant control.
+  if (!auth.datasetSelected || changing) {
+    return (
+      <section className="sports-panel rounded-2xl border border-slate-800 bg-slate-950 p-5 text-white sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300"><Database size={14} /> Step 1 · Choose your modeling dataset</div>
+          <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">1 compatible governed dataset available</span>
+        </div>
+        <h3 className="mt-2 text-2xl font-semibold tracking-tight">Choose your modeling dataset</h3>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-300">Select a governed dataset from the ASP Data Warehouse to define the modeling population, target, predictors, and temporal evidence. Nothing is bound until you select it.</p>
+
+        {changing && auth.datasetSelected && (
+          <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-amber-100">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide"><TriangleAlert size={14} /> Changing the dataset invalidates downstream project work</div>
+            <ul className="mt-1.5 grid gap-x-4 gap-y-0.5 text-[11px] sm:grid-cols-2">
+              {DATASET_INVALIDATION_ITEMS.map((i) => <li key={i} className="flex gap-1.5"><span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-amber-300" />{i}</li>)}
+            </ul>
+            <p className="mt-1.5 text-[11px] text-amber-200/90">The registered <b>D3 · C4</b> champion is never deleted or overwritten. Only one compatible governed dataset is currently registered, so re-selecting it re-affirms your choice without invalidating anything.</p>
+          </div>
+        )}
+
+        {/* The single compatible governed dataset, presented as an explicit selectable card */}
+        <div className="mt-4 rounded-xl border border-white/15 bg-white/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-base font-semibold">MLB FD1 — Gen-2 plate-appearance feature view</div>
+              <div className="mt-0.5 font-mono text-[11px] text-slate-400">{dsa?.registration ?? MODELING_DATASET_ID}</div>
+            </div>
+            <span className="rounded-full border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">recommended</span>
+          </div>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+            <DField label="Sport · grain" value="MLB · plate appearance" />
+            <DField label="Registered seasons" value="2021–2025" />
+            <DField label="Registered rows" value="913,349" />
+            <DField label="Modeling rows" value={obj.data ? `${fmt.int(obj.data.totalRows)} (2023–2025)` : "…"} />
+            <DField label="Predictors" value={obj.data ? `${obj.data.champion.featureCount} governed` : "…"} />
+            <DField label="Governed · eligible" value="RETROSHEET/Lahman · yes" />
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={() => doSelect(MODELING_DATASET_ID)} className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Select Dataset from Data Warehouse <ArrowRight size={16} /></button>
+          <Link to="/data-warehouse" className="inline-flex items-center rounded-lg border border-white/25 px-3.5 py-2.5 text-sm font-semibold text-slate-200 hover:bg-white/10">Open Data Warehouse ↗</Link>
+          {changing && <button onClick={() => setChanging(false)} className="inline-flex items-center rounded-lg border border-white/15 px-3.5 py-2.5 text-sm font-semibold text-slate-400 hover:bg-white/5">Keep current dataset</button>}
+        </div>
+      </section>
+    );
+  }
+
+  // A2 — selected: compact but authoritative summary. The dominant selection control no longer occupies
+  // large space. Provenance ("selected by you" vs. inherited from the project's dataset binding) is honest.
+  const inherited = auth.datasetMode === "inherited";
   return (
     <section className="sports-panel rounded-2xl border border-slate-800 bg-slate-950 p-4 text-white">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300"><Database size={14} /> Modeling dataset</div>
-        <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">1 compatible registered dataset available</span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300"><CheckCircle2 size={11} /> {inherited ? "Selected · inherited from dataset binding" : "Selected"}</span>
+        </div>
       </div>
       <div className="mt-2 text-lg font-semibold">MLB FD1 — Gen-2 plate-appearance feature view</div>
       <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
-        <DField label="Dataset / version" value={auth ? `${auth.registration}` : "asp.mlb.open-data.fd1"} />
-        <DField label="Manifest SHA" value={auth ? `${auth.manifestSha.slice(0, 16)}…` : "…"} mono />
+        <DField label="Dataset / version" value={auth.datasetId ?? (dsa ? dsa.registration : MODELING_DATASET_ID)} />
+        <DField label="Manifest authority" value={auth.boundManifestSha ? `${auth.boundManifestSha.slice(0, 16)}…` : dsa ? `${dsa.manifestSha.slice(0, 16)}…` : "…"} mono />
         <DField label="Sport · grain" value="MLB · plate appearance" />
         <DField label="Registered seasons" value="2021–2025" />
-        <DField label="Modeling rows" value={obj.data ? `${fmt.int(obj.data.totalRows)} (2023–2025)` : "…"} />
         <DField label="Registered rows" value="913,349 (2021–2025)" />
+        <DField label="Modeling rows" value={obj.data ? `${fmt.int(obj.data.totalRows)} (2023–2025)` : "…"} />
         <DField label="Predictors" value={obj.data ? `${obj.data.champion.featureCount} governed` : "…"} />
         <DField label="Governed · eligible" value="RETROSHEET/Lahman · yes" />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link to="/data-warehouse" className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">Select from Data Warehouse ↗</Link>
+        <button onClick={() => setChanging(true)} className="rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">Change dataset</button>
         <Link to="/data-warehouse" className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10">Preview dataset ↗</Link>
-        <button onClick={() => setNote("dataset.selected", selected)} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-400" title="Only one compatible registered dataset exists; changing it would invalidate target, predictors, profiles, and challengers.">Change dataset</button>
+        <Link to="/data-warehouse" className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:bg-white/5">Select from Data Warehouse ↗</Link>
       </div>
-      <p className="mt-2 text-[11px] text-slate-400">Changing the dataset would invalidate the target, predictor selection, IV/MI profiles, preprocessing, engineered features, segmentation, and trained challengers — the registered D3 champion is never wiped.</p>
+      <p className="mt-2 text-[11px] text-slate-400">Changing the dataset would invalidate the target confirmation, predictor selection, IV/MI/EDA profiles, outlier &amp; missing policy, engineered features, segmentation, trained challengers, and calibration/evaluation artifacts — the registered D3 · C4 champion is never deleted or overwritten.</p>
     </section>
   );
 }
@@ -133,23 +307,37 @@ function DField({ label, value, mono }: { label: string; value: string; mono?: b
   return <div className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5"><div className="text-[9px] font-semibold uppercase text-slate-400">{label}</div><div className={`mt-0.5 font-semibold ${mono ? "font-mono text-[11px]" : ""}`}>{value}</div></div>;
 }
 
-// Explicit target-variable authority (Phase 6G). The platform RECOMMENDS a target; the scientist
-// confirms it. Confirmation persists in the store notes (autosaved). Downstream target-dependent
-// analysis is "scientist-approved" only once confirmed.
+// Explicit target-variable authority (Phase 6G / 6G.2). The platform RECOMMENDS a target; the scientist
+// CONFIRMS it. Three states are visible — recommended, selected, confirmed. A migrated project may
+// inherit confirmation from its registered Forecast Contract (labelled honestly); otherwise the target
+// is AWAITING an explicit confirmation and downstream target-dependent analysis is withheld.
 const TARGET_OPTIONS = [{ value: "outcome", label: "outcome — 8-class plate-appearance result", recommended: true }];
-function TargetSelector() {
+function TargetSelector({ projectId }: { projectId: string }) {
   const ta = useEndpoint<TargetAnalysis>("/cockpit/target-analysis");
   const { notes, setNote } = useCockpitStore();
-  const recommended = "outcome";
-  const confirmed = notes["target.confirmed"] || "";
-  const selected = notes["target.selected"] || recommended;
-  const changedFromConfirmed = confirmed && selected !== confirmed;
+  const auth = readAuthorityState(projectId, notes);
+  const recommended = RECOMMENDED_TARGET;
+  const selected = auth.selectedTarget;
+  const confirmed = auth.targetConfirmed;
+  const explicit = auth.targetMode === "explicit";
+  const inherited = auth.targetMode === "inherited";
   return (
-    <section className="sports-panel rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Target size={14} /> Target variable</div>
-        {confirmed === selected && confirmed ? <Pill label="Confirmed" tone="emerald" /> : <Pill label="Awaiting confirmation" tone="amber" />}
+    <section className={`sports-panel rounded-2xl border p-4 ${confirmed ? "border-emerald-200 bg-white" : "border-amber-300 bg-white"}`}>
+      {/* B1 — prominent three-state banner: AWAITING CONFIRMATION vs TARGET CONFIRMED */}
+      <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 ${confirmed ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]"><Target size={14} /> Target variable</div>
+        {confirmed ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white"><CheckCircle2 size={12} /> Target confirmed</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white"><TriangleAlert size={12} /> Awaiting confirmation</span>
+        )}
+        {confirmed && (
+          <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+            {inherited ? <><Lock size={10} /> via registered Forecast Contract</> : <><ShieldCheck size={10} /> confirmed in cockpit</>}
+          </span>
+        )}
       </div>
+
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <div className="text-[11px] font-semibold uppercase text-slate-400">Recommended</div>
@@ -161,13 +349,25 @@ function TargetSelector() {
         <div><div className="text-[11px] font-semibold uppercase text-slate-400">Detected problem</div><div className="text-sm font-semibold text-slate-900">{ta.data ? "Multiclass classification" : "…"}</div><div className="text-[11px] text-slate-500">{ta.data ? `${ta.data.classCount} classes · missing ${ta.data.missing}` : ""}</div></div>
         <div className="flex items-end">
           <button onClick={() => { setNote("target.confirmed", selected); setNote("target.confirmedAt", new Date().toISOString()); }}
-            className={`w-full rounded-lg border px-3 py-1.5 text-xs font-semibold ${confirmed === selected ? "border-slate-300 bg-white text-slate-600" : "border-cyan-600 bg-cyan-600 text-white hover:bg-cyan-500"}`}>{confirmed === selected ? "Target confirmed ✓" : "Confirm target"}</button>
+            className={`w-full rounded-lg border px-3 py-1.5 text-xs font-semibold ${explicit ? "border-slate-300 bg-white text-slate-600" : confirmed ? "border-emerald-500 bg-white text-emerald-700 hover:bg-emerald-50" : "border-cyan-600 bg-cyan-600 text-white hover:bg-cyan-500"}`}>
+            {explicit ? "Target confirmed ✓" : inherited ? "Re-affirm in cockpit" : "Confirm target"}</button>
         </div>
       </div>
-      {changedFromConfirmed && (
-        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800">
-          <div className="flex items-center gap-2 font-semibold"><TriangleAlert size={14} /> Changing the target invalidates target-dependent evidence</div>
-          <p className="mt-1">Confirming <b>{selected}</b> would invalidate IV / MI, target relationships, engineered-feature target profiles, trained challengers, calibration, and candidate rankings computed under <b>{confirmed}</b>. This never overwrites the registered D3 champion. Re-confirm only as part of a deliberate revised experiment.</p>
+
+      {inherited && (
+        <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-1.5 text-[11px] text-emerald-800">
+          <b>Inherited from your registered Forecast Contract (Stage 1).</b> The target was explicitly locked when you registered the project's forecast contract — it is treated as confirmed here, not silently defaulted. Re-affirm in the cockpit to mark it as an explicit cockpit decision.
+        </p>
+      )}
+
+      {/* B2 — target analysis stat strip: dominant / rarest / missingness / imbalance / problem type */}
+      {ta.data && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <MetricCard label="Problem type" value="Multiclass" detail={`${ta.data.classCount} classes`} />
+          <MetricCard label="Dominant class" value={classShort(ta.data.dominantClass.class)} detail={fmt.pct(ta.data.dominantClass.share)} />
+          <MetricCard label="Rarest class" value={classShort(ta.data.rarestClass.class)} detail={fmt.pct(ta.data.rarestClass.share)} />
+          <MetricCard label="Target missingness" value={ta.data.missing === 0 ? "0" : fmt.int(ta.data.missing)} detail={ta.data.missing === 0 ? "complete coverage" : "missing target rows"} />
+          <MetricCard label="Imbalance" value={ta.data.imbalanceRatio != null ? `${fmt.n(ta.data.imbalanceRatio, 0)}×` : "—"} detail="dominant ÷ rarest" />
         </div>
       )}
 
@@ -177,7 +377,7 @@ function TargetSelector() {
           <div>
             <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase text-slate-400">Overall class distribution
               <span className="normal-case text-slate-400">dominant {classShort(ta.data.dominantClass.class)} {fmt.pct(ta.data.dominantClass.share)} · imbalance {ta.data.imbalanceRatio != null ? `${fmt.n(ta.data.imbalanceRatio, 0)}×` : "—"}</span></div>
-            <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={170} valueFmt={(v) => fmt.pct(v)} xLabel="Plate-appearance outcome" yLabel="Share of PAs" />
+            <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={170} valueFmt={(v) => fmt.pct(v)} xLabel="Plate-appearance outcome" yLabel="Share of plate appearances" />
           </div>
           <div>
             <div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">Target composition over time (modeling rows)</div>
@@ -198,7 +398,7 @@ function TargetSelector() {
   );
 }
 
-function PopulationBody({ pop }: { pop: Population }) {
+function PopulationBody({ pop, projectId }: { pop: Population; projectId: string }) {
   const src = pop.sourceEvidence;
   // Games/batters are only materialized for the modeling seasons (2023–2025).
   const modeling = new Map(pop.perSeason.map((s) => [s.season, s]));
@@ -209,8 +409,8 @@ function PopulationBody({ pop }: { pop: Population }) {
   const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
     <div className="space-y-5">
-      <DatasetSection />
-      <TargetSelector />
+      <DatasetSection projectId={projectId} />
+      <TargetSelector projectId={projectId} />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

@@ -98,8 +98,11 @@ test("Data & Population has an explicit target selector: recommend vs confirm, p
   assert.ok(steps1.includes("function TargetSelector") && steps1.includes('"/cockpit/target-analysis"'));
   assert.ok(steps1.includes("Recommended") && steps1.includes("Confirm target"));
   assert.ok(steps1.includes('notes["target.confirmed"]') && steps1.includes('setNote("target.confirmed"'));
-  assert.ok(steps1.includes("invalidates target-dependent evidence") && steps1.includes("never overwrite"));
-  assert.ok(steps1.includes("<TargetSelector />"));
+  // Phase 6G.2 — explicit AWAITING/CONFIRMED states + honest inherited-vs-explicit provenance; dataset
+  // change (not target change) is the invalidation path, and the champion is never overwritten.
+  assert.ok(steps1.includes("Awaiting confirmation") && steps1.includes("Target confirmed"));
+  assert.ok(steps1.includes("not silently defaulted") && steps1.includes("never deleted or overwritten"));
+  assert.ok(steps1.includes("<TargetSelector projectId={projectId} />"));
 });
 
 test("Data Profile has a target-analysis section (class distribution + per-season composition)", () => {

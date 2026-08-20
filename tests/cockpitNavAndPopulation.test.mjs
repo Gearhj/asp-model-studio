@@ -49,7 +49,7 @@ test("Step 1 has no Previous; Step 15 has no Next", () => {
 test("a Previous/Next footer renders on every step, after the step content", () => {
   assert.ok(shell.includes("function StepFooter"));
   // rendered immediately after the active step body
-  assert.ok(/\{step\.render\(\)\}\s*<StepFooter active=\{active\} go=\{go\} \/>/.test(shell));
+  assert.ok(/\{step\.render\(\{ projectId, go \}\)\}\s*<StepFooter active=\{active\} go=\{go\} \/>/.test(shell));
   // shows position "Step X of 15"
   assert.ok(shell.includes("Step {idx + 1} of {STEPS.length}"));
 });

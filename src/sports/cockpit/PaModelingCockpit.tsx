@@ -17,11 +17,12 @@ import {
   ChampionChallengerStep, RegistryStep,
 } from "./cockpitSteps2";
 
-type Step = { id: string; n: string; label: string; icon: LucideIcon; group: string; render: () => JSX.Element };
+type StepCtx = { projectId: string; go: (id: string) => void };
+type Step = { id: string; n: string; label: string; icon: LucideIcon; group: string; render: (ctx: StepCtx) => JSX.Element };
 
 const STEPS: Step[] = [
-  { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: () => <ObjectiveStep /> },
-  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: () => <DataPopulationStep /> },
+  { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} /> },
+  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} /> },
   { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: () => <ProfileStep /> },
   { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: () => <OutliersStep /> },
   { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: () => <MissingStep /> },
@@ -119,7 +120,7 @@ export default function PaModelingCockpit({ embedded = false, projectId = "mlb-c
             <div><div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-700">Step {step.n} · {step.group}</div>
               <h2 className="text-xl font-semibold tracking-tight text-slate-950">{step.label}</h2></div>
           </div>
-          {step.render()}
+          {step.render({ projectId, go })}
           <StepFooter active={active} go={go} />
         </div>
       </div>

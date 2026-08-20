@@ -15,8 +15,8 @@ const seg = steps1.slice(steps1.indexOf("const SEG_METHODS"), steps1.indexOf("08
 
 // ---------------- dataset authority + target distribution ----------------
 test("Data & Population has an explicit Modeling Dataset section (honest single dataset)", () => {
-  assert.ok(steps1.includes("function DatasetSection") && steps1.includes("<DatasetSection />"));
-  assert.ok(steps1.includes("1 compatible registered dataset available"));
+  assert.ok(steps1.includes("function DatasetSection") && steps1.includes("<DatasetSection projectId={projectId} />"));
+  assert.ok(steps1.includes("1 compatible governed dataset available")); // Phase 6G.2 wording
   assert.ok(steps1.includes("Select from Data Warehouse") && steps1.includes("Change dataset"));
   assert.ok(steps1.includes('notes["dataset.selected"]')); // persists
   assert.ok(steps1.includes("would invalidate the target")); // invalidation copy

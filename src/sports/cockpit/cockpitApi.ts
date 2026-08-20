@@ -230,6 +230,7 @@ type CockpitStore = {
   setLabTuneSelected: (families: string[]) => void;
   upsertLabCandidate: (key: string, patch: Partial<LabCandidate>) => void;
   clearLabSuite: () => void;
+  invalidateForDatasetChange: () => void;
   hydrate: (snapshot: Partial<CockpitStore>) => void;
 };
 
@@ -295,6 +296,37 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   setLabTuneSelected: (labTuneSelected) => set({ labTuneSelected }),
   upsertLabCandidate: (key, patch) => set((s) => ({ labSuite: { ...s.labSuite, [key]: { ...(s.labSuite[key] || { key, family: key, label: key, status: "queued", source: "suite" }), ...patch } as LabCandidate } })),
   clearLabSuite: () => set({ labSuite: {} }),
+  // Dataset-change invalidation (Phase 6G.2). Changing the modeling dataset makes every dataset-derived
+  // artifact stale, so we clear the cockpit/project-scoped downstream state: target confirmation, the
+  // selected predictor set + engineered features, EDA/segmentation UI selections, outlier/missing policy,
+  // and all trained challengers / evaluation / simulation results. The registered D3 · C4 champion lives
+  // in the backend registry (read-only here) and is never touched or overwritten by this action.
+  invalidateForDatasetChange: () =>
+    set((s) => {
+      const keptNotes: Record<string, string> = {};
+      for (const [k, v] of Object.entries(s.notes)) {
+        if (k.startsWith("target.") || k.startsWith("eda.") || k.startsWith("seg.")) continue; // dataset-derived
+        keptNotes[k] = v;
+      }
+      return {
+        notes: keptNotes,
+        config: {
+          ...s.config,
+          features: [...ALL_FEATURES],
+          engineeredFeatures: [],
+          outlierPolicy: { globalMethod: "none", params: { k: 3.0 }, overrides: {} },
+          missingPolicy: { globalMethod: "median", addIndicator: false, overrides: {} },
+        },
+        engineeredProfiles: {},
+        labSelected: [],
+        labTuneSelected: [],
+        labSuite: {},
+        lastResult: undefined,
+        lastAutopilot: undefined,
+        lastSim: undefined,
+        savedSteps: {},
+      };
+    }),
   // Replace persisted slices on rehydration (project-scoped autosave restore).
   hydrate: (snapshot) => set((s) => ({ ...s, ...snapshot })),
 }));
