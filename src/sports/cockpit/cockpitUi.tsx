@@ -386,6 +386,23 @@ export function FeatureSignalScatter({ points, height = 300 }:
   }, height);
 }
 
+// Model performance-vs-complexity scatter for the Model Lab leaderboard. Optional dashed reference
+// line (e.g. the registered champion's validation metric).
+export function ModelScatter({ points, xLabel, yLabel, yRef, height = 300 }:
+  { points: { name: string; x: number; y: number; best?: boolean; champion?: boolean }[]; xLabel: string; yLabel: string; yRef?: { value: number; label: string }; height?: number }) {
+  return chart({
+    grid: { left: 60, right: 20, top: 18, bottom: 42 },
+    xAxis: { type: "value", name: xLabel, nameLocation: "middle", nameGap: 26, scale: true, axisLabel: { fontSize: 10 } },
+    yAxis: { type: "value", name: yLabel, scale: true, axisLabel: { fontSize: 10 } },
+    tooltip: { trigger: "item", formatter: (p: any) => `${p.data.name}<br/>${xLabel}: ${p.value[0].toFixed(2)}<br/>${yLabel}: ${p.value[1].toFixed(4)}` },
+    series: [{
+      type: "scatter", symbolSize: 13,
+      data: points.map((pt) => ({ value: [pt.x, pt.y], name: pt.name, itemStyle: { color: pt.champion ? "#64748b" : pt.best ? "#059669" : "#0891b2" }, label: { show: true, position: "top", fontSize: 9, color: "#475569", formatter: (p: any) => p.data.name } })),
+      markLine: yRef ? { silent: true, symbol: ["none", "none"], data: [{ yAxis: yRef.value, lineStyle: { color: "#e11d48", type: "dashed", width: 1.5 }, label: { formatter: yRef.label, fontSize: 9, color: "#e11d48", position: "insideEndTop" } }] } : undefined,
+    }],
+  }, height);
+}
+
 export function LineChart({ categories, series, height = 220 }:
   { categories: string[]; series: { name: string; data: (number | null)[]; color: string }[]; height?: number }) {
   return chart({

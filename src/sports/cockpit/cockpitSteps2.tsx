@@ -12,7 +12,7 @@ import {
 } from "./cockpitApi";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
-  ConfusionHeatmap, CalibrationChart, fmt,
+  ConfusionHeatmap, CalibrationChart, ModelScatter, fmt,
 } from "./cockpitUi";
 import { useActiveSportsDataset } from "../sportsEvidenceApi";
 import { SevereMissForensicsSection } from "../Phase4Surfaces";
@@ -21,80 +21,295 @@ function useConfig() {
   return useCockpitStore((s) => s.config);
 }
 
-// ============================================================ 09 Model Laboratory
+// ============================================================ 09 Model Laboratory (multi-model)
+type FamilyMeta = { group: string; klass: string; desc: string; strengths: string[]; tradeoff: string; compute: "Low" | "Medium" | "High"; interpret: "Low" | "Medium" | "High" };
+const MODEL_META: Record<string, FamilyMeta> = {
+  logistic: { group: "Linear / interpretable", klass: "Linear model", desc: "Multinomial logistic — the governed champion family; additive log-odds, well-calibrated.", strengths: ["interpretable", "calibrated", "fast"], tradeoff: "linear boundary only", compute: "Low", interpret: "High" },
+  svm: { group: "Linear / interpretable", klass: "Linear (calibrated)", desc: "Linear SVM with sigmoid calibration on the development fold.", strengths: ["margin-based", "linear"], tradeoff: "slower fit; needs calibration", compute: "Medium", interpret: "Medium" },
+  random_forest: { group: "Tree ensembles", klass: "Bagged trees", desc: "Nonlinear bagged-tree ensemble; robust benchmark for mixed interactions.", strengths: ["nonlinear", "interactions", "robust"], tradeoff: "less interpretable; calibration may need attention", compute: "Medium", interpret: "Medium" },
+  extra_trees: { group: "Tree ensembles", klass: "Randomized trees", desc: "Extremely randomized trees; extra variance reduction.", strengths: ["nonlinear", "fast splits"], tradeoff: "less interpretable", compute: "Medium", interpret: "Medium" },
+  hist_gradient_boosting: { group: "Tree ensembles", klass: "Boosted trees", desc: "Histogram-binned gradient boosting; strong tabular baseline.", strengths: ["nonlinear", "strong accuracy"], tradeoff: "sequential; tuning matters", compute: "Medium", interpret: "Low" },
+  xgboost: { group: "Tree ensembles", klass: "Boosted trees", desc: "Regularized gradient-boosted trees (XGBoost).", strengths: ["nonlinear", "regularized"], tradeoff: "optional dependency; tuning matters", compute: "High", interpret: "Low" },
+  lightgbm: { group: "Tree ensembles", klass: "Boosted trees", desc: "Leaf-wise gradient boosting (LightGBM).", strengths: ["fast", "nonlinear"], tradeoff: "optional dependency", compute: "Medium", interpret: "Low" },
+  mlp: { group: "Neural", klass: "Feed-forward NN", desc: "Multi-layer perceptron on standardized features.", strengths: ["nonlinear", "flexible"], tradeoff: "needs scaling; less interpretable; longer fit", compute: "High", interpret: "Low" },
+};
+const GROUP_ORDER = ["Linear / interpretable", "Tree ensembles", "Neural"];
+const chip = (v: string) => (v === "High" ? "rose" : v === "Medium" ? "amber" : "emerald") as any;
+
 export function ModelLabStep() {
   const fams = useEndpoint<{ families: ModelFamily[] }>("/cockpit/model-families");
+  const obj = useEndpoint<any>("/cockpit/objective");
   const store = useCockpitStore();
-  const config = store.config;
-  const post = usePost<ExperimentResult>();
+  const { config, labSelected, labSuite } = store;
+  const [running, setRunning] = useState(false);
+  const [detail, setDetail] = useState<string | null>(null);
 
-  const setHyperKey = (k: string, v: any) => store.setHyper({ ...config.hyperparameters, [k]: v });
-  const useD3 = () => {
-    store.setFamily("logistic");
-    store.setHyper({ C: 0.05, maxIter: 2000 });
+  const available = (fams.data?.families || []).filter((f) => f.available).map((f) => f.id);
+  const selectRecommended = () => store.setLabSelected(available);
+  const clear = () => store.setLabSelected([]);
+  const championVal = obj.data?.champion?.reference?.val2024?.logLoss as number | undefined;
+
+  const runSuite = async () => {
+    const sel = labSelected.filter((f) => available.includes(f));
+    if (!sel.length || !config.features.length) return;
+    setRunning(true);
+    store.clearLabSuite();
+    for (const f of sel) store.upsertLabCandidate(f, { key: f, family: f, label: familyLabel(fams.data!, f), status: "queued", source: "suite" });
+    for (const f of sel) {
+      store.upsertLabCandidate(f, { status: "training" });
+      try {
+        const r = await cockpitPost<ExperimentResult>("/cockpit/experiment/run", { ...config, family: f, hyperparameters: {} });
+        const v = r.metrics.val2024 as any;
+        store.upsertLabCandidate(f, {
+          status: "complete", experimentId: r.experimentId, fitSeconds: r.fitSeconds,
+          featureCount: r.featureCount, expandedFeatureCount: r.expandedFeatureCount,
+          val: { logLoss: v.logLoss, brierScore: v.brierScore, topLabelEce: v.topLabelEce, top1Accuracy: v.top1Accuracy, macroF1: v.macroF1 },
+          frozen: { logLoss: r.metrics.frozen2025.logLoss, brierScore: (r.metrics.frozen2025 as any).brierScore },
+          championVal: r.champion.val2024.logLoss, importance: r.importance, config: r.config,
+        });
+      } catch (e: any) {
+        store.upsertLabCandidate(f, { status: "failed", error: String(e?.message || e) });
+      }
+    }
+    setRunning(false);
   };
-  const run = async () => {
-    const r = await post.run("/cockpit/experiment/run", config);
-    store.setLastResult(r);
-  };
+
+  const candidates = Object.values(labSuite);
+  const completed = candidates.filter((c) => c.status === "complete" && c.val);
+  const ranked = [...completed].sort((a, b) => a.val!.logLoss - b.val!.logLoss);
 
   return (
     <LoadGate state={fams}>
       {fams.data && (
         <div className="space-y-4">
-          <Card title="Algorithm laboratory" description="Choose a family and hyperparameters, then run a real challenger against the D3 champion. Availability is honest — uninstalled libraries are marked, not faked." icon={FlaskConical}
-            action={<Button size="sm" tone="ghost" onClick={useD3}>Use current D3 settings</Button>}>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {fams.data.families.map((f) => (
-                <button key={f.id} disabled={!f.available} onClick={() => store.setFamily(f.id)}
-                  className={`rounded-xl border p-3 text-left transition-colors ${config.family === f.id ? "border-cyan-600 bg-cyan-50 ring-1 ring-cyan-200" : f.available ? "border-slate-200 bg-white hover:border-slate-300" : "border-slate-200 bg-slate-50 opacity-60"}`}>
-                  <div className="flex items-center justify-between"><span className="text-sm font-semibold text-slate-900">{f.label}</span></div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <Pill label={f.status.replace(/_/g, " ")} tone={f.available ? "emerald" : "slate"} />
-                    {f.simulatorEligible ? <Pill label="SIM-READY" tone="cyan" /> : null}
+          <ChampionReferenceCard championVal={championVal} obj={obj.data} />
+
+          {/* Candidate model suite gallery (multi-select) */}
+          <Card title="Candidate model suite" icon={FlaskConical}
+            description="Select multiple families and train them together as isolated challenger experiments. Availability is honest — uninstalled libraries are marked, not faked."
+            action={<div className="flex flex-wrap gap-2">
+              <Button size="sm" tone="ghost" onClick={selectRecommended}>Select recommended</Button>
+              <Button size="sm" tone="ghost" onClick={clear}>Clear</Button>
+            </div>}>
+            {GROUP_ORDER.map((g) => {
+              const inGroup = fams.data!.families.filter((f) => (MODEL_META[f.id]?.group || "Other") === g);
+              if (!inGroup.length) return null;
+              return (
+                <div key={g} className="mb-3">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{g}</div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {inGroup.map((f) => {
+                      const m = MODEL_META[f.id]; const on = labSelected.includes(f.id); const done = labSuite[f.id]?.status === "complete";
+                      return (
+                        <button key={f.id} disabled={!f.available} onClick={() => store.toggleLabFamily(f.id)}
+                          className={`rounded-xl border p-3 text-left transition-colors ${on ? "border-cyan-600 bg-cyan-50 ring-1 ring-cyan-200" : f.available ? "border-slate-200 bg-white hover:border-slate-300" : "border-slate-200 bg-slate-50 opacity-60"}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0"><div className="text-sm font-semibold text-slate-900">{f.label}</div><div className="text-[10px] uppercase text-slate-400">{m?.klass}</div></div>
+                            <span className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300"}`}>{on ? <Check size={11} /> : null}</span>
+                          </div>
+                          <div className="mt-1 text-[11px] leading-4 text-slate-500">{m?.desc}</div>
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {f.available ? <Pill label={done ? "Evaluated" : "Available"} tone={done ? "cyan" : "emerald"} /> : <Pill label="dependency unavailable" tone="slate" />}
+                            {m && <Pill label={`compute ${m.compute}`} tone={chip(m.compute)} />}
+                            {m && <Pill label={`interpret ${m.interpret}`} tone={m.interpret === "High" ? "emerald" : m.interpret === "Medium" ? "amber" : "rose"} />}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                </button>
-              ))}
-            </div>
+                </div>
+              );
+            })}
           </Card>
 
-          <Card title="Hyperparameters" description={`Feature set: ${config.features.length} features · outliers: ${config.outlierPolicy.globalMethod} · missing: ${config.missingPolicy.globalMethod}${config.missingPolicy.addIndicator ? " +indicator" : ""}`} icon={SlidersHorizontal}>
-            <div className="flex flex-wrap gap-4">
-              {config.family === "logistic" && <>
-                <div className="w-32"><NumberField label="C (inverse reg)" value={config.hyperparameters.C ?? 1} step={0.05} onChange={(v) => setHyperKey("C", v)} /></div>
-                <div className="w-32"><NumberField label="max iter" value={config.hyperparameters.maxIter ?? 2000} step={500} onChange={(v) => setHyperKey("maxIter", v)} /></div>
-              </>}
-              {(config.family === "random_forest" || config.family === "extra_trees") && <>
-                <div className="w-32"><NumberField label="n estimators" value={config.hyperparameters.nEstimators ?? 200} step={50} onChange={(v) => setHyperKey("nEstimators", v)} /></div>
-                <div className="w-32"><NumberField label="max depth" value={config.hyperparameters.maxDepth ?? 12} step={1} onChange={(v) => setHyperKey("maxDepth", v)} /></div>
-                <div className="w-32"><NumberField label="min leaf" value={config.hyperparameters.minSamplesLeaf ?? 50} step={10} onChange={(v) => setHyperKey("minSamplesLeaf", v)} /></div>
-              </>}
-              {config.family === "hist_gradient_boosting" && <>
-                <div className="w-32"><NumberField label="max iter" value={config.hyperparameters.maxIter ?? 200} step={50} onChange={(v) => setHyperKey("maxIter", v)} /></div>
-                <div className="w-32"><NumberField label="learning rate" value={config.hyperparameters.learningRate ?? 0.1} step={0.05} onChange={(v) => setHyperKey("learningRate", v)} /></div>
-                <div className="w-32"><NumberField label="L2" value={config.hyperparameters.l2 ?? 0} step={0.5} onChange={(v) => setHyperKey("l2", v)} /></div>
-              </>}
-              {config.family === "mlp" && <div className="w-40"><NumberField label="alpha" value={config.hyperparameters.alpha ?? 0.0001} step={0.0001} onChange={(v) => setHyperKey("alpha", v)} /></div>}
-              {(config.family === "xgboost" || config.family === "lightgbm") && <>
-                <div className="w-32"><NumberField label="n estimators" value={config.hyperparameters.nEstimators ?? 300} step={50} onChange={(v) => setHyperKey("nEstimators", v)} /></div>
-                <div className="w-32"><NumberField label="learning rate" value={config.hyperparameters.learningRate ?? 0.1} step={0.05} onChange={(v) => setHyperKey("learningRate", v)} /></div>
-              </>}
-              {config.family === "svm" && <div className="w-32"><NumberField label="C" value={config.hyperparameters.C ?? 1} step={0.5} onChange={(v) => setHyperKey("C", v)} /></div>}
-            </div>
-            {config.family === "svm" && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">Linear SVM is calibrated (sigmoid, 3-fold) on the development fold; kernel SVM is not run on the full population. Expect a longer fit.</p>}
-            <div className="mt-4 flex items-center gap-3">
-              <Button onClick={run} disabled={post.status === "loading" || config.features.length === 0}>{post.status === "loading" ? "Training…" : "▶ Run experiment"}</Button>
-              {post.status === "loading" && <span className="flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Fitting on 2023, evaluating 2024 & 2025…</span>}
-              {post.status === "error" && <span className="text-sm text-rose-600">{post.error}</span>}
-            </div>
-          </Card>
+          {/* Launch panel — exactly what will happen */}
+          <LaunchPanel obj={obj.data} config={config} savedSteps={store.savedSteps} selectedCount={labSelected.length}
+            onRun={runSuite} running={running} disabled={!labSelected.length || !config.features.length} />
 
-          {store.lastResult && <ExperimentHeadline r={store.lastResult} />}
+          {/* Live candidate status + leaderboard */}
+          {candidates.length > 0 && (
+            <Leaderboard candidates={candidates} ranked={ranked} championVal={championVal}
+              onDetail={setDetail} tuneSelected={store.labTuneSelected} onToggleTune={(k) => {
+                const t = store.labTuneSelected; store.setLabTuneSelected(t.includes(k) ? t.filter((x) => x !== k) : [...t, k]);
+              }} />
+          )}
+          {ranked.length >= 2 && <LeaderboardVisuals ranked={ranked} championVal={championVal} />}
+
           <AutopilotPanel />
+          {detail && <ModelDetailDrawer candidate={labSuite[detail]} config={config} onClose={() => setDetail(null)} />}
         </div>
       )}
     </LoadGate>
   );
+}
+
+function familyLabel(fams: { families: ModelFamily[] }, id: string): string {
+  return fams.families.find((f) => f.id === id)?.label || id;
+}
+
+function ChampionReferenceCard({ championVal, obj }: { championVal?: number; obj: any }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-white">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Current registered champion</div>
+          <div className="mt-0.5 text-lg font-semibold">{obj?.champion?.modelId || "D3 · candidate C4"} <span className="text-sm font-normal text-slate-400">· {obj?.champion?.family || "Multinomial Logistic Regression"}</span></div>
+        </div>
+        <div className="flex gap-5 text-right">
+          <div><div className="text-[10px] uppercase text-slate-400">2024 validation log loss</div><div className="text-xl font-semibold tabular-nums">{championVal != null ? fmt.n(championVal) : "…"}</div></div>
+          <div><div className="text-[10px] uppercase text-slate-400">2025 frozen</div><div className="text-sm font-semibold text-rose-300">protected reference only</div></div>
+          <div><div className="text-[10px] uppercase text-slate-400">Status</div><div className="text-sm font-semibold text-emerald-300">REGISTERED</div></div>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">New candidates never displace the champion automatically — a lower validation log loss is not promotion. Promotion happens later through the governed champion workflow.</p>
+    </div>
+  );
+}
+
+function LaunchPanel({ obj, config, savedSteps, selectedCount, onRun, running, disabled }:
+  { obj: any; config: any; savedSteps: Record<string, boolean>; selectedCount: number; onRun: () => void; running: boolean; disabled: boolean }) {
+  const outlierUnsaved = !savedSteps.outliers; const missingUnsaved = !savedSteps.missing;
+  return (
+    <Card title="Model run plan" icon={SlidersHorizontal}
+      description="Exactly what a run will do. Frozen 2025 is never used for selection.">
+      <div className="grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+        <PlanItem label="Target" value={obj?.targetColumn || "outcome"} sub={`${obj?.classOrder?.length || 8}-class multiclass`} />
+        <PlanItem label="Development" value="2023" sub={`${fmt.int(obj?.totalRows ? 184104 : 184104)} PAs`} />
+        <PlanItem label="Validation" value="2024" sub="182,449 PAs" />
+        <PlanItem label="Frozen final" value="2025" sub="protected" tone="rose" />
+        <PlanItem label="Predictors" value={String(config.features.length)} sub={`${(config.engineeredFeatures || []).length} engineered`} />
+        <PlanItem label="Outlier policy" value={config.outlierPolicy.globalMethod} sub={outlierUnsaved ? "UNSAVED PREVIEW" : "saved"} tone={outlierUnsaved ? "amber" : undefined} />
+        <PlanItem label="Missing policy" value={config.missingPolicy.globalMethod} sub={missingUnsaved ? "UNSAVED PREVIEW" : "saved"} tone={missingUnsaved ? "amber" : undefined} />
+        <PlanItem label="Model families" value={String(selectedCount)} sub="selected" />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button onClick={onRun} disabled={disabled || running}>{running ? "Training candidate suite…" : `▶ Run ${selectedCount || 0} candidate model${selectedCount === 1 ? "" : "s"}`}</Button>
+        <Pill label="Frozen 2025 used for selection: NO" tone="rose" />
+        {running && <span className="flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Fitting each on 2023, evaluating 2024 & 2025…</span>}
+      </div>
+    </Card>
+  );
+}
+
+function PlanItem({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "rose" | "amber" }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div>
+      <div className="text-sm font-semibold text-slate-900">{value}</div>
+      {sub ? <div className={`text-[10px] ${tone === "rose" ? "text-rose-600" : tone === "amber" ? "font-semibold text-amber-700" : "text-slate-500"}`}>{sub}</div> : null}
+    </div>
+  );
+}
+
+const STATUS_TONE: Record<string, any> = { queued: "slate", training: "amber", complete: "emerald", failed: "rose" };
+function Leaderboard({ candidates, ranked, championVal, onDetail, tuneSelected, onToggleTune }:
+  { candidates: any[]; ranked: any[]; championVal?: number; onDetail: (k: string) => void; tuneSelected: string[]; onToggleTune: (k: string) => void }) {
+  const pending = candidates.filter((c) => c.status !== "complete");
+  return (
+    <Card title="Model leaderboard" icon={Trophy}
+      description="Ranked by 2024 validation log loss (the champion criterion). The registered champion is shown for reference and is not displaced automatically."
+      action={tuneSelected.length ? <Pill label={`${tuneSelected.length} sent to tuning`} tone="violet" /> : undefined}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-left text-xs">
+          <thead><tr className="text-slate-500">{["#", "Model", "Status", "Val log loss", "Δ vs champ", "Brier", "ECE", "Top-1 acc", "Macro-F1", "Train", "Features", "Tune", ""].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
+          <tbody>
+            <tr className="bg-slate-50">
+              <td className="border-b border-slate-100 px-2 py-1.5 text-slate-400">★</td>
+              <td className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-700">Champion D3 · C4</td>
+              <td className="border-b border-slate-100 px-2 py-1.5"><Pill label="registered" tone="cyan" /></td>
+              <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold">{championVal != null ? fmt.n(championVal) : "—"}</td>
+              <td className="border-b border-slate-100 px-2 py-1.5 text-slate-400" colSpan={9}>reference line — not a candidate</td>
+            </tr>
+            {ranked.map((c, i) => {
+              const delta = championVal != null && c.val ? c.val.logLoss - championVal : null;
+              return (
+                <tr key={c.key} className={i === 0 ? "bg-emerald-50/70" : "hover:bg-cyan-50/40"}>
+                  <td className="border-b border-slate-100 px-2 py-1.5 font-semibold">{i + 1}{i === 0 ? " 🏅" : ""}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5"><button className="font-semibold text-slate-800 hover:text-cyan-700 hover:underline" onClick={() => onDetail(c.key)}>{c.label}</button>{c.source === "autopilot" ? <Pill label="autopilot" tone="violet" /> : null}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5"><Pill label={c.status} tone={STATUS_TONE[c.status]} /></td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold text-slate-900">{c.val ? fmt.n(c.val.logLoss) : "—"}</td>
+                  <td className={`border-b border-slate-100 px-2 py-1.5 tabular-nums ${delta != null ? (delta < 0 ? "text-emerald-600" : "text-rose-600") : "text-slate-400"}`}>{delta != null ? fmt.signed(delta, 4) : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.val ? fmt.n(c.val.brierScore) : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.val ? fmt.n(c.val.topLabelEce) : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.val?.top1Accuracy != null ? fmt.pct(c.val.top1Accuracy) : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.val?.macroF1 != null ? fmt.n(c.val.macroF1, 3) : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.fitSeconds != null ? `${fmt.n(c.fitSeconds, 1)}s` : "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.expandedFeatureCount ?? c.featureCount ?? "—"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5">{c.status === "complete" && <button onClick={() => onToggleTune(c.key)} className={`inline-flex h-4 w-4 items-center justify-center rounded border ${tuneSelected.includes(c.key) ? "border-violet-600 bg-violet-600 text-white" : "border-slate-300"}`}>{tuneSelected.includes(c.key) ? <Check size={10} /> : null}</button>}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5">{c.error ? <span className="text-[10px] text-rose-500" title={c.error}>error</span> : null}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {pending.length > 0 && <p className="mt-2 text-xs text-slate-500">{pending.map((c) => `${c.label}: ${c.status}`).join(" · ")}</p>}
+      {ranked.length > 0 && <p className="mt-2 text-[11px] text-slate-500">#1 best validation candidate: <b>{ranked[0].label}</b>. Check models and open Hyperparameter Tuning to carry them forward. Deltas are descriptive, not a significance claim.</p>}
+    </Card>
+  );
+}
+
+function LeaderboardVisuals({ ranked, championVal }: { ranked: any[]; championVal?: number }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card title="Validation log loss by candidate" icon={BarChart3} description="Lower is better. Champion reference dashed.">
+        <BarChart categories={ranked.map((c) => c.label)} values={ranked.map((c) => c.val.logLoss)} height={240} horizontal valueFmt={(v) => fmt.n(v)} />
+        {championVal != null && <p className="mt-1 text-[11px] text-slate-500">Champion D3/C4 validation log loss: <b>{fmt.n(championVal)}</b>.</p>}
+      </Card>
+      <Card title="Performance vs. compute" icon={BarChart3} description="Train time (x) vs validation log loss (y). Lower-left is cheaper and better.">
+        <ModelScatter points={ranked.map((c, i) => ({ name: c.label, x: c.fitSeconds ?? 0, y: c.val.logLoss, best: i === 0 }))}
+          xLabel="Train time (s)" yLabel="Validation log loss" yRef={championVal != null ? { value: championVal, label: "champion" } : undefined} />
+      </Card>
+    </div>
+  );
+}
+
+function ModelDetailDrawer({ candidate, config, onClose }: { candidate: any; config: any; onClose: () => void }) {
+  if (!candidate) return null;
+  const m = MODEL_META[candidate.family];
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30" onClick={onClose}>
+      <div className="h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+          <div><h3 className="font-semibold text-slate-950">{candidate.label}</h3><p className="text-xs text-slate-500">{m?.klass} · {candidate.source === "autopilot" ? "autopilot candidate" : "research challenger"}</p></div>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <Info label="Experiment ID" value={candidate.experimentId || "—"} mono />
+            <Info label="Status" value={candidate.status} />
+            <Info label="Train rows" value="184,104 (2023)" />
+            <Info label="Validation rows" value="182,449 (2024)" />
+            <Info label="Fit scope" value="development 2023 only" />
+            <Info label="Train time" value={candidate.fitSeconds != null ? `${fmt.n(candidate.fitSeconds, 1)}s` : "—"} />
+            <Info label="Features" value={`${candidate.featureCount ?? config.features.length} → ${candidate.expandedFeatureCount ?? "—"} cols`} />
+            <Info label="Frozen used for selection" value="NO" />
+          </div>
+          {candidate.val && <div className="grid grid-cols-3 gap-2">
+            <MetricCard label="2024 log loss" value={fmt.n(candidate.val.logLoss)} />
+            <MetricCard label="2024 Brier" value={fmt.n(candidate.val.brierScore)} />
+            <MetricCard label="2024 ECE" value={fmt.n(candidate.val.topLabelEce)} />
+            <MetricCard label="Top-1 acc" value={candidate.val.top1Accuracy != null ? fmt.pct(candidate.val.top1Accuracy) : "—"} />
+            <MetricCard label="Macro-F1" value={candidate.val.macroF1 != null ? fmt.n(candidate.val.macroF1, 3) : "—"} />
+            <MetricCard label="2025 frozen LL" value={candidate.frozen ? fmt.n(candidate.frozen.logLoss) : "—"} />
+          </div>}
+          {candidate.importance && candidate.importance.length > 0 && (
+            <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Feature importance (top 12)</div>
+              <BarChart categories={candidate.importance.slice(0, 12).map((r: any) => r.feature)} values={candidate.importance.slice(0, 12).map((r: any) => r.importance)} height={220} horizontal valueFmt={(v) => fmt.n(v, 3)} /></div>
+          )}
+          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Preprocessing & config</div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-600">
+              outliers: {config.outlierPolicy.globalMethod} · missing: {config.missingPolicy.globalMethod}{config.missingPolicy.addIndicator ? " +indicator" : ""}<br />family: {candidate.family}
+            </div></div>
+          {candidate.error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">{candidate.error}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Info({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return <div className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div><div className={`mt-0.5 font-semibold text-slate-900 ${mono ? "font-mono text-[11px]" : ""}`}>{value}</div></div>;
 }
 
 function AutopilotPanel() {
@@ -104,61 +319,30 @@ function AutopilotPanel() {
   const run = async () => {
     const r = await post.run("/cockpit/autopilot", { config: store.config, budget });
     store.setLastAutopilot(r);
+    // Autopilot results enter the same leaderboard, tagged AUTOPILOT.
+    for (const c of r.candidates) {
+      if (c.status !== "COMPLETED" || !c.val2024) continue;
+      const key = `ap:${c.label}`;
+      store.upsertLabCandidate(key, {
+        key, family: c.family, label: `${c.label}`, status: "complete", source: "autopilot",
+        fitSeconds: c.runtimeSeconds, val: { logLoss: c.val2024.logLoss, brierScore: c.val2024.brierScore, topLabelEce: c.val2024.topLabelEce },
+        frozen: c.frozen2025 ? { logLoss: c.frozen2025.logLoss, brierScore: c.frozen2025.brierScore } : undefined,
+        championVal: r.champion.val2024.logLoss,
+      });
+    }
   };
   const ap = store.lastAutopilot;
-  const mine = store.lastResult;
   return (
-    <Card title="Autopilot benchmark" description="An automated, bounded candidate search you compete against. It never silently replaces your model — you run it separately." icon={Rocket}
-      action={<Pill label="MY MODEL vs AUTOPILOT" tone="violet" />}>
+    <Card title="Autopilot benchmark" icon={Rocket}
+      description="Let ASP Model Studio run a bounded automated candidate search using the governed development/validation policy. Autopilot never silently promotes a model — its candidates join the leaderboard above, tagged AUTOPILOT."
+      action={<Pill label="AUTOPILOT" tone="violet" />}>
       <div className="flex flex-wrap items-end gap-4">
         <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Budget</div>
           <Segmented value={budget} onChange={setBudget as any} options={[{ value: "quick", label: "Quick" }, { value: "standard", label: "Standard" }, { value: "deep", label: "Deep" }]} /></div>
-        <Button onClick={run} disabled={post.status === "loading"} tone="dark">{post.status === "loading" ? "Running Autopilot…" : "▶ Run Autopilot"}</Button>
+        <Button onClick={run} disabled={post.status === "loading"} tone="dark">{post.status === "loading" ? "Running Autopilot…" : "▶ Run Autopilot benchmark"}</Button>
         {post.status === "loading" && <span className="flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Searching a bounded candidate set on 2023→2024…</span>}
       </div>
-      {ap && (
-        <div className="mt-4 space-y-4">
-          {mine && ap.best && ap.best.val2024 && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3"><div className="text-xs font-semibold uppercase text-cyan-700">My model</div><div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{fmt.n(mine.headline.val2024.logLoss)}</div><div className="text-xs text-slate-500">{mine.familyLabel}</div></div>
-              <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3"><div className="text-xs font-semibold uppercase text-violet-700">Autopilot best</div><div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{fmt.n(ap.best.val2024.logLoss)}</div><div className="text-xs text-slate-500">{ap.best.label}</div></div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold uppercase text-slate-500">Champion D3</div><div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{fmt.n(ap.champion.val2024.logLoss)}</div><div className="text-xs text-slate-500">C4 · C={ap.champion.C}</div></div>
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-xs">
-              <thead><tr className="text-slate-500">{["Candidate", "Family", "2024 LL", "2025 LL", "Runtime", "Status"].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
-              <tbody>{ap.candidates.map((c, i) => (
-                <tr key={i} className={ap.best && c.label === ap.best.label ? "bg-violet-50/60" : ""}>
-                  <td className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-800">{c.label}{ap.best && c.label === ap.best.label ? " ★" : ""}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{c.family}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold">{c.val2024 ? fmt.n(c.val2024.logLoss) : "—"}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.frozen2025 ? fmt.n(c.frozen2025.logLoss) : "—"}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.runtimeSeconds ? `${fmt.n(c.runtimeSeconds, 1)}s` : "—"}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{c.status === "COMPLETED" ? <Pill label="ok" tone="emerald" /> : <Pill label="failed" tone="rose" />}</td>
-                </tr>))}</tbody>
-            </table>
-          </div>
-          <p className="text-xs text-slate-500">{ap.limitations.join(" ")}</p>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function ExperimentHeadline({ r }: { r: ExperimentResult }) {
-  const beat = r.comparison.beatsChampion2024;
-  return (
-    <Card title="Latest challenger result" description={`${r.familyLabel} · ${r.featureCount} features → ${r.expandedFeatureCount} columns · fit ${fmt.n(r.fitSeconds, 1)}s`} icon={FlaskConical}
-      action={<Pill label={beat ? "BEATS CHAMPION (2024)" : "BELOW CHAMPION (2024)"} tone={beat ? "emerald" : "amber"} />}>
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <MetricCard label="2024 log loss" value={fmt.n(r.headline.val2024.logLoss)} detail={fmt.signed(r.comparison.val2024.logLoss)} tone={r.comparison.val2024.logLoss < 0 ? "up" : "down"} />
-        <MetricCard label="2024 Brier" value={fmt.n(r.headline.val2024.brierScore)} detail={fmt.signed(r.comparison.val2024.brierScore)} tone={r.comparison.val2024.brierScore < 0 ? "up" : "down"} />
-        <MetricCard label="2024 ECE" value={fmt.n(r.headline.val2024.topLabelEce)} />
-        <MetricCard label="2025 log loss" value={fmt.n(r.headline.frozen2025.logLoss)} detail={fmt.signed(r.comparison.frozen2025.logLoss)} tone={r.comparison.frozen2025.logLoss < 0 ? "up" : "down"} />
-        <MetricCard label="2025 Brier" value={fmt.n(r.headline.frozen2025.brierScore)} />
-        <MetricCard label="Champion 2024" value={fmt.n(r.champion.val2024.logLoss)} detail={`D3 C4 · C=${r.champion.C}`} />
-      </div>
+      {ap && <p className="mt-3 text-xs text-slate-500">Autopilot best: <b>{ap.best?.label}</b> ({ap.best?.val2024 ? fmt.n(ap.best.val2024.logLoss) : "—"}) · {ap.candidates.length} candidates added to the leaderboard. {ap.limitations.join(" ")}</p>}
     </Card>
   );
 }
@@ -187,8 +371,14 @@ export function TuningStep() {
     if (out.length) store.setHyper({ ...config.hyperparameters, C: out[0].C });
   };
 
+  const tuneSelected = store.labTuneSelected;
   return (
     <div className="space-y-4">
+      {tuneSelected.length > 0 && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm text-slate-700">
+          <span className="font-semibold text-violet-700">Sent from the Model Laboratory:</span> {tuneSelected.join(", ")} — these candidates were checked for tuning and carried over (selection persists across navigation).
+        </div>
+      )}
       <Card title="Hyperparameter search" description="Manual + grid search on the development/validation policy. The frozen 2025 season never participates in selection." icon={SlidersHorizontal}
         action={<Pill label="FROZEN EVALUATION PROTECTED" tone="rose" />}>
         {config.family !== "logistic" ? (

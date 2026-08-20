@@ -73,11 +73,12 @@ test("no fabricated success or mock data path", () => {
   }
 });
 
-test("Model Laboratory runs a real experiment and shares the result", () => {
-  assert.ok(steps2.includes('post.run("/cockpit/experiment/run", config)'));
-  assert.ok(steps2.includes("store.setLastResult(r)"));
-  // Run button is gated on having a feature set (no empty-config submit)
-  assert.ok(steps2.includes("config.features.length === 0"));
+test("Model Laboratory runs real experiments as a multi-model suite (Phase 6G)", () => {
+  // the rebuilt lab trains each selected family via the real endpoint into the leaderboard
+  assert.ok(steps2.includes('cockpitPost<ExperimentResult>("/cockpit/experiment/run"'));
+  assert.ok(steps2.includes("upsertLabCandidate"));
+  // run is gated on a feature set (no empty-config submit)
+  assert.ok(steps2.includes("!config.features.length"));
 });
 
 test("Simulation impact is wired to the whole-game Monte Carlo with a verdict", () => {
@@ -90,9 +91,9 @@ test("Simulation impact is wired to the whole-game Monte Carlo with a verdict", 
 });
 
 test("honest unavailable states — nothing faked", () => {
-  // model family cards disable uninstalled libraries and surface their real status
+  // model family cards disable uninstalled libraries and surface honest availability
   assert.ok(steps2.includes("disabled={!f.available}"));
-  assert.ok(steps2.includes("f.status.replace"));
+  assert.ok(steps2.includes("dependency unavailable"));
   // tree/boosting grid search honestly marked as the next increment
   assert.ok(steps2.includes("next increment"));
   // feature catalog labels roadmap availability rather than fabricating unavailable families

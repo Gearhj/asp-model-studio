@@ -60,6 +60,11 @@ def correlation() -> dict[str, Any]:
     return _guard(E.correlation_summary)
 
 
+@router.get("/cockpit/target-analysis")
+def target_analysis() -> dict[str, Any]:
+    return _guard(E.target_analysis)
+
+
 @router.post("/cockpit/outliers")
 def outliers(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     policy = payload.get("policy") or {"globalMethod": "iqr", "params": {"k": 3.0}}

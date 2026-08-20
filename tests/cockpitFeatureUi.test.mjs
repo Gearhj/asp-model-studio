@@ -62,8 +62,8 @@ test("data summary table renders with signal columns and updates from the store"
   assert.ok(feat.includes("engineeredFormula(e)"));
 });
 
-test("create studio has a prominent live formula, profile panel, and quality scorecard", () => {
-  assert.ok(feat.includes("Live formula"));
+test("create studio has a prominent formula preview, profile panel, and quality scorecard", () => {
+  assert.ok(feat.includes("Formula preview") && feat.includes("read-only"));
   assert.ok(feat.includes("engineeredFormula(spec())") || feat.includes("const formula = engineeredFormula"));
   // quality scorecard is multi-dimensional (not one magic score)
   assert.ok(feat.includes("Information (IV)") && feat.includes("Nonlinear (MI)") && feat.includes("Temporal drift") && feat.includes("Missingness"));

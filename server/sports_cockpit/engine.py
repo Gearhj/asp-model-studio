@@ -658,6 +658,45 @@ def data_preview(*, season: int | None = None, limit: int = 25, sample: str = "h
     }
 
 
+def target_analysis() -> dict[str, Any]:
+    """Target-variable analysis for the Data Profile EDA: overall + per-modeling-season class
+    distribution, imbalance, and summary. Modeling seasons only (2023-2025); 2021-2022 are prior-only
+    history and not target rows. Bounded value-counts."""
+    frame = load_frame()
+    total = int(len(frame))
+    counts = frame["outcome"].value_counts()
+    overall = [{"class": c, "count": int(counts.get(c, 0)), "share": float(counts.get(c, 0) / total)} for c in PA_CLASS_ORDER]
+    per_season = []
+    for s in TARGET_SEASONS:
+        sub = frame.loc[_season_mask(frame, s), "outcome"]
+        n = int(len(sub))
+        vc = sub.value_counts()
+        per_season.append({
+            "season": int(s),
+            "rows": n,
+            "distribution": [{"class": c, "count": int(vc.get(c, 0)), "share": float(vc.get(c, 0) / n) if n else 0.0} for c in PA_CLASS_ORDER],
+        })
+    ranked = sorted(overall, key=lambda d: -d["share"])
+    dominant = ranked[0]
+    rarest = ranked[-1]
+    return {
+        "schemaVersion": COCKPIT_SCHEMA_VERSION,
+        "target": "outcome",
+        "problemType": "MULTICLASS_CLASSIFICATION",
+        "classCount": len(PA_CLASS_ORDER),
+        "classOrder": list(PA_CLASS_ORDER),
+        "missing": int(frame["outcome"].isna().sum()),
+        "totalRows": total,
+        "overall": overall,
+        "perSeason": per_season,
+        "dominantClass": {"class": dominant["class"], "share": dominant["share"]},
+        "rarestClass": {"class": rarest["class"], "share": rarest["share"]},
+        "imbalanceRatio": float(dominant["share"] / rarest["share"]) if rarest["share"] > 0 else None,
+        "modelingSeasons": list(TARGET_SEASONS),
+        "note": "Class distribution over the modeling target rows (2023-2025). 2021-2022 are prior-only history and are not target rows; their raw outcomes live in the Data Warehouse, not the modeling matrix.",
+    }
+
+
 def temporal_split_preview(policy: str = "SEASON_HOLDOUT", boundary_date: str | None = None) -> dict[str, Any]:
     """Concrete fold preview for a chosen temporal policy, with REAL development-fold row counts. Frozen
     2025 is never presented as a tuning/selection fold. Bounded (season/date aggregation only)."""

@@ -24,6 +24,9 @@ export type CockpitSnapshot = {
   notes: Record<string, string>;
   engineeredProfiles: Record<string, any>;
   savedSteps: Record<string, boolean>;
+  labSelected?: string[];
+  labTuneSelected?: string[];
+  labSuite?: Record<string, any>;
   lastResult?: any;
   lastSim?: any;
   activeStep?: string;
@@ -54,6 +57,9 @@ function snapshotFromStore(activeStep: string): Omit<CockpitSnapshot, "version" 
     notes: s.notes,
     engineeredProfiles: s.engineeredProfiles,
     savedSteps: s.savedSteps,
+    labSelected: s.labSelected,
+    labTuneSelected: s.labTuneSelected,
+    labSuite: s.labSuite,
     lastResult: s.lastResult,
     lastSim: s.lastSim,
     activeStep,
@@ -82,6 +88,9 @@ export function useCockpitPersistence(projectId: string, activeStep: string, onR
         notes: snap.notes ?? {},
         engineeredProfiles: snap.engineeredProfiles ?? {},
         savedSteps: snap.savedSteps ?? {},
+        labSelected: snap.labSelected ?? [],
+        labTuneSelected: snap.labTuneSelected ?? [],
+        labSuite: snap.labSuite ?? {},
         lastResult: snap.lastResult,
         lastSim: snap.lastSim,
       });

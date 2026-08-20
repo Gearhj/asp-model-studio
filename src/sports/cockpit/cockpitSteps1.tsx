@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   useEndpoint, usePost, useCockpitStore, ALL_FEATURES,
-  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureProfileRow, type FeatureDetail, type Correlation, type OutlierSummary, type OutlierEntry,
+  type Objective, type Population, type SourceSeasonRow, type Profile, type FeatureProfileRow, type FeatureDetail, type Correlation, type TargetAnalysis, type OutlierSummary, type OutlierEntry,
   type MissingSummary, type MissingEntry, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
@@ -95,6 +95,48 @@ export function DataPopulationStep() {
   return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} /> : null}</LoadGate>;
 }
 
+// Explicit target-variable authority (Phase 6G). The platform RECOMMENDS a target; the scientist
+// confirms it. Confirmation persists in the store notes (autosaved). Downstream target-dependent
+// analysis is "scientist-approved" only once confirmed.
+const TARGET_OPTIONS = [{ value: "outcome", label: "outcome — 8-class plate-appearance result", recommended: true }];
+function TargetSelector() {
+  const ta = useEndpoint<TargetAnalysis>("/cockpit/target-analysis");
+  const { notes, setNote } = useCockpitStore();
+  const recommended = "outcome";
+  const confirmed = notes["target.confirmed"] || "";
+  const selected = notes["target.selected"] || recommended;
+  const changedFromConfirmed = confirmed && selected !== confirmed;
+  return (
+    <section className="sports-panel rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Target size={14} /> Target variable</div>
+        {confirmed === selected && confirmed ? <Pill label="Confirmed" tone="emerald" /> : <Pill label="Awaiting confirmation" tone="amber" />}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase text-slate-400">Recommended</div>
+          <div className="text-sm font-semibold text-slate-900">{recommended}</div>
+          <div className="text-[11px] text-slate-500">categorical outcome field with complete coverage</div>
+        </div>
+        <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase text-slate-400">Selected target</span>
+          <select value={selected} onChange={(e) => setNote("target.selected", e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">{TARGET_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
+        <div><div className="text-[11px] font-semibold uppercase text-slate-400">Detected problem</div><div className="text-sm font-semibold text-slate-900">{ta.data ? "Multiclass classification" : "…"}</div><div className="text-[11px] text-slate-500">{ta.data ? `${ta.data.classCount} classes · missing ${ta.data.missing}` : ""}</div></div>
+        <div className="flex items-end">
+          <button onClick={() => { setNote("target.confirmed", selected); setNote("target.confirmedAt", new Date().toISOString()); }}
+            className={`w-full rounded-lg border px-3 py-1.5 text-xs font-semibold ${confirmed === selected ? "border-slate-300 bg-white text-slate-600" : "border-cyan-600 bg-cyan-600 text-white hover:bg-cyan-500"}`}>{confirmed === selected ? "Target confirmed ✓" : "Confirm target"}</button>
+        </div>
+      </div>
+      {changedFromConfirmed && (
+        <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800">
+          <div className="flex items-center gap-2 font-semibold"><TriangleAlert size={14} /> Changing the target invalidates target-dependent evidence</div>
+          <p className="mt-1">Confirming <b>{selected}</b> would invalidate IV / MI, target relationships, engineered-feature target profiles, trained challengers, calibration, and candidate rankings computed under <b>{confirmed}</b>. This never overwrites the registered D3 champion. Re-confirm only as part of a deliberate revised experiment.</p>
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500">The platform recommends a target; it does not silently choose one. Downstream target-dependent analysis is scientist-approved once confirmed. For the migrated Gen-2 project the existing registered target is <b>outcome</b>.</p>
+    </section>
+  );
+}
+
 function PopulationBody({ pop }: { pop: Population }) {
   const src = pop.sourceEvidence;
   // Games/batters are only materialized for the modeling seasons (2023–2025).
@@ -106,6 +148,7 @@ function PopulationBody({ pop }: { pop: Population }) {
   const priorTotal = src?.priorHistoryTotalRows ?? (registeredTotal - modelingTotal);
   return (
     <div className="space-y-5">
+      <TargetSelector />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -245,6 +288,8 @@ export function ProfileStep() {
             Exploratory data analysis on the <b>2023 development</b> fold. IV / MI are one-vs-rest <b>screening signals</b>, not automatic inclusion. Validation 2024 and frozen 2025 appear only as descriptive out-of-time monitoring — never used to fit thresholds or transforms.
           </div>
 
+          <TargetAnalysisSection />
+
           <FeatureExplorer prof={prof.data} corr={corr.data} selected={selected} setSelected={setSelected} ivThr={ivThr} ivWeak={ivWeak} config={config} toggleFeature={toggleFeature} />
 
           <Card title="Correlation heatmap — development predictors" icon={ScanSearch}
@@ -319,6 +364,58 @@ export function ProfileStep() {
 
 const shortName = (f: string) => f.replace("batter_", "b·").replace("pitcher_", "p·").replace("context_", "c·");
 const EDA_TABS = [{ id: "dist", label: "Distribution" }, { id: "box", label: "Box plot" }, { id: "target", label: "Target relationship" }, { id: "temporal", label: "Temporal stability" }];
+
+const CLASS_COLORS: Record<string, string> = {
+  STRIKEOUT: "#e11d48", WALK_HBP_CI: "#f59e0b", HOME_RUN: "#7c3aed", SINGLE: "#0891b2",
+  DOUBLE: "#0e7490", TRIPLE: "#059669", BIP_OUT: "#64748b", OTHER_REACH: "#a855f7",
+};
+const classShort = (c: string) => ({ STRIKEOUT: "K", WALK_HBP_CI: "BB", HOME_RUN: "HR", SINGLE: "1B", DOUBLE: "2B", TRIPLE: "3B", BIP_OUT: "OUT", OTHER_REACH: "ROE" } as Record<string, string>)[c] || c;
+
+// Target analysis for the 8-class PA outcome — gives Data Profile independent value from Data &
+// Population. Class distribution + per-season composition (modeling target rows 2023-2025).
+function TargetAnalysisSection() {
+  const ta = useEndpoint<TargetAnalysis>("/cockpit/target-analysis");
+  return (
+    <Card title="Target analysis — outcome" icon={Target}
+      description="The 8-class plate-appearance outcome. Class distribution and per-season composition over the modeling target rows (2023-2025).">
+      <LoadGate state={ta}>
+        {ta.data && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <MetricCard label="Target" value={ta.data.target} detail={ta.data.problemType.replace(/_/g, " ").toLowerCase()} />
+              <MetricCard label="Classes" value={String(ta.data.classCount)} detail="ordered taxonomy" />
+              <MetricCard label="Missing" value={String(ta.data.missing)} detail="complete coverage" />
+              <MetricCard label="Dominant" value={classShort(ta.data.dominantClass.class)} detail={fmt.pct(ta.data.dominantClass.share)} />
+              <MetricCard label="Rarest" value={classShort(ta.data.rarestClass.class)} detail={fmt.pct(ta.data.rarestClass.share)} />
+              <MetricCard label="Imbalance" value={ta.data.imbalanceRatio != null ? `${fmt.n(ta.data.imbalanceRatio, 0)}×` : "—"} detail="dominant ÷ rarest" />
+            </div>
+
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase text-slate-400">Overall class distribution</div>
+              <BarChart categories={ta.data.overall.map((d) => classShort(d.class))} values={ta.data.overall.map((d) => d.share)} height={200} valueFmt={(v) => fmt.pct(v)} />
+            </div>
+
+            <div>
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase text-slate-400">Target composition by season (100% stacked)
+                <span className="flex flex-wrap gap-1.5 normal-case">{ta.data.classOrder.map((c) => <span key={c} className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500"><span className="h-2 w-2 rounded" style={{ background: CLASS_COLORS[c] }} />{classShort(c)}</span>)}</span></div>
+              <div className="space-y-1.5">
+                {ta.data.perSeason.map((s) => (
+                  <div key={s.season} className="flex items-center gap-2">
+                    <div className="w-24 text-xs font-semibold text-slate-600">{s.season} <span className="text-[10px] font-normal text-slate-400">{s.season === 2023 ? "dev" : s.season === 2024 ? "val" : "frozen"}</span></div>
+                    <div className="flex h-6 flex-1 overflow-hidden rounded">
+                      {s.distribution.map((d) => d.share > 0 ? <div key={d.class} title={`${classShort(d.class)} ${(d.share * 100).toFixed(1)}%`} style={{ width: `${d.share * 100}%`, background: CLASS_COLORS[d.class] }} /> : null)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-500">{ta.data.note} Class shares are stable across the modeling seasons — watch for material drift before trusting a season-transfer.</p>
+            </div>
+          </div>
+        )}
+      </LoadGate>
+    </Card>
+  );
+}
 
 function FeatureExplorer({ prof, corr, selected, setSelected, ivThr, ivWeak, config, toggleFeature }:
   { prof: Profile; corr: Correlation | undefined; selected: string; setSelected: (f: string) => void; ivThr: number; ivWeak: number; config: any; toggleFeature: (f: string) => void }) {
@@ -1155,10 +1252,11 @@ function FeatureBuilder() {
         {kind === "bin" && <NumberField label="Quantile bins" value={bins} step={1} min={2} onChange={setBins} />}
       </div>
 
-      {/* Prominent live formula */}
+      {/* Read-only formula preview — generated from the controls above (not an editable expression box) */}
       <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300">Live formula</div>
-        <div className="mt-1 font-mono text-lg text-white">{spec().name} <span className="text-slate-500">=</span> {formula}</div>
+        <div className="flex items-center justify-between"><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300">Formula preview</div><span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300">read-only</span></div>
+        <div className="mt-1 select-text font-mono text-lg text-white">{spec().name} <span className="text-slate-500">=</span> {formula}</div>
+        <div className="mt-1 text-[10px] text-slate-500">Generated from the controls above — adjust Feature type / inputs / parameters to change it.</div>
       </div>
 
       {error && <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
@@ -1222,8 +1320,9 @@ function AblationPanel() {
   });
   const VT: Record<string, any> = { VALUE_CONFIRMED: "emerald", VALUE_MARGINAL: "amber", NO_MATERIAL_VALUE: "slate", NEGATIVE_VALUE: "rose" };
   return (
-    <Card title="Feature ablation" description="Controlled CONTROL vs CHALLENGER test: base 22 features vs base + your engineered features, same logistic pipeline. No Claude required." icon={Wand2}
-      action={<Button size="sm" onClick={run} disabled={post.status === "loading" || engineered.length === 0} tone="dark">{post.status === "loading" ? "Ablating…" : "Run ablation"}</Button>}>
+    <Card title="Test engineered features" icon={Wand2}
+      description="Train the same baseline model twice — Control = current governed feature set, Challenger = current set + your engineered features — holding the model family and preprocessing constant, to see whether the engineered features improve validation performance. (Expert term: controlled feature ablation / addition test.)"
+      action={<Button size="sm" onClick={run} disabled={post.status === "loading" || engineered.length === 0} tone="dark">{post.status === "loading" ? "Testing…" : "Compare Base vs Engineered Features"}</Button>}>
       {engineered.length === 0 ? <p className="text-sm text-slate-500">Create at least one engineered feature above to run an ablation.</p> : (
         <p className="text-xs text-slate-500">Testing added features: {engineered.map((e) => e.name).join(", ")}</p>
       )}
@@ -1268,6 +1367,11 @@ export function SegmentationStep() {
   const selectedK = Number(notes["seg.k"]) || 0;
   const runK = () => km.run("/cockpit/segmentation/kmeans", { population, kMin: 2, kMax: 8 }).then((r: any) => selectK(Number(notes["seg.k"]) || r.recommendedK));
   const selectK = (k: number) => { setNote("seg.k", String(k)); pca.run("/cockpit/segmentation/pca", { population, k }); stab.run("/cockpit/segmentation/stability", { population, k }); };
+  // Auto-load the bounded K-means guidance on entry so the page is never a blank white region.
+  useEffect(() => {
+    if (method === "kmeans" && km.status === "idle" && summary.data) runK();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, population, summary.data]);
 
   // DBSCAN
   const db = usePost<any>();
@@ -1435,6 +1539,35 @@ function SegClusterViews({ pca, stab, feats, short, titleK }: { pca: any; stab: 
 }
 
 // ============================================================ 08 Temporal Split
+// Source chronology (2021–2025) that redraws per policy. 2021–2022 remain visible as prior history
+// even though they are never Gen-2 target rows; 2025 is never depicted as a tuning fold.
+function TemporalChronology({ policy }: { policy: string }) {
+  const band = (label: string, cls: string) => ({ label, cls });
+  const roles: Record<number, { label: string; cls: string }> = {
+    2021: band("PRIOR HISTORY", "bg-slate-400"),
+    2022: band("PRIOR HISTORY", "bg-slate-400"),
+    2023: band("DEVELOPMENT", "bg-emerald-500"),
+    2024: band("VALIDATION", "bg-amber-500"),
+    2025: band("FROZEN FINAL", "bg-rose-500 ring-2 ring-rose-300"),
+  };
+  if (policy === "ROLLING_ORIGIN" || policy === "EXPANDING_WINDOW") { roles[2024] = band("VAL → then DEV", "bg-amber-500"); }
+  if (policy === "DATE_HOLDOUT") { roles[2023] = band("DEV | HOLDOUT", "bg-emerald-500"); }
+  if (policy === "RANDOM") { roles[2023] = band("RANDOM (no time order)", "bg-rose-400"); }
+  return (
+    <div className="mb-3">
+      <div className="flex gap-1">
+        {[2021, 2022, 2023, 2024, 2025].map((y) => (
+          <div key={y} className="flex-1 text-center">
+            <div className={`flex h-8 items-center justify-center rounded text-xs font-bold text-white ${roles[y].cls}`}>{y}</div>
+            <div className="mt-0.5 text-[9px] font-semibold uppercase text-slate-500">{roles[y].label}</div>
+          </div>
+        ))}
+      </div>
+      {policy === "RANDOM" && <div className="mt-1 text-[11px] font-semibold text-rose-600">⚠ Random split does not preserve temporal order — research comparison only.</div>}
+    </div>
+  );
+}
+
 const TEMPORAL_POLICIES = [
   { id: "SEASON_HOLDOUT", label: "Season holdout", blurb: "Train 2023 → validate 2024 → frozen 2025. The governed Gen-2 pattern." },
   { id: "ROLLING_ORIGIN", label: "Rolling origin", blurb: "Expanding rolling-origin folds; the frozen season is evaluation-only, never a tuning fold." },
@@ -1497,6 +1630,7 @@ export function TemporalSplitStep() {
             <>
               <Card title="Proposed folds" icon={CalendarClock}
                 description={`${p.policy.replace(/_/g, " ")} · ${p.recommended ? "recommended" : p.researchOnly ? "research only" : "eligible"} · ${p.matchesGovernedContract ? "matches the governed Gen-2 contract" : "differs from the governed contract"}.`}>
+                <TemporalChronology policy={p.policy} />
                 <div className="space-y-2">
                   {p.folds.map((f: any, i: number) => (
                     <div key={i} className="rounded-lg border border-slate-200 p-3">

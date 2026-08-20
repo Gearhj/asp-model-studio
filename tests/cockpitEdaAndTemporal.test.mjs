@@ -133,7 +133,7 @@ test("Load example fills the builder draft but does not add to the experiment", 
   assert.ok(featStep.includes("setDraft(example.draft)"));
   assert.ok(featStep.includes("it does not add the feature"));
   // examples never call addEngineered
-  const exampleBlock = featStep.slice(featStep.indexOf("View example"), featStep.indexOf("Live formula"));
+  const exampleBlock = featStep.slice(featStep.indexOf("View example"), featStep.indexOf("Formula preview"));
   assert.ok(!exampleBlock.includes("addEngineered"));
 });
 

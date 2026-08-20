@@ -66,6 +66,12 @@ export type Correlation = {
   strongPairs: { a: string; b: string; r: number }[]; strongPairCount: number;
   strongest: Record<string, { feature: string | null; r: number }>;
 };
+export type TargetAnalysis = {
+  target: string; problemType: string; classCount: number; classOrder: string[]; missing: number; totalRows: number;
+  overall: ClassShare[]; perSeason: { season: number; rows: number; distribution: ClassShare[] }[];
+  dominantClass: { class: string; share: number }; rarestClass: { class: string; share: number };
+  imbalanceRatio: number | null; modelingSeasons: number[]; note: string;
+};
 export type FeatureDetail = {
   name: string; kind: string; role: string;
   histogram: { lo: number; hi: number; count: number }[];
@@ -182,10 +188,26 @@ export type FullSimResult = {
   eligibility: Eligibility; champion: FullSimEval; challenger: FullSimEval; deltas: Record<string, number>; verdict: string; notes: string[];
 };
 
+// Phase 6G — a candidate in the multi-model experiment leaderboard (compact, persistable).
+export type LabCandidate = {
+  key: string; family: string; label: string;
+  status: "queued" | "training" | "complete" | "failed";
+  source: "suite" | "autopilot";
+  experimentId?: string; configHash?: string; fitSeconds?: number; featureCount?: number; expandedFeatureCount?: number;
+  val?: { logLoss: number; brierScore: number; topLabelEce: number; top1Accuracy?: number; macroF1?: number };
+  frozen?: { logLoss: number; brierScore: number };
+  championVal?: number;
+  importance?: { feature: string; importance: number }[];
+  config?: any; error?: string;
+};
+
 type CockpitStore = {
   config: ExperimentConfig;
   notes: Record<string, string>;
   engineeredProfiles: Record<string, EngineeredProfile>;
+  labSelected: string[];
+  labTuneSelected: string[];
+  labSuite: Record<string, LabCandidate>;
   lastResult?: ExperimentResult;
   lastAutopilot?: AutopilotResult;
   lastSim?: SimResult;
@@ -203,6 +225,11 @@ type CockpitStore = {
   setLastAutopilot: (r: AutopilotResult) => void;
   setLastSim: (r: SimResult) => void;
   markSaved: (step: string) => void;
+  setLabSelected: (families: string[]) => void;
+  toggleLabFamily: (family: string) => void;
+  setLabTuneSelected: (families: string[]) => void;
+  upsertLabCandidate: (key: string, patch: Partial<LabCandidate>) => void;
+  clearLabSuite: () => void;
   hydrate: (snapshot: Partial<CockpitStore>) => void;
 };
 
@@ -223,6 +250,9 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   },
   notes: {},
   engineeredProfiles: {},
+  labSelected: [],
+  labTuneSelected: [],
+  labSuite: {},
   savedSteps: {},
   setFeatures: (features) => set((s) => ({ config: { ...s.config, features } })),
   toggleFeature: (f) =>
@@ -260,6 +290,11 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
   setLastAutopilot: (lastAutopilot) => set({ lastAutopilot }),
   setLastSim: (lastSim) => set({ lastSim }),
   markSaved: (step) => set((s) => ({ savedSteps: { ...s.savedSteps, [step]: true } })),
+  setLabSelected: (labSelected) => set({ labSelected }),
+  toggleLabFamily: (family) => set((s) => ({ labSelected: s.labSelected.includes(family) ? s.labSelected.filter((f) => f !== family) : [...s.labSelected, family] })),
+  setLabTuneSelected: (labTuneSelected) => set({ labTuneSelected }),
+  upsertLabCandidate: (key, patch) => set((s) => ({ labSuite: { ...s.labSuite, [key]: { ...(s.labSuite[key] || { key, family: key, label: key, status: "queued", source: "suite" }), ...patch } as LabCandidate } })),
+  clearLabSuite: () => set({ labSuite: {} }),
   // Replace persisted slices on rehydration (project-scoped autosave restore).
   hydrate: (snapshot) => set((s) => ({ ...s, ...snapshot })),
 }));
