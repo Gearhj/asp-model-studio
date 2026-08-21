@@ -31,13 +31,26 @@ test("catalog shows Gen-2/Gen-3 with server fields and marks the sealed object r
 });
 
 test("Data & Population selects from the server catalog and auto-restores the active binding (Gate 3/4/5)", () => {
-  assert.ok(dataPop.includes('import Gen3CatalogSection from "./Gen3CatalogSection"'));
+  // default import kept; Phase 7A.5 also imports the binding-derived population panel from the same module
+  assert.ok(dataPop.includes('import Gen3CatalogSection, { Gen3PopulationPanel } from "./Gen3CatalogSection"'));
   assert.ok(dataPop.includes('<Gen3CatalogSection mode="selection" projectId={projectId} />'));
   // selection binds server-side; active binding auto-restores; server wins
   assert.ok(catalog.includes("export function useActiveBinding"));
   assert.ok(catalog.includes("/cockpit/gen3/binding/"));
   assert.ok(catalog.includes('postJSON<Binding>("/cockpit/gen3/bind"'));
   assert.ok(catalog.includes("Active binding restored") && catalog.includes("server state wins over local cache"));
+});
+
+test("Data & Population renders the binding-derived population authority (Gate 1/2/3)", () => {
+  // the population panel is rendered and driven by the server population endpoint (no legacy notes/localStorage)
+  assert.ok(dataPop.includes("<Gen3PopulationPanel projectId={projectId} />"));
+  assert.ok(catalog.includes("export function Gen3PopulationPanel"));
+  assert.ok(catalog.includes("/cockpit/gen3/population/"));
+  // honest knowledge-time label (not "Pregame-safe") and no 2025 target distribution
+  assert.ok(catalog.includes("knowledgeTimeSafetyClass"));
+  assert.ok(!catalog.includes("targetDistribution"));
+  // dataset-change invalidation banner is surfaced (Gate 9)
+  assert.ok(catalog.includes("Dataset changed") && catalog.includes("downstream work marked stale"));
 });
 
 test("Model Laboratory consumes the active project binding on mount (Gate 4/9)", () => {

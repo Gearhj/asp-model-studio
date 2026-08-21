@@ -66,8 +66,10 @@ test("cross-model visuals + model detail drawer + send-to-tuning", () => {
 });
 
 test("autopilot is repositioned and feeds the same leaderboard, tagged AUTOPILOT", () => {
-  assert.ok(lab.includes("Autopilot benchmark") && lab.includes("never silently promotes"));
+  assert.ok(lab.includes("Autopilot benchmark") && lab.includes("No champion is promoted"));
   assert.ok(lab.includes('source: "autopilot"') && lab.includes("upsertLabCandidate"));
+  // Phase 7A.5 — autopilot now runs through the single server-authorized suite path
+  assert.ok(lab.includes('"/cockpit/gen3/run-suite"'));
   assert.ok(steps2.includes("Sent from the Model Laboratory")); // tuning inherits selection
 });
 

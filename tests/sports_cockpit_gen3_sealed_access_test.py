@@ -136,3 +136,38 @@ def test_authorized_suite_is_blocked_without_an_active_binding(hermetic):
     with pytest.raises(A.AuthorityError):
         A.run_authorized_suite(actor="t@asp", project_id="hermetic-nobinding", binding_id="0" * 32,
                                candidates=[{"family": "governed_hgb"}])
+
+
+# ---------------- Phase 7A.5 Gate 1/2/3 + Gate 12: binding-derived Data & Population ----------------
+def test_binding_population_is_derived_without_opening_any_object(hermetic):
+    """The Data & Population authority is generation-aware and derived purely from the active binding +
+    registry catalog + generation contracts. No object is opened, so the sealed 2025 object is never
+    touched and no 2025 target distribution is exposed."""
+    proj = "hermetic-population"
+    A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=hermetic["research_id"])
+    A.reset_object_open_log()   # isolate binding_population from the bind-time integrity verification
+    pop = A.binding_population(project_id=proj)
+
+    # (a) hermetic proof: resolving the population authority opens ZERO objects (sealed included)
+    assert A.object_open_log() == [], f"binding_population opened objects: {A.object_open_log()}"
+    assert hermetic["sealed_path"] not in A.object_open_log()
+
+    # (b) generation-aware; 2024 is validation; 2025 is sealed and is NOT a development/validation season
+    assert pop["generation"] == "GEN3"
+    assert pop["validationSeason"] == 2024
+    assert pop["developmentSeasons"] == [2021, 2022, 2023]
+    assert pop["sealedSeasons"] == [2025] and 2025 not in pop["developmentSeasons"]
+    assert "SEALED" in str(pop["sealedState"]).upper()
+
+    # (c) honest knowledge-time label (V2) — conditional pre-terminal PA state, not "pregame-safe"
+    assert pop["knowledgeTimeSafetyClass"] == "CONDITIONAL_PRE_TERMINAL_PA_STATE"
+
+    # (d) the 8-class target taxonomy is carried; no 2025 distribution/payload leaks into the authority
+    assert pop["classCount"] == len(PA_CLASS_ORDER)
+    sealed_season = next(s for s in pop["seasons"] if s["role"] == "SEALED")
+    assert sealed_season["season"] == 2025 and sealed_season["rows"] is None  # sealed rows not exposed
+    assert "distribution" not in json.dumps(pop).lower()
+
+
+def test_binding_population_is_none_without_an_active_binding(hermetic):
+    assert A.binding_population(project_id="hermetic-no-binding-population") is None

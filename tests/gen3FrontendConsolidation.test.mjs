@@ -49,13 +49,45 @@ test("Data & Population marks the legacy section as non-authoritative source lin
   assert.ok(dataPop.includes('<Gen3CatalogSection mode="selection" projectId={projectId} />'));
 });
 
-// ---------------- Gate 10: no scientist component calls a binding-free execution path ----------------
-test("legacy binding-free execution (suite/autopilot/grid) is contained behind one flag", () => {
+// ---------------- Gate 10/13: no scientist component runs a binding-free execution path ----------------
+test("the legacy candidate suite is contained and the only /cockpit/experiment/run caller is guarded", () => {
+  // the containment flag is retained; the candidate-suite runner short-circuits before any binding-free POST
   assert.ok(modelLab.includes("const LEGACY_BINDING_FREE_EXECUTION_DISABLED = true"));
-  // each legacy runner short-circuits on the flag before any POST to a binding-free endpoint
-  const guards = (modelLab.match(/if \(LEGACY_BINDING_FREE_EXECUTION_DISABLED\) return;/g) || []).length
-    + (modelLab.match(/if \(LEGACY_EXECUTION_DISABLED\) return;/g) || []).length;
-  assert.ok(guards >= 3, `expected >=3 legacy-execution guards, found ${guards}`);
-  // the Model-Lab candidate-suite run button + autopilot + grid buttons are disabled by the flag
-  assert.ok(modelLab.includes("disabled={LEGACY_BINDING_FREE_EXECUTION_DISABLED"));
+  assert.ok(modelLab.includes("const LEGACY_EXECUTION_DISABLED = true"));
+  assert.ok(modelLab.includes("if (LEGACY_EXECUTION_DISABLED) return;"));
+  // the legacy binding-free experiment endpoint is called from exactly one place — the disabled suite
+  const legacyRun = (modelLab.match(/"\/cockpit\/experiment\/run"/g) || []).length;
+  assert.equal(legacyRun, 1, `expected exactly one guarded /cockpit/experiment/run caller, found ${legacyRun}`);
+  // the candidate-suite launch button is hard-disabled
+  assert.ok(modelLab.includes("disabled={true}"));
+});
+
+// ---------------- Gate 5: Autopilot runs through the single server-authorized suite path ----------------
+test("Autopilot posts to the authorized run-suite and is blocked without an active binding", () => {
+  assert.ok(modelLab.includes('"/cockpit/gen3/run-suite"'));
+  assert.ok(modelLab.includes('source: "autopilot"'));
+  // requires an active binding (no binding-free execution); deep budget is disabled with a stated reason
+  assert.ok(modelLab.includes("No active dataset binding"));
+  assert.ok(modelLab.includes("budget === \"deep\""));
+  // Autopilot never posts to the legacy binding-free autopilot endpoint
+  assert.ok(!modelLab.includes('"/cockpit/autopilot"'));
+});
+
+// ---------------- Gate 6: Tuning is an explicit unavailable state, not a legacy grid ----------------
+test("Hyperparameter Tuning presents an explicit unavailable state routed to the authorized path", () => {
+  assert.ok(modelLab.includes("Legacy grid disabled"));
+  assert.ok(modelLab.includes("Autopilot"));
+  // the removed grid no longer scores 2025 anywhere in tuning
+  assert.ok(!modelLab.includes("ll2025"));
+});
+
+// ---------------- Gate 7/8/12: downstream stages consume the active candidate; 2025 is never scored ----------------
+test("Evaluation/Calibration/Simulation resolve the active candidate and never expose 2025", () => {
+  // Evaluation + Calibration render the backend-resolved active candidate
+  assert.ok(modelLab.includes("function Gen3ActiveCandidateCard"));
+  assert.ok(modelLab.includes("/cockpit/gen3/active-candidate/"));
+  assert.ok(modelLab.includes("<Gen3ActiveCandidateCard projectId={projectId} />"));
+  // no scientist-reachable 2025 season toggle survives in Evaluation/Calibration/Simulation
+  assert.ok(!modelLab.includes('value: "frozen2025"'));
+  assert.ok(!modelLab.includes('value: "2025", label: "2025 frozen"'));
 });

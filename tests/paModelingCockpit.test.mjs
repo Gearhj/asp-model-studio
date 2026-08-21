@@ -38,7 +38,7 @@ test("every action button targets a real /cockpit backend endpoint", () => {
   for (const ep of [
     "/cockpit/objective", "/cockpit/population", "/cockpit/profile", "/cockpit/outliers",
     "/cockpit/missing", "/cockpit/temporal-split", "/cockpit/model-families",
-    "/cockpit/experiment/run", "/cockpit/autopilot", "/cockpit/simulate", "/cockpit/experiments",
+    "/cockpit/experiment/run", "/cockpit/gen3/run-suite", "/cockpit/simulate", "/cockpit/experiments",
   ]) {
     assert.ok(src.includes(ep), `missing wiring for ${ep}`);
   }
@@ -94,8 +94,8 @@ test("honest unavailable states — nothing faked", () => {
   // model family cards disable uninstalled libraries and surface honest availability
   assert.ok(steps2.includes("disabled={!f.available}"));
   assert.ok(steps2.includes("dependency unavailable"));
-  // tree/boosting grid search honestly marked as the next increment
-  assert.ok(steps2.includes("next increment"));
+  // hyperparameter tuning honestly presents an unavailable state routed to the authorized path
+  assert.ok(steps2.includes("future increment"));
   // feature catalog labels roadmap availability rather than fabricating unavailable families
   assert.ok(steps1.includes("roadmap"));
 });
