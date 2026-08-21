@@ -38,7 +38,15 @@ class Gen3PublishError(RuntimeError):
 
 
 def logical_content_sha(table: pa.Table, *, contract_bundle_sha: str, schema_sha: str) -> str:
-    """Order-sensitive, metadata-free logical digest (mirrors the Gen-2 content-hash pattern)."""
+    """Order-sensitive, metadata-free, ROUND-TRIP-STABLE logical digest (Phase 7C Gate 5).
+
+    The digest binds (schemaVersion, contract bundle, schema, row count) and the table's values. It is
+    computed over a canonical, deterministic Parquet serialization of the metadata-stripped, chunk-combined
+    table (no dictionary encoding, no statistics, single row group). Unlike the previous Arrow-IPC batch
+    hash, this representation is a fixed point under a Parquet write->read round-trip, so the publisher's
+    content-address and the consumer's verification digest are identical for the SAME published object.
+    The canonical serialization is defined w.r.t. the pinned Arrow/Parquet writer version recorded in the
+    object receipt/environment identity."""
     digest = hashlib.sha256()
     digest.update(canonical_json_bytes({
         "schemaVersion": GEN3_PUBLISH_SCHEMA_VERSION,
@@ -46,12 +54,11 @@ def logical_content_sha(table: pa.Table, *, contract_bundle_sha: str, schema_sha
         "schemaSha256": schema_sha,
         "rowCount": table.num_rows,
     }))
-    combined = table.combine_chunks()
-    for batch in combined.to_batches(max_chunksize=_BATCH):
-        sink = pa.BufferOutputStream()
-        with pa.ipc.new_stream(sink, combined.schema.remove_metadata()) as writer:
-            writer.write_batch(batch)
-        digest.update(sink.getvalue().to_pybytes())
+    canonical = table.replace_schema_metadata(None).combine_chunks()
+    sink = pa.BufferOutputStream()
+    pq.write_table(canonical, sink, compression="none", row_group_size=max(1, canonical.num_rows),
+                   use_dictionary=False, write_statistics=False, store_schema=True)
+    digest.update(sink.getvalue().to_pybytes())
     return digest.hexdigest()
 
 
