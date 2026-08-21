@@ -1601,38 +1601,21 @@ function ScoreTile({ label, value, sub }: { label: string; value: string; sub?: 
 }
 
 function AblationPanel() {
-  const config = useCockpitStore((s) => s.config);
-  const engineered = config.engineeredFeatures || [];
-  const post = usePost<AblationResult>();
-  const run = () => post.run("/cockpit/feature/ablation", {
-    baseConfig: { features: [...ALL_FEATURES], family: config.family === "logistic" ? "logistic" : "logistic", hyperparameters: { C: 1.0 } },
-    addFeatures: engineered.map((e) => e.name),
-    addEngineered: engineered,
-  });
-  const VT: Record<string, any> = { VALUE_CONFIRMED: "emerald", VALUE_MARGINAL: "amber", NO_MATERIAL_VALUE: "slate", NEGATIVE_VALUE: "rose" };
+  // Gate 21 — the legacy feature ablation fit two models on the combined object and used the sealed-2025
+  // delta in its verdict. That binding-free path is retired. A canonical 2024-only ablation (two immutable
+  // authorized run ids compared on 2024 validation) is a future increment.
   return (
     <Card title="Test engineered features" icon={Wand2}
-      description="Train the same baseline model twice — Control = current governed feature set, Challenger = current set + your engineered features — holding the model family and preprocessing constant, to see whether the engineered features improve validation performance. (Expert term: controlled feature ablation / addition test.)"
-      action={<Button size="sm" onClick={run} disabled={post.status === "loading" || engineered.length === 0} tone="dark">{post.status === "loading" ? "Testing…" : "Compare Base vs Engineered Features"}</Button>}>
-      {engineered.length === 0 ? <p className="text-sm text-slate-500">Create at least one engineered feature above to run an ablation.</p> : (
-        <p className="text-xs text-slate-500">Testing added features: {engineered.map((e) => e.name).join(", ")}</p>
-      )}
-      {post.data && (
-        <div className="mt-3 space-y-3">
-          <div className="flex items-center gap-3"><Pill label={post.data.verdict.replace(/_/g, " ")} tone={VT[post.data.verdict]} />
-            <span className="text-sm text-slate-600">{post.data.control.features} → {post.data.challenger.features} features</span></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm">
-            <thead><tr className="text-slate-500">{["", "Control (base)", "Challenger (+feat)", "Δ"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
-            <tbody>
-              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2024 validation log loss</td>
-                <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(post.data.control.val2024.logLoss)}</td>
-                <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(post.data.challenger.val2024.logLoss)}</td>
-                <td className={`border-b border-slate-100 px-3 py-2 tabular-nums ${post.data.delta2024.logLoss < 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt.signed(post.data.delta2024.logLoss, 5)}</td></tr>
-            </tbody>
-          </table></div>
-          <p className="text-[11px] text-slate-500">Feature value is judged on the 2024 validation season only. 2025 is sealed and is never scored in the scientist workflow.</p>
-        </div>
-      )}
+      description="A controlled ablation compares the governed feature set against your engineered additions on 2024 validation."
+      action={<Pill label="NOT CONFIGURED" tone="amber" />}>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="flex items-center gap-2 font-semibold text-amber-800"><TriangleAlert size={15} /> Feature ablation not configured on the canonical authority</div>
+        <p className="mt-1.5">
+          The previous ablation trained directly on the champion pipeline and scored the sealed 2025 season,
+          using it in the verdict. That binding-free path is retired. A canonical ablation — two server-authorized
+          run ids on the same binding, compared on 2024 validation only — is a future increment.
+        </p>
+      </div>
     </Card>
   );
 }

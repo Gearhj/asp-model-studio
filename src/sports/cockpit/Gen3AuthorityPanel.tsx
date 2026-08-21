@@ -20,7 +20,7 @@ type Evidence = {
   experimentRunId: string; runAuthorityId: string; canonicalEffectiveConfigSha256: string;
   datasetVersionId: string; datasetContentSha256: string; generation: string; developmentSeasons: number[];
   developmentRows: number; validationSeason: number; validationRows: number; seasonsInObject: number[];
-  sealedSeasonsLoaded: number[]; modelFamily: string; convergence: any; metrics: Record<string, number>;
+  sealedSeasonsAccessed: number[]; modelFamily: string; convergence: any; metrics: Record<string, number>;
   runtimeSeconds: number;
 };
 
@@ -39,22 +39,25 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
   const [activated, setActivated] = useState(false);
 
   useEffect(() => {
+    // Gate 25 — the binding effect depends on projectId; on project switch, prior-project binding/result
+    // state is cleared immediately and never displayed. On a resolve error we DO NOT fall back to a
+    // first-selectable dataset — execution stays blocked until Data & Population establishes a binding.
+    let alive = true;
+    setBinding(null); setVersionId(""); setResult(null); setAuthority(null); setActivated(false); setError(null);
     (async () => {
       try {
-        // Registration is an explicit build/admin action (A2-06); the UI only READS the catalog.
         const res = await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog");
+        if (!alive) return;
         setCatalog(res.datasets);
-        // Gate 4/9 — consume the project's active server binding chosen earlier in Data & Population.
         try {
           const b = await getJSON<Binding>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`);
+          if (!alive) return;
           setBinding(b); setVersionId(b.datasetVersionId);
-        } catch {
-          const first = res.datasets.find((d) => d.selectable);
-          if (first) setVersionId(first.datasetVersionId);
-        }
-      } catch (e) { setError(String(e)); }
+        } catch { /* no active binding — leave null; execution blocked (no silent default) */ }
+      } catch (e) { if (alive) setError(String(e)); }
     })();
-  }, []);
+    return () => { alive = false; };
+  }, [projectId]);
 
   const entry = catalog.find((d) => d.datasetVersionId === versionId) || null;
   const authorizeAndRun = async () => {
@@ -141,7 +144,7 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold uppercase text-white">
               <ShieldCheck size={12} /> {echoVerified ? "Authority verified" : "Echo mismatch"}
             </span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-200"><Lock size={11} /> 2025 not loaded ({result.sealedSeasonsLoaded.length === 0 ? "confirmed" : "VIOLATION"})</span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-200"><Lock size={11} /> 2025 not loaded ({(result.sealedSeasonsAccessed?.length ?? 0) === 0 ? "confirmed" : "VIOLATION"})</span>
           </div>
           <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
             <F label="Experiment run" value={short(result.experimentRunId)} mono />

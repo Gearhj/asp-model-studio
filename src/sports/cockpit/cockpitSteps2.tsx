@@ -347,10 +347,18 @@ function AutopilotPanel({ projectId }: { projectId: string }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [best, setBest] = useState<{ runId: string; logLoss: number; count: number } | null>(null);
+  const [activated, setActivated] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
   useEffect(() => {
+    setBinding(null); setBest(null); setActivated(null); setError(null);
     cockpitGet<{ bindingId: string; generation: string }>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`)
       .then(setBinding).catch(() => setBinding(null));
   }, [projectId]);
+  const activate = async (runId: string) => {
+    setActivating(true); setError(null);
+    try { await cockpitPost("/cockpit/gen3/activate", { projectId, runId }); setActivated(runId); }
+    catch (e) { setError(String(e)); } finally { setActivating(false); }
+  };
   const run = async () => {
     if (!binding || budget === "deep") return;
     setRunning(true); setError(null); setBest(null);
@@ -378,7 +386,15 @@ function AutopilotPanel({ projectId }: { projectId: string }) {
       </div>
       {budget === "deep" && <p className="mt-1 text-[11px] text-amber-700">Deep is not yet bounded for the authorized path — use Quick (HGB) or Standard (HGB + logistic).</p>}
       {error && <p className="mt-2 text-xs text-rose-700"><X size={12} className="mr-1 inline" />{error}</p>}
-      {best && <p className="mt-3 text-xs text-slate-500">Authorized Autopilot best run <b className="font-mono">{best.runId.slice(0, 12)}…</b> (val log loss {fmt.n(best.logLoss)}) · {best.count} candidates added to the leaderboard.</p>}
+      {best && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+          <span>Authorized Autopilot best run <b className="font-mono">{best.runId.slice(0, 12)}…</b> (val log loss {fmt.n(best.logLoss)}) · {best.count} candidates added to the leaderboard.</span>
+          {/* Gate 17 — activate the best candidate by immutable run id (never a browser result). */}
+          {activated === best.runId
+            ? <Pill label="ACTIVATED FOR DOWNSTREAM" tone="emerald" />
+            : <Button size="sm" tone="dark" onClick={() => activate(best.runId)} disabled={activating}>{activating ? "Activating…" : "Activate best candidate"}</Button>}
+        </div>
+      )}
     </Card>
   );
 }
@@ -450,35 +466,43 @@ function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
 
 // ============================================================ 11 Evaluation & Diagnostics
 export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
-  const r = useCockpitStore((s) => s.lastResult);
   const ds = useActiveSportsDataset();
   const phase4 = ds.status === "ready" ? ds.data.phase4 : undefined;
-  const [season] = useState<"val2024">("val2024");   // 2025 is sealed — never displayed (Gate 12)
-  if (!r) {
+  const ev = useActiveEvaluation(projectId);   // Gate 18 — active candidate's immutable 2024 evidence bundle
+  if (ev.state === "LOADING") return <div className="space-y-4"><Gen3ActiveCandidateCard projectId={projectId} /><p className="text-sm text-slate-500">Resolving the active candidate's evidence…</p></div>;
+  if (ev.state !== "ACTIVE" || !ev.data) {
     return (
       <div className="space-y-4">
         <Gen3ActiveCandidateCard projectId={projectId} />
-        <NeedRun label="Activate a candidate from the Model Laboratory run plan to populate diagnostics (server-authoritative)." />
+        <NeedRun label={ev.state === "ERROR" ? "Could not resolve the active candidate's evidence." : "Activate a candidate from the Model Laboratory run plan to populate diagnostics (server-authoritative; 2025 is sealed)."} />
         <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
       </div>
     );
   }
-  const m = r.metrics[season];
+  const d = ev.data;
+  const m = d.diagnostics;
   const order: string[] = m.classOrder;
   const severe = order.map((c) => ({ c, brier: m.classwiseBrier[c], ece: m.classwiseEce[c] })).sort((a, b) => b.brier - a.brier);
   return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
-      <Card title="Model comparison" description="Challenger vs the reproduced D3 champion on the 2024 validation season (2025 is sealed and not displayed)." icon={BarChart3}
-        action={<Pill label="2024 validation" tone="amber" />}>
-        <GroupedBars categories={["Log loss", "Brier", "Top-label ECE"]}
-          series={[
-            { name: "Champion D3 C4", data: [r.champion[season].logLoss, r.champion[season].brierScore, r.champion[season].topLabelEce], color: "#94a3b8" },
-            { name: r.familyLabel, data: [m.logLoss, m.brierScore, m.topLabelEce], color: "#0891b2" },
-          ]} valueFmt={(v) => fmt.n(v, 4)} height={240} />
+      <Card title="Validation evidence · active candidate" icon={BarChart3}
+        description="Diagnostics are resolved from the active candidate's immutable 2024-validation evidence bundle (never a browser result). 2025 is sealed and never scored."
+        action={<Pill label={d.recomputationMatchesStored ? "RECOMPUTE VERIFIED" : "RECOMPUTE MISMATCH"} tone={d.recomputationMatchesStored ? "emerald" : "rose"} />}>
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <MetricCard label="Log loss" value={fmt.n(d.metrics.logLoss, 6)} detail="2024 validation" />
+          <MetricCard label="Brier" value={fmt.n(d.metrics.brierScore, 4)} />
+          <MetricCard label="Top-label ECE" value={fmt.n(d.metrics.topLabelEce, 4)} />
+          <MetricCard label="Top-1" value={fmt.n(d.metrics.top1Accuracy, 4)} />
+          <MetricCard label="Macro F1" value={fmt.n(d.metrics.macroF1, 4)} />
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          Independent log loss recomputed from the persisted prediction + target artifacts:
+          <b className="ml-1 font-mono">{fmt.n(d.independentRecomputedLogLoss, 8)}</b> · run <span className="font-mono">{String(d.runId).slice(0, 12)}…</span> · evidence <span className="font-mono">{String(d.evidenceBundleSha256).slice(0, 12)}…</span> · {d.modelFamily}
+        </p>
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Class-level performance" description="Per-outcome support, precision, recall, and class Brier." icon={BarChart3}>
+        <Card title="Class-level performance" description="Per-outcome support, recall, class Brier, and class ECE (2024)." icon={BarChart3}>
           <div className="max-h-80 overflow-auto">
             <table className="w-full min-w-[440px] text-left text-xs">
               <thead className="sticky top-0 bg-white"><tr className="text-slate-500">{["Class", "Support", "Recall", "Class Brier", "Class ECE"].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
@@ -491,44 +515,57 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
             </table>
           </div>
         </Card>
-        <Card title="Confusion (row-normalized)" description="Realized (rows) vs predicted (columns). BIP_OUT absorbs most mass under severe imbalance." icon={BarChart3}>
+        <Card title="Confusion (row-normalized)" description="Realized (rows) vs predicted (columns) on 2024 validation." icon={BarChart3}>
           <ConfusionHeatmap matrix={m.confusionMatrix} labels={order} />
         </Card>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Severe-miss concentration" description="Classes ranked by Brier contribution — where the model's probability error concentrates." icon={BarChart3}>
-          <BarChart horizontal categories={severe.map((s) => s.c)} values={severe.map((s) => s.brier)} height={220} color="#e11d48" valueFmt={(v) => fmt.n(v, 4)} />
-        </Card>
-        <Card title="Feature influence" description={r.family === "logistic" ? "Mean |standardized coefficient| across classes." : "Model feature importance."} icon={BarChart3}>
-          {r.importance.length ? <BarChart horizontal categories={r.importance.slice(0, 10).map((i) => i.feature)} values={r.importance.slice(0, 10).map((i) => i.importance)} height={240} color="#7c3aed" valueFmt={(v) => fmt.n(v, 3)} />
-            : <p className="text-sm text-slate-500">No importance available for this family.</p>}
-        </Card>
-      </div>
+      <Card title="Severe-miss concentration" description="Classes ranked by Brier contribution — where the model's probability error concentrates (2024)." icon={BarChart3}>
+        <BarChart horizontal categories={severe.map((s) => s.c)} values={severe.map((s) => s.brier)} height={220} color="#e11d48" valueFmt={(v) => fmt.n(v, 4)} />
+      </Card>
       {/* Registered severe-miss / error analysis (relocated Phase 4F): where does the model fail? */}
       <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
     </div>
   );
 }
 
+// Gate 18/19 — one hook resolves the active candidate's immutable evaluation evidence for a project.
+type EvalState = { state: "LOADING" | "ACTIVE" | "NONE" | "ERROR"; data?: any };
+function useActiveEvaluation(projectId: string): EvalState {
+  const [st, setSt] = useState<EvalState>({ state: "LOADING" });
+  useEffect(() => {
+    let alive = true; setSt({ state: "LOADING" });
+    cockpitGet<any>(`/cockpit/gen3/evaluation/${encodeURIComponent(projectId)}`)
+      .then((d) => { if (alive) setSt({ state: "ACTIVE", data: d }); })
+      .catch((e) => { if (alive) setSt({ state: /failed:\s*404/.test(String(e)) ? "NONE" : "ERROR" }); });
+    return () => { alive = false; };
+  }, [projectId]);
+  return st;
+}
+
 // ============================================================ 12 Calibration
 export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
-  const r = useCockpitStore((s) => s.lastResult);
-  const [season] = useState<"val2024">("val2024");   // 2025 is sealed — never calibrated (Gate 8 / no-2025)
-  if (!r) return (
+  const ev = useActiveEvaluation(projectId);   // Gate 19 — same active candidate evidence as Evaluation
+  const [cls, setCls] = useState<string>("STRIKEOUT");
+  if (ev.state === "LOADING") return <div className="space-y-4"><Gen3ActiveCandidateCard projectId={projectId} /><p className="text-sm text-slate-500">Resolving the active candidate's evidence…</p></div>;
+  if (ev.state !== "ACTIVE" || !ev.data) return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
-      <NeedRun label="Calibration reliability is computed on the server-authorized candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." />
+      <NeedRun label="Calibration diagnostics are computed on the server-authorized active candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." />
     </div>
   );
-  const m = r.metrics[season];
+  const m = ev.data.diagnostics;
   const topRel = (m.topLabelReliability || []).map((b: any) => ({ meanPredicted: b.meanConfidence, observed: b.accuracy, count: b.count }));
   const order: string[] = m.classOrder;
-  const [cls, setCls] = useState<string>("STRIKEOUT");
   const clsRel = (m.classwiseReliability?.[cls] || []).map((b: any) => ({ meanPredicted: b.meanProbability, observed: b.realizedFrequency, count: b.count }));
   return (
     <div className="space-y-4">
-      <Card title="Calibration reliability" description="Raw model probabilities on the 2024 validation season. Governed calibration (temperature scaling) is fit on validation only; 2025 is sealed and never calibrated." icon={Gauge}
-        action={<Pill label="2024 validation" tone="amber" />}>
+      <Gen3ActiveCandidateCard projectId={projectId} />
+      <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+        <div className="flex items-center gap-2 font-semibold text-amber-800"><TriangleAlert size={14} /> Raw calibration diagnostics · calibrator not configured</div>
+        <p className="mt-1">No governed calibrator artifact is fit for this candidate in this phase. The reliability charts below are the candidate's RAW 2024-validation probabilities — the candidate is <b>not</b> calibrated. 2025 is sealed and is never used to fit or choose a calibrator.</p>
+      </div>
+      <Card title="Calibration reliability (raw)" description="Raw model probabilities on the 2024 validation season, resolved from the active candidate's evidence bundle." icon={Gauge}
+        action={<Pill label="2024 validation · RAW" tone="amber" />}>
         <div className="grid gap-3 sm:grid-cols-3">
           <MetricCard label="Top-label ECE" value={fmt.n(m.topLabelEce)} detail="expected calibration error" />
           <MetricCard label="Brier" value={fmt.n(m.brierScore)} />
@@ -544,163 +581,89 @@ export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: str
           <CalibrationChart reliability={clsRel} />
         </Card>
       </div>
-      <Card title="Calibration policy" icon={Gauge}>
-        <ul className="space-y-1.5 text-xs text-slate-600">
-          <li className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-500" />Methods: NONE / TEMPERATURE (governed). Temperature scaling is fit on validation, never on frozen 2025.</li>
-          <li className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-500" />A calibrator is rejected automatically if it worsens the frozen-season Brier (non-worsening policy).</li>
-        </ul>
-      </Card>
     </div>
   );
 }
 
 // ============================================================ 13 Simulation Impact
-export function SimulationStep() {
-  const store = useCockpitStore();
-  const r = store.lastResult;
-  const [mode, setMode] = useState<"quick" | "full">("quick");
-  const [season] = useState(2024);   // 2025 is sealed — the simulator never scores it (Gate 8 / no-2025)
-  const post = usePost<any>();
-  const elig = usePost<Eligibility>();
-  const cfg = r?.config || store.config;
-  useEffect(() => { elig.run("/cockpit/eligibility", cfg).catch(() => {}); // eslint-disable-next-line
-  }, [cfg.family, (cfg.features || []).length, (cfg.engineeredFeatures || []).length]);
-  const eligible = elig.data?.eligible;
-  const budgets = { quick: { nGames: 40, nSims: 150 }, full: { nGames: 25, nSims: 100 } };
-  const run = async () => {
-    const b = budgets[mode];
-    const res = await post.run("/cockpit/simulate", { config: cfg, season, nGames: b.nGames, nSims: b.nSims, mode });
-    store.setLastSim(res);
-  };
-  const sim: any = store.lastSim;
-  const full = sim?.mode === "FULL_LINEUP_ROTATION";
-  const VERDICT_TONE: Record<string, any> = { GAME_LEVEL_IMPROVEMENT: "emerald", PA_ONLY_IMPROVEMENT: "amber", NO_MATERIAL_CHANGE: "slate", GAME_LEVEL_DEGRADATION: "rose" };
-  const rows: [string, string, number][] = full
-    ? [["PA log loss", "paLogLoss", 4], ["Total-run CRPS", "totalRunCrps", 3], ["Total-run bias", "totalRunBias", 3], ["Run-diff MAE", "runDiffMae", 3], ["Home-win Brier", "homeWinBrier", 4], ["Home-win log loss", "homeWinLogLoss", 4], ["50% coverage", "coverage50", 3], ["90% coverage", "coverage90", 3]]
-    : [["PA log loss", "paLogLoss", 4], ["PA Brier", "paBrier", 4], ["Total-run CRPS", "totalRunCrps", 3], ["Total-run bias", "totalRunBias", 3], ["Run-diff MAE", "runDiffMae", 3], ["Home-win Brier", "homeWinBrier", 4], ["Home-win log loss", "homeWinLogLoss", 4], ["90% coverage", "intervalCoverage90", 3]];
+// ============================================================ 13 Simulation Impact
+export function SimulationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
+  // Gate 20 — the legacy binding-free whole-game simulator (which accepted the sealed 2025 season and ran
+  // on a local browser config) was retired by the Phase 7C cutover. An authoritative simulation bound to the
+  // active candidate's verified model/preprocessor on 2024 context is not configured in this phase.
   return (
     <div className="space-y-4">
-      <Card title="Whole-game simulation impact" description="Does the challenger's PA-level change actually improve the whole game? FULL runs the real Phase 5 lineup-rotation kernel via the generic PA provider; QUICK is a bounded marginal-state probe." icon={Orbit}
-        action={<Pill label="SIGNATURE FEATURE" tone="cyan" />}>
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Pill label={eligible ? "FULL SIMULATOR ELIGIBLE" : (elig.data?.status || "…").replace(/_/g, " ")} tone={eligible ? "emerald" : "amber"} />
-          {elig.data && !eligible ? <span className="text-xs text-slate-500">{elig.data.reasons[0]}</span> : null}
+      <Gen3ActiveCandidateCard projectId={projectId} />
+      <Card title="Whole-game simulation impact" icon={Orbit}
+        description="Does the challenger's PA-level change improve the whole game? This stage must bind the active candidate's verified model + preprocessor to 2024 historical context."
+        action={<Pill label="NOT CONFIGURED" tone="amber" />}>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="flex items-center gap-2 font-semibold text-amber-800"><TriangleAlert size={15} /> Authoritative simulation impact not configured for this candidate</div>
+          <p className="mt-1.5">
+            The previous simulator ran on a browser-local configuration through a binding-free endpoint and
+            accepted the sealed 2025 season. That path is retired. A canonical simulation that binds the active
+            run id, model SHA, preprocessor SHA, and a 2024-only context is a future increment.
+          </p>
+          <p className="mt-2">No simulation result is shown, and no legacy result is retained to imply otherwise.</p>
         </div>
-        <div className="flex flex-wrap items-end gap-4">
-          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Mode</div>
-            <Segmented value={mode} onChange={setMode as any} options={[{ value: "quick", label: "Quick · marginal-state" }, { value: "full", label: "Full · lineup-rotation", disabled: !eligible }]} /></div>
-          <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Season</div>
-            <Pill label="2024 validation · 2025 sealed" tone="amber" /></div>
-          <Button onClick={run} disabled={post.status === "loading" || (mode === "full" && !eligible)} tone="dark">{post.status === "loading" ? "Simulating…" : "▶ Test in game simulator"}</Button>
-          {!r && <span className="text-xs text-amber-600">No trained challenger — simulating the active configuration.</span>}
-        </div>
-        {post.status === "loading" && <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />{mode === "full" ? "Running full lineup-rotation Monte Carlo through the Phase 5 kernel…" : "Running bounded marginal-state Monte Carlo…"}</div>}
-        {post.status === "error" && <p className="mt-2 text-sm text-rose-600">{post.error}</p>}
       </Card>
-      {sim && (
-        <>
-          <div className={`rounded-2xl border p-4 ${sim.verdict === "GAME_LEVEL_IMPROVEMENT" ? "border-emerald-300 bg-emerald-50" : sim.verdict === "GAME_LEVEL_DEGRADATION" ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-slate-50"}`}>
-            <div className="flex flex-wrap items-center gap-3"><Pill label={sim.verdict.replace(/_/g, " ")} tone={VERDICT_TONE[sim.verdict]} />
-              <Pill label={full ? "FULL LINEUP-ROTATION" : "QUICK MARGINAL"} tone={full ? "cyan" : "slate"} />
-              <span className="text-sm text-slate-600">{sim.games} games · {sim.simsPerGame} sims/game · {sim.kernel.replace(/_/g, " ")}</span></div>
-          </div>
-          <Card title="Champion vs challenger — whole-game metrics" description="Identical games, participant orderings, transition kernel, sim count, and RNG lineage. Only the PA provider differs." icon={Orbit}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead><tr className="text-slate-500">{["Metric", "Champion", "Challenger", "Δ"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
-                <tbody>
-                  {rows.map(([label, key, d]) => {
-                    const c = sim.champion[key] as number, h = sim.challenger[key] as number;
-                    const isCov = key.startsWith("coverage") || key === "intervalCoverage90";
-                    const target = key === "coverage50" ? 0.5 : key === "coverage80" ? 0.8 : key === "coverage95" ? 0.95 : 0.9;
-                    const better = isCov ? Math.abs(h - target) < Math.abs(c - target) : h < c;
-                    return <tr key={label}><td className="border-b border-slate-100 px-3 py-2 font-medium text-slate-800">{label}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(c, d)}</td>
-                      <td className={`border-b border-slate-100 px-3 py-2 tabular-nums font-semibold ${better ? "text-emerald-600" : "text-slate-900"}`}>{fmt.n(h, d)}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.signed(h - c, d)}</td></tr>;
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-          <Card title="Scope & authority" icon={Orbit}>
-            <ul className="space-y-1.5 text-xs text-slate-600">{sim.notes.map((n: string, i: number) => <li key={i} className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-500" />{n}</li>)}
-              {sim.provider ? <li className="flex gap-2"><span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />Provider {sim.provider}</li> : null}</ul>
-          </Card>
-        </>
-      )}
     </div>
   );
 }
 
 // ============================================================ 14 Champion / Challenger
-export function ChampionChallengerStep() {
-  const data = useEndpoint<{ experiments: ExperimentIndexRow[]; champion: Champion }>("/cockpit/experiments");
-  const r = useCockpitStore((s) => s.lastResult);
-  const sim = useCockpitStore((s) => s.lastSim);
+export function ChampionChallengerStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
+  // Gate 30 — the registered D3/C4 champion is a READ-ONLY reference; it is never overwritten, retrained,
+  // or promoted, and its historical 2025 metric is not exposed in the ordinary workflow. The challenger is
+  // the project's active candidate (server-authoritative), evaluated on 2024 only.
+  const ev = useActiveEvaluation(projectId);
+  const d = ev.state === "ACTIVE" ? ev.data : null;
   return (
-    <LoadGate state={data}>
-      {data.data && (
-        <div className="space-y-4">
-          <Card title="Champion of record" description="The registered D3 C4 is never overwritten automatically. Challengers remain research status." icon={Trophy}
-            action={<Pill label="RESEARCH CHAMPION" tone="emerald" />}>
-            <div className="grid gap-3 sm:grid-cols-4">
-              <MetricCard label="Family" value="Logistic" detail={`C=${data.data.champion.C}`} />
-              <MetricCard label="2024 log loss" value={fmt.n(data.data.champion.val2024.logLoss)} />
-              <MetricCard label="2025 log loss" value={fmt.n(data.data.champion.frozen2025.logLoss)} />
-              <MetricCard label="Features" value={String(data.data.champion.featureCount)} />
-            </div>
-          </Card>
-          <Card title="Challenger ledger" description="All cockpit experiments, ranked by 2024 validation log loss." icon={FlaskConical}>
-            {data.data.experiments.length ? (
-              <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm">
-                <thead><tr className="text-slate-500">{["Experiment", "Family", "Features", "2024 LL", "2025 LL", "Beats champ", "Created"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
-                <tbody>{data.data.experiments.map((e) => (
-                  <tr key={e.experimentId}><td className="border-b border-slate-100 px-3 py-2 font-mono text-xs text-slate-700">{e.experimentId.replace("cockpit-exp-", "")}</td>
-                    <td className="border-b border-slate-100 px-3 py-2">{e.family}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{e.featureCount}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(e.val2024LogLoss)}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(e.frozen2025LogLoss)}</td>
-                    <td className="border-b border-slate-100 px-3 py-2">{e.beatsChampion2024 ? <Pill label="YES" tone="emerald" /> : <Pill label="no" tone="slate" />}</td>
-                    <td className="border-b border-slate-100 px-3 py-2 text-xs text-slate-500">{e.createdAt}</td></tr>))}</tbody>
-              </table></div>
-            ) : <p className="text-sm text-slate-500">No experiments yet. Run a challenger in Model Laboratory.</p>}
-          </Card>
-          <Card title="Promotion gates" description="Promotion to research champion requires every gate. This is a research-status action; the registered D3 is not modified." icon={Trophy}
-            action={<Button size="sm" tone="ghost" disabled>Promote to research champion</Button>}>
-            {r ? <div className="grid gap-2 sm:grid-cols-2">
-              {[
-                ["Temporal integrity (frozen protected)", r.leakageGuards.frozenSeasonExcludedFromFitting],
-                ["Fold-local preprocessing", r.leakageGuards.foldLocalPreprocessing],
-                ["Target never a predictor", r.leakageGuards.targetColumnNeverAFeature],
-                ["Improves 2024 validation", r.comparison.beatsChampion2024],
-                ["Improves 2025 frozen", r.comparison.beatsChampionFrozen],
-                ["Simulator impact reviewed", !!sim],
-                ["Simulator non-degradation", sim ? sim.verdict !== "GAME_LEVEL_DEGRADATION" : false],
-              ].map(([label, ok]) => (
-                <div key={label as string} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                  {ok ? <Check size={15} className="text-emerald-600" /> : <X size={15} className="text-slate-300" />}<span className={ok ? "font-medium text-slate-800" : "text-slate-400"}>{label}</span>
-                </div>
-              ))}
-            </div> : <p className="text-sm text-slate-500">Run a challenger and a simulation to evaluate promotion gates.</p>}
-          </Card>
+    <div className="space-y-4">
+      <Card title="Champion of record" description="The registered D3 C4 champion is a read-only reference. It is never overwritten or promoted automatically, and its sealed-season metrics are not shown in the ordinary workflow." icon={Trophy}
+        action={<Pill label="READ-ONLY REFERENCE" tone="emerald" />}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MetricCard label="Family" value="Governed logistic" detail="D3 C4" />
+          <MetricCard label="Development" value="2021–2023" />
+          <MetricCard label="Validation" value="2024" />
         </div>
-      )}
-    </LoadGate>
+      </Card>
+      <Card title="Active challenger" description="The project's active candidate, resolved from the server by immutable run id and evaluated on 2024 validation only." icon={FlaskConical}>
+        {d ? (
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MetricCard label="Run id" value={String(d.runId).slice(0, 12) + "…"} detail={d.modelFamily} />
+            <MetricCard label="2024 log loss" value={fmt.n(d.metrics.logLoss, 6)} />
+            <MetricCard label="Recompute" value={d.recomputationMatchesStored ? "verified" : "MISMATCH"} detail="independent" />
+            <MetricCard label="Evidence" value={String(d.evidenceBundleSha256).slice(0, 12) + "…"} />
+          </div>
+        ) : <p className="text-sm text-slate-500">No active candidate. Activate one from the Model Laboratory.</p>}
+      </Card>
+      <Card title="Promotion" description="Champion promotion is disabled. No Phase 7C candidate automatically becomes champion; the registered D3/C4 is not modified." icon={Trophy}
+        action={<Button size="sm" tone="ghost" disabled>Promote to research champion</Button>}>
+        <p className="text-sm text-slate-500">Promotion is a governed, out-of-band action and is intentionally unavailable here.</p>
+      </Card>
+    </div>
   );
 }
 
 // ============================================================ 15 Registry & Evidence
-export function RegistryStep() {
-  const r = useCockpitStore((s) => s.lastResult);
-  if (!r) return <NeedRun label="Run a challenger to generate a registry record and model card." />;
+export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
+  const ev = useActiveEvaluation(projectId);   // registry evidence is the active candidate's immutable bundle
+  if (ev.state !== "ACTIVE" || !ev.data) return (
+    <div className="space-y-4">
+      <Gen3ActiveCandidateCard projectId={projectId} />
+      <NeedRun label="Activate a candidate from the Model Laboratory to view its immutable registry record and model card (server-authoritative; 2025 sealed)." />
+    </div>
+  );
+  const d = ev.data;
   return (
     <div className="space-y-4">
-      <Card title="Experiment record" description="Content-addressed cockpit experiment evidence." icon={Boxes}
-        action={<Pill label="RESEARCH EVIDENCE" tone="cyan" />}>
+      <Card title="Run evidence record" description="Content-addressed, immutable, independently-recomputable model-run evidence bundle." icon={Boxes}
+        action={<Pill label="SERVER-AUTHORIZED EVIDENCE" tone="cyan" />}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[["Experiment ID", r.experimentId], ["Family", r.familyLabel], ["Feature count", String(r.featureCount)], ["Design columns", String(r.expandedFeatureCount)], ["Fit seconds", fmt.n(r.fitSeconds, 2)], ["Created", r.createdAt]].map(([k, v]) => (
-            <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold uppercase text-slate-500">{k}</div><div className="mt-1 break-words text-sm font-semibold text-slate-900">{v}</div></div>
+          {[["Run id", String(d.runId)], ["Run authority", String(d.runAuthorityId)], ["Model family", d.modelFamily],
+            ["Evidence manifest", String(d.evidenceBundleSha256)], ["Prediction SHA", String(d.predictionSha256)], ["Diagnostics SHA", String(d.diagnosticsSha256)]].map(([k, v]) => (
+            <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold uppercase text-slate-500">{k}</div><div className="mt-1 break-words font-mono text-[11px] font-semibold text-slate-900">{String(v).slice(0, 24)}{String(v).length > 24 ? "…" : ""}</div></div>
           ))}
         </div>
       </Card>
@@ -708,24 +671,21 @@ export function RegistryStep() {
         <Card title="Model card" description="Objective → data → preprocessing → algorithm → metrics → limitations." icon={Boxes}>
           <dl className="space-y-2 text-sm">
             <Row k="Objective" v="Plate Appearance Outcome (8-class)" />
-            <Row k="Population" v="2023 dev · 2024 val · 2025 frozen" />
-            <Row k="Preprocessing" v={`outliers: ${r.config.outlierPolicy.globalMethod} · missing: ${r.config.missingPolicy.globalMethod}${r.config.missingPolicy.addIndicator ? " +indicator" : ""}`} />
-            <Row k="Algorithm" v={`${r.familyLabel} · ${JSON.stringify(r.config.hyperparameters)}`} />
-            <Row k="2024 / 2025 log loss" v={`${fmt.n(r.headline.val2024.logLoss)} / ${fmt.n(r.headline.frozen2025.logLoss)}`} />
-            <Row k="vs champion (2024)" v={`${fmt.signed(r.comparison.val2024.logLoss)} log loss`} />
-            <Row k="Status" v={r.comparison.beatsChampion2024 ? "CHALLENGER (beats 2024)" : "REJECTED_ON_VALIDATION"} />
+            <Row k="Population" v={`dev ${(d.developmentSeasons || []).join(",")} · val ${d.validationSeason} · 2025 SEALED`} />
+            <Row k="Dataset" v={`${d.generation} · ${String(d.datasetVersionId).split(":")[0]}`} />
+            <Row k="Algorithm" v={d.modelFamily} />
+            <Row k="2024 validation log loss" v={fmt.n(d.metrics.logLoss, 6)} />
+            <Row k="Independent recompute" v={`${fmt.n(d.independentRecomputedLogLoss, 6)} · ${d.recomputationMatchesStored ? "verified" : "MISMATCH"}`} />
+            <Row k="Calibration" v="RAW — calibrator not configured" />
           </dl>
         </Card>
-        <Card title="Lineage & reproducibility" description="Logical authorities and leakage guards." icon={Boxes}>
+        <Card title="Lineage & reproducibility" description="Immutable authorities and content digests." icon={Boxes}>
           <div className="space-y-2 text-xs">
-            <Row k="Feature view" v="MLB_PA_FEATURE_VIEW_V1" />
-            <Row k="Evaluation authority" v="server.sports_modeling.metrics" />
-            <Row k="Champion baseline" v={`D3 C4 reproduced in-pipeline (C=${r.champion.C})`} />
-            {Object.entries(r.leakageGuards).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-1.5">
-                <span className="text-slate-700">{k}</span><Pill label={String(v)} tone="emerald" />
-              </div>
-            ))}
+            <Row k="Content SHA" v={String(d.datasetContentSha256).slice(0, 24) + "…"} />
+            <Row k="Evidence manifest" v={String(d.evidenceBundleSha256).slice(0, 24) + "…"} />
+            <Row k="Prediction artifact" v={String(d.predictionSha256).slice(0, 24) + "…"} />
+            <Row k="Result fingerprint" v={String(d.resultFingerprint || "").slice(0, 24) + "…"} />
+            <Row k="Validation" v={d.validationLabel} />
           </div>
         </Card>
       </div>

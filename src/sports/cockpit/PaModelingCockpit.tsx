@@ -33,9 +33,9 @@ const STEPS: Step[] = [
   { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: () => <TuningStep /> },
   { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => <EvaluationStep projectId={c.projectId} /> },
   { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => <CalibrationStep projectId={c.projectId} /> },
-  { id: "simulation", n: "13", label: "Simulation Impact", icon: Orbit, group: "Assess", render: () => <SimulationStep /> },
-  { id: "champion", n: "14", label: "Champion / Challenger", icon: Trophy, group: "Decide", render: () => <ChampionChallengerStep /> },
-  { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: () => <RegistryStep /> },
+  { id: "simulation", n: "13", label: "Simulation Impact", icon: Orbit, group: "Assess", render: (c) => <SimulationStep projectId={c.projectId} /> },
+  { id: "champion", n: "14", label: "Champion / Challenger", icon: Trophy, group: "Decide", render: (c) => <ChampionChallengerStep projectId={c.projectId} /> },
+  { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: (c) => <RegistryStep projectId={c.projectId} /> },
 ];
 
 export default function PaModelingCockpit({ embedded = false, projectId = "mlb-cockpit" }: { embedded?: boolean; projectId?: string } = {}) {
