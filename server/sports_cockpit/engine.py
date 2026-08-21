@@ -174,23 +174,18 @@ GEN2_RESEARCH_REGISTRATION = (
 
 
 def _feature_view_path() -> Path:
-    """Resolve the immutable Gen-2 RESEARCH object (2023-2024) from its registration — not the combined
-    2023-2025 object. Fail closed if the research object is not published."""
-    import json
+    """Resolve the immutable Gen-2 RESEARCH object (2023-2024) through the ONE canonical registry resolver
+    (Gate 1/3) — never the combined 2023-2025 object, a sidecar, or a glob. Research-only capability is
+    enforced by the resolver; the path is contained under the fixed immutable object root."""
+    from . import gen3_authority as _G3A  # lazy import avoids the engine<->authority import cycle
 
-    if not GEN2_RESEARCH_REGISTRATION.is_file():
+    try:
+        return _G3A.research_object_path("GEN2")
+    except _G3A.AuthorityError as exc:
         raise CockpitError(
-            "Gen-2 research object is not published; run scripts/phase7c_publish_gen2.py "
-            "(the combined 2023-2025 object is retired from ordinary reads)."
+            f"Gen-2 research object is not resolvable through the canonical registry: {exc}. "
+            "Run scripts/phase7c_publish_gen2.py and the registry migration."
         )
-    reg = json.loads(GEN2_RESEARCH_REGISTRATION.read_text(encoding="utf-8"))
-    sha = reg["research"]["logicalContentSha256"]
-    path = (
-        RUNTIME_ROOT / "sports-modeling" / "mlb-pa-gen2-v1" / "objects" / "sha256" / sha / "gen2-research.parquet"
-    )
-    if not path.is_file():
-        raise CockpitError("registered Gen-2 research object is missing")
-    return path
 
 
 def load_frame() -> pd.DataFrame:
@@ -282,6 +277,8 @@ def _champion_reference() -> dict[str, Any]:
                     val = agg.get("validation2024") or agg.get("selection2024") or {}
                     frozen = agg.get("final2025") or {}
                     if val.get("logLoss") is not None:
+                        # Phase 7D Gate 21 — the ordinary objective NEVER exposes the champion's sealed-2025
+                        # metrics. Only the 2024 validation reference is shown in the model-development workflow.
                         return {
                             "candidateId": "C4",
                             "val2024": {
@@ -289,15 +286,14 @@ def _champion_reference() -> dict[str, Any]:
                                 "brierScore": val.get("brierScore"),
                                 "topLabelEce": val.get("topLabelEce"),
                             },
-                            "frozen2025": {
-                                "logLoss": frozen.get("logLoss"),
-                                "brierScore": frozen.get("brierScore"),
-                                "topLabelEce": frozen.get("topLabelEce"),
-                            },
+                            "sealed2025": "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE",
                         }
     except Exception:
         pass
-    return dict(CHAMPION_REFERENCE_FALLBACK)
+    ref = dict(CHAMPION_REFERENCE_FALLBACK)
+    ref.pop("frozen2025", None)
+    ref["sealed2025"] = "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE"
+    return ref
 
 
 def objective_payload() -> dict[str, Any]:

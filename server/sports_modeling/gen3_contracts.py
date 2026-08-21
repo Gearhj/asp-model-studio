@@ -198,6 +198,30 @@ def gen2_contracts() -> dict[str, dict[str, Any]]:
     }
 
 
+# --------------------------------------------------------------------------- feature-set authority (Phase 7D Gate 9/11)
+# The global fixed FEATURE_NAMES list is NO LONGER the execution authority. Each registered dataset version
+# resolves an ORDERED feature-set contract. Gen-2 and Gen-3 V2 currently share the same 22 governed base
+# features, but the authority is generation-scoped so a Phase 7B advanced generation/version can register
+# its own ordered advanced feature-set contract (base + advanced families) without touching Gen-2.
+def base_feature_set(generation: str) -> list[str]:
+    if generation not in ("GEN2", "GEN3"):
+        raise ValueError(f"no base feature set for generation {generation}")
+    return list(FEATURE_NAMES)
+
+
+def feature_set_contract(generation: str, *, name: str = "base", feature_order: list[str] | None = None) -> dict[str, Any]:
+    """A registered ordered feature-set contract. `name='base'` resolves the generation's governed base
+    features. A Phase 7B advanced set passes its explicit ordered `feature_order` (base + advanced), which
+    the dataset-version registration must authorize — the client never submits raw predictor columns."""
+    order = list(feature_order) if feature_order is not None else base_feature_set(generation)
+    if len(order) != len(set(order)):
+        raise ValueError("feature-set contract has duplicate feature columns")
+    payload = {"contract": "MLB_FEATURE_SET_CONTRACT_V1", "generation": generation, "name": name,
+               "featureOrder": order, "featureCount": len(order)}
+    digest = sha256_bytes(canonical_json_bytes(payload))
+    return {"id": f"MLB_FEATURE_SET_CONTRACT_V1:{generation}:{name}:sha256:{digest}", "sha256": digest, "payload": payload}
+
+
 def contracts_for_generation(generation: str) -> dict[str, dict[str, Any]]:
     if generation == "GEN2":
         return gen2_contracts()
