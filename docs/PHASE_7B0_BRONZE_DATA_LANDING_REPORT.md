@@ -5,19 +5,18 @@
 
 ## Verdict
 
-**PHASE_7B0_BRONZE_LANDING_COMPLETE** — for the acquisition framework and the sources that completed, with an
-explicit, transparent remaining-acquisition note below. The standalone quarantined acquisition tool is
-complete and tested; Chadwick (identity), Retrosheet (play-by-play + game logs, 2019–2024), and the 2024
-Statcast validation year are fully landed, hashed, and manifested; **Statcast 2019–2023 is still landing via
-the same resumable tool** (a mechanical single-command continuation) and **Lahman is DEFERRED** because its
-canonical source repository now returns 404. No joins, features, targets, models, ASP-registry integration,
-or 2025/2026 access occurred.
+**PHASE_7B0_BRONZE_LANDING_COMPLETE.** The standalone quarantined acquisition tool is complete and tested,
+and the approved 2019–2024 source evidence is fully landed, hashed, and manifested: **Statcast 2019–2024**
+(all six years, pitch-level, regular + postseason), **Retrosheet 2019–2024** (play-by-play + game logs), and
+the **Chadwick** identity register. The only source not landed is **Lahman**, which is DEFERRED because its
+canonical source repository now returns 404 (a source-availability issue, not a boundary or time issue). No
+joins, features, targets, models, ASP-registry integration, or 2025/2026 access occurred.
 
 ## Staging
 
 - **Root (outside the repo):** `C:\Users\james\asp-data-staging\mlb-advanced-bronze-v1`
-- **Free space before:** ~244 GB · **after (during Statcast backfill):** ~243 GB (well above the 30/50 GB thresholds)
-- **Total raw bytes landed so far:** ~0.66 GB and growing as the Statcast backfill runs
+- **Free space before:** ~244 GB · **after:** ~243 GB (well above the 30/50 GB thresholds)
+- **Total raw bytes landed:** ~2.73 GB
 - The staging root contains no executable ASP authority. `.gitignore` blocks all Bronze data from Git.
 
 ## Sources
@@ -28,11 +27,19 @@ or 2025/2026 access occurred.
   25,000). The tool therefore acquires **per-day** partitions (≤ ~9k pitches/day, safely under the cap) and
   flags any chunk that reaches the cap (`TRUNCATED_CAP_HIT`). Regular and postseason are separated by
   `hfGT=R|` vs `hfGT=PO|` into distinct partition trees.
-- **2024 (validation year) — COMPLETE:** 366 day-partitions (209 game days + 157 empty off-days, 0 failed).
-  **Regular season: 711,899 pitches** (185 game days). **Postseason: 12,868 pitches** (24 game days).
-  Natural-key duplicates recorded: 0. **Every landed row is dated ≤ 2024** (2025 refusal verified).
-- **2019–2023 — IN PROGRESS (resumable):** landing via `... --source statcast --start-year 2019 --end-year 2023`.
-  A rerun verifies each completed day's SHA and skips it; only missing/failed days are (re)fetched.
+- **2019–2024 — COMPLETE:** 2,196 day-partitions (1,120 game days + 1,076 empty off-days), **0 failed**,
+  **3,929,155 total pitches**, 0 natural-key duplicates. **Every landed row is dated within 2019–2024**
+  (2025 refusal verified across all six years). Per-year (regular / postseason):
+
+  | Year | Regular pitches | Postseason pitches | Game days |
+  |---|---:|---:|---:|
+  | 2019 | 735,090 | 11,182 | 210 |
+  | 2020 | 264,262 | 16,136 | 90 (COVID-shortened season, expanded playoffs) |
+  | 2021 | 712,320 | 10,852 | 206 |
+  | 2022 | 710,210 | 11,774 | 200 |
+  | 2023 | 720,684 | 11,878 | 205 |
+  | 2024 | 711,899 | 12,868 | 209 |
+
 - Natural key for duplicate checks: `(game_pk, at_bat_number, pitch_number)`. No targets, rolling stats, or
   joins were computed.
 
@@ -75,7 +82,7 @@ or 2025/2026 access occurred.
   `--end-year` > 2024; `statcast_url`/`statcast_partitions` refuse a sealed year. Hermetic tests assert all of
   this (`tests/bronze_acquisition_test.py`).
 - **No 2025 was requested, downloaded, inspected, counted, or summarized.** Every landed Statcast maxDate is
-  ≤ 2024 (verified across all 2024 partitions). 2026 was never touched.
+  within 2019–2024 (verified across all 2,196 partitions). 2026 was never touched.
 
 ## Quality checks
 
@@ -100,9 +107,12 @@ or 2025/2026 access occurred.
 
 ## Remaining acquisition (transparent)
 
-1. **Statcast 2019–2023** — in progress via the resumable per-day tool; rerun the same command to complete.
-2. **Lahman** — deferred until a canonical CSV source URL is confirmed (baseballdatabank repo 404).
-3. **Optional Kaggle mirrors** — deferred (windows overlap sealed 2025).
+1. **Lahman** — deferred until a canonical CSV source URL is confirmed (baseballdatabank repo 404). The tool
+   supports it once a URL is provided.
+2. **Optional Kaggle mirrors** — deferred (windows overlap sealed 2025).
+
+Statcast (2019–2024), Retrosheet (2019–2024), and Chadwick are fully landed; no further acquisition of those
+sources is required for this phase.
 
 ---
 
@@ -110,9 +120,9 @@ or 2025/2026 access occurred.
 
 STARTING HEAD `1aa274a` · ENDING HEAD `cc441cd` (+ this report commit) · BRANCH `phase7b0-bronze-data-landing` · WORKTREE clean (tracked) · PUSH none · COMMITS: tooling, tests, report
 
-**STAGING** — root = `C:\Users\james\asp-data-staging\mlb-advanced-bronze-v1` · free before ≈ 244 GB · after ≈ 243 GB · raw bytes ≈ 0.66 GB (+growing) · manifest partitions = Chadwick 16 + Retrosheet 12 + Statcast 2024 366 (+ 2019–2023 landing)
+**STAGING** — root = `C:\Users\james\asp-data-staging\mlb-advanced-bronze-v1` · free before ≈ 244 GB · after ≈ 243 GB · raw bytes ≈ 2.73 GB · manifest partitions = 2,233 (Statcast 2,196 + Retrosheet 12 + Chadwick 16 + Lahman 9 failed) · manifest sha256 = `fe3d5fb7949861949591a601f5b30c03a5f3eef9c4e80b889995026569b20e4a`
 
-**STATCAST** — 2024 regular = 711,899 pitches / 185 game days · 2024 postseason = 12,868 / 24 · duplicates = 0 · schema = single Baseball Savant `details` schema · resume = proven (209 skipped) · 2019–2023 = landing (resumable)
+**STATCAST** — years 2019–2024 COMPLETE · **3,929,155 pitches** (regular + postseason, separated) · 1,120 game-day + 1,076 empty-off-day partitions · 0 failed · 0 duplicates · every row within 2019–2024 · schema = single Baseball Savant `details` schema · resume = proven (209 skipped on the 2024 rerun)
 
 **RETROSHEET** — years 2019–2024 · 6 game-log + 6 event archives · 372 members · hashes recorded
 
