@@ -38,6 +38,7 @@ from ..sports_modeling.training import (
 from .engine import CockpitError, REPO_ROOT, RUNTIME_ROOT, _feature_view_path
 
 GEN3_ROOT = RUNTIME_ROOT / "sports-modeling" / "mlb-pa-gen3-v2"
+GEN2_ROOT = RUNTIME_ROOT / "sports-modeling" / "mlb-pa-gen2-v1"
 STATE_ROOT = GEN3_ROOT / "authority"
 ASP_REGISTRY = RUNTIME_ROOT / "artifacts" / "datasets" / "registry.json"
 _ID_RE = re.compile(r"^[A-Za-z0-9._:-]{8,200}$")
@@ -121,58 +122,91 @@ def _write_json_atomic(path: Path, payload: Any) -> None:
     os.replace(tmp, path)
 
 
-# --------------------------------------------------------------------------- catalog / registration (A2-06 read of registry)
-def _gen2_catalog_entry() -> dict[str, Any]:
-    path = _record_open(_feature_view_path())
-    meta = pq.read_schema(path).metadata or {}
-    content_sha = (meta.get(b"featureContentSha") or b"").decode() or hashlib.sha256(path.read_bytes()).hexdigest()
-    return {
-        "datasetVersionId": f"mlb-pa-feature-view:sha256:{content_sha}", "label": "MLB FD1 Gen-2 Feature View",
-        "generation": "GEN2", "status": "GOVERNED_MODELING_DATASET", "selectable": True,
-        "logicalContentSha256": content_sha, "physicalParquetSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "objectPath": str(path), "seasons": [2023, 2024, 2025],
-        "developmentSeasons": [2023], "validationSeason": 2024, "sealedSeasons": [2025],
-        "developmentRows": 184_104, "validationRows": 182_449, "sealedRows": 182_926,
-        "rows": 549_479, "featureCount": len(FEATURE_NAMES), "target": "outcome",
+# --------------------------------------------------------------------------- catalog (Gate 4/7: registry-resolved; opens NO modeling/sealed object on ordinary reads)
+def _registration(root: Path) -> dict[str, Any]:
+    reg_path = root / "registration.json"
+    if not reg_path.is_file():
+        raise AuthorityError(f"dataset registration not found: {reg_path}")
+    return _read_json(reg_path)
+
+
+def _object_path(root: Path, sha: str, object_kind: str) -> str:
+    return str(root / "objects" / "sha256" / sha / f"{object_kind}.parquet")
+
+
+def _gen2_catalog_entries() -> list[dict[str, Any]]:
+    """Gen-2 research (2023-2024) + sealed (2025) resolved from the immutable Gen-2 registration. The old
+    combined 2023-2025 object is NEVER opened here (physical seal, Gate 7)."""
+    reg = _registration(GEN2_ROOT)
+    ps = {int(k): int(v) for k, v in reg.get("perSeasonRows", {}).items()}
+    r = reg["research"]
+    research = {
+        "datasetVersionId": reg["registrationId"], "label": "MLB Gen-2 Research View (2023-2024)",
+        "generation": "GEN2", "objectKind": "gen2-research", "status": "GOVERNED_RESEARCH_DATASET", "selectable": True,
+        "logicalContentSha256": r["logicalContentSha256"], "physicalParquetSha256": r["physicalParquetSha256"],
+        "schemaSha256": r.get("schemaSha256"), "objectPath": _object_path(GEN2_ROOT, r["logicalContentSha256"], "gen2-research"),
+        "contractBundleSha256": reg["contractBundleSha256"], "contracts": reg["contracts"],
+        "seasons": [2023, 2024], "developmentSeasons": [2023], "validationSeason": 2024, "sealedSeasons": [2025],
+        "developmentRows": ps.get(2023, 0), "validationRows": ps.get(2024, 0), "sealedRows": ps.get(2025, 0),
+        "perSeasonRows": ps, "rows": r["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
+        "sourceDatasetId": GC.PARENT_DATASET_ID, "sealMigrationAuditSha256": reg.get("sealMigrationAuditSha256"),
     }
+    s = reg["sealed2025"]
+    sealed = {
+        "datasetVersionId": f"mlb-pa-gen2-sealed-2025:sha256:{s['logicalContentSha256']}",
+        "label": "MLB Gen-2 Sealed 2025 Frozen Final", "generation": "GEN2_SEALED", "objectKind": "gen2-sealed-2025",
+        "status": "SEALED_OOT_RESTRICTED", "selectable": False, "logicalContentSha256": s["logicalContentSha256"],
+        "seasons": [2025], "developmentSeasons": [], "validationSeason": None, "sealedSeasons": [2025],
+        "rows": s["rows"], "target": "outcome",
+        "restriction": "NOT selectable for ordinary development; structural registration/lineage only",
+    }
+    return [research, sealed]
 
 
 def _gen3_catalog_entries() -> list[dict[str, Any]]:
-    reg = _read_json(GEN3_ROOT / "registration.json")
-    contracts = reg["contracts"]
+    reg = _registration(GEN3_ROOT)
+    r = reg["research"]
+    ps = {int(k): int(v) for k, v in reg.get("perSeasonRows", {}).items()}
     research = {
-        "datasetVersionId": reg["registrationId"], "label": "MLB Gen-3 Base Research View",
-        "generation": "GEN3", "status": "GOVERNED_RESEARCH_DATASET", "selectable": True,
-        "logicalContentSha256": reg["research"]["logicalContentSha256"], "physicalParquetSha256": reg["research"]["physicalParquetSha256"],
-        "objectPath": str(GEN3_ROOT / "objects" / "sha256" / reg["research"]["logicalContentSha256"] / "research.parquet"),
+        "datasetVersionId": reg["registrationId"], "label": "MLB Gen-3 Base Research View (2021-2024)",
+        "generation": "GEN3", "objectKind": "research", "status": "GOVERNED_RESEARCH_DATASET", "selectable": True,
+        "logicalContentSha256": r["logicalContentSha256"], "physicalParquetSha256": r["physicalParquetSha256"],
+        "schemaSha256": r.get("schemaSha256"), "objectPath": _object_path(GEN3_ROOT, r["logicalContentSha256"], "research"),
+        "contractBundleSha256": reg["contractBundleSha256"], "contracts": reg["contracts"],
         "seasons": [2021, 2022, 2023, 2024], "developmentSeasons": [2021, 2022, 2023], "validationSeason": 2024,
-        "sealedSeasons": [2025], "developmentRows": 547_835, "validationRows": 182_449, "sealedRows": reg["sealed2025"]["rows"],
-        "rows": reg["research"]["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
-        "contractBundleSha256": reg["contractBundleSha256"], "quarantineLedgerSha256": reg["quarantineLedgerSha256"],
-        "quarantineTotal": reg["quarantineTotal"], "sourceDatasetId": GC.PARENT_DATASET_ID,
+        "sealedSeasons": [2025],
+        "developmentRows": ps.get(2021, 0) + ps.get(2022, 0) + ps.get(2023, 0),
+        "validationRows": ps.get(2024, 0), "sealedRows": reg["sealed2025"]["rows"], "perSeasonRows": ps,
+        "rows": r["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
+        "quarantineLedgerSha256": reg.get("quarantineLedgerSha256"), "quarantineTotal": reg.get("quarantineTotal"),
+        "sourceDatasetId": GC.PARENT_DATASET_ID,
     }
+    s = reg["sealed2025"]
     sealed = {
-        "datasetVersionId": f"mlb-pa-gen3-sealed-2025:sha256:{reg['sealed2025']['logicalContentSha256']}",
-        "label": "MLB Gen-3 Sealed 2025 OOT Evidence", "generation": "GEN3_SEALED",
-        "status": "SEALED_OOT_RESTRICTED", "selectable": False,
-        "logicalContentSha256": reg["sealed2025"]["logicalContentSha256"], "seasons": [2025],
-        "developmentSeasons": [], "validationSeason": None, "sealedSeasons": [2025], "rows": reg["sealed2025"]["rows"],
-        "target": "outcome", "restriction": "NOT selectable for ordinary development; structural registration/lineage only",
+        "datasetVersionId": f"mlb-pa-gen3-sealed-2025:sha256:{s['logicalContentSha256']}",
+        "label": "MLB Gen-3 Sealed 2025 OOT Evidence", "generation": "GEN3_SEALED", "objectKind": "sealed-2025",
+        "status": "SEALED_OOT_RESTRICTED", "selectable": False, "logicalContentSha256": s["logicalContentSha256"],
+        "seasons": [2025], "developmentSeasons": [], "validationSeason": None, "sealedSeasons": [2025],
+        "rows": s["rows"], "target": "outcome",
+        "restriction": "NOT selectable for ordinary development; structural registration/lineage only",
     }
     return [research, sealed]
 
 
 def catalog() -> list[dict[str, Any]]:
-    return [_gen2_catalog_entry(), *_gen3_catalog_entries()]
+    """The canonical modeling-dataset catalog, resolved ONLY from immutable registrations. It opens no
+    modeling or sealed object and reads no target rows (Gate 4/7)."""
+    return [*_gen2_catalog_entries(), *_gen3_catalog_entries()]
 
 
 def register_gen3() -> dict[str, Any]:
-    """Explicit registry write (admin/build action). The catalog is READ from the registry by consumers."""
-    reg = _read_json(ASP_REGISTRY) if ASP_REGISTRY.is_file() else {"datasets": []}
-    existing = {d.get("datasetVersionId") for d in reg.get("datasets", [])}
-    for entry in catalog():
-        if entry["datasetVersionId"] not in existing:
-            reg["datasets"].append({k: v for k, v in entry.items() if k != "objectPath"})
+    """Explicit canonical-registry write (admin/build action). Consumers resolve dataset versions from the
+    per-generation registrations (`catalog()`); this snapshot is the authoritative external listing and is
+    rewritten to EXACTLY the current catalog. Superseded/lineage objects remain immutable on disk but are
+    not resolvable by any ordinary route (Gate 1/4)."""
+    reg = {"schemaVersion": "ASP_DATASET_REGISTRY_V2",
+           "updatedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "datasets": [{k: v for k, v in entry.items() if k != "objectPath"} for entry in catalog()]}
     _write_json_atomic(ASP_REGISTRY, reg)
     return {"registered": [d["datasetVersionId"] for d in reg["datasets"]]}
 
@@ -186,27 +220,87 @@ def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     raise AuthorityError(f"dataset version not found in registry: {dataset_version_id}")
 
 
-# --------------------------------------------------------------------------- object integrity (A2-05)
+# --------------------------------------------------------------------------- physical sealed-data policy (Gate 7)
+def _reject_sealed_target_read(entry: Mapping[str, Any]) -> None:
+    """Ordinary scientist execution/catalog resolvers may NEVER open a sealed object's target rows. Only an
+    explicit admin/build authority (the publisher) reads sealed target data."""
+    gen = str(entry.get("generation", ""))
+    if gen.endswith("_SEALED") or not entry.get("selectable", False) or not entry.get("objectPath"):
+        raise AuthorityError("SEAL VIOLATION: ordinary resolver may not open a sealed / non-selectable object")
+
+
+# --------------------------------------------------------------------------- object integrity (Gate 6: complete receipt verification)
+_VERIFIED_OBJECT_CACHE: dict[tuple, dict[str, Any]] = {}
+
+
 def _verify_object(entry: Mapping[str, Any]) -> tuple[Path, dict[str, Any]]:
-    """Verify the exact registered content-addressed object before it is opened. Returns (path, receipt)."""
-    path = _record_open(entry["objectPath"]) if entry.get("objectPath") else None
-    if path is None or not path.is_file() or path.is_symlink():
+    """Independently verify the exact registered content-addressed RESEARCH object before its modeling rows
+    are used. Fail-closed before any row is returned (Gate 6): path/link escape, physical SHA,
+    publisher-compatible schema SHA (incl. nullability), round-trip-stable LOGICAL content SHA, embedded
+    Parquet identity metadata (object kind / bundle / logical sha), generation-correct contract bundle and
+    all contract ids, row count, exact season set (no sealed season leaked), target column, and governed
+    feature names. Ordinary callers may only verify research objects (Gate 7). Verified receipts are cached
+    by (resolved path, file stat, expected logical sha); any file change invalidates the cache."""
+    from ..sports_modeling.gen3_publish import logical_content_sha as _pub_logical, _schema_sha as _pub_schema
+    _reject_sealed_target_read(entry)
+    path = Path(entry["objectPath"])
+    if path.is_symlink() or not path.is_file():
         raise AuthorityError("registered object missing or is a link")
+    st = path.stat()
+    cache_key = (str(path.resolve()), st.st_mtime_ns, st.st_size, entry["logicalContentSha256"])
+    cached = _VERIFIED_OBJECT_CACHE.get(cache_key)
+    if cached is not None:
+        _record_open(path)  # record the authorized (cached) open for instrumentation
+        return path, dict(cached)
+    _record_open(path)
     physical = hashlib.sha256(path.read_bytes()).hexdigest()
     if entry.get("physicalParquetSha256") and physical != entry["physicalParquetSha256"]:
         raise AuthorityError("registered object bytes differ from the registry receipt (tampered)")
-    schema = pq.read_schema(path)
-    md = pq.read_metadata(path)
-    rows = int(md.num_rows)
+    table = pq.read_table(path)
+    md = table.schema.metadata or {}
+    rows = table.num_rows
     if entry.get("rows") and rows != entry["rows"]:
         raise AuthorityError("registered object row count differs from the registry")
-    seasons = sorted(set(int(s) for s in pq.read_table(path, columns=["season"])["season"].to_pylist()))
-    if seasons != sorted(set(entry["seasons"])):
+    schema_sha = _pub_schema(table)
+    if entry.get("schemaSha256") and schema_sha != entry["schemaSha256"]:
+        raise AuthorityError("registered object schema digest differs from the registry")
+    bundle = entry.get("contractBundleSha256") or GC.contract_bundle_sha_for(entry["generation"])
+    logical = _pub_logical(table.replace_schema_metadata(None), contract_bundle_sha=bundle, schema_sha=schema_sha)
+    if logical != entry["logicalContentSha256"]:
+        raise AuthorityError("registered object LOGICAL content sha does not verify (tampered/mismatched)")
+
+    def _m(k: str) -> str:
+        return (md.get(k.encode()) or b"").decode()
+    if _m("logicalContentSha256") and _m("logicalContentSha256") != entry["logicalContentSha256"]:
+        raise AuthorityError("embedded logicalContentSha256 disagrees with the registry")
+    if _m("contractBundleSha256") and _m("contractBundleSha256") != bundle:
+        raise AuthorityError("embedded contractBundleSha256 disagrees with the registry")
+    if _m("objectKind") and entry.get("objectKind") and _m("objectKind") != entry["objectKind"]:
+        raise AuthorityError("embedded objectKind disagrees with the registry")
+    if bundle != GC.contract_bundle_sha_for(entry["generation"]):
+        raise AuthorityError("registered contract bundle is not the generation-correct bundle")
+    contracts = GC.contracts_for_generation(entry["generation"])
+    if entry.get("contracts"):
+        for name, cid in {k: v["id"] for k, v in contracts.items()}.items():
+            if entry["contracts"].get(name) != cid:
+                raise AuthorityError(f"registered contract '{name}' is not the generation-correct identity")
+    seasons = sorted(set(int(s) for s in table.column("season").to_pylist())) if "season" in table.schema.names else []
+    if entry.get("seasons") and seasons != sorted(set(entry["seasons"])):
         raise AuthorityError("registered object season set differs from the registry")
-    schema_sha = sha256_bytes(canonical_json_bytes([{"name": f.name, "type": str(f.type)} for f in schema]))
-    receipt = {"physicalParquetSha256": physical, "logicalContentSha256": entry["logicalContentSha256"],
-               "schemaSha256": schema_sha, "rows": rows, "seasons": seasons, "generation": entry["generation"],
+    leaked = set(int(s) for s in (entry.get("sealedSeasons") or [])) & set(seasons)
+    if leaked:
+        raise AuthorityError(f"SEAL VIOLATION: sealed season(s) {sorted(leaked)} present in a research object")
+    names = set(table.schema.names)
+    if "outcome" not in names:
+        raise AuthorityError("target column 'outcome' absent from the registered object")
+    missing = [f for f in FEATURE_NAMES if f not in names]
+    if missing:
+        raise AuthorityError(f"registered object missing governed feature columns: {missing[:5]}")
+    receipt = {"physicalParquetSha256": physical, "logicalContentSha256": logical, "schemaSha256": schema_sha,
+               "contractBundleSha256": bundle, "objectKind": entry.get("objectKind"), "rows": rows,
+               "seasons": seasons, "generation": entry["generation"], "featureCount": len(FEATURE_NAMES),
                "verifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    _VERIFIED_OBJECT_CACHE[cache_key] = dict(receipt)
     return path, receipt
 
 
@@ -293,10 +387,11 @@ def binding_population(*, project_id: str) -> dict[str, Any] | None:
         {"stage": f"Validation ({entry['validationSeason']})", "rows": val_rows, "kind": "validation"},
         {"stage": f"Sealed ({','.join(str(s) for s in entry['sealedSeasons'])})", "rows": int(entry.get("sealedRows") or 0), "kind": "sealed"},
     ]
+    # Gate 23: per-season rows are the REGISTERED receipts, never fabricated by equal division.
+    per_season = {int(k): int(v) for k, v in (entry.get("perSeasonRows") or {}).items()}
     seasons = [
-        *[{"season": s, "role": "DEVELOPMENT", "rows": dev_rows // max(1, len(entry["developmentSeasons"]))}
-          for s in entry["developmentSeasons"]],
-        {"season": entry["validationSeason"], "role": "VALIDATION", "rows": val_rows},
+        *[{"season": s, "role": "DEVELOPMENT", "rows": per_season.get(int(s))} for s in entry["developmentSeasons"]],
+        {"season": entry["validationSeason"], "role": "VALIDATION", "rows": per_season.get(int(entry["validationSeason"]), val_rows)},
         *[{"season": s, "role": "SEALED", "rows": None} for s in entry["sealedSeasons"]],   # sealed rows not exposed as a modeling season
     ]
     return {
@@ -453,7 +548,88 @@ def _load_authorized_frame(path: Path):
     table = pq.read_table(_record_open(path), columns=cols)
     seasons = np.asarray(table["season"].to_pylist(), dtype=np.int64)
     fv = {n: np.asarray(table[n].to_pylist(), dtype=np.float64) for n in FEATURE_NAMES}
-    return fv, seasons, np.asarray(table["outcome"].to_pylist(), dtype=object), np.asarray(table["game_date"].to_pylist(), dtype=object)
+    ids = np.asarray(table["plate_appearance_id"].to_pylist(), dtype=object)
+    return (fv, seasons, np.asarray(table["outcome"].to_pylist(), dtype=object),
+            np.asarray(table["game_date"].to_pylist(), dtype=object), ids)
+
+
+def _write_evidence_bundle(*, project_id: str, run_id: str, proba, val_labels, val_encoded, val_ids, val_dates,
+                           full_metrics: Mapping[str, Any], model_artifact: Mapping[str, Any],
+                           preprocessor_state: Mapping[str, Any]) -> dict[str, Any]:
+    """Persist the immutable, independently-recomputable MODEL_RUN_EVIDENCE_BUNDLE_V1 (Gate 16). Children:
+    validation predictions (raw float64), validation target + row identifiers, full diagnostics
+    (confusion / per-class / reliability), the fitted preprocessor state, and the model artifact
+    (logistic: full coefficients; tree ensemble: structural params). No 2025 row/prediction/metric appears
+    — only the authorized 2024 validation fold is persisted."""
+    bdir = _state(project_id, "evidence", run_id)
+    bdir.mkdir(parents=True, exist_ok=True)
+    pred_bytes = np.ascontiguousarray(proba, dtype=np.float64).tobytes()
+    pred_sha = hashlib.sha256(pred_bytes).hexdigest()
+    (bdir / "validation_predictions.f64").write_bytes(pred_bytes)
+    val_target = {"schemaVersion": "MODEL_RUN_VALIDATION_TARGET_V1", "validationSeason": 2024,
+                  "rowIds": [str(x) for x in val_ids], "gameDates": [str(x) for x in val_dates],
+                  "labels": [str(x) for x in val_labels], "encoded": [int(x) for x in val_encoded],
+                  "classOrder": list(PA_CLASS_ORDER)}
+    vt_bytes = canonical_json_bytes(val_target); vt_sha = sha256_bytes(vt_bytes)
+    (bdir / "validation_target.json").write_bytes(vt_bytes)
+    diag_bytes = canonical_json_bytes(full_metrics); diag_sha = sha256_bytes(diag_bytes)
+    (bdir / "diagnostics.json").write_bytes(diag_bytes)
+    pre_bytes = canonical_json_bytes(dict(preprocessor_state)); pre_sha = sha256_bytes(pre_bytes)
+    (bdir / "preprocessor.json").write_bytes(pre_bytes)
+    model_bytes = canonical_json_bytes(dict(model_artifact)); model_sha = sha256_bytes(model_bytes)
+    (bdir / "model.json").write_bytes(model_bytes)
+    children = {
+        "predictions": {"file": "validation_predictions.f64", "sha256": pred_sha, "dtype": "float64",
+                        "shape": [int(proba.shape[0]), int(proba.shape[1])]},
+        "validationTarget": {"file": "validation_target.json", "sha256": vt_sha, "rows": int(len(val_ids))},
+        "diagnostics": {"file": "diagnostics.json", "sha256": diag_sha},
+        "preprocessor": {"file": "preprocessor.json", "sha256": pre_sha},
+        "model": {"file": "model.json", "sha256": model_sha},
+    }
+    manifest = {"schemaVersion": "MODEL_RUN_EVIDENCE_BUNDLE_V1", "runId": run_id, "children": children,
+                "predictionSha256": pred_sha, "validationTargetSha256": vt_sha, "diagnosticsSha256": diag_sha,
+                "preprocessorSha256": pre_sha, "modelSha256": model_sha}
+    man_bytes = canonical_json_bytes(manifest); man_sha = sha256_bytes(man_bytes)
+    (bdir / "evidence-manifest.json").write_bytes(man_bytes)
+    manifest["manifestSha256"] = man_sha
+    return manifest
+
+
+def load_evidence_diagnostics(*, project_id: str, run_id: str) -> dict[str, Any]:
+    """Downstream (Evaluation/Calibration) resolves full immutable diagnostics from the evidence bundle by
+    run id — never a browser result. Verifies each child's sha before returning (checksum-before-use)."""
+    if not _OPAQUE_RE.match(run_id or ""):
+        raise AuthorityError("invalid run id")
+    bdir = _state(project_id, "evidence", run_id)
+    man_path = bdir / "evidence-manifest.json"
+    if not man_path.is_file():
+        raise AuthorityError("evidence bundle not found for run")
+    manifest = _read_json(man_path)
+    diag_path = bdir / manifest["children"]["diagnostics"]["file"]
+    diag_bytes = diag_path.read_bytes()
+    if sha256_bytes(diag_bytes) != manifest["diagnosticsSha256"]:
+        raise AuthorityError("evidence diagnostics failed checksum verification")
+    return {"manifest": manifest, "diagnostics": json.loads(diag_bytes.decode("utf-8"))}
+
+
+def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, Any]:
+    """Independently recompute the 2024 validation log loss from the persisted prediction + target artifacts
+    (Gate 29 acceptance) — not from any stored metric JSON. Verifies child checksums first."""
+    from sklearn.metrics import log_loss
+    bdir = _state(project_id, "evidence", run_id)
+    manifest = _read_json(bdir / "evidence-manifest.json")
+    pred_meta = manifest["children"]["predictions"]
+    pred_bytes = (bdir / pred_meta["file"]).read_bytes()
+    if hashlib.sha256(pred_bytes).hexdigest() != manifest["predictionSha256"]:
+        raise AuthorityError("prediction artifact failed checksum verification")
+    proba = np.frombuffer(pred_bytes, dtype=np.float64).reshape(pred_meta["shape"])
+    vt_bytes = (bdir / manifest["children"]["validationTarget"]["file"]).read_bytes()
+    if sha256_bytes(vt_bytes) != manifest["validationTargetSha256"]:
+        raise AuthorityError("validation target artifact failed checksum verification")
+    vt = json.loads(vt_bytes.decode("utf-8"))
+    encoded = np.asarray(vt["encoded"], dtype=np.int64)
+    ll = float(log_loss(encoded, proba, labels=list(range(len(PA_CLASS_ORDER)))))
+    return {"recomputedLogLoss": ll, "validationRows": int(len(encoded)), "runId": run_id}
 
 
 def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
@@ -462,7 +638,7 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
     dev_seasons = list(authority["developmentSeasons"]); val_season = int(authority["validationSeason"])
     sealed = set(entry.get("sealedSeasons") or [])
 
-    fv, seasons, labels, dates = _load_authorized_frame(path)
+    fv, seasons, labels, dates, ids = _load_authorized_frame(path)
     seasons_in_object = sorted(set(int(s) for s in seasons))
     if entry["generation"] != "GEN2" and (sealed & set(seasons_in_object)):
         raise AuthorityError("sealed season present in a research object")
@@ -498,6 +674,11 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
             raise AuthorityError("FAIL-CLOSED: logistic did not converge on full development fold")
         proba = est.predict_proba(pre.transform(fv, val_mask))
         model_repr = {"estimator": "LogisticRegression", "C": c_star, "coefShape": list(est.coef_.shape)}
+        # Full fitted-estimator artifact (Gate 16E) — coefficients enable independent reconstruction.
+        model_artifact = {"estimator": "LogisticRegression", "penalty": "l2", "solver": "lbfgs",
+                          "C": float(c_star), "maxIter": DEFAULT_MAX_ITER, "tol": DEFAULT_TOLERANCE,
+                          "classes": [int(x) for x in est.classes_], "featureOrder": list(FEATURE_NAMES),
+                          "coef": est.coef_.tolist(), "intercept": est.intercept_.tolist()}
         convergence = {"solver": "lbfgs", "converged": True, "nIter": n_iter, "maxIter": DEFAULT_MAX_ITER, "selectedC": c_star}
     else:
         eff = authority["effectiveHyperparameters"]
@@ -507,6 +688,12 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
         est.fit(pre.transform(fv, dev_mask), encoded[dev_mask])
         proba = np.zeros((int(val_mask.sum()), len(PA_CLASS_ORDER))); proba[:, est.classes_] = est.predict_proba(pre.transform(fv, val_mask))
         model_repr = {"estimator": "HistGradientBoostingClassifier", "nIter": int(est.n_iter_)}
+        # Structural estimator artifact (Gate 16E) — a tree ensemble has no closed-form coefficients; the
+        # persisted validation predictions are the authoritative independently-recomputable artifact.
+        model_artifact = {"estimator": "HistGradientBoostingClassifier", "maxIter": int(eff["maxIter"]),
+                          "learningRate": float(eff["learningRate"]), "maxDepth": eff.get("maxDepth"),
+                          "randomState": int(authority["seed"]), "nIter": int(est.n_iter_),
+                          "classes": [int(x) for x in est.classes_], "featureOrder": list(FEATURE_NAMES)}
         convergence = {"earlyStopping": False, "nIter": int(est.n_iter_), "maxIter": int(eff["maxIter"])}
 
     metrics = evaluate_multiclass(labels[val_mask], proba)
@@ -516,7 +703,21 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
     model_fp = sha256_bytes(canonical_json_bytes(model_repr))
     pred_fp = hashlib.sha256(np.ascontiguousarray(proba, dtype=np.float64).tobytes()).hexdigest()
     metric_fp = sha256_bytes(canonical_json_bytes(scalar_metrics))
+    # Gate 15 — recheck code/environment AFTER the fit and BEFORE publishing evidence. A worktree/env that
+    # drifted during the fit fails closed (FAILED_STALE_AUTHORITY); no COMPLETE evidence is written.
     code = _code_identity()
+    if code["codeRevision"] != authority["codeRevision"] or code["worktreeContentSha256"] != authority["worktreeContentSha256"] \
+            or _env_sha() != authority["environmentSha256"]:
+        _write_json_atomic(_state(project_id, "runs", f"{run_id}.json"),
+                           {"schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1", "experimentRunId": run_id,
+                            "runAuthorityId": authority["runAuthorityId"], "projectId": project_id,
+                            "status": "FAILED_STALE_AUTHORITY", "failureClass": "CODE_OR_ENVIRONMENT_DRIFT_DURING_FIT",
+                            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        raise StaleAuthorityError("code/worktree/environment drifted during the fit; run failed closed")
+    # Gate 16 — persist the complete immutable, independently-recomputable evidence bundle.
+    bundle = _write_evidence_bundle(project_id=project_id, run_id=run_id, proba=proba, val_labels=labels[val_mask],
+                                    val_encoded=encoded[val_mask], val_ids=ids[val_mask], val_dates=dates[val_mask],
+                                    full_metrics=metrics, model_artifact=model_artifact, preprocessor_state=pre.state())
     # A2-10 — complete authority + receipt echo. Every id + sha the run authority carries is echoed.
     evidence = {
         "schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1", "experimentRunId": run_id, "runAuthorityId": authority["runAuthorityId"],
@@ -537,6 +738,9 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
         "seed": authority["seed"], "classOrder": list(PA_CLASS_ORDER), "convergence": convergence,
         "preprocessorFingerprint": preproc_fp, "modelFingerprint": model_fp, "predictionFingerprint": pred_fp,
         "metricFingerprint": metric_fp, "metrics": scalar_metrics, "runtimeSeconds": round(time.time() - t0, 2),
+        "evidenceBundleSha256": bundle["manifestSha256"], "predictionSha256": bundle["predictionSha256"],
+        "validationTargetSha256": bundle["validationTargetSha256"], "diagnosticsSha256": bundle["diagnosticsSha256"],
+        "modelSha256": bundle["modelSha256"], "preprocessorSha256": bundle["preprocessorSha256"],
         "codeRevision": code["codeRevision"], "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": _env_sha(),
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "COMPLETE",
     }
@@ -630,3 +834,34 @@ def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
         raise AuthorityError("active candidate parent fingerprints do not verify")
     return {**act, "run": {k: run[k] for k in ("experimentRunId", "runAuthorityId", "datasetVersionId", "generation",
                                                "developmentSeasons", "validationSeason", "metrics", "objectReceipt")}}
+
+
+def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 18/19 — Evaluation and Calibration resolve the project's ACTIVE CANDIDATE and its immutable
+    2024-validation evidence bundle (full diagnostics: metrics, confusion, per-class, reliability), plus an
+    INDEPENDENT log-loss recomputation from the persisted prediction/target artifacts. No browser result and
+    no 2025 row is involved. Returns None when no candidate is active."""
+    act = get_active_candidate(project_id=project_id)
+    if act is None:
+        return None
+    run_id = act["experimentRunId"]
+    run = get_run(project_id=project_id, run_id=run_id)
+    bundle = load_evidence_diagnostics(project_id=project_id, run_id=run_id)
+    recomputed = recompute_validation_logloss(project_id=project_id, run_id=run_id)
+    diagnostics = bundle["diagnostics"]
+    # calibrator artifact is not fit in this phase — Calibration shows RAW diagnostics, CALIBRATOR NOT CONFIGURED
+    return {
+        "runId": run_id, "runAuthorityId": run["runAuthorityId"], "generation": run["generation"],
+        "datasetVersionId": run["datasetVersionId"], "datasetContentSha256": run["datasetContentSha256"],
+        "developmentSeasons": run["developmentSeasons"], "developmentRows": run.get("developmentRows"),
+        "validationSeason": run["validationSeason"], "validationRows": run.get("validationRows"),
+        "modelFamily": run["modelFamily"], "featureCount": run.get("objectReceipt", {}).get("featureCount"),
+        "preprocessingContractId": run.get("preprocessingContractId"),
+        "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
+        "evidenceBundleSha256": run.get("evidenceBundleSha256"), "predictionSha256": run.get("predictionSha256"),
+        "diagnosticsSha256": run.get("diagnosticsSha256"), "resultFingerprint": act.get("resultFingerprint"),
+        "metrics": run["metrics"], "diagnostics": diagnostics,
+        "independentRecomputedLogLoss": recomputed["recomputedLogLoss"],
+        "recomputationMatchesStored": abs(recomputed["recomputedLogLoss"] - float(run["metrics"]["logLoss"])) < 1e-9,
+        "validationLabel": "2024 validation (2025 sealed — never scored)",
+    }

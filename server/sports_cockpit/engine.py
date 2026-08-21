@@ -67,7 +67,9 @@ FEATURE_VIEW_GLOB = str(
 DEV_SEASON = 2023
 VAL_SEASON = 2024
 FROZEN_SEASON = 2025
-TARGET_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)
+# Phase 7C: the ordinary engine frame is research-only (2023 dev + 2024 val). 2025 is sealed and is never
+# a target season for any legacy in-process route (no target distribution, preview, or scoring).
+TARGET_SEASONS = (DEV_SEASON, VAL_SEASON)
 
 # Phase 6E.1 — full registered source-evidence authority. Counts and season roles are read from the
 # governed FD1 dataset manifest `seasons` block (2021-2022 = PRIOR_ONLY_HISTORY, 2023-2025 =
@@ -162,14 +164,33 @@ _FRAME_LOCK = threading.Lock()
 _FRAME_CACHE: dict[str, Any] = {}
 
 
+# Phase 7C Gate 7/23 — the legacy in-process engine reads the PHYSICALLY SEPARATED Gen-2 RESEARCH object
+# (2023 development + 2024 validation only). The combined 2023-2025 object is never opened by any ordinary
+# scientist route; the sealed 2025 season is not resident in this frame. The old combined object remains as
+# immutable lineage but is retired from the ordinary resolver.
+GEN2_RESEARCH_REGISTRATION = (
+    RUNTIME_ROOT / "sports-modeling" / "mlb-pa-gen2-v1" / "registration.json"
+)
+
+
 def _feature_view_path() -> Path:
-    matches = sorted(glob.glob(FEATURE_VIEW_GLOB, recursive=True))
-    if not matches:
+    """Resolve the immutable Gen-2 RESEARCH object (2023-2024) from its registration — not the combined
+    2023-2025 object. Fail closed if the research object is not published."""
+    import json
+
+    if not GEN2_RESEARCH_REGISTRATION.is_file():
         raise CockpitError(
-            "D3 feature view is not materialized; expected mlb-pa-feature-view-v1.parquet "
-            "under .runtime/asp-model-studio/sports-modeling/mlb-pa-v1."
+            "Gen-2 research object is not published; run scripts/phase7c_publish_gen2.py "
+            "(the combined 2023-2025 object is retired from ordinary reads)."
         )
-    return Path(matches[0])
+    reg = json.loads(GEN2_RESEARCH_REGISTRATION.read_text(encoding="utf-8"))
+    sha = reg["research"]["logicalContentSha256"]
+    path = (
+        RUNTIME_ROOT / "sports-modeling" / "mlb-pa-gen2-v1" / "objects" / "sha256" / sha / "gen2-research.parquet"
+    )
+    if not path.is_file():
+        raise CockpitError("registered Gen-2 research object is missing")
+    return path
 
 
 def load_frame() -> pd.DataFrame:

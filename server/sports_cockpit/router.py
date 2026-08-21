@@ -37,6 +37,18 @@ def _actor(user: dict) -> str:
     return str(user.get("email") or user.get("userId") or user.get("id") or "unknown")
 
 
+# Phase 7C Gate 11/26 — legacy binding-free model execution and 2025-scoring endpoints are RETIRED. They
+# had no project ACL, no active binding, no run authority, and scored the sealed 2025 season. All scientist
+# model execution now flows exclusively through the server-authorized Gen-3 path (/cockpit/gen3/*).
+_RETIRED_DETAIL = ("This endpoint was retired by the canonical authority cutover (Phase 7C). "
+                   "Model execution now flows exclusively through the server-authorized run path "
+                   "(/cockpit/gen3/bind -> run-authority -> execute -> activate); 2025 is sealed.")
+
+
+def _gone(detail: str | None = None):
+    raise HTTPException(status_code=410, detail=detail or _RETIRED_DETAIL)
+
+
 @router.get("/cockpit/objective")
 def objective() -> dict[str, Any]:
     return _guard(E.objective_payload)
@@ -54,6 +66,10 @@ def profile(force: bool = False) -> dict[str, Any]:
 
 @router.get("/cockpit/data-preview")
 def data_preview(season: int | None = None, limit: int = 25, sample: str = "head") -> dict[str, Any]:
+    # Gate 22: the preview reads the research object only (2023-2024). The sealed 2025 season is never
+    # previewable — even a request for it is refused, and no 2025 row is resident in the engine frame.
+    if season is not None and int(season) == E.FROZEN_SEASON:
+        raise HTTPException(status_code=410, detail="2025 is sealed; preview is restricted to research seasons (2023-2024).")
     return _guard(E.data_preview, season=season, limit=limit, sample=sample)
 
 
@@ -103,9 +119,10 @@ def temporal_split() -> dict[str, Any]:
              "warning": "NOT RECOMMENDED FOR TEMPORAL SPORTS FORECASTING"},
         ],
         "folds": [
-            {"role": "development", "seasons": [E.DEV_SEASON], "rows": next(s["rows"] for s in pop["perSeason"] if s["season"] == E.DEV_SEASON)},
-            {"role": "validation", "seasons": [E.VAL_SEASON], "rows": next(s["rows"] for s in pop["perSeason"] if s["season"] == E.VAL_SEASON)},
-            {"role": "frozen_final", "seasons": [E.FROZEN_SEASON], "rows": next(s["rows"] for s in pop["perSeason"] if s["season"] == E.FROZEN_SEASON)},
+            {"role": "development", "seasons": [E.DEV_SEASON], "rows": next((s["rows"] for s in pop["perSeason"] if s["season"] == E.DEV_SEASON), None)},
+            {"role": "validation", "seasons": [E.VAL_SEASON], "rows": next((s["rows"] for s in pop["perSeason"] if s["season"] == E.VAL_SEASON), None)},
+            # 2025 is a SEALED fold: it is never resident in the research frame; its row count is not exposed here.
+            {"role": "frozen_final", "seasons": [E.FROZEN_SEASON], "rows": None, "state": "SEALED"},
         ],
         "leakageGuards": [
             {"guard": "Frozen 2025 excluded from fitting/tuning/selection", "status": "ENFORCED"},
@@ -142,25 +159,23 @@ def model_families() -> dict[str, Any]:
 
 @router.get("/cockpit/champion")
 def champion() -> dict[str, Any]:
-    return _guard(M.champion_baseline)
+    # Retired: reproduced the champion by fitting and scoring 2025 on the combined object.
+    return _gone()
 
 
 @router.post("/cockpit/experiment/run")
 def experiment_run(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    return _guard(M.run_experiment, config)
+    return _gone()
 
 
 @router.get("/cockpit/experiments")
 def experiments() -> dict[str, Any]:
-    return {"experiments": _guard(M.list_experiments), "champion": _guard(M.champion_baseline)}
+    return _gone()
 
 
 @router.get("/cockpit/experiments/{experiment_id}")
 def experiment(experiment_id: str) -> dict[str, Any]:
-    rec = _guard(M.get_experiment, experiment_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="experiment not found")
-    return rec
+    return _gone()
 
 
 # ---------------------------------------------------------------- Gen-3 server authority (Phase 7A.1/7A.3)
@@ -253,37 +268,46 @@ def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -
     return c
 
 
+@router.get("/cockpit/gen3/evaluation/{project_id}")
+def gen3_evaluation(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    # Gate 18/19 — Evaluation/Calibration consume the active candidate's immutable 2024-validation evidence
+    # bundle (full diagnostics + independent log-loss recomputation). Never a browser result; never 2025.
+    pid = authorize_modeling_scope(user, project_id, "view")
+    ev = _guard(G3A.active_candidate_evaluation, project_id=pid)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return ev
+
+
+@router.get("/cockpit/gen3/recompute/{project_id}/{run_id}")
+def gen3_recompute(project_id: str, run_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    # Independent validation log-loss recomputation from the persisted prediction/target artifacts (Gate 29).
+    pid = authorize_modeling_scope(user, project_id, "view")
+    return _guard(G3A.recompute_validation_logloss, project_id=pid, run_id=run_id)
+
+
 @router.post("/cockpit/autopilot")
 def autopilot(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    config = payload.get("config") or {}
-    budget = payload.get("budget", "standard")
-    if budget not in ("quick", "standard", "deep"):
-        raise HTTPException(status_code=422, detail="budget must be quick, standard, or deep")
-    return _guard(M.run_autopilot, config, budget)
+    # Retired: binding-free autopilot scored 2025. Use the authorized /cockpit/gen3/run-suite.
+    return _gone()
 
 
 @router.post("/cockpit/simulate")
 def simulate(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
-    config = payload.get("config") or {}
-    season = int(payload.get("season", E.VAL_SEASON))
-    n_games = int(payload.get("nGames", 60))
-    n_sims = int(payload.get("nSims", 200))
-    mode = str(payload.get("mode", "quick")).lower()
-    if mode == "full":
-        return _guard(S.simulate_full_impact, config, season=season, n_games=n_games, n_sims=n_sims)
-    return _guard(S.simulate_impact, config, season=season, n_games=n_games, n_sims=n_sims)
+    # Retired: binding-free whole-game simulation accepted the sealed 2025 season and used local config.
+    return _gone("Authoritative simulation impact is not configured for this candidate. The legacy "
+                 "binding-free simulator (which accepted 2025) was retired by the Phase 7C cutover.")
 
 
 @router.post("/cockpit/eligibility")
 def eligibility(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from . import provider as PROV
-    return _guard(PROV.simulator_eligibility, config)
+    # Retired with the legacy simulator (fed it a binding-free config).
+    return _gone()
 
 
 @router.post("/cockpit/provider/verify")
 def provider_verify(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    from . import provider as PROV
-    return _guard(PROV.verify_fold_reproduces_model, config)
+    return _gone()
 
 
 @router.get("/cockpit/segmentation/summary")
@@ -352,7 +376,9 @@ def feature_profile_engineered(spec: dict[str, Any] = Body(...)) -> dict[str, An
 
 @router.post("/cockpit/feature/ablation")
 def feature_ablation(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    return _guard(M.run_ablation, payload)
+    # Retired (Gate 21): the legacy ablation fit two models and used the sealed-2025 delta in its verdict.
+    return _gone("Feature ablation is not configured on the canonical authority in this phase. The legacy "
+                 "ablation (which scored 2025 and used it in the verdict) was retired by the Phase 7C cutover.")
 
 
 @router.get("/cockpit/feature-catalog")
