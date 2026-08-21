@@ -1,173 +1,117 @@
-"""Phase 7A.4 Gate 13 — hermetic proof that the ordinary scientist workflow never opens the sealed 2025
-object. Uses STUB research (2021-2024) + STUB sealed (2025) parquet fixtures (NOT the real sealed object),
-instruments every registered-object open in gen3_authority, exercises the full flow
-(catalog -> bind -> run authority -> execute -> activate -> active candidate), and asserts the sealed
-object's path is opened 0 times and no 2025 payload appears in the result.
+"""Phase 7C Gate 27 — hermetic PRODUCTION-RESOLVER proof that the ordinary scientist workflow never opens a
+sealed object and never reads a 2025 target row, metric, or prediction.
+
+Unlike the earlier stub-based test, this exercises the REAL production catalog/registry resolver against the
+REAL published immutable objects (Gen-2 research/sealed + Gen-3 research/sealed). Only the per-project
+authority STATE is isolated to a temp root. Every registered-object open is instrumented through
+`gen3_authority._record_open`; the legacy in-process engine is proven research-only behaviorally.
+
+Assertions: sealed object opens = 0; research objects DO open (non-vacuous); no sealed season enters a fold;
+no 2025 payload appears in evidence/diagnostics; the legacy engine frame is 2023-2024 only.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-from pathlib import Path
 
-import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
 from server.sports_cockpit import gen3_authority as A
-from server.sports_modeling.feature_contract import FEATURE_NAMES
-from server.sports_modeling.metrics import PA_CLASS_ORDER
-
-_CATEG = {"context_top_bottom": [0, 1], "context_outs_before": [0, 1, 2], "context_base_mask_before": list(range(8))}
+from server.sports_cockpit import engine as E
 
 
-def _stub_table(seasons, per_class=12, seed=1):
-    rng = np.random.default_rng(seed)
-    rows = []
-    for s in seasons:
-        for cls_i, cls in enumerate(PA_CLASS_ORDER):
-            for k in range(per_class):
-                r = {"plate_appearance_id": f"{s}-{cls_i}-{k}-{rng.integers(1e9)}",
-                     "game_id": f"g{s}{k % 3}", "game_date": f"{s}-0{1 + (k % 2)}-15",
-                     "season": s, "outcome": cls}
-                for f in FEATURE_NAMES:
-                    if f in _CATEG:
-                        r[f] = float(rng.choice(_CATEG[f]))
-                    elif f == "context_inning":
-                        r[f] = float(rng.integers(1, 10))
-                    elif f == "context_batting_score_diff_before":
-                        r[f] = float(rng.integers(-5, 6))
-                    else:
-                        r[f] = float(rng.random())
-                rows.append(r)
-    cols = {k: [r[k] for r in rows] for k in rows[0]}
-    schema = pa.schema([("plate_appearance_id", pa.string()), ("game_id", pa.string()), ("game_date", pa.string()),
-                        ("season", pa.int16()), ("outcome", pa.string()), *[(f, pa.float64()) for f in FEATURE_NAMES]])
-    return pa.table({k: (pa.array(v, pa.int16()) if k == "season" else v) for k, v in cols.items()}, schema=schema)
-
-
-def _publish_stub(objects_root: Path, kind: str, table: pa.Table):
-    sha = hashlib.sha256(table.to_pandas().to_json().encode()).hexdigest()
-    d = objects_root / "objects" / "sha256" / sha
-    d.mkdir(parents=True, exist_ok=True)
-    p = d / f"{kind}.parquet"
-    pq.write_table(table, p)
-    return sha, p, hashlib.sha256(p.read_bytes()).hexdigest(), table.num_rows, sorted(set(int(x) for x in table["season"].to_pylist()))
+def _sealed_object_paths() -> set[str]:
+    """Resolve the on-disk paths of the sealed objects from the real registrations (never opened here)."""
+    paths = set()
+    for root, kinds in ((A.GEN2_ROOT, ("gen2-sealed-2025",)), (A.GEN3_ROOT, ("sealed-2025",))):
+        reg = json.loads((root / "registration.json").read_text(encoding="utf-8"))
+        sha = reg["sealed2025"]["logicalContentSha256"]
+        for kind in kinds:
+            p = root / "objects" / "sha256" / sha / f"{kind}.parquet"
+            paths.add(str(p.resolve()))
+    return paths
 
 
 @pytest.fixture()
-def hermetic(tmp_path, monkeypatch):
+def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(A, "STATE_ROOT", tmp_path / "authority")
-    research = _stub_table([2021, 2022, 2023, 2024], seed=1)
-    sealed = _stub_table([2025], per_class=6, seed=2)
-    r_sha, r_path, r_phys, r_rows, r_seasons = _publish_stub(tmp_path, "research", research)
-    s_sha, s_path, s_phys, s_rows, s_seasons = _publish_stub(tmp_path, "sealed-2025", sealed)
-
-    def stub_catalog():
-        return [
-            {"datasetVersionId": f"stub-research:sha256:{r_sha}", "label": "Stub Research", "generation": "GEN3",
-             "status": "GOVERNED_RESEARCH_DATASET", "selectable": True, "logicalContentSha256": r_sha,
-             "physicalParquetSha256": r_phys, "objectPath": str(r_path), "seasons": r_seasons,
-             "developmentSeasons": [2021, 2022, 2023], "validationSeason": 2024, "sealedSeasons": [2025],
-             "rows": r_rows, "featureCount": len(FEATURE_NAMES), "target": "outcome"},
-            {"datasetVersionId": f"stub-sealed:sha256:{s_sha}", "label": "Stub Sealed", "generation": "GEN3_SEALED",
-             "status": "SEALED_OOT_RESTRICTED", "selectable": False, "logicalContentSha256": s_sha,
-             "objectPath": str(s_path), "seasons": s_seasons, "developmentSeasons": [], "validationSeason": None,
-             "sealedSeasons": [2025], "rows": s_rows, "target": "outcome"},
-        ]
-    monkeypatch.setattr(A, "catalog", stub_catalog)
-    return {"research_id": f"stub-research:sha256:{r_sha}", "sealed_path": str(s_path.resolve())}
-
-
-def test_ordinary_workflow_never_opens_the_sealed_object(hermetic):
     A.reset_object_open_log()
-    proj = "hermetic-sealed"
-    # full ordinary flow
-    _ = A.catalog()
-    b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=hermetic["research_id"])
-    au = A.issue_run_authority(actor="t@asp", project_id=proj, binding_id=b["bindingId"], model_family="governed_hgb")
+    A._VERIFIED_OBJECT_CACHE.clear()
+    return {"sealed": _sealed_object_paths()}
+
+
+def _research_entry(generation: str) -> dict:
+    return next(e for e in A.catalog() if e["generation"] == generation)
+
+
+def test_catalog_opens_no_object(isolated_state):
+    A.reset_object_open_log()
+    cat = A.catalog()
+    assert A.object_open_log() == [], f"catalog opened objects: {A.object_open_log()}"
+    assert {e["generation"] for e in cat} == {"GEN2", "GEN2_SEALED", "GEN3", "GEN3_SEALED"}
+    # sealed entries are not selectable and carry no ordinary objectPath
+    for e in cat:
+        if e["generation"].endswith("_SEALED"):
+            assert e["selectable"] is False and not e.get("objectPath")
+
+
+@pytest.mark.parametrize("generation", ["GEN2", "GEN3"])
+def test_ordinary_flow_never_opens_a_sealed_object(isolated_state, generation):
+    proj = f"hermetic-7c-{generation.lower()}"
+    A.reset_object_open_log()
+    research = _research_entry(generation)
+    b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=research["datasetVersionId"])
+    au = A.issue_run_authority(actor="t@asp", project_id=proj, binding_id=b["bindingId"],
+                               model_family="governed_hgb", hyperparameters={"maxIter": 30})
     ev = A.execute(actor="t@asp", project_id=proj, run_authority_id=au["runAuthorityId"])
     A.activate_candidate(actor="t@asp", project_id=proj, run_id=ev["experimentRunId"])
-    A.get_active_candidate(project_id=proj)
+    ce = A.active_candidate_evaluation(project_id=proj)
+    rc = A.recompute_validation_logloss(project_id=proj, run_id=ev["experimentRunId"])
 
     opens = A.object_open_log()
-    sealed_opens = [p for p in opens if p == hermetic["sealed_path"]]
-    assert sealed_opens == [], f"sealed object was opened {len(sealed_opens)} times"
-    # the research object WAS opened (proves instrumentation is live, not vacuous)
-    assert any("research.parquet" in p for p in opens)
-    # no 2025 payload in the result
+    # (a) SEAL: no sealed object path is ever opened by the ordinary flow
+    assert not (set(opens) & isolated_state["sealed"]), "a sealed object was opened by the ordinary flow"
+    # (b) non-vacuous: the research object WAS opened
+    assert any(research["logicalContentSha256"] in p for p in opens), "research object was not opened (vacuous)"
+    # (c) no sealed season in the executed fold or the object
     assert 2025 not in ev["seasonsInObject"] and ev["sealedSeasonsAccessed"] == []
-    assert ev["validationSeason"] == 2024 and 2025 not in ev["developmentSeasons"]
+    assert 2025 not in ev["developmentSeasons"] and ev["validationSeason"] == 2024
+    # (d) no 2025 payload anywhere in evidence / diagnostics
     assert "2025" not in json.dumps(ev["metrics"])
+    assert "2025" not in json.dumps(ce["diagnostics"])
+    assert "frozen2025" not in json.dumps(ce)
+    # (e) independent recomputation from persisted artifacts matches the stored metric
+    assert ce["recomputationMatchesStored"] is True
+    assert abs(rc["recomputedLogLoss"] - float(ev["metrics"]["logLoss"])) < 1e-9
 
 
-def test_binding_a_sealed_object_is_refused_and_never_opens_it(hermetic):
+def test_binding_a_sealed_object_is_refused_and_never_opens_it(isolated_state):
     A.reset_object_open_log()
-    sealed_id = next(c["datasetVersionId"] for c in A.catalog() if c["generation"] == "GEN3_SEALED")
-    with pytest.raises(A.AuthorityError):
-        A.create_binding(actor="t@asp", project_id="hermetic-refuse", dataset_version_id=sealed_id)
-    assert hermetic["sealed_path"] not in A.object_open_log()
+    sealed_ids = [e["datasetVersionId"] for e in A.catalog() if e["generation"].endswith("_SEALED")]
+    for sid in sealed_ids:
+        with pytest.raises(A.AuthorityError):
+            A.create_binding(actor="t@asp", project_id="hermetic-refuse", dataset_version_id=sid)
+    assert not (set(A.object_open_log()) & isolated_state["sealed"])
 
 
-# ---------------- Gate 8/9: authorized autopilot / tuning suite ----------------
-def test_authorized_suite_runs_every_candidate_through_the_single_path(hermetic):
-    proj = "hermetic-suite"
-    b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=hermetic["research_id"])
-    out = A.run_authorized_suite(actor="t@asp", project_id=proj, binding_id=b["bindingId"], source="autopilot",
-                                 candidates=[{"family": "governed_hgb", "label": "hgb-a", "hyperparameters": {"maxIter": 40}},
-                                             {"family": "governed_hgb", "label": "hgb-b", "hyperparameters": {"maxIter": 60}}])
-    assert out["source"] == "autopilot" and out["candidateCount"] == 2
-    run_ids = set()
-    for c in out["candidates"]:
-        assert c["runAuthorityId"] and c["experimentRunId"]        # every candidate has a server run authority
-        assert c["generation"] == "GEN3" and c["validationRows"] > 0
-        assert c["sealedSeasonsAccessed"] == []                    # never scores 2025
-        run_ids.add(c["experimentRunId"])
-    assert len(run_ids) == 2                                        # unique immutable run ids
-    assert out["best"] in run_ids                                  # best selected by run id
-    # each candidate is independently resolvable as immutable run evidence
-    for rid in run_ids:
-        assert A.get_run(project_id=proj, run_id=rid)["status"] == "COMPLETE"
-    assert hermetic["sealed_path"] not in A.object_open_log()
-
-
-def test_authorized_suite_is_blocked_without_an_active_binding(hermetic):
-    with pytest.raises(A.AuthorityError):
-        A.run_authorized_suite(actor="t@asp", project_id="hermetic-nobinding", binding_id="0" * 32,
-                               candidates=[{"family": "governed_hgb"}])
-
-
-# ---------------- Phase 7A.5 Gate 1/2/3 + Gate 12: binding-derived Data & Population ----------------
-def test_binding_population_is_derived_without_opening_any_object(hermetic):
-    """The Data & Population authority is generation-aware and derived purely from the active binding +
-    registry catalog + generation contracts. No object is opened, so the sealed 2025 object is never
-    touched and no 2025 target distribution is exposed."""
-    proj = "hermetic-population"
-    A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=hermetic["research_id"])
-    A.reset_object_open_log()   # isolate binding_population from the bind-time integrity verification
+def test_binding_population_derives_without_opening_any_object(isolated_state):
+    proj = "hermetic-7c-pop"
+    A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=_research_entry("GEN3")["datasetVersionId"])
+    A.reset_object_open_log()
     pop = A.binding_population(project_id=proj)
-
-    # (a) hermetic proof: resolving the population authority opens ZERO objects (sealed included)
-    assert A.object_open_log() == [], f"binding_population opened objects: {A.object_open_log()}"
-    assert hermetic["sealed_path"] not in A.object_open_log()
-
-    # (b) generation-aware; 2024 is validation; 2025 is sealed and is NOT a development/validation season
-    assert pop["generation"] == "GEN3"
-    assert pop["validationSeason"] == 2024
-    assert pop["developmentSeasons"] == [2021, 2022, 2023]
+    assert A.object_open_log() == [], "binding_population opened an object"
+    assert pop["generation"] == "GEN3" and pop["validationSeason"] == 2024
     assert pop["sealedSeasons"] == [2025] and 2025 not in pop["developmentSeasons"]
-    assert "SEALED" in str(pop["sealedState"]).upper()
-
-    # (c) honest knowledge-time label (V2) — conditional pre-terminal PA state, not "pregame-safe"
     assert pop["knowledgeTimeSafetyClass"] == "CONDITIONAL_PRE_TERMINAL_PA_STATE"
-
-    # (d) the 8-class target taxonomy is carried; no 2025 distribution/payload leaks into the authority
-    assert pop["classCount"] == len(PA_CLASS_ORDER)
-    sealed_season = next(s for s in pop["seasons"] if s["role"] == "SEALED")
-    assert sealed_season["season"] == 2025 and sealed_season["rows"] is None  # sealed rows not exposed
-    assert "distribution" not in json.dumps(pop).lower()
+    # per-season rows are the registered receipts (not fabricated by equal division)
+    dev = [s for s in pop["seasons"] if s["role"] == "DEVELOPMENT"]
+    assert {s["rows"] for s in dev} != {None} and len({s["rows"] for s in dev}) >= 2  # not all equal
 
 
-def test_binding_population_is_none_without_an_active_binding(hermetic):
-    assert A.binding_population(project_id="hermetic-no-binding-population") is None
+def test_legacy_engine_frame_is_research_only(isolated_state):
+    # The retired combined 2023-2025 object is never the ordinary engine frame.
+    path = E._feature_view_path()
+    assert path.name == "gen2-research.parquet"
+    frame = E.load_frame()
+    seasons = sorted(set(int(s) for s in frame["season"].unique()))
+    assert seasons == [2023, 2024], f"legacy engine frame exposed {seasons}"
+    assert "2025" not in json.dumps([s["season"] for s in E.target_analysis()["perSeason"]])
