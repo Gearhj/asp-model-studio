@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from . import engine as E
 from . import modeling as M
@@ -25,6 +26,8 @@ router = APIRouter()
 def _guard(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
+    except G3A.BusyError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))          # Gate 22 — trusted-local serial bound
     except G3A.StaleAuthorityError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except CockpitError as exc:
@@ -218,18 +221,48 @@ def gen3_population(project_id: str, user: dict = Depends(require_user)) -> dict
     return p
 
 
+# Gate 23 — strict typed request schemas for the canonical Phase 7B execution paths: unknown fields, bool
+# masquerading as int, fractional/NaN/Inf integers, and huge/negative values are rejected with 422.
+class RunAuthorityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projectId: StrictStr
+    bindingId: StrictStr
+    modelFamily: StrictStr
+    hyperparameters: dict[str, Any] = Field(default_factory=dict)
+    seed: StrictInt = Field(default=20260819, ge=0, le=2**32 - 1)
+    featureSet: StrictStr = "base"
+
+
+class ExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projectId: StrictStr
+    runAuthorityId: StrictStr
+
+
+class AblationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    projectId: StrictStr
+    bindingId: StrictStr
+    modelFamily: StrictStr = "governed_logistic"
+    controlFeatureSet: StrictStr = "base"
+    challengerFeatureSet: StrictStr
+    hyperparameters: dict[str, Any] = Field(default_factory=dict)
+    seed: StrictInt = Field(default=20260819, ge=0, le=2**32 - 1)
+    bootstrapIterations: StrictInt = Field(default=1000, ge=100, le=5000)
+
+
 @router.post("/cockpit/gen3/run-authority")
-def gen3_run_authority(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
+def gen3_run_authority(req: RunAuthorityRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
+    pid = authorize_modeling_scope(user, req.projectId, "edit")
     return _guard(G3A.issue_run_authority, actor=_actor(user), project_id=pid,
-                  binding_id=payload.get("bindingId", ""), model_family=payload.get("modelFamily", ""),
-                  hyperparameters=payload.get("hyperparameters") or {}, seed=int(payload.get("seed", 20260819)))
+                  binding_id=req.bindingId, model_family=req.modelFamily,
+                  hyperparameters=req.hyperparameters, seed=req.seed, feature_set=req.featureSet)
 
 
 @router.post("/cockpit/gen3/execute")
-def gen3_execute(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
-    pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
-    return _guard(G3A.execute, actor=_actor(user), project_id=pid, run_authority_id=payload.get("runAuthorityId", ""))
+def gen3_execute(req: ExecuteRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
+    pid = authorize_modeling_scope(user, req.projectId, "edit")
+    return _guard(G3A.execute, actor=_actor(user), project_id=pid, run_authority_id=req.runAuthorityId)
 
 
 @router.post("/cockpit/gen3/run-suite")
@@ -239,6 +272,17 @@ def gen3_run_suite(payload: dict[str, Any] = Body(...), user: dict = Depends(req
     return _guard(G3A.run_authorized_suite, actor=_actor(user), project_id=pid,
                   binding_id=payload.get("bindingId", ""), candidates=payload.get("candidates") or [],
                   source=str(payload.get("source", "suite")))
+
+
+@router.post("/cockpit/gen3/feature-family-ablation")
+def gen3_feature_family_ablation(req: AblationRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
+    # Gate 12 — canonical 2024-only feature-family ablation (control vs challenger differ only by the
+    # registered feature-family contract); paired game-cluster bootstrap; immutable comparison manifest.
+    pid = authorize_modeling_scope(user, req.projectId, "edit")
+    return _guard(G3A.run_feature_family_ablation, actor=_actor(user), project_id=pid, binding_id=req.bindingId,
+                  model_family=req.modelFamily, control_feature_set=req.controlFeatureSet,
+                  challenger_feature_set=req.challengerFeatureSet, hyperparameters=req.hyperparameters,
+                  seed=req.seed, bootstrap_iterations=req.bootstrapIterations)
 
 
 @router.get("/cockpit/gen3/runs/{project_id}")

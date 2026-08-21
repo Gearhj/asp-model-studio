@@ -479,7 +479,20 @@ def decide_feature_value(
     bootstrap: Sequence[Mapping[str, Any]],
     strikeout: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Assign the frozen E1 and E2 verdict enums from all evidence dimensions."""
+    """Assign the frozen E1 and E2 verdict enums from all evidence dimensions.
+
+    RETIRED / ARCHIVAL (Phase 7D Gate 4/21): this historical Phase-4 study derives its E1/E2 feature-value
+    verdict from BOTH the 2024 and the sealed 2025 relative-gain/bootstrap results — i.e. it uses the sealed
+    season in a model-selection decision. That is prohibited under the physical 2025 seal. It fails closed
+    under ordinary research capability and may run only under an explicit, audited archival capability. No
+    Phase 7B feature decision may use it; use the canonical 2024-only feature-family ablation instead."""
+    import os
+    if os.environ.get("ASP_ARCHIVAL_AUDIT_CAPABILITY") != "SEALED_TARGET_DATA_READ":
+        raise IncrementalStudyError(
+            "decide_feature_value is RETIRED for ordinary use: it consumes the sealed 2025 season in the "
+            "E1/E2 model-selection decision. Use the canonical 2024-only feature-family ablation "
+            "(gen3_authority.run_feature_family_ablation)."
+        )
 
     def rel(season: int, comparison: str) -> float:
         for row in incremental["rows"]:
