@@ -2,11 +2,11 @@
 // Calibration, Simulation Impact, Champion/Challenger, Registry.
 import { useMemo, useState } from "react";
 import {
-  FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, Boxes, Rocket, Check, X,
+  FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, Boxes, Rocket, Check, X, TriangleAlert,
 } from "lucide-react";
 import { useEffect } from "react";
 import {
-  useEndpoint, usePost, useCockpitStore, cockpitPost,
+  useEndpoint, usePost, useCockpitStore, cockpitPost, cockpitGet,
   type ModelFamily, type Champion, type ExperimentResult, type AutopilotResult,
   type SimResult, type ExperimentIndexRow, type Eligibility, type FullSimResult,
 } from "./cockpitApi";
@@ -156,7 +156,7 @@ export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string
           )}
           {ranked.length >= 2 && <LeaderboardVisuals ranked={ranked} championVal={championVal} />}
 
-          <AutopilotPanel />
+          <AutopilotPanel projectId={projectId} />
           {detail && <ModelDetailDrawer candidate={labSuite[detail]} config={config} onClose={() => setDetail(null)} />}
         </div>
       )}
@@ -333,39 +333,52 @@ function Info({ label, value, mono }: { label: string; value: string; mono?: boo
   return <div className="rounded-lg border border-slate-200 p-2"><div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div><div className={`mt-0.5 font-semibold text-slate-900 ${mono ? "font-mono text-[11px]" : ""}`}>{value}</div></div>;
 }
 
-function AutopilotPanel() {
+// Gate 5 — Autopilot runs through the SERVER-AUTHORIZED suite (active binding -> run authority per
+// candidate -> authorized execution). No legacy binding-free call; never scores 2025.
+const AUTOPILOT_PLAN: Record<string, { family: string; label: string; hyperparameters?: any }[]> = {
+  quick: [{ family: "governed_hgb", label: "Governed HGB" }],
+  standard: [{ family: "governed_hgb", label: "Governed HGB" }, { family: "governed_logistic", label: "Governed logistic" }],
+  deep: [],
+};
+function AutopilotPanel({ projectId }: { projectId: string }) {
   const store = useCockpitStore();
-  const post = usePost<AutopilotResult>();
   const [budget, setBudget] = useState<"quick" | "standard" | "deep">("quick");
+  const [binding, setBinding] = useState<{ bindingId: string; generation: string } | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [best, setBest] = useState<{ runId: string; logLoss: number; count: number } | null>(null);
+  useEffect(() => {
+    cockpitGet<{ bindingId: string; generation: string }>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`)
+      .then(setBinding).catch(() => setBinding(null));
+  }, [projectId]);
   const run = async () => {
-    if (LEGACY_BINDING_FREE_EXECUTION_DISABLED) return;  // authorized suite path only (Gate 8/10)
-    const r = await post.run("/cockpit/autopilot", { config: store.config, budget });
-    store.setLastAutopilot(r);
-    // Autopilot results enter the same leaderboard, tagged AUTOPILOT.
-    for (const c of r.candidates) {
-      if (c.status !== "COMPLETED" || !c.val2024) continue;
-      const key = `ap:${c.label}`;
-      store.upsertLabCandidate(key, {
-        key, family: c.family, label: `${c.label}`, status: "complete", source: "autopilot",
-        fitSeconds: c.runtimeSeconds, val: { logLoss: c.val2024.logLoss, brierScore: c.val2024.brierScore, topLabelEce: c.val2024.topLabelEce },
-        frozen: c.frozen2025 ? { logLoss: c.frozen2025.logLoss, brierScore: c.frozen2025.brierScore } : undefined,
-        championVal: r.champion.val2024.logLoss,
-      });
-    }
+    if (!binding || budget === "deep") return;
+    setRunning(true); setError(null); setBest(null);
+    try {
+      const out = await cockpitPost<any>("/cockpit/gen3/run-suite", { projectId, bindingId: binding.bindingId, source: "autopilot", candidates: AUTOPILOT_PLAN[budget] });
+      for (const c of out.candidates) {
+        store.upsertLabCandidate(`ap:${c.experimentRunId}`, {
+          key: `ap:${c.experimentRunId}`, family: c.modelFamily, label: `${c.label}`, status: "complete", source: "autopilot",
+          experimentId: c.experimentRunId,
+          val: { logLoss: c.metrics.logLoss, brierScore: c.metrics.brierScore, topLabelEce: c.metrics.topLabelEce, top1Accuracy: c.metrics.top1Accuracy, macroF1: c.metrics.macroF1 },
+        });
+      }
+      if (out.best) setBest({ runId: out.best, logLoss: out.bestLogLoss, count: out.candidateCount });
+    } catch (e) { setError(String(e)); } finally { setRunning(false); }
   };
-  const ap = store.lastAutopilot;
   return (
     <Card title="Autopilot benchmark" icon={Rocket}
-      description="Let ASP Model Studio run a bounded automated candidate search using the governed development/validation policy. Autopilot never silently promotes a model — its candidates join the leaderboard above, tagged AUTOPILOT."
-      action={<Pill label="AUTOPILOT" tone="violet" />}>
+      description="A bounded automated candidate search that runs entirely through the server-authorized run path (active binding → run authority → authorized execution on 2021–2023 / validated on 2024; 2025 sealed). Candidates join the leaderboard above, tagged AUTOPILOT. No champion is promoted."
+      action={<Pill label="AUTOPILOT · SERVER-AUTHORIZED" tone="violet" />}>
+      {!binding && <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"><X size={12} className="mr-1 inline" />No active dataset binding — select one in Data & Population before running Autopilot.</div>}
       <div className="flex flex-wrap items-end gap-4">
         <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Budget</div>
           <Segmented value={budget} onChange={setBudget as any} options={[{ value: "quick", label: "Quick" }, { value: "standard", label: "Standard" }, { value: "deep", label: "Deep" }]} /></div>
-        <Button onClick={run} disabled={LEGACY_BINDING_FREE_EXECUTION_DISABLED || post.status === "loading"} tone="dark">▶ Run Autopilot benchmark</Button>
-        <p className="mt-1 text-[11px] text-amber-700">Autopilot now runs through the server-authorized suite (active binding → run authority) in the Model Laboratory; the legacy benchmark is disabled.</p>
-        {post.status === "loading" && <span className="flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Searching a bounded candidate set on 2023→2024…</span>}
+        <Button onClick={run} disabled={!binding || budget === "deep" || running} tone="dark">{running ? "Running authorized suite…" : "▶ Run Autopilot benchmark"}</Button>
       </div>
-      {ap && <p className="mt-3 text-xs text-slate-500">Autopilot best: <b>{ap.best?.label}</b> ({ap.best?.val2024 ? fmt.n(ap.best.val2024.logLoss) : "—"}) · {ap.candidates.length} candidates added to the leaderboard. {ap.limitations.join(" ")}</p>}
+      {budget === "deep" && <p className="mt-1 text-[11px] text-amber-700">Deep is not yet bounded for the authorized path — use Quick (HGB) or Standard (HGB + logistic).</p>}
+      {error && <p className="mt-2 text-xs text-rose-700"><X size={12} className="mr-1 inline" />{error}</p>}
+      {best && <p className="mt-3 text-xs text-slate-500">Authorized Autopilot best run <b className="font-mono">{best.runId.slice(0, 12)}…</b> (val log loss {fmt.n(best.logLoss)}) · {best.count} candidates added to the leaderboard.</p>}
     </Card>
   );
 }
@@ -373,29 +386,11 @@ function AutopilotPanel() {
 // ============================================================ 10 Hyperparameter Tuning
 export function TuningStep() {
   const store = useCockpitStore();
-  const config = store.config;
-  const [grid, setGrid] = useState("0.05, 0.2, 1.0");
-  const [rows, setRows] = useState<{ C: number; ll2024: number; ll2025: number; runtime: number }[] | null>(null);
-  const [running, setRunning] = useState(false);
-  const combos = grid.split(",").map((x) => Number(x.trim())).filter((x) => !Number.isNaN(x));
-
-  const runGrid = async () => {
-    if (LEGACY_BINDING_FREE_EXECUTION_DISABLED) return;  // authorized suite path only (Gate 9/10)
-    if (config.family !== "logistic") return;
-    setRunning(true); setRows(null);
-    const out: any[] = [];
-    for (const C of combos) {
-      const t0 = performance.now();
-      const r = await cockpitPost<ExperimentResult>("/cockpit/experiment/run", { ...config, hyperparameters: { ...config.hyperparameters, C } });
-      out.push({ C, ll2024: r.headline.val2024.logLoss, ll2025: r.headline.frozen2025.logLoss, runtime: (performance.now() - t0) / 1000 });
-    }
-    out.sort((a, b) => a.ll2024 - b.ll2024);
-    setRows(out); setRunning(false);
-    // apply best C to config
-    if (out.length) store.setHyper({ ...config.hyperparameters, C: out[0].C });
-  };
-
   const tuneSelected = store.labTuneSelected;
+  // Gate 6 — the legacy binding-free C-grid posted configs to the D3/C4 /cockpit/experiment/run path and
+  // returned 2025 metrics; it is disabled. There is no authorized per-trial grid endpoint yet, so tuning
+  // is presented as an explicit unavailable state that routes the scientist to the authorized bounded
+  // search (Autopilot · Standard), which fits its candidates through the server-authorized run path.
   return (
     <div className="space-y-4">
       {tuneSelected.length > 0 && (
@@ -403,50 +398,67 @@ export function TuningStep() {
           <span className="font-semibold text-violet-700">Sent from the Model Laboratory:</span> {tuneSelected.join(", ")} — these candidates were checked for tuning and carried over (selection persists across navigation).
         </div>
       )}
-      <Card title="Hyperparameter search" description="Manual + grid search on the development/validation policy. The frozen 2025 season never participates in selection." icon={SlidersHorizontal}
-        action={<Pill label="FROZEN EVALUATION PROTECTED" tone="rose" />}>
-        {config.family !== "logistic" ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Grid search is wired for the Logistic family in this slice (the champion family). Select Logistic in Model Laboratory to run a C-grid. Tree/boosting grids are the next increment.</div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-end gap-4">
-              <label className="flex flex-col gap-1 text-xs"><span className="font-semibold uppercase tracking-wide text-slate-500">C grid (comma-separated)</span>
-                <input value={grid} onChange={(e) => setGrid(e.target.value)} className="w-64 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none" /></label>
-              <div className="text-xs text-slate-500">{combos.length} candidate fits · 1 fold each · ~{combos.length} logistic fits on 2023</div>
-              <Button onClick={runGrid} disabled={LEGACY_BINDING_FREE_EXECUTION_DISABLED || running || combos.length === 0} tone="dark">▶ Run grid search</Button>
-            </div>
-            {running && <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" />Fitting {combos.length} candidates…</div>}
-            {rows && (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[480px] text-left text-sm">
-                  <thead><tr className="text-slate-500">{["Rank", "C", "2024 log loss", "2025 log loss", "Runtime"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
-                  <tbody>{rows.map((r, i) => (
-                    <tr key={r.C} className={i === 0 ? "bg-emerald-50/60" : ""}><td className="border-b border-slate-100 px-3 py-2 font-semibold">{i + 1}{i === 0 ? " ★" : ""}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums">{r.C}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(r.ll2024)}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(r.ll2025)}</td>
-                      <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(r.runtime, 1)}s</td></tr>))}</tbody>
-                </table>
-                <p className="mt-2 text-xs text-slate-500">Best C applied to the active experiment configuration. Selection used 2024 validation only.</p>
-              </div>
-            )}
-          </>
-        )}
+      <Card title="Hyperparameter search" description="A dedicated per-trial grid over the server-authorized run path is not wired in this slice." icon={SlidersHorizontal}
+        action={<Pill label="AUTHORIZED PATH ONLY" tone="amber" />}>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="flex items-center gap-2 font-semibold text-amber-800"><TriangleAlert size={15} /> Legacy grid disabled</div>
+          <p className="mt-1.5">
+            The previous C-grid trained directly on the champion D3/C4 pipeline and reported the sealed 2025 season.
+            That binding-free path is disabled. Tuning must run through the same server-authorized execution as every
+            other candidate: an active dataset binding → run authority → authorized fit, validated on 2024 with 2025 sealed.
+          </p>
+          <p className="mt-2">
+            Use <b>Model Laboratory → Autopilot → Standard</b> to run a bounded, server-authorized candidate search
+            (Governed HGB + Governed logistic). A dedicated hyperparameter grid over the authorized path is a future increment.
+          </p>
+        </div>
       </Card>
     </div>
   );
 }
 
+// Gate 7 — Evaluation resolves the ACTIVE CANDIDATE from the backend by run id (not lastResult / local
+// state / config hash). Shows the immutable candidate identity; no 2025 payload.
+function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
+  const [cand, setCand] = useState<any | null>(null);
+  const [state, setState] = useState<"LOADING" | "ACTIVE" | "NONE" | "ERROR">("LOADING");
+  useEffect(() => {
+    cockpitGet<any>(`/cockpit/gen3/active-candidate/${encodeURIComponent(projectId)}`)
+      .then((c) => { setCand(c); setState("ACTIVE"); })
+      .catch((e) => setState(/failed:\s*404/.test(String(e)) ? "NONE" : "ERROR"));
+  }, [projectId]);
+  return (
+    <Card title="Active candidate · server authority" icon={Trophy}
+      description="Downstream evaluation consumes the project's active candidate resolved from the backend by immutable run id — never a local browser result.">
+      {state === "LOADING" && <p className="text-sm text-slate-500">Resolving the active candidate…</p>}
+      {state === "NONE" && <p className="text-sm text-amber-700">No active candidate — activate one from the Model Laboratory run plan.</p>}
+      {state === "ERROR" && <p className="text-sm text-rose-700">Could not resolve the active candidate.</p>}
+      {state === "ACTIVE" && cand && (
+        <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+          <MetricCard label="Run id" value={String(cand.experimentRunId).slice(0, 12) + "…"} detail="immutable" />
+          <MetricCard label="Run authority" value={String(cand.runAuthorityId).slice(0, 12) + "…"} />
+          <MetricCard label="Dataset" value={cand.generation} detail={String(cand.datasetVersionId).split(":")[0]} />
+          <MetricCard label="Development" value={(cand.run?.developmentSeasons || []).join(", ")} />
+          <MetricCard label="Validation" value={String(cand.run?.validationSeason ?? "2024")} />
+          <MetricCard label="Val log loss" value={cand.run?.metrics?.logLoss != null ? fmt.n(cand.run.metrics.logLoss) : "—"} />
+          <MetricCard label="Result fingerprint" value={String(cand.resultFingerprint).slice(0, 12) + "…"} />
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ============================================================ 11 Evaluation & Diagnostics
-export function EvaluationStep() {
+export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const r = useCockpitStore((s) => s.lastResult);
   const ds = useActiveSportsDataset();
   const phase4 = ds.status === "ready" ? ds.data.phase4 : undefined;
-  const [season, setSeason] = useState<"val2024" | "frozen2025">("val2024");
+  const [season] = useState<"val2024">("val2024");   // 2025 is sealed — never displayed (Gate 12)
   if (!r) {
     return (
       <div className="space-y-4">
-        <NeedRun label="Run a challenger in Model Laboratory to populate challenger-vs-champion diagnostics." />
+        <Gen3ActiveCandidateCard projectId={projectId} />
+        <NeedRun label="Activate a candidate from the Model Laboratory run plan to populate diagnostics (server-authoritative)." />
         <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
       </div>
     );
@@ -456,8 +468,9 @@ export function EvaluationStep() {
   const severe = order.map((c) => ({ c, brier: m.classwiseBrier[c], ece: m.classwiseEce[c] })).sort((a, b) => b.brier - a.brier);
   return (
     <div className="space-y-4">
-      <Card title="Model comparison" description="Challenger vs the reproduced D3 champion across both seasons." icon={BarChart3}
-        action={<Segmented value={season} onChange={setSeason as any} options={[{ value: "val2024", label: "2024 validation" }, { value: "frozen2025", label: "2025 frozen" }]} />}>
+      <Gen3ActiveCandidateCard projectId={projectId} />
+      <Card title="Model comparison" description="Challenger vs the reproduced D3 champion on the 2024 validation season (2025 is sealed and not displayed)." icon={BarChart3}
+        action={<Pill label="2024 validation" tone="amber" />}>
         <GroupedBars categories={["Log loss", "Brier", "Top-label ECE"]}
           series={[
             { name: "Champion D3 C4", data: [r.champion[season].logLoss, r.champion[season].brierScore, r.champion[season].topLabelEce], color: "#94a3b8" },
@@ -498,10 +511,15 @@ export function EvaluationStep() {
 }
 
 // ============================================================ 12 Calibration
-export function CalibrationStep() {
+export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const r = useCockpitStore((s) => s.lastResult);
-  if (!r) return <NeedRun label="Run a challenger to inspect calibration reliability." />;
-  const [season, setSeason] = useState<"val2024" | "frozen2025">("val2024");
+  const [season] = useState<"val2024">("val2024");   // 2025 is sealed — never calibrated (Gate 8 / no-2025)
+  if (!r) return (
+    <div className="space-y-4">
+      <Gen3ActiveCandidateCard projectId={projectId} />
+      <NeedRun label="Calibration reliability is computed on the server-authorized candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." />
+    </div>
+  );
   const m = r.metrics[season];
   const topRel = (m.topLabelReliability || []).map((b: any) => ({ meanPredicted: b.meanConfidence, observed: b.accuracy, count: b.count }));
   const order: string[] = m.classOrder;
@@ -509,8 +527,8 @@ export function CalibrationStep() {
   const clsRel = (m.classwiseReliability?.[cls] || []).map((b: any) => ({ meanPredicted: b.meanProbability, observed: b.realizedFrequency, count: b.count }));
   return (
     <div className="space-y-4">
-      <Card title="Calibration reliability" description="Raw model probabilities. Governed calibration (temperature scaling) is applied only when it does not worsen the frozen season — the champion retains temperature scaling." icon={Gauge}
-        action={<Segmented value={season} onChange={setSeason as any} options={[{ value: "val2024", label: "2024" }, { value: "frozen2025", label: "2025 frozen" }]} />}>
+      <Card title="Calibration reliability" description="Raw model probabilities on the 2024 validation season. Governed calibration (temperature scaling) is fit on validation only; 2025 is sealed and never calibrated." icon={Gauge}
+        action={<Pill label="2024 validation" tone="amber" />}>
         <div className="grid gap-3 sm:grid-cols-3">
           <MetricCard label="Top-label ECE" value={fmt.n(m.topLabelEce)} detail="expected calibration error" />
           <MetricCard label="Brier" value={fmt.n(m.brierScore)} />
@@ -541,7 +559,7 @@ export function SimulationStep() {
   const store = useCockpitStore();
   const r = store.lastResult;
   const [mode, setMode] = useState<"quick" | "full">("quick");
-  const [season, setSeason] = useState(2024);
+  const [season] = useState(2024);   // 2025 is sealed — the simulator never scores it (Gate 8 / no-2025)
   const post = usePost<any>();
   const elig = usePost<Eligibility>();
   const cfg = r?.config || store.config;
@@ -572,7 +590,7 @@ export function SimulationStep() {
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Mode</div>
             <Segmented value={mode} onChange={setMode as any} options={[{ value: "quick", label: "Quick · marginal-state" }, { value: "full", label: "Full · lineup-rotation", disabled: !eligible }]} /></div>
           <div><div className="mb-1 text-xs font-semibold uppercase text-slate-500">Season</div>
-            <Segmented value={String(season)} onChange={(v) => setSeason(Number(v))} options={[{ value: "2024", label: "2024" }, { value: "2025", label: "2025 frozen" }]} /></div>
+            <Pill label="2024 validation · 2025 sealed" tone="amber" /></div>
           <Button onClick={run} disabled={post.status === "loading" || (mode === "full" && !eligible)} tone="dark">{post.status === "loading" ? "Simulating…" : "▶ Test in game simulator"}</Button>
           {!r && <span className="text-xs text-amber-600">No trained challenger — simulating the active configuration.</span>}
         </div>
