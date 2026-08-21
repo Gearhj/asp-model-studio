@@ -20,8 +20,6 @@ import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, GroupedBars, BarChart,
   ConfusionHeatmap, CalibrationChart, ModelScatter, fmt,
 } from "./cockpitUi";
-import { useActiveSportsDataset } from "../sportsEvidenceApi";
-import { SevereMissForensicsSection } from "../Phase4Surfaces";
 
 function useConfig() {
   return useCockpitStore((s) => s.config);
@@ -466,8 +464,6 @@ function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
 
 // ============================================================ 11 Evaluation & Diagnostics
 export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
-  const ds = useActiveSportsDataset();
-  const phase4 = ds.status === "ready" ? ds.data.phase4 : undefined;
   const ev = useActiveEvaluation(projectId);   // Gate 18 — active candidate's immutable 2024 evidence bundle
   if (ev.state === "LOADING") return <div className="space-y-4"><Gen3ActiveCandidateCard projectId={projectId} /><p className="text-sm text-slate-500">Resolving the active candidate's evidence…</p></div>;
   if (ev.state !== "ACTIVE" || !ev.data) {
@@ -475,7 +471,6 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
       <div className="space-y-4">
         <Gen3ActiveCandidateCard projectId={projectId} />
         <NeedRun label={ev.state === "ERROR" ? "Could not resolve the active candidate's evidence." : "Activate a candidate from the Model Laboratory run plan to populate diagnostics (server-authoritative; 2025 is sealed)."} />
-        <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
       </div>
     );
   }
@@ -523,7 +518,6 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
         <BarChart horizontal categories={severe.map((s) => s.c)} values={severe.map((s) => s.brier)} height={220} color="#e11d48" valueFmt={(v) => fmt.n(v, 4)} />
       </Card>
       {/* Registered severe-miss / error analysis (relocated Phase 4F): where does the model fail? */}
-      <SevereMissForensicsSection forensics={phase4?.severeMissForensics} />
     </div>
   );
 }

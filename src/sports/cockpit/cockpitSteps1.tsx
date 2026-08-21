@@ -107,7 +107,11 @@ export function ObjectiveStep({ projectId = "mlb-cockpit", go }: { projectId?: s
             <Card title="Current champion of record" description="Registered D3 candidate C4 (frozen evidence)." icon={Target}>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <RefBlock title="2024 validation" m={obj.data.champion.reference.val2024} />
-                <RefBlock title="2025 frozen final" m={obj.data.champion.reference.frozen2025} />
+                {/* Gate 21 — the champion's sealed-2025 metric is never shown in the ordinary workflow. */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-[10px] font-semibold uppercase text-slate-400">2025 frozen final</div>
+                  <div className="mt-1 text-xs font-semibold text-slate-500">Sealed · restricted archival evidence</div>
+                </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Pill label={obj.data.champion.status} tone="emerald" />
