@@ -97,6 +97,81 @@ export function useActiveBinding(projectId: string) {
   return { binding, state, loaded: state !== "LOADING", refresh, setBinding };
 }
 
+export type BindingPopulation = {
+  generation: string; label: string; datasetVersionId: string; registrationId: string; datasetContentSha256: string;
+  target: string; targetClasses: string[]; classCount: number; targetContractId: string;
+  developmentSeasons: number[]; developmentRows: number; validationSeason: number; validationRows: number;
+  sealedSeasons: number[]; sealedState: string; featureCount: number; registeredRows: number;
+  temporalContractId: string; preprocessingContractId: string; knowledgeTimeContractId: string;
+  knowledgeTimeSafetyClass: string; featureContractId: string; quarantineTotal?: number;
+  waterfall: { stage: string; rows: number; kind: string }[]; seasons: { season: number; role: string; rows: number | null }[];
+};
+
+// Gate 1/2/3 — the ACTIVE MODELING DATASET authority, driven entirely by the server active binding
+// (never notes/localStorage, never opens the sealed object). Generation-aware; no 2025 distribution.
+export function Gen3PopulationPanel({ projectId }: { projectId: string }) {
+  const [pop, setPop] = useState<BindingPopulation | null>(null);
+  const [state, setState] = useState<BindingState>("LOADING");
+  const reqId = useRef(0);
+  useEffect(() => {
+    const mine = ++reqId.current; setPop(null); setState("LOADING");
+    getJSON<BindingPopulation>(`/cockpit/gen3/population/${encodeURIComponent(projectId)}`)
+      .then((p) => { if (mine === reqId.current) { setPop(p); setState("ACTIVE"); } })
+      .catch((e) => { if (mine === reqId.current) { setPop(null); setState(classify(e)); } });
+  }, [projectId]);
+
+  if (state !== "ACTIVE" || !pop) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700"><Database size={14} /> Active modeling dataset</div>
+        <div className={`mt-2 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${STATE_TONE[state]}`}>
+          {state === "LOADING" ? <Loader2 size={12} className="animate-spin" /> : <TriangleAlert size={12} />}
+          <span className="font-semibold">{STATE_MSG[state]}</span>
+        </div>
+      </section>
+    );
+  }
+  const gen3 = pop.generation === "GEN3";
+  return (
+    <section className="rounded-2xl border border-cyan-300 bg-cyan-50/40 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-700"><ShieldCheck size={14} /> Active modeling dataset · server authority</div>
+        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-600 px-2.5 py-0.5 text-[10px] font-bold uppercase text-white"><CheckCircle2 size={11} /> {pop.generation}</span>
+      </div>
+      <h3 className="mt-1 text-lg font-semibold text-slate-950">{pop.label}</h3>
+      <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Registration / version" value={pop.registrationId} />
+        <Field label="Content SHA" value={short(pop.datasetContentSha256)} mono />
+        <Field label="Target" value={`${pop.target} · ${pop.classCount}-class`} />
+        <Field label="Features" value={`${pop.featureCount} governed`} />
+        <Field label="Development" value={pop.developmentSeasons.join(", ")} />
+        <Field label="Development rows" value={roleRows(pop.developmentRows)} />
+        <Field label="Validation" value={String(pop.validationSeason)} />
+        <Field label="Validation rows" value={roleRows(pop.validationRows)} />
+        <Field label="Sealed" value={`${pop.sealedSeasons.join(", ")} · ${pop.sealedState}`} />
+        <Field label="Knowledge time" value={pop.knowledgeTimeSafetyClass.replaceAll("_", " ").toLowerCase()} />
+        <Field label="Preprocessing" value={pop.preprocessingContractId.split(":")[0]} />
+        <Field label="Temporal contract" value={short(pop.temporalContractId.split(":").pop())} mono />
+        {gen3 && <Field label="Quarantine" value={`${pop.quarantineTotal ?? 0} convention anomalies`} />}
+      </div>
+      {/* Generation-aware population waterfall (Gate 2) */}
+      <div className="mt-3 space-y-1.5">
+        {pop.waterfall.map((w) => {
+          const max = Math.max(1, ...pop.waterfall.map((x) => x.rows));
+          const tone = w.kind === "development" ? "bg-cyan-600" : w.kind === "validation" ? "bg-amber-500" : w.kind === "sealed" ? "bg-rose-400" : "bg-slate-400";
+          return (
+            <div key={w.stage}>
+              <div className="flex items-center justify-between text-[11px]"><span className="font-semibold text-slate-700">{w.stage}</span><span className="tabular-nums text-slate-500">{roleRows(w.rows)}</span></div>
+              <div className="mt-0.5 h-4 overflow-hidden rounded bg-white"><div className={`h-full ${tone}`} style={{ width: `${(w.rows / max) * 100}%` }} /></div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">Season roles: {pop.seasons.map((s) => `${s.season} ${s.role.toLowerCase()}`).join(" · ")}. 2025 is sealed — no development distribution or metric is exposed.</p>
+    </section>
+  );
+}
+
 function DatasetCard({ e, selectable, onSelect, active, busy }: {
   e: CatalogEntry; selectable: boolean; onSelect?: () => void; active: boolean; busy: boolean;
 }) {
@@ -149,13 +224,17 @@ export default function Gen3CatalogSection({ mode, projectId }: { mode: "warehou
   const active = useActiveBinding(mode === "selection" ? (projectId || "mlb-gen2") : "");
   const [busy, setBusy] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
+  const [changed, setChanged] = useState<string | null>(null); // Gate 9 — dataset-change invalidation
 
   const select = async (versionId: string) => {
     if (mode !== "selection") return;
+    const priorVersion = active.state === "ACTIVE" && active.binding ? active.binding.datasetVersionId : null;
     setBusy(versionId); setBindError(null);
     try {
       await postJSON<Binding>("/cockpit/gen3/bind", { projectId: projectId || "mlb-gen2", datasetVersionId: versionId });
       await active.refresh(); // server wins — re-resolve authoritative binding
+      // Gate 9 — a real dataset change supersedes the prior binding and marks all downstream work stale.
+      if (priorVersion && priorVersion !== versionId) setChanged(priorVersion);
     } catch (e) { setBindError(String(e)); } finally { setBusy(null); }
   };
 
@@ -183,6 +262,26 @@ export default function Gen3CatalogSection({ mode, projectId }: { mode: "warehou
       )}
       {error && <p className="mt-2 text-xs text-rose-700"><TriangleAlert size={12} className="mr-1 inline" />catalog unavailable: {error}</p>}
       {bindError && <p className="mt-2 text-xs text-rose-700"><TriangleAlert size={12} className="mr-1 inline" />{bindError}</p>}
+
+      {/* Gate 9 — dataset changed: the prior binding is superseded on the server and all downstream work is stale. */}
+      {mode === "selection" && changed && (
+        <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-3.5 py-3 text-xs text-amber-900">
+          <div className="flex items-center gap-2 font-bold uppercase tracking-wide text-amber-800">
+            <TriangleAlert size={14} /> Dataset changed — downstream work marked stale
+          </div>
+          <p className="mt-1.5 text-amber-800">
+            The active binding moved from <b>{changed.split(":")[0]}</b> to <b>{active.binding?.datasetVersionId.split(":")[0]}</b>.
+            The server superseded the prior binding; any results produced against it are no longer current.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Affected: <b>Model Laboratory</b> candidates · <b>Autopilot</b> leaderboard · <b>Evaluation</b> active candidate · <b>Calibration / Simulation</b>. Re-run modeling under the new binding.
+          </p>
+          <button onClick={() => setChanged(null)}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-100">
+            <CheckCircle2 size={12} /> Review updated data
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         {catalog.map((e) => (

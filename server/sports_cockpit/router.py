@@ -193,6 +193,16 @@ def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> 
     return b
 
 
+@router.get("/cockpit/gen3/population/{project_id}")
+def gen3_population(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    # Generation-aware Data & Population authority derived from the active binding (no object opened).
+    pid = authorize_modeling_scope(user, project_id, "view")
+    p = _guard(G3A.binding_population, project_id=pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no active binding for project")
+    return p
+
+
 @router.post("/cockpit/gen3/run-authority")
 def gen3_run_authority(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")

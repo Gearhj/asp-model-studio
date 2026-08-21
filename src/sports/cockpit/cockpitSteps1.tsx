@@ -18,7 +18,7 @@ import {
   OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
 } from "./cockpitUi";
 import DataPreviewPanel from "./DataPreviewPanel";
-import Gen3CatalogSection from "./Gen3CatalogSection";
+import Gen3CatalogSection, { Gen3PopulationPanel } from "./Gen3CatalogSection";
 
 const ROLE_TONE: Record<string, "cyan" | "violet" | "amber"> = { context: "cyan", batter: "violet", pitcher: "amber" };
 
@@ -414,6 +414,7 @@ function PopulationBody({ pop, projectId }: { pop: Population; projectId: string
           Everything below the selector is explicitly SOURCE LINEAGE / HISTORICAL EVIDENCE — read-only,
           non-selectable, non-authoritative — and must not be mistaken for the active modeling dataset. */}
       <Gen3CatalogSection mode="selection" projectId={projectId} />
+      <Gen3PopulationPanel projectId={projectId} />
       <TargetSelector projectId={projectId} />
       <div className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500"><Archive size={11} /> Source lineage · historical evidence</span>
@@ -652,7 +653,7 @@ function TargetAnalysisSection() {
   const ta = useEndpoint<TargetAnalysis>("/cockpit/target-analysis");
   return (
     <Card title="Target analysis — outcome" icon={Target}
-      description="The 8-class plate-appearance outcome. Class distribution and per-season composition over the modeling target rows (2023-2025).">
+      description="The 8-class plate-appearance outcome. Per-season target composition is shown for the development (2023) and validation (2024) seasons; the 2025 season is sealed and its target distribution is not exposed.">
       <LoadGate state={ta}>
         {ta.data && (
           <div className="space-y-4">
@@ -674,7 +675,8 @@ function TargetAnalysisSection() {
               <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase text-slate-400">Target composition by season (100% stacked)
                 <span className="flex flex-wrap gap-1.5 normal-case">{ta.data.classOrder.map((c) => <span key={c} className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500"><span className="h-2 w-2 rounded" style={{ background: CLASS_COLORS[c] }} />{classShort(c)}</span>)}</span></div>
               <div className="space-y-1.5">
-                {ta.data.perSeason.map((s) => (
+                {/* Gate 3 — the sealed 2025 season's target distribution is never exposed in the scientist flow. */}
+                {ta.data.perSeason.filter((s) => s.season !== 2025).map((s) => (
                   <div key={s.season} className="flex items-center gap-2">
                     <div className="w-24 text-xs font-semibold text-slate-600">{s.season} <span className="text-[10px] font-normal text-slate-400">{s.season === 2023 ? "dev" : s.season === 2024 ? "val" : "frozen"}</span></div>
                     <div className="flex h-6 flex-1 overflow-hidden rounded">
@@ -682,8 +684,12 @@ function TargetAnalysisSection() {
                     </div>
                   </div>
                 ))}
+                <div className="flex items-center gap-2">
+                  <div className="w-24 text-xs font-semibold text-slate-400">2025 <span className="text-[10px] font-normal text-slate-400">sealed</span></div>
+                  <div className="flex h-6 flex-1 items-center rounded border border-dashed border-slate-300 bg-slate-50 px-2 text-[10px] text-slate-400">Sealed out-of-time evidence — target distribution not exposed</div>
+                </div>
               </div>
-              <p className="mt-1.5 text-[11px] text-slate-500">{ta.data.note} Class shares are stable across the modeling seasons — watch for material drift before trusting a season-transfer.</p>
+              <p className="mt-1.5 text-[11px] text-slate-500">{ta.data.note} Class shares are shown for the development (2023) and validation (2024) seasons only; the 2025 season is sealed.</p>
             </div>
           </div>
         )}
@@ -1618,16 +1624,13 @@ function AblationPanel() {
           <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm">
             <thead><tr className="text-slate-500">{["", "Control (base)", "Challenger (+feat)", "Δ"].map((h) => <th key={h} className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase">{h}</th>)}</tr></thead>
             <tbody>
-              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2024 log loss</td>
+              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2024 validation log loss</td>
                 <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(post.data.control.val2024.logLoss)}</td>
                 <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(post.data.challenger.val2024.logLoss)}</td>
                 <td className={`border-b border-slate-100 px-3 py-2 tabular-nums ${post.data.delta2024.logLoss < 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt.signed(post.data.delta2024.logLoss, 5)}</td></tr>
-              <tr><td className="border-b border-slate-100 px-3 py-2 font-medium">2025 log loss</td>
-                <td className="border-b border-slate-100 px-3 py-2 tabular-nums text-slate-500">{fmt.n(post.data.control.frozen2025.logLoss)}</td>
-                <td className="border-b border-slate-100 px-3 py-2 tabular-nums font-semibold">{fmt.n(post.data.challenger.frozen2025.logLoss)}</td>
-                <td className={`border-b border-slate-100 px-3 py-2 tabular-nums ${post.data.delta2025.logLoss < 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt.signed(post.data.delta2025.logLoss, 5)}</td></tr>
             </tbody>
           </table></div>
+          <p className="text-[11px] text-slate-500">Feature value is judged on the 2024 validation season only. 2025 is sealed and is never scored in the scientist workflow.</p>
         </div>
       )}
     </Card>

@@ -132,6 +132,7 @@ def _gen2_catalog_entry() -> dict[str, Any]:
         "logicalContentSha256": content_sha, "physicalParquetSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "objectPath": str(path), "seasons": [2023, 2024, 2025],
         "developmentSeasons": [2023], "validationSeason": 2024, "sealedSeasons": [2025],
+        "developmentRows": 184_104, "validationRows": 182_449, "sealedRows": 182_926,
         "rows": 549_479, "featureCount": len(FEATURE_NAMES), "target": "outcome",
     }
 
@@ -145,7 +146,8 @@ def _gen3_catalog_entries() -> list[dict[str, Any]]:
         "logicalContentSha256": reg["research"]["logicalContentSha256"], "physicalParquetSha256": reg["research"]["physicalParquetSha256"],
         "objectPath": str(GEN3_ROOT / "objects" / "sha256" / reg["research"]["logicalContentSha256"] / "research.parquet"),
         "seasons": [2021, 2022, 2023, 2024], "developmentSeasons": [2021, 2022, 2023], "validationSeason": 2024,
-        "sealedSeasons": [2025], "rows": reg["research"]["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
+        "sealedSeasons": [2025], "developmentRows": 547_835, "validationRows": 182_449, "sealedRows": reg["sealed2025"]["rows"],
+        "rows": reg["research"]["rows"], "featureCount": len(FEATURE_NAMES), "target": "outcome",
         "contractBundleSha256": reg["contractBundleSha256"], "quarantineLedgerSha256": reg["quarantineLedgerSha256"],
         "quarantineTotal": reg["quarantineTotal"], "sourceDatasetId": GC.PARENT_DATASET_ID,
     }
@@ -271,6 +273,51 @@ def active_binding(*, project_id: str) -> dict[str, Any] | None:
         return None
     b = get_binding(project_id=project_id, binding_id=ptr["bindingId"])
     return b if b.get("status") == "ACTIVE" else None
+
+
+def binding_population(*, project_id: str) -> dict[str, Any] | None:
+    """Generation-aware population authority for the active binding (Gate 1/2/3). Derived purely from the
+    binding + registry catalog + generation contracts — no object is opened, so the sealed 2025 object is
+    never touched and no 2025 distribution is exposed."""
+    b = active_binding(project_id=project_id)
+    if b is None:
+        return None
+    entry = _resolve_version(b["datasetVersionId"])
+    contracts = GC.contracts_for_generation(b["generation"])
+    kt = contracts["knowledgeTime"]["payload"]
+    dev_rows = int(entry.get("developmentRows") or 0)
+    val_rows = int(entry.get("validationRows") or 0)
+    waterfall = [
+        {"stage": "Registered source evidence", "rows": int(entry.get("rows") or 0), "kind": "source"},
+        {"stage": f"Development ({','.join(str(s) for s in entry['developmentSeasons'])})", "rows": dev_rows, "kind": "development"},
+        {"stage": f"Validation ({entry['validationSeason']})", "rows": val_rows, "kind": "validation"},
+        {"stage": f"Sealed ({','.join(str(s) for s in entry['sealedSeasons'])})", "rows": int(entry.get("sealedRows") or 0), "kind": "sealed"},
+    ]
+    seasons = [
+        *[{"season": s, "role": "DEVELOPMENT", "rows": dev_rows // max(1, len(entry["developmentSeasons"]))}
+          for s in entry["developmentSeasons"]],
+        {"season": entry["validationSeason"], "role": "VALIDATION", "rows": val_rows},
+        *[{"season": s, "role": "SEALED", "rows": None} for s in entry["sealedSeasons"]],   # sealed rows not exposed as a modeling season
+    ]
+    return {
+        "bindingId": b["bindingId"], "bindingRevision": b["revision"], "generation": b["generation"],
+        "label": entry.get("label"), "datasetVersionId": b["datasetVersionId"],
+        "registrationId": b["datasetVersionId"].split(":")[0], "datasetContentSha256": b["datasetContentSha256"],
+        "featureViewId": b.get("featureViewId") or b["datasetVersionId"], "target": "outcome", "targetClasses": list(PA_CLASS_ORDER),
+        "classCount": len(PA_CLASS_ORDER), "targetContractId": b["targetContractId"], "targetContractSha256": b["targetContractSha256"],
+        "developmentSeasons": entry["developmentSeasons"], "developmentRows": dev_rows,
+        "validationSeason": entry["validationSeason"], "validationRows": val_rows,
+        "sealedSeasons": entry["sealedSeasons"], "sealedState": "SEALED / UNAVAILABLE TO DEVELOPMENT",
+        "featureCount": int(entry.get("featureCount") or 0), "registeredRows": int(entry.get("rows") or 0),
+        "temporalContractId": b["temporalContractId"], "temporalContractSha256": b["temporalContractSha256"],
+        "preprocessingContractId": b["preprocessingContractId"], "preprocessingContractSha256": b["preprocessingContractSha256"],
+        "knowledgeTimeContractId": b["knowledgeTimeContractId"], "knowledgeTimeSafetyClass": kt.get("safetyClass", "CONDITIONAL_PRE_TERMINAL_PA_STATE"),
+        "featureContractId": b["featureContractId"], "populationContractId": b["populationContractId"],
+        "contractBundleSha256": b.get("contractBundleSha256"),
+        "quarantineTotal": entry.get("quarantineTotal"), "quarantineLedgerSha256": entry.get("quarantineLedgerSha256"),
+        "sourceDatasetId": entry.get("sourceDatasetId") or GC.PARENT_DATASET_ID,
+        "waterfall": waterfall, "seasons": seasons,
+    }
 
 
 def _require_active_binding(project_id: str, binding_id: str) -> dict[str, Any]:

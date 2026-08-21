@@ -57,13 +57,6 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
   }, []);
 
   const entry = catalog.find((d) => d.datasetVersionId === versionId) || null;
-  const reset = () => { setBinding(null); setAuthority(null); setResult(null); setActivated(false); };
-
-  const bind = async () => {
-    setBusy("bind"); setError(null); reset();
-    try { setBinding(await postJSON<Binding>("/cockpit/gen3/bind", { projectId, datasetVersionId: versionId })); }
-    catch (e) { setError(String(e)); } finally { setBusy(null); }
-  };
   const authorizeAndRun = async () => {
     if (!binding) return;
     setBusy("run"); setError(null); setResult(null); setActivated(false);
@@ -90,23 +83,25 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
       </div>
       <h3 className="mt-1 text-lg font-semibold">Gen-3 dataset authority &amp; execution</h3>
 
-      {/* Dataset version selection from the server catalog (Gate 2/3) */}
-      <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-        <select value={versionId} onChange={(e) => { setVersionId(e.target.value); reset(); }}
-          className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm">
-          {catalog.map((d) => (
-            <option key={d.datasetVersionId} value={d.datasetVersionId} disabled={!d.selectable}>
-              {d.label} {d.selectable ? "" : "· SEALED / restricted"}
-            </option>
-          ))}
-        </select>
-        <select value={family} onChange={(e) => setFamily(e.target.value)} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm">
+      {/* Gate 4 — Model Lab does NOT select a dataset; it consumes the active project binding (read-only).
+          Change the dataset in Data & Population. */}
+      {!binding ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          <TriangleAlert size={13} /> <span className="font-semibold">No active modeling dataset.</span>
+          <span>Select a dataset in <b>Data &amp; Population</b> (Step 02) — execution is blocked until an active binding exists.</span>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-100">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-bold uppercase text-white"><Database size={11} /> {binding.generation}</span>
+          <span>Active binding: <b>{binding.datasetVersionId.split(":")[0]}</b> · content {short(binding.datasetContentSha256)} · dev {binding.developmentSeasons.join(",")} · val {binding.validationSeason} · sealed {binding.sealedSeasons.join(",") || "—"}</span>
+          <span className="ml-auto text-[10px] text-emerald-200/80">change dataset in Data &amp; Population</span>
+        </div>
+      )}
+      <div className="mt-2">
+        <label className="text-[10px] font-semibold uppercase text-slate-400">Model family</label>
+        <select value={family} onChange={(e) => setFamily(e.target.value)} className="ml-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm">
           {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
         </select>
-        <button onClick={bind} disabled={!entry?.selectable || busy === "bind"}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3.5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50">
-          {busy === "bind" ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />} Select &amp; bind (server)
-        </button>
       </div>
 
       {error && <div className="mt-3 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"><TriangleAlert size={12} className="mr-1 inline" />{error}</div>}
