@@ -273,3 +273,61 @@ def test_verify_estimator_reload_recomputes_predictions(hgb_run):
     assert out["modelFamily"] == "governed_hgb" and out["validationRows"] > 0
     assert out["bitForBitMatch"] is True or (out["maxAbsProbabilityDiff"] is not None
                                              and out["maxAbsProbabilityDiff"] < 1e-9)
+
+
+# ============================================================ Gate 21 — strict model request schemas
+def test_logistic_rejects_any_hyperparameter():
+    with pytest.raises(AuthorityError):
+        A._validate_hyperparameters("governed_logistic", {"C": 0.1})   # NOT silently ignored
+
+
+def test_logistic_accepts_empty_and_returns_fixed_policy():
+    eff = A._validate_hyperparameters("governed_logistic", {})
+    assert eff["penalty"] == "l2" and eff["maxIter"] and eff["cGrid"]
+
+
+@pytest.mark.parametrize("hyper", [
+    {"maxIter": 200.5},              # fractional int (no int() truncation)
+    {"maxIter": True},               # bool masquerading as int
+    {"maxIter": 10 ** 9},            # huge
+    {"maxIter": 5},                  # below range
+    {"learningRate": float("nan")},  # NaN
+    {"learningRate": float("inf")},  # Inf
+    {"learningRate": 0.0},           # not > 0
+    {"learningRate": 2.0},           # above range
+    {"maxDepth": 0},                 # below range
+    {"maxDepth": 99},                # above range
+    {"maxDepth": 3.5},               # fractional
+    {"unknownKey": 1},               # unknown hyperparameter
+])
+def test_hgb_strict_rejections(hyper):
+    with pytest.raises(AuthorityError):
+        A._validate_hyperparameters("governed_hgb", hyper)
+
+
+def test_hgb_accepts_valid_and_does_not_truncate():
+    eff = A._validate_hyperparameters("governed_hgb", {"maxIter": 150, "learningRate": 0.05, "maxDepth": 4})
+    assert eff["maxIter"] == 150 and eff["learningRate"] == 0.05 and eff["maxDepth"] == 4
+
+
+def test_unsupported_family_rejected():
+    with pytest.raises(AuthorityError):
+        A._validate_hyperparameters("random_forest", {})
+
+
+# ============================================================ Gate 11 — Phase 7B research entry point
+def test_phase7b_research_entry_point_is_research_only(temp_registry):
+    A.migrate_registry()
+    from scripts import phase7b_research as P
+    summ = P._research_summary("GEN2")
+    assert summ["entryPoint"] == "PHASE_7B_RESEARCH_V1" and summ["capability"] == "RESEARCH_OBJECT_READ"
+    assert summ["verificationState"] == "VERIFIED"
+    assert 2025 not in summ["seasons"] and 2026 not in summ["seasons"]
+    assert "Bronze normalization and feature creation are NOT enabled" in summ["note"]
+
+
+def test_phase7b_research_refuses_sealed_or_unknown_generation():
+    from scripts import phase7b_research as P
+    for bad in ("GEN3_SEALED", "GEN2_SEALED", "bogus"):
+        with pytest.raises(SystemExit):
+            P._research_summary(bad)
