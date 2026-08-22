@@ -437,8 +437,10 @@ class SportsPhase4DynamicCliTest(unittest.TestCase):
             "scripts.run_mlb_dynamic_player_state._supervise",
             return_value=SimpleNamespace(returncode=0),
         ) as supervise:
-            self.assertEqual(main(forwarded), 0)
-        supervise.assert_called_once_with(forwarded)
+            with self.assertRaises(SystemExit) as _cm:   # Gate 12: main is hard-retired before any supervisor call
+                main(forwarded)
+        self.assertEqual(_cm.exception.code, 2)
+        supervise.assert_not_called()
         self.assertEqual(
             DYNAMIC_STAGE_LIMITS,
             {
