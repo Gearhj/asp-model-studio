@@ -145,7 +145,7 @@ def test_runs_are_project_scoped(executed):
 def test_candidate_activation_and_downstream_resolution(executed):
     proj, run_id = executed["gen3"]["proj"], executed["gen3"]["evidence"]["experimentRunId"]
     act = A.activate_candidate(actor=ACTOR, project_id=proj, run_id=run_id)
-    assert act["experimentRunId"] == run_id and act["schemaVersion"] == "ACTIVE_CANDIDATE_REVIEW_V1"
+    assert act["experimentRunId"] == run_id and act["schemaVersion"] == "ACTIVE_CANDIDATE_REVIEW_V2"
     # downstream resolves the active candidate by run id from the backend (A2-14), never a browser result
     dc = A.get_active_candidate(project_id=proj)
     assert dc["experimentRunId"] == run_id and dc["run"]["runAuthorityId"] == act["runAuthorityId"]
