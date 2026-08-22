@@ -479,20 +479,28 @@ def decide_feature_value(
     bootstrap: Sequence[Mapping[str, Any]],
     strikeout: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Assign the frozen E1 and E2 verdict enums from all evidence dimensions.
+    """RETIRED (Phase 7D.1 Gate 10/25). This historical Phase-4 study derived its E1/E2 feature-value verdict
+    from BOTH the 2024 AND the sealed 2025 relative-gain/bootstrap results — i.e. it used the sealed season in
+    a model-selection decision, which is prohibited under the physical 2025 seal. It is UNCONDITIONALLY
+    unavailable through ordinary research: NO environment variable or user-settable string re-enables it (a
+    future sealed-audit capability would be a separate, audited administrative service, not implemented here).
+    Use the canonical 2024-only feature-family ablation
+    (server.sports_cockpit.gen3_authority.run_feature_family_ablation) instead."""
+    raise IncrementalStudyError(
+        "decide_feature_value is RETIRED: it consumes the sealed 2025 season in the E1/E2 model-selection "
+        "decision and cannot be run through ordinary research; no environment capability re-enables it. Use "
+        "the canonical 2024-only feature-family ablation (gen3_authority.run_feature_family_ablation)."
+    )
 
-    RETIRED / ARCHIVAL (Phase 7D Gate 4/21): this historical Phase-4 study derives its E1/E2 feature-value
-    verdict from BOTH the 2024 and the sealed 2025 relative-gain/bootstrap results — i.e. it uses the sealed
-    season in a model-selection decision. That is prohibited under the physical 2025 seal. It fails closed
-    under ordinary research capability and may run only under an explicit, audited archival capability. No
-    Phase 7B feature decision may use it; use the canonical 2024-only feature-family ablation instead."""
-    import os
-    if os.environ.get("ASP_ARCHIVAL_AUDIT_CAPABILITY") != "SEALED_TARGET_DATA_READ":
-        raise IncrementalStudyError(
-            "decide_feature_value is RETIRED for ordinary use: it consumes the sealed 2025 season in the "
-            "E1/E2 model-selection decision. Use the canonical 2024-only feature-family ablation "
-            "(gen3_authority.run_feature_family_ablation)."
-        )
+
+def _decide_feature_value_impl(
+    incremental: Mapping[str, Any],
+    bootstrap: Sequence[Mapping[str, Any]],
+    strikeout: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The historical E1/E2 decision-tree math, preserved for a FUTURE explicit, audited archival service
+    ONLY — never reachable through ordinary research or any user-settable environment string, and never
+    called in Phase 7B. A pure function of its (synthetic or archival) inputs; performs NO data access."""
 
     def rel(season: int, comparison: str) -> float:
         for row in incremental["rows"]:

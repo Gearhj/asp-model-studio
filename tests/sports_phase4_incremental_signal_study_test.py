@@ -158,10 +158,48 @@ def _strikeout_stub(ba_delta_2024=-0.01, ba_delta_2025=-0.01):
     }}
 
 
-def test_decision_confirmed_when_both_years_decisive_and_meaningful():
+# ---------------- Gate 10/25: decide_feature_value is RETIRED (it used sealed 2025 in selection) ----------
+def test_decide_feature_value_is_retired_for_ordinary_research():
+    """Ordinary invocation fails closed (before any 2025 open) and points to the 2024-only replacement."""
     inc = _incremental_stub({2024: 0.01, 2025: 0.012}, {2024: 0.006, 2025: 0.007})
     boot = _bootstrap_stub({2024: 0.99, 2025: 0.99}, {2024: 0.99, 2025: 0.99})
-    decision = study.decide_feature_value(inc, boot, _strikeout_stub())
+    with pytest.raises(study.IncrementalStudyError) as exc:
+        study.decide_feature_value(inc, boot, _strikeout_stub())
+    assert "run_feature_family_ablation" in str(exc.value)
+
+
+@pytest.mark.parametrize("cap", [None, "SEALED_TARGET_DATA_READ", "RESEARCH_OBJECT_READ", "1", "true"])
+def test_no_environment_capability_re_enables_2025_selection(monkeypatch, cap):
+    """No user-settable environment string re-enables the retired sealed-2025 selection path."""
+    if cap is None:
+        monkeypatch.delenv("ASP_ARCHIVAL_AUDIT_CAPABILITY", raising=False)
+    else:
+        monkeypatch.setenv("ASP_ARCHIVAL_AUDIT_CAPABILITY", cap)
+    inc = _incremental_stub({2024: 0.01, 2025: 0.012}, {2024: 0.006, 2025: 0.007})
+    boot = _bootstrap_stub({2024: 0.99, 2025: 0.99}, {2024: 0.99, 2025: 0.99})
+    with pytest.raises(study.IncrementalStudyError):
+        study.decide_feature_value(inc, boot, _strikeout_stub())
+
+
+def test_no_selfgrant_capability_string_in_module_source():
+    """The module must not read a user-settable capability env var as sealed authorization."""
+    import inspect
+    assert "ASP_ARCHIVAL_AUDIT_CAPABILITY" not in inspect.getsource(study)
+
+
+def test_archival_decision_impl_is_private_and_not_exported():
+    assert "decide_feature_value" in study.__all__
+    assert "_decide_feature_value_impl" not in study.__all__
+    assert hasattr(study, "_decide_feature_value_impl")
+
+
+# The pure decision-tree math is retained (archival impl) and covered on SYNTHETIC stubs only — no real
+# sealed 2025 data is ever read, and the public ordinary entry stays retired (above). This preserves the
+# decision-tree regression signal without restoring 2025-in-selection behavior.
+def test_archival_impl_confirmed_when_both_years_decisive_and_meaningful():
+    inc = _incremental_stub({2024: 0.01, 2025: 0.012}, {2024: 0.006, 2025: 0.007})
+    boot = _bootstrap_stub({2024: 0.99, 2025: 0.99}, {2024: 0.99, 2025: 0.99})
+    decision = study._decide_feature_value_impl(inc, boot, _strikeout_stub())
     assert decision["e1"]["decision"] == "E1_PREDICTIVE_VALUE_CONFIRMED"
     assert decision["e2"]["decision"] == "E2_INCREMENTAL_VALUE_CONFIRMED"
     path = study.next_step_path(decision)
@@ -169,27 +207,26 @@ def test_decision_confirmed_when_both_years_decisive_and_meaningful():
     assert path["archetypesShouldProceed"] is True
 
 
-def test_decision_negative_when_worse_both_years():
+def test_archival_impl_negative_when_worse_both_years():
     inc = _incremental_stub({2024: -0.01, 2025: -0.02}, {2024: -0.001, 2025: -0.002})
     boot = _bootstrap_stub({2024: 0.01, 2025: 0.02}, {2024: 0.3, 2025: 0.3})
-    decision = study.decide_feature_value(inc, boot, _strikeout_stub(0.01, 0.01))
+    decision = study._decide_feature_value_impl(inc, boot, _strikeout_stub(0.01, 0.01))
     assert decision["e1"]["decision"] == "E1_PREDICTIVE_VALUE_NEGATIVE"
     assert decision["e2"]["decision"] == "E2_INCREMENTAL_VALUE_NEGATIVE"
 
 
-def test_decision_marginal_when_decisive_but_below_small_band():
+def test_archival_impl_marginal_when_decisive_but_below_small_band():
     inc = _incremental_stub({2024: 0.0005, 2025: 0.0006}, {2024: 0.0002, 2025: 0.0003})
     boot = _bootstrap_stub({2024: 0.99, 2025: 0.99}, {2024: 0.99, 2025: 0.99})
-    decision = study.decide_feature_value(inc, boot, _strikeout_stub())
+    decision = study._decide_feature_value_impl(inc, boot, _strikeout_stub())
     assert decision["e1"]["decision"] == "E1_PREDICTIVE_VALUE_MARGINAL"
-    # E1 helps (marginal) but E2 marginal too -> PATH_1
     assert study.next_step_path(decision)["recommendedPath"] == "PATH_1"
 
 
-def test_path_2_when_e1_helps_but_e2_not_confirmed():
+def test_archival_impl_path_2_when_e1_helps_but_e2_not_confirmed():
     inc = _incremental_stub({2024: 0.01, 2025: 0.012}, {2024: 0.0, 2025: -0.001})
     boot = _bootstrap_stub({2024: 0.99, 2025: 0.99}, {2024: 0.4, 2025: 0.4})
-    decision = study.decide_feature_value(inc, boot, _strikeout_stub())
+    decision = study._decide_feature_value_impl(inc, boot, _strikeout_stub())
     assert decision["e1"]["decision"] == "E1_PREDICTIVE_VALUE_CONFIRMED"
     assert decision["e2"]["decision"] in ("E2_INCREMENTAL_VALUE_NOT_CONFIRMED", "E2_INCREMENTAL_VALUE_NEGATIVE")
     path = study.next_step_path(decision)
@@ -197,11 +234,10 @@ def test_path_2_when_e1_helps_but_e2_not_confirmed():
     assert path["algorithmTournamentShouldProceed"] is True
 
 
-def test_path_4_when_only_strikeout_improves():
-    # E1 not confirmed overall (mixed years) but strikeout improves both years
+def test_archival_impl_path_4_when_only_strikeout_improves():
     inc = _incremental_stub({2024: 0.01, 2025: -0.005}, {2024: -0.001, 2025: -0.001})
     boot = _bootstrap_stub({2024: 0.99, 2025: 0.2}, {2024: 0.3, 2025: 0.3})
-    decision = study.decide_feature_value(inc, boot, _strikeout_stub(-0.02, -0.02))
+    decision = study._decide_feature_value_impl(inc, boot, _strikeout_stub(-0.02, -0.02))
     assert decision["e1"]["decision"] == "E1_PREDICTIVE_VALUE_NOT_CONFIRMED"
     assert study.next_step_path(decision)["recommendedPath"] == "PATH_4"
 
