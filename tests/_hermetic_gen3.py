@@ -85,10 +85,16 @@ def _table(seasons, per_class=14, seed=1, with_advanced=True):
     return pa.table({k: (pa.array(v, pa.int16()) if k == "season" else v) for k, v in cols.items()}, schema=schema)
 
 
-def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] | None = None,
+                        migrate: bool = True) -> dict[str, Any]:
     """Publish real Gen-3 + Gen-2 objects into isolated temp roots through the ACTUAL publisher, register the
     advanced V2 feature set, migrate the canonical registry, and return handles. `advanced_spec` overrides the
-    registered advanced feature-set (used by the leaky-variant production-path rejection tests)."""
+    registered advanced feature-set (used by the leaky-variant production-path rejection tests). `migrate=False`
+    leaves the sidecars unmigrated so a concurrency test can race the FIRST canonical registry migration.
+
+    The physical layout (tmp_path/sports-modeling/... + tmp_path/artifacts/datasets/registry.json) is EXACTLY
+    what ``ASP_MODEL_STUDIO_RUNTIME_ROOT=<tmp_path>`` resolves to, so a subprocess launched with that env var
+    resolves the SAME roots — this is the shared substrate for the interprocess / HTTP / isolated-root batteries."""
     gen3 = tmp_path / "sports-modeling" / "mlb-pa-gen3-v2"
     gen2 = tmp_path / "sports-modeling" / "mlb-pa-gen2-v1"
     monkeypatch.setattr(A, "GEN3_ROOT", gen3)
@@ -135,6 +141,7 @@ def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] 
                            "rows": g2s.num_rows, "seasons": [2025]},
             "perSeasonRows": {str(k): v for k, v in ps2.items()}}
     (gen2 / "registration.json").write_text(json.dumps(reg2), encoding="utf-8")
-    A.migrate_registry()
+    if migrate:
+        A.migrate_registry()
     return {"gen3Root": gen3, "gen2Root": gen2, "researchId": reg["registrationId"],
             "advancedFeature": ADVANCED_FEATURE, "advancedFamily": ADVANCED_FAMILY, "runtimeRoot": tmp_path}
