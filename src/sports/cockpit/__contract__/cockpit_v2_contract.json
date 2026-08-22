@@ -1,0 +1,177 @@
+{
+  "activeCandidate": {
+    "schemaVersion": "ACTIVE_CANDIDATE_RESPONSE_V2",
+    "status": "ACTIVE",
+    "runId": "1399aa0769ad42a39210979e43300860",
+    "runAuthorityId": "5a6db06c07c11c4d2621dd2e06d4f45b",
+    "datasetVersionId": "mlb-pa-gen3-research:sha256:abc123",
+    "generation": "GEN3",
+    "modelFamily": "governed_logistic",
+    "developmentSeasons": [2021, 2022, 2023],
+    "developmentRows": 547835,
+    "validationSeason": 2024,
+    "validationRows": 182449,
+    "runReceiptSha256": "a055aec937f29a670000000000000000000000000000000000000000deadbeef",
+    "bundleManifestSha256": "de43485024ca0a6a0000000000000000000000000000000000000000cafef00d",
+    "bindingId": "0123456789abcdef0123456789abcdef",
+    "bindingRevision": 1,
+    "activationRevision": 1,
+    "activatedAt": "2026-08-22T00:00:00Z",
+    "preprocessingContractId": "MLB_GEN3_PREPROCESSING_CONTRACT_V1:sha256:pp"
+  },
+  "evaluation": {
+    "schemaVersion": "MODEL_EVALUATION_RESPONSE_V2",
+    "runId": "1399aa0769ad42a39210979e43300860",
+    "runAuthorityId": "5a6db06c07c11c4d2621dd2e06d4f45b",
+    "runReceiptSha256": "a055aec937f29a670000000000000000000000000000000000000000deadbeef",
+    "bundleManifestSha256": "de43485024ca0a6a0000000000000000000000000000000000000000cafef00d",
+    "datasetVersionId": "mlb-pa-gen3-research:sha256:abc123",
+    "datasetContentSha256": "abc1230000000000000000000000000000000000000000000000000000000000",
+    "generation": "GEN3",
+    "modelFamily": "governed_logistic",
+    "developmentSeasons": [2021, 2022, 2023],
+    "developmentRows": 547835,
+    "validationSeason": 2024,
+    "validationRows": 182449,
+    "featureCount": 22,
+    "preprocessingContractId": "MLB_GEN3_PREPROCESSING_CONTRACT_V1:sha256:pp",
+    "classOrder": ["STRIKEOUT", "WALK_HBP_CI"],
+    "metrics": {
+      "logLoss": 1.4827332596445002,
+      "brierScore": 0.7061,
+      "topLabelEce": 0.0031,
+      "top1Accuracy": 0.4524,
+      "macroF1": 0.0864
+    },
+    "perClass": {
+      "perClass": {
+        "STRIKEOUT": { "support": 41234, "recall": 0.61 },
+        "WALK_HBP_CI": { "support": 15012, "recall": 0.12 }
+      },
+      "classwiseBrier": { "STRIKEOUT": 0.14, "WALK_HBP_CI": 0.09 },
+      "classwiseEce": { "STRIKEOUT": 0.01, "WALK_HBP_CI": 0.02 }
+    },
+    "confusion": {
+      "confusionMatrix": [[0.61, 0.39], [0.4, 0.6]],
+      "axes": { "rows": "realized", "columns": "predicted" },
+      "classOrder": ["STRIKEOUT", "WALK_HBP_CI"]
+    },
+    "diagnostics": {
+      "topLabelReliability": [{ "meanConfidence": 0.52, "accuracy": 0.5, "count": 1200 }],
+      "classwiseReliability": {
+        "STRIKEOUT": [{ "meanProbability": 0.4, "realizedFrequency": 0.42, "count": 800 }]
+      },
+      "probabilityHistograms": null
+    },
+    "independentRecomputedLogLoss": 1.4827332596445002,
+    "recomputationMatchesStored": true,
+    "calibrationStatus": "RAW_UNCALIBRATED",
+    "calibratorConfigured": false,
+    "validationLabel": "2024 validation (2025 sealed — never scored)"
+  },
+  "calibration": {
+    "schemaVersion": "MODEL_CALIBRATION_RESPONSE_V2",
+    "runId": "1399aa0769ad42a39210979e43300860",
+    "runReceiptSha256": "a055aec937f29a670000000000000000000000000000000000000000deadbeef",
+    "bundleManifestSha256": "de43485024ca0a6a0000000000000000000000000000000000000000cafef00d",
+    "generation": "GEN3",
+    "modelFamily": "governed_logistic",
+    "validationSeason": 2024,
+    "calibrationStatus": "RAW_UNCALIBRATED",
+    "calibratorConfigured": false,
+    "topLabelEce": 0.0031,
+    "brierScore": 0.7061,
+    "classOrder": ["STRIKEOUT", "WALK_HBP_CI"],
+    "topLabelReliability": [{ "meanConfidence": 0.52, "accuracy": 0.5, "count": 1200 }],
+    "classwiseReliability": {
+      "STRIKEOUT": [{ "meanProbability": 0.4, "realizedFrequency": 0.42, "count": 800 }]
+    },
+    "validationLabel": "2024 validation (2025 sealed — never calibrated)"
+  },
+  "registryEvidence": {
+    "schemaVersion": "MODEL_REGISTRY_EVIDENCE_RESPONSE_V2",
+    "runId": "1399aa0769ad42a39210979e43300860",
+    "runAuthorityId": "5a6db06c07c11c4d2621dd2e06d4f45b",
+    "runReceiptSha256": "a055aec937f29a670000000000000000000000000000000000000000deadbeef",
+    "bundleManifestSha256": "de43485024ca0a6a0000000000000000000000000000000000000000cafef00d",
+    "datasetVersionId": "mlb-pa-gen3-research:sha256:abc123",
+    "datasetContentSha256": "abc1230000000000000000000000000000000000000000000000000000000000",
+    "generation": "GEN3",
+    "modelFamily": "governed_logistic",
+    "preprocessorSha256": "pp00000000000000000000000000000000000000000000000000000000000000",
+    "modelSha256": "mm00000000000000000000000000000000000000000000000000000000000000",
+    "predictionSha256": "dd00000000000000000000000000000000000000000000000000000000000000",
+    "aggregateMetricsSha256": "aa00000000000000000000000000000000000000000000000000000000000000",
+    "codeRevision": "eaf9c81bac3373a5a5c4cd78a3f1fc9e378354e1",
+    "worktreeContentSha256": "ww00000000000000000000000000000000000000000000000000000000000000",
+    "environmentSha256": "ee00000000000000000000000000000000000000000000000000000000000000",
+    "developmentSeasons": [2021, 2022, 2023],
+    "developmentRows": 547835,
+    "validationSeason": 2024,
+    "validationRows": 182449,
+    "featureCount": 22,
+    "logLoss": 1.4827332596445002,
+    "independentRecomputedLogLoss": 1.4827332596445002,
+    "recomputationMatchesStored": true,
+    "calibrationStatus": "RAW_UNCALIBRATED",
+    "validationLabel": "2024 validation (2025 sealed — never scored)"
+  },
+  "comparison": {
+    "schemaVersion": "MODEL_FEATURE_FAMILY_COMPARISON_RECEIPT_V1",
+    "comparisonReceiptSha256": "cc00000000000000000000000000000000000000000000000000000000000000",
+    "projectId": "test-project",
+    "bindingId": "0123456789abcdef0123456789abcdef",
+    "bindingRevision": 1,
+    "generation": "GEN3",
+    "datasetVersionId": "mlb-pa-gen3-research:sha256:abc123",
+    "datasetContentSha256": "abc1230000000000000000000000000000000000000000000000000000000000",
+    "modelFamily": "governed_logistic",
+    "seed": 20260819,
+    "controlFeatureSet": "base",
+    "challengerFeatureSet": "advanced",
+    "featureFamilyAdded": ["log1p_prior_pa_count"],
+    "featureFamilyId": "RELIABILITY_SAMPLE_SIZE",
+    "featureFamilySha256": "ff00000000000000000000000000000000000000000000000000000000000000",
+    "control": {
+      "runId": "aaaa0769ad42a39210979e4330000001",
+      "runReceiptSha256": "a1000000000000000000000000000000000000000000000000000000deadbeef",
+      "bundleManifestSha256": "b1000000000000000000000000000000000000000000000000000000cafef00d",
+      "featureSetName": "base",
+      "featureSetSha256": "fs00000000000000000000000000000000000000000000000000000000000001",
+      "metrics": {
+        "logLoss": 1.4827332596445002,
+        "brierScore": 0.7061,
+        "topLabelEce": 0.0031,
+        "top1Accuracy": 0.4524,
+        "macroF1": 0.0864
+      }
+    },
+    "challenger": {
+      "runId": "bbbb0769ad42a39210979e4330000002",
+      "runReceiptSha256": "a2000000000000000000000000000000000000000000000000000000deadbeef",
+      "bundleManifestSha256": "b2000000000000000000000000000000000000000000000000000000cafef00d",
+      "featureSetName": "advanced",
+      "featureSetSha256": "fs00000000000000000000000000000000000000000000000000000000000002",
+      "metrics": {
+        "logLoss": 1.4821,
+        "brierScore": 0.7059,
+        "topLabelEce": 0.0032,
+        "top1Accuracy": 0.4526,
+        "macroF1": 0.0869
+      }
+    },
+    "validationSeason": 2024,
+    "validationRows": 182449,
+    "metricDelta": { "logLoss": -0.0006, "brierScore": -0.0002 },
+    "classConditionalLogLossDelta": { "STRIKEOUT": -0.001, "WALK_HBP_CI": 0.0002 },
+    "uncertainty": {
+      "method": "PAIRED_GAME_CLUSTER_BOOTSTRAP",
+      "iterations": 1000,
+      "games": 2430,
+      "logLossDeltaMean": -0.0006,
+      "logLossDelta95CI": [-0.0012, 0.0001],
+      "challengerImproves": false
+    },
+    "createdAt": "2026-08-22T00:00:00Z"
+  }
+}

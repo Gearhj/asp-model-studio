@@ -2230,11 +2230,12 @@ def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
         "preprocessingContractId": m["preprocessingContractId"]}}
 
 
-def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
-    """Gate 12 — Evaluation and Calibration consume the V2 verified evidence ONLY: they resolve the active
-    candidate, load metrics/per-class/confusion/reliability from the verified bundle, and INDEPENDENTLY
-    recompute the metrics from the persisted predictions/target. No mutable run JSON, no browser result, no
-    2025 row. Returns None when no candidate is active."""
+def _active_candidate_verified_payload(project_id: str) -> dict[str, Any] | None:
+    """Gate 9/12 — the SINGLE verified-evidence resolver behind Evaluation / Calibration / Registry-Evidence.
+    Resolves the active candidate (which re-verifies the full canonical parent chain), re-verifies the chain,
+    independently recomputes the 2024 metrics from the persisted predictions/target (fail-closed on mismatch),
+    and loads the manifest-anchored aggregate / per-class / confusion / reliability children from the verified
+    V2 bundle. No mutable run JSON, no browser result, no 2025 row. Returns None when no candidate is active."""
     act = get_active_candidate(project_id=project_id)
     if act is None:
         return None
@@ -2248,14 +2249,71 @@ def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
     reliability = json.loads(_v2_child_bytes(bdir, m, "reliability-diagnostics.json").decode("utf-8"))
     per_class = json.loads(_v2_child_bytes(bdir, m, "per-class-metrics.json").decode("utf-8"))
     confusion = json.loads(_v2_child_bytes(bdir, m, "confusion-matrix.json").decode("utf-8"))
+    return {"runId": run_id, "receiptSha256": v["receiptSha256"], "manifest": m,
+            "metrics": stored_metrics, "reliability": reliability, "perClass": per_class, "confusion": confusion,
+            "recomputed": recomputed}
+
+
+def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9/12 — MODEL_EVALUATION_RESPONSE_V2 payload: verified aggregate + per-class + confusion +
+    reliability from the immutable V2 bundle, plus the independent log-loss recompute. Returns None when no
+    candidate is active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, recomputed = p["manifest"], p["recomputed"]
     return {
-        "runId": run_id, "runReceiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "schemaVersion": "MODEL_EVALUATION_RESPONSE_V2",
+        "runId": p["runId"], "runReceiptSha256": p["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
         "runAuthorityId": m["runAuthorityId"], "generation": m["generation"], "datasetVersionId": m["datasetVersionId"],
         "datasetContentSha256": m["datasetContentSha256"], "developmentSeasons": m["developmentSeasons"],
         "developmentRows": m["developmentRows"], "validationSeason": m["validationSeason"], "validationRows": m["validationRows"],
         "modelFamily": m["modelFamily"], "featureCount": len(m["orderedFeatures"]), "preprocessingContractId": m["preprocessingContractId"],
-        "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
-        "metrics": stored_metrics, "perClass": per_class, "confusion": confusion, "diagnostics": reliability,
+        "classOrder": list(PA_CLASS_ORDER), "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
+        "metrics": p["metrics"], "perClass": p["perClass"], "confusion": p["confusion"], "diagnostics": p["reliability"],
         "independentRecomputedLogLoss": recomputed["recomputedLogLoss"], "recomputationMatchesStored": recomputed["matchesStored"],
+        "validationLabel": "2024 validation (2025 sealed — never scored)",
+    }
+
+
+def active_candidate_calibration(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9 — MODEL_CALIBRATION_RESPONSE_V2 payload. States the RAW / uncalibrated condition honestly (no
+    governed calibrator is fit in this phase); the reliability curves are the candidate's raw 2024-validation
+    probabilities resolved from the verified V2 bundle. Returns None when no candidate is active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, metrics, rel = p["manifest"], p["metrics"], p["reliability"]
+    return {
+        "schemaVersion": "MODEL_CALIBRATION_RESPONSE_V2",
+        "runId": p["runId"], "runReceiptSha256": p["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "generation": m["generation"], "modelFamily": m["modelFamily"], "validationSeason": m["validationSeason"],
+        "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
+        "topLabelEce": float(metrics["topLabelEce"]), "brierScore": float(metrics["brierScore"]),
+        "classOrder": list(PA_CLASS_ORDER), "topLabelReliability": rel.get("topLabelReliability") or [],
+        "classwiseReliability": rel.get("classwiseReliability") or {},
+        "validationLabel": "2024 validation (2025 sealed — never calibrated)",
+    }
+
+
+def active_candidate_registry_evidence(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9 — MODEL_REGISTRY_EVIDENCE_RESPONSE_V2 payload. Immutable content-addressed identities + digests
+    resolved from the verified V2 bundle/receipt (never inferred / decorative). Returns None when none active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, metrics, recomputed = p["manifest"], p["metrics"], p["recomputed"]
+    return {
+        "schemaVersion": "MODEL_REGISTRY_EVIDENCE_RESPONSE_V2",
+        "runId": p["runId"], "runAuthorityId": m["runAuthorityId"], "runReceiptSha256": p["receiptSha256"],
+        "bundleManifestSha256": m["bundleManifestSha256"], "datasetVersionId": m["datasetVersionId"],
+        "datasetContentSha256": m["datasetContentSha256"], "generation": m["generation"], "modelFamily": m["modelFamily"],
+        "preprocessorSha256": m["preprocessorSha256"], "modelSha256": m["modelSha256"], "predictionSha256": m["predictionSha256"],
+        "aggregateMetricsSha256": m["aggregateMetricsSha256"], "codeRevision": m["codeRevision"],
+        "worktreeContentSha256": m["worktreeContentSha256"], "environmentSha256": m["environmentSha256"],
+        "developmentSeasons": m["developmentSeasons"], "developmentRows": m["developmentRows"],
+        "validationSeason": m["validationSeason"], "validationRows": m["validationRows"], "featureCount": len(m["orderedFeatures"]),
+        "logLoss": float(metrics["logLoss"]), "independentRecomputedLogLoss": recomputed["recomputedLogLoss"],
+        "recomputationMatchesStored": recomputed["matchesStored"], "calibrationStatus": "RAW_UNCALIBRATED",
         "validationLabel": "2024 validation (2025 sealed — never scored)",
     }

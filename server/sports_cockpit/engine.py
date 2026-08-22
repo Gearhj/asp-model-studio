@@ -18,6 +18,7 @@ import glob
 import hashlib
 import json
 import math
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -52,7 +53,27 @@ IV_WEAK_THRESHOLD = 0.02
 CORRELATION_STRONG_THRESHOLD = 0.8
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_ROOT = REPO_ROOT / ".runtime" / "asp-model-studio"
+
+
+def _resolve_runtime_root() -> Path:
+    """The single mutable runtime data root. Defaults to the fixed in-repo ``.runtime/asp-model-studio`` so
+    production containment is unchanged. An operator/test may relocate the ENTIRE runtime tree by setting the
+    ``ASP_MODEL_STUDIO_RUNTIME_ROOT`` environment variable to an ABSOLUTE path — used ONLY to run the governed
+    subprocess/HTTP acceptance batteries and the isolated-root inventory against a temporary throwaway root so
+    the shared development ``.runtime`` is never mutated (Gate 14/15/16). This is a process-level DEPLOYMENT
+    control, not a request/caller-supplied path: the per-project + object-root containment checks in
+    gen3_authority still apply strictly beneath whatever root this resolves, so it introduces no runtime path
+    escape. A relative override is rejected (fail-closed)."""
+    override = os.environ.get("ASP_MODEL_STUDIO_RUNTIME_ROOT")
+    if override:
+        p = Path(override)
+        if not p.is_absolute():
+            raise ValueError("ASP_MODEL_STUDIO_RUNTIME_ROOT must be an absolute path")
+        return p.resolve()
+    return REPO_ROOT / ".runtime" / "asp-model-studio"
+
+
+RUNTIME_ROOT = _resolve_runtime_root()
 COCKPIT_ROOT = RUNTIME_ROOT / "sports-cockpit"
 FEATURE_VIEW_GLOB = str(
     RUNTIME_ROOT

@@ -17,6 +17,10 @@ from . import modeling as M
 from . import simulation as S
 from . import gen3_authority as G3A
 from .engine import ALL_FEATURES, CockpitError
+from .cockpit_dtos import (
+    ActiveCandidateResponseV2, ModelCalibrationResponseV2, ModelEvaluationResponseV2,
+    ModelRegistryEvidenceResponseV2,
+)
 from ..security.security_store import require_user
 from ..core.modeling_scope import authorize_modeling_scope
 
@@ -304,24 +308,61 @@ def gen3_activate(payload: dict[str, Any] = Body(...), user: dict = Depends(requ
                   expected_binding_revision=payload.get("expectedBindingRevision"))
 
 
-@router.get("/cockpit/gen3/active-candidate/{project_id}")
-def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+# B9 / Gate 9 — the four scientific reads return STRICT, versioned, backend-authoritative V2 DTOs
+# (extra="forbid"). A renamed/missing/misnested/unexpected field fails construction here (a fail-closed
+# server error), never a silently-truncated "successful" payload. All are resolved only through the canonical
+# chain verifier in the service layer; 2025 never appears. The TypeScript client compiles against these exact
+# shapes (src/sports/cockpit/cockpitApiV2.ts).
+@router.get("/cockpit/gen3/active-candidate/{project_id}", response_model=ActiveCandidateResponseV2)
+def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -> ActiveCandidateResponseV2:
     pid = authorize_modeling_scope(user, project_id, "view")
     c = _guard(G3A.get_active_candidate, project_id=pid)
     if c is None:
         raise HTTPException(status_code=404, detail="no active candidate for project")
-    return c
+    r = c["run"]
+    return ActiveCandidateResponseV2(
+        status=str(c.get("status", "ACTIVE")), runId=c["runId"], runAuthorityId=r["runAuthorityId"],
+        datasetVersionId=r["datasetVersionId"], generation=r["generation"], modelFamily=r["modelFamily"],
+        developmentSeasons=list(r["developmentSeasons"]), developmentRows=int(r["developmentRows"]),
+        validationSeason=int(r["validationSeason"]), validationRows=int(r["validationRows"]),
+        runReceiptSha256=r["runReceiptSha256"], bundleManifestSha256=r["bundleManifestSha256"],
+        bindingId=c["bindingId"], bindingRevision=int(c["bindingRevision"]),
+        activationRevision=int(c["activationRevision"]), activatedAt=c["activatedAt"],
+        preprocessingContractId=r["preprocessingContractId"])
 
 
-@router.get("/cockpit/gen3/evaluation/{project_id}")
-def gen3_evaluation(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
-    # Gate 18/19 — Evaluation/Calibration consume the active candidate's immutable 2024-validation evidence
-    # bundle (full diagnostics + independent log-loss recomputation). Never a browser result; never 2025.
+@router.get("/cockpit/gen3/evaluation/{project_id}", response_model=ModelEvaluationResponseV2)
+def gen3_evaluation(project_id: str, user: dict = Depends(require_user)) -> ModelEvaluationResponseV2:
+    # Gate 9/18/19 — Evaluation consumes the active candidate's immutable 2024-validation evidence bundle
+    # (verified aggregate + per-class + confusion + reliability + independent log-loss recompute). Never a
+    # browser result; never 2025.
     pid = authorize_modeling_scope(user, project_id, "view")
     ev = _guard(G3A.active_candidate_evaluation, project_id=pid)
     if ev is None:
         raise HTTPException(status_code=404, detail="no active candidate for project")
-    return ev
+    return ModelEvaluationResponseV2.model_validate(ev)
+
+
+@router.get("/cockpit/gen3/calibration/{project_id}", response_model=ModelCalibrationResponseV2)
+def gen3_calibration(project_id: str, user: dict = Depends(require_user)) -> ModelCalibrationResponseV2:
+    # Gate 9/19 — Calibration honestly reports the RAW / uncalibrated condition + the candidate's raw
+    # 2024-validation reliability curves from the verified V2 bundle. No fabricated calibrator; never 2025.
+    pid = authorize_modeling_scope(user, project_id, "view")
+    cal = _guard(G3A.active_candidate_calibration, project_id=pid)
+    if cal is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return ModelCalibrationResponseV2.model_validate(cal)
+
+
+@router.get("/cockpit/gen3/registry-evidence/{project_id}", response_model=ModelRegistryEvidenceResponseV2)
+def gen3_registry_evidence(project_id: str, user: dict = Depends(require_user)) -> ModelRegistryEvidenceResponseV2:
+    # Gate 9 — the active candidate's immutable registry record + model card: content-addressed identities and
+    # digests resolved from the verified V2 bundle/receipt (never inferred, never decorative). Never 2025.
+    pid = authorize_modeling_scope(user, project_id, "view")
+    reg = _guard(G3A.active_candidate_registry_evidence, project_id=pid)
+    if reg is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return ModelRegistryEvidenceResponseV2.model_validate(reg)
 
 
 @router.get("/cockpit/gen3/recompute/{project_id}/{run_id}")

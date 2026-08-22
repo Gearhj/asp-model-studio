@@ -11,6 +11,10 @@ import {
   type SimResult, type ExperimentIndexRow, type Eligibility, type FullSimResult,
 } from "./cockpitApi";
 import Gen3AuthorityPanel from "./Gen3AuthorityPanel";
+import {
+  type ActiveCandidateResponseV2, type ModelEvaluationResponseV2, type ModelCalibrationResponseV2,
+  type ModelRegistryEvidenceResponseV2, gen3V2Paths,
+} from "./cockpitApiV2";
 
 // Phase 7A.4 Gate 10 — no scientist-facing component may call a binding-free execution path. The legacy
 // candidate suite, Autopilot, and Grid execution are contained behind this flag; model execution is
@@ -434,28 +438,31 @@ export function TuningStep() {
 // Gate 7 — Evaluation resolves the ACTIVE CANDIDATE from the backend by run id (not lastResult / local
 // state / config hash). Shows the immutable candidate identity; no 2025 payload.
 function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
-  const [cand, setCand] = useState<any | null>(null);
+  const [cand, setCand] = useState<ActiveCandidateResponseV2 | null>(null);
   const [state, setState] = useState<"LOADING" | "ACTIVE" | "NONE" | "ERROR">("LOADING");
   useEffect(() => {
-    cockpitGet<any>(`/cockpit/gen3/active-candidate/${encodeURIComponent(projectId)}`)
-      .then((c) => { setCand(c); setState("ACTIVE"); })
-      .catch((e) => setState(/failed:\s*404/.test(String(e)) ? "NONE" : "ERROR"));
+    let alive = true; setState("LOADING"); setCand(null);
+    cockpitGet<ActiveCandidateResponseV2>(gen3V2Paths.activeCandidate(projectId))
+      .then((c) => { if (alive) { setCand(c); setState("ACTIVE"); } })
+      .catch((e) => { if (alive) setState(/failed:\s*404/.test(String(e)) ? "NONE" : "ERROR"); });
+    return () => { alive = false; };
   }, [projectId]);
   return (
     <Card title="Active candidate · server authority" icon={Trophy}
       description="Downstream evaluation consumes the project's active candidate resolved from the backend by immutable run id — never a local browser result.">
       {state === "LOADING" && <p className="text-sm text-slate-500">Resolving the active candidate…</p>}
       {state === "NONE" && <p className="text-sm text-amber-700">No active candidate — activate one from the Model Laboratory run plan.</p>}
-      {state === "ERROR" && <p className="text-sm text-rose-700">Could not resolve the active candidate.</p>}
+      {state === "ERROR" && <p className="text-sm text-rose-700">Could not resolve the active candidate (verification failed or unavailable).</p>}
       {state === "ACTIVE" && cand && (
         <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
-          <MetricCard label="Run id" value={String(cand.experimentRunId).slice(0, 12) + "…"} detail="immutable" />
-          <MetricCard label="Run authority" value={String(cand.runAuthorityId).slice(0, 12) + "…"} />
-          <MetricCard label="Dataset" value={cand.generation} detail={String(cand.datasetVersionId).split(":")[0]} />
-          <MetricCard label="Development" value={(cand.run?.developmentSeasons || []).join(", ")} />
-          <MetricCard label="Validation" value={String(cand.run?.validationSeason ?? "2024")} />
-          <MetricCard label="Val log loss" value={cand.run?.metrics?.logLoss != null ? fmt.n(cand.run.metrics.logLoss) : "—"} />
-          <MetricCard label="Result fingerprint" value={String(cand.resultFingerprint).slice(0, 12) + "…"} />
+          <MetricCard label="Run id" value={cand.runId.slice(0, 12) + "…"} detail="immutable" />
+          <MetricCard label="Run authority" value={cand.runAuthorityId.slice(0, 12) + "…"} />
+          <MetricCard label="Dataset" value={cand.generation} detail={cand.datasetVersionId.split(":")[0]} />
+          <MetricCard label="Model family" value={cand.modelFamily} />
+          <MetricCard label="Development" value={(cand.developmentSeasons || []).join(", ")} detail={`${fmt.int(cand.developmentRows)} PAs`} />
+          <MetricCard label="Validation" value={String(cand.validationSeason)} detail={`${fmt.int(cand.validationRows)} PAs`} />
+          <MetricCard label="Run receipt" value={cand.runReceiptSha256.slice(0, 12) + "…"} detail="immutable receipt" />
+          <MetricCard label="Evidence bundle" value={cand.bundleManifestSha256.slice(0, 12) + "…"} detail="content-addressed" />
         </div>
       )}
     </Card>
@@ -475,9 +482,11 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
     );
   }
   const d = ev.data;
-  const m = d.diagnostics;
-  const order: string[] = m.classOrder;
-  const severe = order.map((c) => ({ c, brier: m.classwiseBrier[c], ece: m.classwiseEce[c] })).sort((a, b) => b.brier - a.brier);
+  const order: string[] = d.confusion.classOrder;
+  const cwBrier = d.perClass.classwiseBrier;
+  const cwEce = d.perClass.classwiseEce;
+  const perClass = d.perClass.perClass;
+  const severe = order.map((c) => ({ c, brier: cwBrier[c], ece: cwEce[c] })).sort((a, b) => b.brier - a.brier);
   return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
@@ -493,7 +502,7 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
           Independent log loss recomputed from the persisted prediction + target artifacts:
-          <b className="ml-1 font-mono">{fmt.n(d.independentRecomputedLogLoss, 8)}</b> · run <span className="font-mono">{String(d.runId).slice(0, 12)}…</span> · evidence <span className="font-mono">{String(d.evidenceBundleSha256).slice(0, 12)}…</span> · {d.modelFamily}
+          <b className="ml-1 font-mono">{fmt.n(d.independentRecomputedLogLoss, 8)}</b> · run <span className="font-mono">{d.runId.slice(0, 12)}…</span> · evidence <span className="font-mono">{d.bundleManifestSha256.slice(0, 12)}…</span> · {d.modelFamily}
         </p>
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -503,15 +512,15 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
               <thead className="sticky top-0 bg-white"><tr className="text-slate-500">{["Class", "Support", "Recall", "Class Brier", "Class ECE"].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
               <tbody>{order.map((c) => (
                 <tr key={c}><td className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-800">{c}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.int(m.perClass[c]?.support)}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(m.perClass[c]?.recall, 3)}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(m.classwiseBrier[c], 4)}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(m.classwiseEce[c], 4)}</td></tr>))}</tbody>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.int(perClass[c]?.support)}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(perClass[c]?.recall, 3)}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(cwBrier[c], 4)}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{fmt.n(cwEce[c], 4)}</td></tr>))}</tbody>
             </table>
           </div>
         </Card>
         <Card title="Confusion (row-normalized)" description="Realized (rows) vs predicted (columns) on 2024 validation." icon={BarChart3}>
-          <ConfusionHeatmap matrix={m.confusionMatrix} labels={order} />
+          <ConfusionHeatmap matrix={d.confusion.confusionMatrix} labels={order} />
         </Card>
       </div>
       <Card title="Severe-miss concentration" description="Classes ranked by Brier contribution — where the model's probability error concentrates (2024)." icon={BarChart3}>
@@ -522,23 +531,33 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
   );
 }
 
-// Gate 18/19 — one hook resolves the active candidate's immutable evaluation evidence for a project.
-type EvalState = { state: "LOADING" | "ACTIVE" | "NONE" | "ERROR"; data?: any };
-function useActiveEvaluation(projectId: string): EvalState {
-  const [st, setSt] = useState<EvalState>({ state: "LOADING" });
+// Gate 9/18/19 — a generic hook that resolves one active-candidate V2 evidence read for a project. Each of
+// Evaluation / Calibration / Registry hits its OWN strict V2 endpoint (one scientific shape, no legacy paths).
+type V2State<T> = { state: "LOADING" | "ACTIVE" | "NONE" | "ERROR"; data?: T };
+function useActiveV2<T>(path: string, projectId: string): V2State<T> {
+  const [st, setSt] = useState<V2State<T>>({ state: "LOADING" });
   useEffect(() => {
     let alive = true; setSt({ state: "LOADING" });
-    cockpitGet<any>(`/cockpit/gen3/evaluation/${encodeURIComponent(projectId)}`)
+    cockpitGet<T>(path)
       .then((d) => { if (alive) setSt({ state: "ACTIVE", data: d }); })
       .catch((e) => { if (alive) setSt({ state: /failed:\s*404/.test(String(e)) ? "NONE" : "ERROR" }); });
     return () => { alive = false; };
-  }, [projectId]);
+  }, [path, projectId]);
   return st;
+}
+function useActiveEvaluation(projectId: string) {
+  return useActiveV2<ModelEvaluationResponseV2>(gen3V2Paths.evaluation(projectId), projectId);
+}
+function useActiveCalibration(projectId: string) {
+  return useActiveV2<ModelCalibrationResponseV2>(gen3V2Paths.calibration(projectId), projectId);
+}
+function useActiveRegistryEvidence(projectId: string) {
+  return useActiveV2<ModelRegistryEvidenceResponseV2>(gen3V2Paths.registryEvidence(projectId), projectId);
 }
 
 // ============================================================ 12 Calibration
 export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
-  const ev = useActiveEvaluation(projectId);   // Gate 19 — same active candidate evidence as Evaluation
+  const ev = useActiveCalibration(projectId);   // Gate 9/19 — the active candidate's raw 2024 calibration evidence
   const [cls, setCls] = useState<string>("STRIKEOUT");
   if (ev.state === "LOADING") return <div className="space-y-4"><Gen3ActiveCandidateCard projectId={projectId} /><p className="text-sm text-slate-500">Resolving the active candidate's evidence…</p></div>;
   if (ev.state !== "ACTIVE" || !ev.data) return (
@@ -547,10 +566,14 @@ export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: str
       <NeedRun label="Calibration diagnostics are computed on the server-authorized active candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." />
     </div>
   );
-  const m = ev.data.diagnostics;
-  const topRel = (m.topLabelReliability || []).map((b: any) => ({ meanPredicted: b.meanConfidence, observed: b.accuracy, count: b.count }));
-  const order: string[] = m.classOrder;
-  const clsRel = (m.classwiseReliability?.[cls] || []).map((b: any) => ({ meanPredicted: b.meanProbability, observed: b.realizedFrequency, count: b.count }));
+  const d = ev.data;
+  const topRel = (d.topLabelReliability || [])
+    .filter((b) => b.meanConfidence != null && b.accuracy != null)
+    .map((b) => ({ meanPredicted: b.meanConfidence as number, observed: b.accuracy as number, count: b.count }));
+  const order: string[] = d.classOrder;
+  const clsRel = (d.classwiseReliability?.[cls] || [])
+    .filter((b) => b.meanProbability != null && b.realizedFrequency != null)
+    .map((b) => ({ meanPredicted: b.meanProbability as number, observed: b.realizedFrequency as number, count: b.count }));
   return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
@@ -561,9 +584,9 @@ export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: str
       <Card title="Calibration reliability (raw)" description="Raw model probabilities on the 2024 validation season, resolved from the active candidate's evidence bundle." icon={Gauge}
         action={<Pill label="2024 validation · RAW" tone="amber" />}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <MetricCard label="Top-label ECE" value={fmt.n(m.topLabelEce)} detail="expected calibration error" />
-          <MetricCard label="Brier" value={fmt.n(m.brierScore)} />
-          <MetricCard label="Balanced acc." value={fmt.n(m.balancedAccuracy, 3)} />
+          <MetricCard label="Top-label ECE" value={fmt.n(d.topLabelEce)} detail="expected calibration error" />
+          <MetricCard label="Brier" value={fmt.n(d.brierScore)} />
+          <MetricCard label="Calibrator" value={d.calibratorConfigured ? "configured" : "not configured"} detail={d.calibrationStatus} />
         </div>
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -625,10 +648,10 @@ export function ChampionChallengerStep({ projectId = "mlb-cockpit" }: { projectI
       <Card title="Active challenger" description="The project's active candidate, resolved from the server by immutable run id and evaluated on 2024 validation only." icon={FlaskConical}>
         {d ? (
           <div className="grid gap-3 sm:grid-cols-4">
-            <MetricCard label="Run id" value={String(d.runId).slice(0, 12) + "…"} detail={d.modelFamily} />
+            <MetricCard label="Run id" value={d.runId.slice(0, 12) + "…"} detail={d.modelFamily} />
             <MetricCard label="2024 log loss" value={fmt.n(d.metrics.logLoss, 6)} />
             <MetricCard label="Recompute" value={d.recomputationMatchesStored ? "verified" : "MISMATCH"} detail="independent" />
-            <MetricCard label="Evidence" value={String(d.evidenceBundleSha256).slice(0, 12) + "…"} />
+            <MetricCard label="Evidence" value={d.bundleManifestSha256.slice(0, 12) + "…"} />
           </div>
         ) : <p className="text-sm text-slate-500">No active candidate. Activate one from the Model Laboratory.</p>}
       </Card>
@@ -642,7 +665,7 @@ export function ChampionChallengerStep({ projectId = "mlb-cockpit" }: { projectI
 
 // ============================================================ 15 Registry & Evidence
 export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
-  const ev = useActiveEvaluation(projectId);   // registry evidence is the active candidate's immutable bundle
+  const ev = useActiveRegistryEvidence(projectId);   // Gate 9 — the active candidate's immutable registry-evidence bundle
   if (ev.state !== "ACTIVE" || !ev.data) return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
@@ -656,7 +679,7 @@ export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string
         action={<Pill label="SERVER-AUTHORIZED EVIDENCE" tone="cyan" />}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[["Run id", String(d.runId)], ["Run authority", String(d.runAuthorityId)], ["Model family", d.modelFamily],
-            ["Evidence manifest", String(d.evidenceBundleSha256)], ["Prediction SHA", String(d.predictionSha256)], ["Diagnostics SHA", String(d.diagnosticsSha256)]].map(([k, v]) => (
+            ["Evidence manifest", String(d.bundleManifestSha256)], ["Prediction SHA", String(d.predictionSha256)], ["Model SHA", String(d.modelSha256)]].map(([k, v]) => (
             <div key={k} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold uppercase text-slate-500">{k}</div><div className="mt-1 break-words font-mono text-[11px] font-semibold text-slate-900">{String(v).slice(0, 24)}{String(v).length > 24 ? "…" : ""}</div></div>
           ))}
         </div>
@@ -668,17 +691,18 @@ export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string
             <Row k="Population" v={`dev ${(d.developmentSeasons || []).join(",")} · val ${d.validationSeason} · 2025 SEALED`} />
             <Row k="Dataset" v={`${d.generation} · ${String(d.datasetVersionId).split(":")[0]}`} />
             <Row k="Algorithm" v={d.modelFamily} />
-            <Row k="2024 validation log loss" v={fmt.n(d.metrics.logLoss, 6)} />
+            <Row k="2024 validation log loss" v={fmt.n(d.logLoss, 6)} />
             <Row k="Independent recompute" v={`${fmt.n(d.independentRecomputedLogLoss, 6)} · ${d.recomputationMatchesStored ? "verified" : "MISMATCH"}`} />
-            <Row k="Calibration" v="RAW — calibrator not configured" />
+            <Row k="Calibration" v={`${d.calibrationStatus} — calibrator not configured`} />
           </dl>
         </Card>
         <Card title="Lineage & reproducibility" description="Immutable authorities and content digests." icon={Boxes}>
           <div className="space-y-2 text-xs">
             <Row k="Content SHA" v={String(d.datasetContentSha256).slice(0, 24) + "…"} />
-            <Row k="Evidence manifest" v={String(d.evidenceBundleSha256).slice(0, 24) + "…"} />
+            <Row k="Evidence manifest" v={String(d.bundleManifestSha256).slice(0, 24) + "…"} />
             <Row k="Prediction artifact" v={String(d.predictionSha256).slice(0, 24) + "…"} />
-            <Row k="Result fingerprint" v={String(d.resultFingerprint || "").slice(0, 24) + "…"} />
+            <Row k="Run receipt" v={String(d.runReceiptSha256).slice(0, 24) + "…"} />
+            <Row k="Code revision" v={String(d.codeRevision).slice(0, 12) + "…"} />
             <Row k="Validation" v={d.validationLabel} />
           </div>
         </Card>
