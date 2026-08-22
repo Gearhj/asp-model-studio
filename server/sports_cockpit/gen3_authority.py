@@ -24,6 +24,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pyarrow.parquet as pq
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
@@ -723,27 +724,64 @@ def _invalidate_downstream(project_id: str, new_binding_id: str) -> None:
 
 
 # --------------------------------------------------------------------------- resource bounds (A2-13)
+class _LogisticHyperparameters(BaseModel):
+    """Gate 21 — governed logistic is FIXED policy: it accepts NO tunable hyperparameter. extra=forbid means
+    any provided key is rejected rather than silently ignored."""
+    model_config = ConfigDict(extra="forbid")
+
+
+class _HgbHyperparameters(BaseModel):
+    """Gate 21 — strict governed_hgb request: unknown fields rejected; StrictInt rejects bool/float/fractional
+    ints (huge values fail the bound); a finite bounded learning rate rejects NaN/Inf/<=0/>1; NO int()
+    truncation."""
+    model_config = ConfigDict(extra="forbid")
+    maxIter: StrictInt = Field(default=200, ge=10, le=1000)
+    learningRate: float = Field(default=0.1, gt=0.0, le=1.0, allow_inf_nan=False)
+    maxDepth: StrictInt | None = Field(default=None, ge=1, le=16)
+
+
+def _sanitize_validation(exc: ValidationError) -> str:
+    errs = exc.errors()
+    if errs:
+        e = errs[0]
+        loc = ".".join(str(x) for x in e.get("loc", ())) or "<root>"
+        return f"{loc}: {e.get('type', 'invalid')}"   # field + error type only — never echo the input value
+    return "invalid"
+
+
 def _validate_hyperparameters(family: str, hyper: Mapping[str, Any]) -> dict[str, Any]:
-    def num(v):
-        f = float(v)
-        if not math.isfinite(f):
-            raise AuthorityError("hyperparameter must be a finite number")
-        return f
+    """Gate 21 — strict, family-specific request validation. Unknown fields/hyperparameters, non-finite or
+    fractional/out-of-range/negative numeric values, and unsupported families are rejected with a SANITIZED
+    message (the route maps AuthorityError -> uniform 422). Logistic hyperparameters are NOT silently ignored;
+    floats are never truncated with int()."""
+    if not isinstance(hyper, Mapping):
+        raise AuthorityError("hyperparameters must be an object")
     if family == "governed_logistic":
+        try:
+            _LogisticHyperparameters(**dict(hyper))
+        except ValidationError:
+            raise AuthorityError("governed_logistic accepts no tunable hyperparameters (fixed governed policy)")
         return {"penalty": "l2", "solver": "lbfgs", "maxIter": DEFAULT_MAX_ITER, "tol": DEFAULT_TOLERANCE,
                 "cGrid": list(C_GRID), "cSelection": "chronological_dev_inner_split_0.8"}
-    max_iter = int(num(hyper.get("maxIter", 200)))
-    lr = num(hyper.get("learningRate", 0.1))
-    if not (10 <= max_iter <= 1000):
-        raise AuthorityError("governed_hgb maxIter must be in [10, 1000]")
-    if not (0.001 <= lr <= 1.0):
-        raise AuthorityError("governed_hgb learningRate must be in [0.001, 1.0]")
-    max_depth = hyper.get("maxDepth")
-    if max_depth is not None:
-        max_depth = int(num(max_depth))
-        if not (1 <= max_depth <= 16):
-            raise AuthorityError("governed_hgb maxDepth must be in [1, 16]")
-    return {"maxIter": max_iter, "learningRate": lr, "maxDepth": max_depth, "earlyStopping": False, "randomState": 20260819}
+    if family == "governed_hgb":
+        try:
+            m = _HgbHyperparameters(**dict(hyper))
+        except ValidationError as exc:
+            raise AuthorityError(f"invalid governed_hgb hyperparameters ({_sanitize_validation(exc)})")
+        return {"maxIter": m.maxIter, "learningRate": m.learningRate, "maxDepth": m.maxDepth,
+                "earlyStopping": False, "randomState": 20260819}
+    raise AuthorityError(f"unsupported model family: {family}")
+
+
+def _tunable_from_effective(family: str, eff: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract the CLIENT-TUNABLE request subset from a stored effective-hyperparameter map, so the strict
+    request schema can re-validate an authority idempotently (Gate 21) — server-added fixed keys
+    (earlyStopping / randomState / the fixed logistic policy) are not client inputs and must not be fed back
+    into the extra=forbid input schema. A forged extra key survives here and is caught by the equality check
+    in _validate_authority (the re-derived clean output will not match a map carrying the forged key)."""
+    if family == "governed_hgb":
+        return {k: eff[k] for k in ("maxIter", "learningRate", "maxDepth") if k in eff}
+    return {}   # governed_logistic has no tunable inputs
 
 
 # --------------------------------------------------------------------------- run authority (A2-04/06/10/11/13)
@@ -872,9 +910,11 @@ def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[
     if list(authority.get("developmentSeasons", [])) != list(binding["developmentSeasons"]) \
             or int(authority.get("validationSeason", -1)) != int(binding["validationSeason"]):
         raise AuthorityError("FORGED authority: fold seasons do not match the binding")
-    # re-validate the model request (rejects a forged out-of-bounds hyperparameter map)
-    eff_hyper = _validate_hyperparameters(authority["modelFamily"], authority.get("effectiveHyperparameters") or {})
-    if eff_hyper != authority.get("effectiveHyperparameters"):
+    # re-validate the model request from its TUNABLE subset (the strict input schema is idempotent over
+    # server-added fixed keys); rejects a forged out-of-bounds OR extra-key hyperparameter map
+    stored_eff = authority.get("effectiveHyperparameters") or {}
+    eff_hyper = _validate_hyperparameters(authority["modelFamily"], _tunable_from_effective(authority["modelFamily"], stored_eff))
+    if eff_hyper != stored_eff:
         raise AuthorityError("FORGED authority: effective hyperparameters do not re-validate")
     # code/environment: fail closed on UNKNOWN; must still represent this software (Gate 18)
     code = _code_identity()

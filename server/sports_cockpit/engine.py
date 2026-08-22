@@ -277,10 +277,11 @@ def _champion_reference() -> dict[str, Any]:
                 if cand.get("candidateId") == "C4":
                     agg = cand.get("aggregateMetrics", {})
                     val = agg.get("validation2024") or agg.get("selection2024") or {}
-                    frozen = agg.get("final2025") or {}
+                    # Phase 7D.1 Gate 12 — the champion's sealed-2025 metric (agg["final2025"]) is NEVER read
+                    # here, not even into a discarded local. The ordinary objective loads only the 2024 field.
                     if val.get("logLoss") is not None:
-                        # Phase 7D Gate 21 — the ordinary objective NEVER exposes the champion's sealed-2025
-                        # metrics. Only the 2024 validation reference is shown in the model-development workflow.
+                        # the ordinary objective NEVER exposes the champion's sealed-2025 metrics — only the
+                        # 2024 validation reference is shown in the model-development workflow.
                         return {
                             "candidateId": "C4",
                             "val2024": {
