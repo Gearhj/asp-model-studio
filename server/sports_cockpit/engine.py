@@ -146,10 +146,11 @@ FAMILY_LABELS = {
 # Registered D3 champion (candidate C4) frozen evidence, read from the experiment-metrics
 # artifact at import so the cockpit displays the governed champion of record. The in-pipeline
 # reproduction (``champion_baseline``) is what challengers are compared against numerically.
+# Phase 7D.2 Gate 12 — no sealed-2025 metric constant is loaded into an ordinary reference. Only the 2024
+# validation reference is carried; the sealed-2025 evidence is restricted archival, never a scientist DTO.
 CHAMPION_REFERENCE_FALLBACK = {
     "candidateId": "C4",
     "val2024": {"logLoss": 1.4842548490122627, "brierScore": 0.7067859079863168, "topLabelEce": 0.0117306649436536},
-    "frozen2025": {"logLoss": 1.4816765958300682, "brierScore": 0.7063844063294433, "topLabelEce": 0.0037567915240150195},
 }
 
 

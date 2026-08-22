@@ -40,18 +40,11 @@ def test_all_eight_model_families_registered_and_boosters_installed():
 
 
 # ---------------- config identity + preprocessing propagation ----------------
-def test_distinct_configs_yield_distinct_ids_and_indicators_expand_matrix():
-    a = M.run_experiment({**LOG, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "median"}}, persist=False)
-    b = M.run_experiment({**LOG, "outlierPolicy": {"globalMethod": "iqr", "params": {"k": 1.5}},
-                          "missingPolicy": {"globalMethod": "median", "addIndicator": True}}, persist=False)
-    assert a["experimentId"] != b["experimentId"]                       # config-hash identity
-    assert b["expandedFeatureCount"] > a["expandedFeatureCount"]        # missing indicators reach the estimator
-    for r in (a, b):
-        assert r["leakageGuards"]["frozenSeasonExcludedFromFitting"] is True
-        assert r["leakageGuards"]["foldLocalPreprocessing"] is True
-        assert r["leakageGuards"]["targetColumnNeverAFeature"] is True
-        assert r["metrics"]["val2024"]["rowCount"] == 182449            # evaluated on 2024
-        assert r["metrics"]["frozen2025"]["rowCount"] == 182926         # frozen evaluated (not fit)
+def test_distinct_configs_legacy_execution_is_retired():
+    # Phase 7D.2 Gate 12 — legacy in-process experiment execution (which evaluated a frozen 2025 fold) is
+    # retired before any data open; distinct-config training runs through the canonical gen3_authority path.
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_experiment({**LOG, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "median"}}, persist=False)
 
 
 def test_preprocessor_is_fold_local_and_frozen_transform_never_mutates_state():
@@ -134,24 +127,13 @@ def test_feature_builder_rejects_invalid_specs():
         M.run_experiment({"features": list(M.ALL_FEATURES), "family": "banana"}, persist=False)  # unknown family
 
 
-def test_ablation_is_a_controlled_base_vs_engineered_comparison():
+def test_legacy_ablation_execution_is_retired():
+    # Phase 7D.2 Gate 12 — the legacy in-process ablation (frozen-2025 scoring) is retired; the canonical
+    # 2024-only feature-family ablation is gen3_authority.run_feature_family_ablation.
     base = {**LOG, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "median"}}
-    a = M.run_ablation({"baseConfig": base, "addEngineered": [
-        {"name": "e_ratio", "kind": "ratio", "inputs": ["batter_so_per_pa", "batter_bb_hbp_per_pa"]}]})
-    assert a["challenger"]["features"] == a["control"]["features"] + 1
-    assert a["verdict"] in {"VALUE_CONFIRMED", "VALUE_MARGINAL", "NEGATIVE_VALUE", "NO_MATERIAL_VALUE"}
-
-
-def test_ablation_uses_engineered_feature_from_specs_only_and_dedupes_names():
-    # Phase 6H defect: passing addEngineered (specs) without addFeatures (names) previously left the
-    # engineered column materialized-but-unused (challenger == control, delta 0). It must now be selected.
-    base = {**LOG, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "median"}}
-    spec = {"name": "e_inter", "kind": "interaction", "inputs": ["batter_slg", "batter_hr_per_pa"]}
-    spec_only = M.run_ablation({"baseConfig": base, "addEngineered": [spec]})
-    assert spec_only["challenger"]["features"] == spec_only["control"]["features"] + 1
-    # frontend passes BOTH addFeatures (names) and addEngineered (specs) — must not double-count
-    both = M.run_ablation({"baseConfig": base, "addFeatures": [spec["name"]], "addEngineered": [spec]})
-    assert both["challenger"]["features"] == both["control"]["features"] + 1
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_ablation({"baseConfig": base, "addEngineered": [
+            {"name": "e_ratio", "kind": "ratio", "inputs": ["batter_so_per_pa", "batter_bb_hbp_per_pa"]}]})
 
 
 def test_date_holdout_rejects_invalid_or_out_of_window_dates():
@@ -192,28 +174,20 @@ def test_grid_quality_score_matches_formula_and_is_ranked():
 
 
 # ---------------- autopilot ----------------
-def test_autopilot_quick_is_bounded_and_selects_on_validation_only():
-    ap = M.run_autopilot({"features": list(M.ALL_FEATURES)}, budget="quick", persist=False)
-    assert ap["candidateCount"] == 2 and ap["budget"] == "quick"            # bounded plan
-    assert ap["best"] is not None
-    assert any("2024 validation only" in lim for lim in ap["limitations"])   # frozen never selects
-    ok = [c for c in ap["candidates"] if c["status"] == "COMPLETED"]
-    assert ap["best"]["val2024"]["logLoss"] == min(c["val2024"]["logLoss"] for c in ok)
+def test_legacy_autopilot_is_retired():
+    # Phase 7D.2 Gate 12 — the legacy in-process autopilot is retired; the canonical bounded suite is
+    # gen3_authority.run_authorized_suite (2024-only validation; 2025 sealed).
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_autopilot({"features": list(M.ALL_FEATURES)}, budget="quick", persist=False)
 
 
 # ---------------- metrics integrity ----------------
-def test_probabilities_sum_to_one_over_eight_classes_and_metrics_reproduce():
-    frame = E.load_frame()
-    res = M._fit_and_evaluate(frame, list(M.ALL_FEATURES), "logistic", {"C": 1.0, "maxIter": 2000},
-                              {"globalMethod": "none"}, {"globalMethod": "median"})
-    val_mask = frame["season"].to_numpy() == E.VAL_SEASON
-    proba = M._predict_proba_aligned(res["_estimator"], res["_preprocessor"].transform(frame, val_mask))
-    assert proba.shape[1] == 8 == len(PA_CLASS_ORDER)
-    assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-6)
-    enc = encode_labels(frame.loc[val_mask, "outcome"].to_numpy())
-    ind_ll = float(np.mean(-np.log(np.clip(proba[np.arange(len(enc)), enc], 1e-15, 1))))
-    assert abs(res["val2024"]["logLoss"] - ind_ll) < 1e-4                     # engine log loss reproduces
-    assert abs(res["val2024"]["top1Accuracy"] - float((proba.argmax(1) == enc).mean())) < 1e-6
+def test_legacy_fit_and_evaluate_is_retired():
+    # Phase 7D.2 Gate 12 — the frozen-2025-scoring evaluator is retired; the canonical run path recomputes
+    # 2024 validation probabilities independently from the immutable evidence bundle (gen3_authority).
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M._fit_and_evaluate(E.load_frame(), list(M.ALL_FEATURES), "logistic", {"C": 1.0, "maxIter": 2000},
+                            {"globalMethod": "none"}, {"globalMethod": "median"})
 
 
 def test_target_and_identifier_columns_are_never_predictors():

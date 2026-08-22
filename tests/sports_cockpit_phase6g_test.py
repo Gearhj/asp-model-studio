@@ -25,7 +25,7 @@ def test_target_analysis_reports_classes_and_per_season_distribution():
     t = E.target_analysis()
     assert t["target"] == "outcome" and t["problemType"] == "MULTICLASS_CLASSIFICATION"
     assert t["classCount"] == 8 and t["missing"] == 0
-    assert [s["season"] for s in t["perSeason"]] == [2023, 2024, 2025]  # modeling target rows only
+    assert [s["season"] for s in t["perSeason"]] == [2023, 2024]  # 2025 physically sealed; research target rows only
     # each season's class shares sum to ~1
     for s in t["perSeason"]:
         assert abs(sum(d["share"] for d in s["distribution"]) - 1.0) < 1e-6
@@ -34,27 +34,23 @@ def test_target_analysis_reports_classes_and_per_season_distribution():
     assert t["imbalanceRatio"] and t["imbalanceRatio"] > 50
 
 
-def test_target_analysis_excludes_prior_only_seasons():
+def test_target_analysis_excludes_prior_only_and_sealed_seasons():
     t = E.target_analysis()
-    assert set(t["modelingSeasons"]) == {2023, 2024, 2025}
-    assert 2021 not in [s["season"] for s in t["perSeason"]]
-    assert 2022 not in [s["season"] for s in t["perSeason"]]
+    assert set(t["modelingSeasons"]) == {2023, 2024}   # 2025 physically sealed; 2021/2022 are prior-only history
+    for excluded in (2021, 2022, 2025):
+        assert excluded not in [s["season"] for s in t["perSeason"]]
 
 
-def test_model_lab_trains_distinct_families_with_leaderboard_metrics():
-    a = M.run_experiment({"features": list(M.ALL_FEATURES), "family": "logistic", "hyperparameters": {}}, persist=False)
-    b = M.run_experiment({"features": list(M.ALL_FEATURES), "family": "hist_gradient_boosting", "hyperparameters": {}}, persist=False)
-    assert a["experimentId"] != b["experimentId"]                 # distinct candidate identity
-    assert a["family"] == "logistic" and b["family"] == "hist_gradient_boosting"
-    for r in (a, b):
-        v = r["metrics"]["val2024"]
-        # real leaderboard metrics exist (no fabricated fields)
-        for k in ("logLoss", "brierScore", "topLabelEce", "top1Accuracy", "macroF1"):
-            assert k in v and v[k] is not None
-        assert r["fitSeconds"] > 0
-    # champion reference is available and unchanged (not overwritten)
-    champ = M.champion_baseline()
-    assert champ["val2024"]["logLoss"] > 0
+def test_model_lab_legacy_training_is_retired_and_champion_reference_unchanged():
+    # Phase 7D.2 Gate 12 — the legacy in-process Model-Lab training path (which fit/scored a frozen 2025
+    # fold) is retired; distinct-family training now runs through the canonical gen3_authority run path.
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_experiment({"features": list(M.ALL_FEATURES), "family": "logistic", "hyperparameters": {}}, persist=False)
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.champion_baseline()
+    # the champion reference of record is still available and 2024-only (unchanged, not overwritten)
+    ref = E._champion_reference()
+    assert ref["val2024"]["logLoss"] > 0 and "frozen2025" not in ref
 
 
 def test_available_families_are_honest():

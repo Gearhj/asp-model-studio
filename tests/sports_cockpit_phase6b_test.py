@@ -147,22 +147,21 @@ def test_calendar_is_temporally_safe_month_range():
 
 @view
 def test_engineered_feature_flows_through_experiment():
+    # Phase 7D.2 Gate 12 — legacy in-process experiment execution is retired (it fit/scored a frozen 2025
+    # fold); feature engineering now flows through the canonical gen3 feature-set / feature-family ablation.
     spec = {"name": "obp_minus_whip", "kind": "arithmetic", "inputs": ["batter_obp", "pitcher_whip"], "params": {"op": "sub"}}
-    res = M.run_experiment(
-        {"features": list(E.ALL_FEATURES) + ["obp_minus_whip"], "family": "logistic", "hyperparameters": {"C": 1.0}, "engineeredFeatures": [spec]},
-        persist=False,
-    )
-    assert res["featureCount"] == len(E.ALL_FEATURES) + 1
-    assert res["metrics"]["val2024"]["logLoss"] > 0
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_experiment(
+            {"features": list(E.ALL_FEATURES) + ["obp_minus_whip"], "family": "logistic", "hyperparameters": {"C": 1.0}, "engineeredFeatures": [spec]},
+            persist=False)
 
 
 @view
 def test_ablation_produces_verdict():
     spec = {"name": "cal_month", "kind": "calendar", "params": {"subkind": "month"}}
-    out = M.run_ablation({"baseConfig": {"features": list(E.ALL_FEATURES), "family": "logistic", "hyperparameters": {"C": 1.0}},
-                          "addFeatures": ["cal_month"], "addEngineered": [spec]})
-    assert out["verdict"] in {"VALUE_CONFIRMED", "VALUE_MARGINAL", "NO_MATERIAL_VALUE", "NEGATIVE_VALUE"}
-    assert out["control"]["features"] == 22 and out["challenger"]["features"] == 23
+    with pytest.raises(M.LegacyModelingRetiredError):   # legacy ablation retired; use gen3 feature-family ablation
+        M.run_ablation({"baseConfig": {"features": list(E.ALL_FEATURES), "family": "logistic", "hyperparameters": {"C": 1.0}},
+                        "addFeatures": ["cal_month"], "addEngineered": [spec]})
 
 
 @view

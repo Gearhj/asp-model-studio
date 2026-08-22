@@ -28,15 +28,19 @@ pytestmark = pytest.mark.skipif(not _HAS_VIEW, reason="D3 feature view not mater
 def test_2021_2022_are_not_in_the_modeling_matrix():
     frame = E.load_frame()
     seasons = set(int(s) for s in frame["season"].unique())
-    assert seasons == {2023, 2024, 2025}
-    assert 2021 not in seasons and 2022 not in seasons  # source evidence only; never materialized as targets
+    # Phase 7C physical seal (upheld in 7D.2 Gate 12): the ordinary modeling frame is 2023-2024 research only;
+    # 2025 is physically sealed and 2021/2022 are prior-only history, never materialized as targets.
+    assert seasons == {2023, 2024}
+    assert 2021 not in seasons and 2022 not in seasons and 2025 not in seasons
 
 
 # ---------------- Temporal Split policy previews ----------------
 def test_temporal_preview_season_holdout_real_rows():
     p = E.temporal_split_preview("SEASON_HOLDOUT")
     f = p["folds"][0]
-    assert f["training"]["rows"] == 184104 and f["validation"]["rows"] == 182449 and f["frozen"]["rows"] == 182926
+    assert f["training"]["rows"] == 184104 and f["validation"]["rows"] == 182449
+    # 2025 is physically sealed — the frozen fold is a governed PLAN with zero resident rows (never scored)
+    assert f["frozen"]["season"] == 2025 and f["frozen"]["rows"] == 0
     assert p["matchesGovernedContract"] is True and p["leakageStatus"] == "FROZEN_2025_PROTECTED"
 
 
@@ -90,17 +94,12 @@ def test_kmeans_exposes_size_balance_decision_fields():
 
 
 # ---------------- Model Laboratory: distinct configs, propagation, frozen protection ----------------
-def test_lab_trains_distinct_configs_with_preprocessing_propagation():
-    A = M.run_experiment({"features": list(M.ALL_FEATURES), "family": "logistic",
+def test_lab_legacy_training_is_retired():
+    # Phase 7D.2 Gate 12 — legacy in-process Model-Lab training (frozen-2025 scoring) is retired before any
+    # data open; preprocessing-propagated training runs through the canonical gen3_authority run path.
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_experiment({"features": list(M.ALL_FEATURES), "family": "logistic",
                           "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "median"}}, persist=False)
-    B = M.run_experiment({"features": list(M.ALL_FEATURES), "family": "logistic",
-                          "outlierPolicy": {"globalMethod": "iqr", "params": {"k": 1.5}},
-                          "missingPolicy": {"globalMethod": "mean", "addIndicator": True}}, persist=False)
-    assert A["experimentId"] != B["experimentId"]                    # config-hash identity, no contamination
-    assert A["config"]["outlierPolicy"]["globalMethod"] == "none"
-    assert B["config"]["outlierPolicy"]["globalMethod"] == "iqr"     # selected policy actually consumed
-    assert B["expandedFeatureCount"] > A["expandedFeatureCount"]     # missing indicators propagated into training
-    assert A["metrics"]["val2024"]["logLoss"] > 0 and A["metrics"]["frozen2025"]["logLoss"] > 0
 
 
 def test_preprocessor_fits_on_development_only_frozen_protected():

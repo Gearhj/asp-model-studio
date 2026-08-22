@@ -257,7 +257,7 @@ def simulate_impact(
     rows_mask = season_mask & frame["game_id"].isin(chosen_set).to_numpy()
 
     # Champion (reproduced logistic C4) and challenger probabilities on the sampled rows.
-    champ_config = {"features": list(E.ALL_FEATURES), "family": "logistic", "hyperparameters": {"C": M.champion_baseline().get("C", 0.05)}, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "mean"}}
+    champ_config = {"features": list(E.ALL_FEATURES), "family": "logistic", "hyperparameters": {"C": GOVERNED_CHAMPION_C}, "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "mean"}}
     champ_probs = _model_probs_on_rows(champ_config, rows_mask)
     chal_probs = _model_probs_on_rows(config, rows_mask)
 
@@ -389,6 +389,10 @@ def _coverage(samples: np.ndarray, actual: float, bands=((5, 95, "90"), (10, 90,
     return hits
 
 
+GOVERNED_CHAMPION_C = 0.05  # Phase 7D.2 Gate 12 — the governed D3 champion (C4) tuned C; the simulator
+# uses this constant directly instead of the retired champion_baseline() frozen-2025 reproduction.
+
+
 def simulate_full_impact(config: Mapping[str, Any], *, season: int = E.VAL_SEASON, n_games: int = 40, n_sims: int = 120, seed: int = MASTER_SEED) -> dict[str, Any]:
     """Full lineup-rotation whole-game Monte Carlo: champion vs challenger through the Phase 5 kernel."""
     if season not in (E.VAL_SEASON, E.FROZEN_SEASON):
@@ -401,7 +405,7 @@ def simulate_full_impact(config: Mapping[str, Any], *, season: int = E.VAL_SEASO
 
     # champion config: reproduced D3 C4 (all 22 features, tuned C, mean impute)
     champ_config = {"features": list(E.ALL_FEATURES), "family": "logistic",
-                    "hyperparameters": {"C": M.champion_baseline().get("C", 0.05)},
+                    "hyperparameters": {"C": GOVERNED_CHAMPION_C},
                     "outlierPolicy": {"globalMethod": "none"}, "missingPolicy": {"globalMethod": "mean"}}
     champ_fold, champ_resolver, _, _, _ = PROV.build_cockpit_fold_and_resolver(champ_config)
     chal_fold, chal_resolver, _, chal_est, chal_pre = PROV.build_cockpit_fold_and_resolver(config)

@@ -136,26 +136,24 @@ def test_missing_indicator_adds_column():
     assert X.shape[1] == 2  # standardized value + indicator
 
 
-# ---------------------------------------------------------------- champion + experiments
-def test_champion_reproduces_registered_d3_c4():
-    champ = M.champion_baseline()
-    ref = champ["registeredReference"]
-    # in-pipeline reproduction is within tolerance of the registered C4 validation log loss
-    assert abs(champ["val2024"]["logLoss"] - ref["val2024"]["logLoss"]) < 0.01
-    assert champ["featureCount"] == 22
+# -------------------------------------- champion + experiments (Phase 7D.2 Gate 12: legacy 2025 path retired)
+def test_legacy_champion_baseline_is_retired():
+    # the in-pipeline champion reproduction fit/scored a frozen 2025 fold; it is retired before any data open
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.champion_baseline()
 
 
-def test_experiment_run_evaluates_both_seasons_and_compares():
-    res = M.run_experiment(
-        {"features": list(E.BATTER_FEATURES) + list(E.PITCHER_FEATURES), "family": "logistic", "hyperparameters": {"C": 1.0}},
-        persist=False,
-    )
-    for season in ("val2024", "frozen2025"):
-        assert res["metrics"][season]["logLoss"] > 0
-        assert res["metrics"][season]["classOrder"] == list(PA_CLASS_ORDER)
-    assert "beatsChampion2024" in res["comparison"]
-    assert res["leakageGuards"]["frozenSeasonExcludedFromFitting"] is True
-    assert res["leakageGuards"]["targetColumnNeverAFeature"] is True
+def test_champion_reference_is_2024_only_and_read_only():
+    ref = E._champion_reference()
+    assert "frozen2025" not in ref and "final2025" not in ref     # no sealed-2025 metric in an ordinary DTO
+    assert ref["val2024"]["logLoss"] > 0                          # champion of record unchanged (2024)
+    assert ref["sealed2025"] == "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE"
+
+
+def test_legacy_experiment_execution_is_retired():
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M.run_experiment({"features": list(E.BATTER_FEATURES) + list(E.PITCHER_FEATURES), "family": "logistic"},
+                         persist=False)
 
 
 def test_experiment_rejects_unknown_feature_and_target_leak():
@@ -165,16 +163,13 @@ def test_experiment_rejects_unknown_feature_and_target_leak():
     assert "outcome" not in E.ALL_FEATURES
 
 
-def test_predict_proba_aligned_to_frozen_class_order():
-    frame = E.load_frame()
-    res = M._fit_and_evaluate(
-        frame, list(E.ALL_FEATURES), "random_forest",
-        {"nEstimators": 40, "maxDepth": 8, "minSamplesLeaf": 200},
-        {"globalMethod": "none"}, {"globalMethod": "median"},
-    )
-    # tree family probabilities still evaluate cleanly under the frozen 8-class order
-    assert res["val2024"]["classOrder"] == list(PA_CLASS_ORDER)
-    assert res["val2024"]["logLoss"] > 0
+def test_legacy_fit_and_evaluate_is_retired_before_any_data_open():
+    # the frozen-2025-scoring evaluator is retired; it raises before touching a frame (no 2025 fold fit)
+    with pytest.raises(M.LegacyModelingRetiredError):
+        M._fit_and_evaluate(
+            None, list(E.ALL_FEATURES), "random_forest",
+            {"nEstimators": 40, "maxDepth": 8, "minSamplesLeaf": 200},
+            {"globalMethod": "none"}, {"globalMethod": "median"})
 
 
 # ---------------------------------------------------------------- families / availability

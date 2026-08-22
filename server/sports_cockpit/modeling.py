@@ -506,6 +506,19 @@ def _config_sha(config: Mapping[str, Any]) -> str:
     return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
 
+class LegacyModelingRetiredError(CockpitError):
+    """Phase 7D.2 Gate 12 — the legacy in-process modeling execution / frozen-2025 result path is retired. It
+    fit and scored a frozen 2025 fold; the canonical, server-authorized path is
+    server.sports_cockpit.gen3_authority (2024-only validation; 2025 physically sealed)."""
+
+
+_LEGACY_RETIRED_MSG = (
+    "legacy modeling execution is RETIRED (Phase 7D.2 Gate 12): it fit/scored a frozen 2025 fold. Use the "
+    "canonical gen3_authority run path (create_binding -> issue_run_authority -> execute -> activate_candidate); "
+    "validation is 2024-only and 2025 is sealed."
+)
+
+
 def _fit_and_evaluate(
     frame: pd.DataFrame,
     features: Sequence[str],
@@ -514,6 +527,7 @@ def _fit_and_evaluate(
     outlier_policy: Mapping[str, Any] | None,
     missing_policy: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
+    raise LegacyModelingRetiredError(_LEGACY_RETIRED_MSG)  # Gate 12 — retired before any data open
     dev_mask = frame["season"].to_numpy() == DEV_SEASON
     val_mask = frame["season"].to_numpy() == VAL_SEASON
     frozen_mask = frame["season"].to_numpy() == FROZEN_SEASON
@@ -537,7 +551,8 @@ def _fit_and_evaluate(
 
 
 def fit_cockpit_model(config: Mapping[str, Any]) -> tuple[Any, "Preprocessor"]:
-    """Fit a cockpit model on 2023 and return (estimator, preprocessor) for reuse/inference."""
+    """Fit a cockpit model on 2023 development ONLY and return (estimator, preprocessor) for the whole-game
+    simulator / inference. This is NOT a frozen-2025 path (it never fits or scores 2025), so it is retained."""
     frame, _ = working_frame(config)
     features = list(config.get("features") or ALL_FEATURES)
     family = config.get("family", "logistic")
@@ -558,6 +573,7 @@ _CHAMP_CACHE: dict[str, Any] = {}
 
 def champion_baseline() -> dict[str, Any]:
     """In-pipeline reproduction of D3 champion C4 (all 22 features, tuned C) for fair comparison."""
+    raise LegacyModelingRetiredError(_LEGACY_RETIRED_MSG)  # Gate 12 — retired before any data open
     if "champ" in _CHAMP_CACHE:
         return _CHAMP_CACHE["champ"]
     frame = load_frame()
@@ -584,6 +600,7 @@ def champion_baseline() -> dict[str, Any]:
 
 
 def run_experiment(config: Mapping[str, Any], persist: bool = True) -> dict[str, Any]:
+    raise LegacyModelingRetiredError(_LEGACY_RETIRED_MSG)  # Gate 12 — retired before any data open
     frame, engineered_names = working_frame(config)
     features = list(config.get("features") or ALL_FEATURES)
     allowed = set(ALL_FEATURES) | set(engineered_names)
@@ -692,6 +709,7 @@ def _persist_experiment(experiment_id: str, payload: Mapping[str, Any]) -> None:
 
 def run_ablation(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Controlled feature ablation: CONTROL (base) vs CHALLENGER (base + added features)."""
+    raise LegacyModelingRetiredError(_LEGACY_RETIRED_MSG)  # Gate 12 — retired; use gen3 feature-family ablation
     base = dict(payload.get("baseConfig") or {})
     add_features = list(payload.get("addFeatures") or [])
     add_engineered = list(payload.get("addEngineered") or [])
@@ -800,6 +818,7 @@ def _autopilot_plan(budget: str) -> list[dict[str, Any]]:
 
 
 def run_autopilot(config: Mapping[str, Any], budget: str = "standard", persist: bool = True) -> dict[str, Any]:
+    raise LegacyModelingRetiredError(_LEGACY_RETIRED_MSG)  # Gate 12 — retired; use gen3 run_authorized_suite
     features = list(config.get("features") or ALL_FEATURES)
     outlier_policy = config.get("outlierPolicy") or {"globalMethod": "none"}
     missing_policy = config.get("missingPolicy") or {"globalMethod": "median"}
