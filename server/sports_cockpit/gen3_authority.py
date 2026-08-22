@@ -102,10 +102,19 @@ def _project_key(project_id: str) -> str:
 
 
 def _state(project_id: str, *parts: str) -> Path:
-    """Resolve a path strictly beneath the single fixed STATE_ROOT/<project-key>/ — containment checked."""
+    """Resolve a path strictly beneath the single fixed STATE_ROOT/<project-key>/ — containment checked. The
+    containment uses string normalization (never a filesystem `.resolve()`), so it is immune to the Windows
+    concurrency quirk where `.resolve()` races with rapid create/unlink of a sibling lockfile. Every path
+    component here is code-controlled (dir literals; ids/shas are pre-validated), and traversal/absolute
+    components are rejected outright, so normalized containment is sufficient and safe."""
     root = STATE_ROOT.resolve()
-    p = (root / _project_key(project_id)).joinpath(*parts).resolve()
-    if root != p and root not in p.parents:
+    for part in parts:
+        s = str(part)
+        if not s or s in (".", "..") or ".." in Path(s.replace("\\", "/")).parts or Path(s).is_absolute():
+            raise AuthorityError(f"invalid authority path component: {part!r}")
+    p = (root / _project_key(project_id)).joinpath(*[str(x) for x in parts])
+    norm = Path(os.path.normpath(str(p)))
+    if root != norm and root not in norm.parents:
         raise AuthorityError("resolved authority path escapes the fixed root")
     return p
 
@@ -750,9 +759,11 @@ def _invalidate_downstream(project_id: str, new_binding_id: str) -> None:
     act = _state(project_id, "active-candidate.json")
     if act.is_file():
         rec = _read_json(act)
+        run_id = rec.get("runId") or rec.get("experimentRunId")   # V2 uses runId; V1 used experimentRunId
         rec.update({"status": "STALE", "invalidatedByBinding": new_binding_id,
                     "invalidatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-        _write_json_atomic(_state(project_id, "activations", f"{rec['experimentRunId']}.json"), rec)
+        if run_id:
+            _write_json_atomic(_state(project_id, "activations", f"{run_id}.json"), rec)
         act.unlink()
 
 
@@ -1204,6 +1215,380 @@ def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, A
     return {"recomputedLogLoss": ll, "validationRows": int(len(encoded)), "runId": run_id}
 
 
+# =========================================================================== MODEL_RUN_EVIDENCE_BUNDLE_V2 (7D.3)
+RUN_EVIDENCE_BUNDLE_V2 = "MODEL_RUN_EVIDENCE_BUNDLE_V2"
+RUN_RECEIPT_V1 = "MODEL_RUN_RECEIPT_V1"
+EVIDENCE_REGISTRY_V1 = "MODEL_RUN_EVIDENCE_REGISTRY_V1"
+ACTIVE_CANDIDATE_REVIEW_V2 = "ACTIVE_CANDIDATE_REVIEW_V2"
+
+# Fixed mandatory bundle children (Gate 1/7). Names are centrally declared; no path is ever supplied by a
+# client / manifest / run JSON / receipt. child-sha-inventory + bundle-manifest are computed last.
+_V2_JSON_CHILDREN = (
+    "run-authority.json", "model-request-receipt.json", "verified-object-receipt.json", "binding-receipt.json",
+    "target-contract.json", "population-contract.json", "temporal-contract.json", "preprocessing-contract.json",
+    "knowledge-time-contract.json", "feature-semantic-contracts.json", "feature-family-contracts.json",
+    "feature-set-contract.json", "effective-features.json", "model-metadata.json", "classes.json",
+    "validation-row-ids.json", "validation-target.json", "aggregate-metrics.json", "per-class-metrics.json",
+    "confusion-matrix.json", "reliability-diagnostics.json", "feature-evidence.json", "convergence-warnings.json",
+    "runtime-resources.json", "code-environment-receipt.json",
+)
+_V2_BINARY_CHILDREN = ("preprocessor.artifact", "model.artifact", "validation-probabilities.f64")
+_V2_CHILD_SHA_INVENTORY = "child-sha-inventory.json"
+_V2_MANIFEST_NAME = "bundle-manifest.json"
+_V2_CONTENT_CHILDREN = _V2_JSON_CHILDREN + _V2_BINARY_CHILDREN          # everything except inventory + manifest
+_V2_MANDATORY_CHILDREN = frozenset(_V2_CONTENT_CHILDREN) | {_V2_CHILD_SHA_INVENTORY}
+_V2_ALLOWED_NAMES = _V2_MANDATORY_CHILDREN | {_V2_MANIFEST_NAME}
+_V2_SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9.\-]{1,62}$")
+
+
+def _v2_objects_dir(project_id: str, manifest_sha: str) -> Path:
+    if not _HEX64.match(manifest_sha or ""):
+        raise AuthorityError("invalid bundle manifest sha")
+    return _state(project_id, "evidence-v2", "objects", "sha256", manifest_sha)
+
+
+def _v2_receipt_dir(project_id: str, receipt_sha: str) -> Path:
+    if not _HEX64.match(receipt_sha or ""):
+        raise AuthorityError("invalid run receipt sha")
+    return _state(project_id, "evidence-v2", "receipts", "sha256", receipt_sha)
+
+
+def _build_v2_content_children(*, authority: Mapping[str, Any], binding: Mapping[str, Any], object_receipt: Mapping[str, Any],
+                               contracts: Mapping[str, Any], feature_order: list[str], model_artifact: Mapping[str, Any],
+                               preprocessor_state: Mapping[str, Any], estimator_bytes: bytes, proba, val_ids, val_game_ids,
+                               val_dates, val_encoded, val_labels, full_metrics: Mapping[str, Any],
+                               scalar_metrics: Mapping[str, Any], convergence: Mapping[str, Any], code: Mapping[str, Any],
+                               env_sha: str, runtime_seconds: float, feature_evidence: Any, project_id: str) -> dict[str, bytes]:
+    """Assemble the fixed content children (Gate 1) as canonical bytes. No host-specific absolute path enters
+    logical identity."""
+    rr_sha = authority.get("modelRequestReceiptSha256")
+    rr_path = _state(project_id, "requests", f"{rr_sha}.json")
+    request_receipt = _read_json(rr_path) if rr_path.is_file() else {"requestReceiptSha256": rr_sha}
+    is_base_sem = authority.get("featureSetName", "base") == "base" and binding["generation"] in ("GEN2", "GEN3")
+    fam = FS.base_family_contracts() if is_base_sem else {}
+    sem = FS.all_feature_semantic_contracts() if is_base_sem else {}
+    fsc_v2 = (FS.base_feature_set_contract(dataset_version_id=binding["datasetVersionId"],
+                                           dataset_content_sha=binding["datasetContentSha256"]) if is_base_sem else {})
+    j = canonical_json_bytes
+    children = {
+        "run-authority.json": j(dict(authority)), "model-request-receipt.json": j(dict(request_receipt)),
+        "verified-object-receipt.json": j(dict(object_receipt)), "binding-receipt.json": j(dict(binding)),
+        "target-contract.json": j(contracts["target"]), "population-contract.json": j(contracts["population"]),
+        "temporal-contract.json": j(contracts["temporal"]), "preprocessing-contract.json": j(contracts["preprocessing"]),
+        "knowledge-time-contract.json": j(contracts["knowledgeTime"]),
+        "feature-semantic-contracts.json": j(sem), "feature-family-contracts.json": j(fam), "feature-set-contract.json": j(fsc_v2),
+        "effective-features.json": j({"featureOrder": list(feature_order), "count": len(feature_order)}),
+        "model-metadata.json": j(dict(model_artifact)), "classes.json": j({"classOrder": list(PA_CLASS_ORDER)}),
+        "validation-row-ids.json": j({"rowIds": [str(x) for x in val_ids], "gameIds": [str(x) for x in val_game_ids],
+                                      "gameDates": [str(x) for x in val_dates]}),
+        "validation-target.json": j({"labels": [str(x) for x in val_labels], "encoded": [int(x) for x in val_encoded],
+                                     "classOrder": list(PA_CLASS_ORDER)}),
+        "aggregate-metrics.json": j(dict(scalar_metrics)),
+        "per-class-metrics.json": j({"perClass": full_metrics["perClass"], "classwiseBrier": full_metrics["classwiseBrier"],
+                                     "classwiseEce": full_metrics["classwiseEce"]}),
+        "confusion-matrix.json": j({"confusionMatrix": full_metrics["confusionMatrix"], "axes": full_metrics["confusionMatrixAxes"],
+                                    "classOrder": list(PA_CLASS_ORDER)}),
+        "reliability-diagnostics.json": j({"topLabelReliability": full_metrics.get("topLabelReliability"),
+                                           "classwiseReliability": full_metrics.get("classwiseReliability"),
+                                           "probabilityHistograms": full_metrics.get("probabilityHistograms")}),
+        "feature-evidence.json": j({"featureEvidence": feature_evidence}), "convergence-warnings.json": j(dict(convergence)),
+        "runtime-resources.json": j({"runtimeSeconds": float(runtime_seconds)}),
+        "code-environment-receipt.json": j({"codeRevision": code["codeRevision"],
+                                            "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": env_sha}),
+        "preprocessor.artifact": j(dict(preprocessor_state)), "model.artifact": bytes(estimator_bytes),
+        "validation-probabilities.f64": np.ascontiguousarray(proba, dtype=np.float64).tobytes(),
+    }
+    if set(children) != set(_V2_CONTENT_CHILDREN):
+        raise AuthorityError("V2 content child set mismatch (internal)")
+    return children
+
+
+def _publish_v2_bundle(*, project_id: str, run_id: str, authority: Mapping[str, Any], content_children: dict[str, bytes],
+                       dev_seasons: list[int], dev_rows: int, val_season: int, val_rows: int,
+                       feature_order: list[str], seasons_in_object: list[int]) -> dict[str, Any]:
+    """Gate 2/3 — build the canonical manifest and publish the COMPLETE bundle atomically to the content-
+    addressed path evidence-v2/objects/sha256/<manifest-sha>/. Never overwrites; reuses only byte-identical."""
+    child_shas = {name: hashlib.sha256(b).hexdigest() for name, b in content_children.items()}
+    inventory_bytes = canonical_json_bytes({"schemaVersion": "MODEL_RUN_CHILD_SHA_INVENTORY_V1",
+                                            "children": dict(sorted(child_shas.items()))})
+    all_child_shas = {**child_shas, _V2_CHILD_SHA_INVENTORY: hashlib.sha256(inventory_bytes).hexdigest()}
+    manifest = {
+        "bundleContract": RUN_EVIDENCE_BUNDLE_V2, "bundleVersion": "2.0.0", "runId": run_id, "status": "COMPLETE",
+        "projectStorageKey": _project_key(project_id), "bindingId": authority["bindingId"], "bindingRevision": authority["bindingRevision"],
+        "runAuthorityId": authority["runAuthorityId"], "canonicalEffectiveConfigSha256": authority["canonicalEffectiveConfigSha256"],
+        "modelRequestReceiptSha256": authority.get("modelRequestReceiptSha256"),
+        "datasetVersionId": authority["datasetVersionId"], "datasetContentSha256": authority["datasetContentSha256"],
+        "generation": authority["generation"], "contractBundleSha256": authority["contractBundleSha256"],
+        "targetContractId": authority["targetContractId"], "targetContractSha256": authority["targetContractSha256"],
+        "populationContractId": authority["populationContractId"], "populationContractSha256": authority["populationContractSha256"],
+        "temporalContractId": authority["temporalContractId"], "temporalContractSha256": authority["temporalContractSha256"],
+        "preprocessingContractId": authority["preprocessingContractId"], "preprocessingContractSha256": authority["preprocessingContractSha256"],
+        "knowledgeTimeContractId": authority["knowledgeTimeContractId"], "knowledgeTimeContractSha256": authority["knowledgeTimeContractSha256"],
+        "featureContractId": authority["featureContractId"], "featureSetName": authority.get("featureSetName", "base"),
+        "featureSetSha256": authority["featureSetSha256"], "semanticFeatureSetSha256": authority.get("semanticFeatureSetSha256"),
+        "semanticFeatureFamilyIds": authority.get("semanticFeatureFamilyIds", []), "orderedFeatures": list(feature_order),
+        "modelFamily": authority["modelFamily"], "effectiveHyperparameters": authority["effectiveHyperparameters"], "seed": authority["seed"],
+        "classOrder": list(PA_CLASS_ORDER), "developmentSeasons": list(dev_seasons), "developmentRows": int(dev_rows),
+        "validationSeason": int(val_season), "validationRows": int(val_rows), "seasonsInObject": list(seasons_in_object),
+        "codeRevision": authority["codeRevision"], "worktreeContentSha256": authority["worktreeContentSha256"], "environmentSha256": authority["environmentSha256"],
+        "preprocessorSha256": child_shas["preprocessor.artifact"], "modelSha256": child_shas["model.artifact"],
+        "predictionSha256": child_shas["validation-probabilities.f64"], "targetRowIdsSha256": child_shas["validation-row-ids.json"],
+        "aggregateMetricsSha256": child_shas["aggregate-metrics.json"], "diagnosticsSha256": child_shas["reliability-diagnostics.json"],
+        "featureEvidenceSha256": child_shas["feature-evidence.json"], "runtimeEvidenceSha256": child_shas["runtime-resources.json"],
+        "children": {name: {"file": name, "sha256": sha} for name, sha in sorted(all_child_shas.items())},
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    manifest_bytes = canonical_json_bytes(manifest)
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+    final = _v2_objects_dir(project_id, manifest_sha)
+    if final.exists():                                              # content-addressed: reuse only if identical
+        existing = final / _V2_MANIFEST_NAME
+        if existing.is_file() and existing.read_bytes() == manifest_bytes:
+            return {**manifest, "bundleManifestSha256": manifest_sha}
+        raise AuthorityError("V2 bundle content-address conflict (divergent bytes)")
+    final.parent.mkdir(parents=True, exist_ok=True)
+    staging = final.parent / f".staging-{uuid.uuid4().hex}"
+    staging.mkdir(parents=True, exist_ok=False)
+    try:
+        for name, b in content_children.items():
+            (staging / name).write_bytes(b)
+        (staging / _V2_CHILD_SHA_INVENTORY).write_bytes(inventory_bytes)
+        for name in _V2_CONTENT_CHILDREN:                          # verify every child from the bytes on disk
+            if hashlib.sha256((staging / name).read_bytes()).hexdigest() != child_shas[name]:
+                raise AuthorityError("V2 staging child failed self-verify")
+        (staging / _V2_MANIFEST_NAME).write_bytes(manifest_bytes)
+        if final.exists():
+            raise AuthorityError("V2 bundle content-address conflict (published during staging)")
+        os.replace(staging, final)                                 # atomic publish
+    finally:
+        if staging.exists():
+            import shutil
+            shutil.rmtree(staging, ignore_errors=True)
+    return {**manifest, "bundleManifestSha256": manifest_sha}
+
+
+def _evidence_registry_path(project_id: str) -> Path:
+    return _state(project_id, "evidence-v2", "registry.json")
+
+
+def _evidence_registry_put(project_id: str, run_id: str, receipt_sha: str) -> None:
+    """Gate 5/18 — create-once, interprocess-locked runId -> receiptSha registration. No scientific field is
+    stored in the index. Same run+same receipt is idempotent; same run+different receipt is a hard conflict."""
+    lock = _state(project_id, "evidence-v2", ".registry.lock")
+    with interprocess_lock(lock, blocking=True, timeout=30.0, stale_after=120.0):
+        p = _evidence_registry_path(project_id)
+        reg = _read_json(p) if p.is_file() else {"schemaVersion": EVIDENCE_REGISTRY_V1, "runs": {}}
+        if reg.get("schemaVersion") != EVIDENCE_REGISTRY_V1:
+            raise AuthorityError("evidence registry schema invalid (fail-closed)")
+        runs = reg.get("runs") or {}
+        if run_id in runs:
+            if runs[run_id] != receipt_sha:
+                raise AuthorityError("evidence registry conflict: run id already maps to a different receipt")
+            return
+        runs[run_id] = receipt_sha
+        reg["runs"] = runs
+        _write_json_atomic(p, reg)
+
+
+def _evidence_registry_get(project_id: str, run_id: str) -> str:
+    p = _evidence_registry_path(project_id)
+    if not p.is_file():
+        raise AuthorityError("evidence registry missing (fail-closed)")
+    try:
+        reg = _read_json(p)
+    except Exception as exc:
+        raise AuthorityError(f"evidence registry is corrupt (fail-closed): {exc}")
+    if reg.get("schemaVersion") != EVIDENCE_REGISTRY_V1 or not isinstance(reg.get("runs"), dict):
+        raise AuthorityError("evidence registry is malformed (fail-closed)")
+    sha = reg["runs"].get(run_id)
+    if not sha or not _HEX64.match(str(sha)):
+        raise AuthorityError("run id is not registered in the evidence registry")
+    return sha
+
+
+def _publish_run_receipt(*, project_id: str, run_id: str, authority: Mapping[str, Any], object_receipt: Mapping[str, Any],
+                         bundle_manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Gate 4 — the immutable, content-addressed MODEL_RUN_RECEIPT_V1. Its SHA is computed over the canonical
+    receipt content EXCLUDING only its own receiptSha256 field. Registered create-once in the evidence registry."""
+    m = bundle_manifest
+    payload = {
+        "receiptContract": RUN_RECEIPT_V1, "receiptVersion": "1.0.0", "runId": run_id, "status": "COMPLETE",
+        "projectId": project_id, "projectStorageKey": _project_key(project_id),
+        "bindingId": authority["bindingId"], "bindingRevision": authority["bindingRevision"],
+        "runAuthorityId": authority["runAuthorityId"], "runAuthoritySha256": sha256_bytes(canonical_json_bytes(dict(authority))),
+        "requestReceiptSha256": authority.get("modelRequestReceiptSha256"),
+        "objectReceiptSha256": sha256_bytes(canonical_json_bytes(dict(object_receipt))),
+        "datasetId": GC.PARENT_DATASET_ID, "datasetVersionId": authority["datasetVersionId"], "datasetContentSha256": authority["datasetContentSha256"],
+        "generation": authority["generation"], "featureSetSha256": authority["featureSetSha256"],
+        "preprocessingContractId": authority["preprocessingContractId"], "preprocessingContractSha256": authority["preprocessingContractSha256"],
+        "modelFamily": authority["modelFamily"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "preprocessorSha256": m["preprocessorSha256"], "modelSha256": m["modelSha256"], "predictionSha256": m["predictionSha256"],
+        "targetRowIdsSha256": m["targetRowIdsSha256"], "aggregateMetricsSha256": m["aggregateMetricsSha256"], "diagnosticsSha256": m["diagnosticsSha256"],
+        "codeEnvironmentSha256": sha256_bytes(canonical_json_bytes({"codeRevision": authority["codeRevision"],
+                                 "worktreeContentSha256": authority["worktreeContentSha256"], "environmentSha256": authority["environmentSha256"]})),
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    receipt_sha = sha256_bytes(canonical_json_bytes(payload))
+    receipt = {**payload, "receiptSha256": receipt_sha}
+    rdir = _v2_receipt_dir(project_id, receipt_sha)
+    if rdir.exists():
+        existing = rdir / "receipt.json"
+        if not (existing.is_file() and json.loads(existing.read_text(encoding="utf-8")).get("receiptSha256") == receipt_sha):
+            raise AuthorityError("run receipt content-address conflict")
+    else:
+        rdir.mkdir(parents=True, exist_ok=False)
+        _write_json_atomic(rdir / "receipt.json", receipt)
+    _evidence_registry_put(project_id, run_id, receipt_sha)         # register runId -> receiptSha (create-once)
+    return receipt
+
+
+def _load_v2_bundle(project_id: str, manifest_sha: str) -> tuple[Path, dict[str, Any]]:
+    """Gate 7/8 — content-addressed load with full path containment + exact child set + every child SHA."""
+    final = _v2_objects_dir(project_id, manifest_sha)              # hex-validated + contained under state root
+    mpath = final / _V2_MANIFEST_NAME
+    if not final.is_dir() or not mpath.is_file() or mpath.is_symlink():
+        raise AuthorityError("V2 bundle not found")
+    manifest_bytes = mpath.read_bytes()
+    if hashlib.sha256(manifest_bytes).hexdigest() != manifest_sha:
+        raise AuthorityError("V2 bundle manifest sha does not match its content address (tampered)")
+    manifest = json.loads(manifest_bytes.decode("utf-8"))
+    if manifest.get("status") != "COMPLETE" or manifest.get("bundleContract") != RUN_EVIDENCE_BUNDLE_V2:
+        raise AuthorityError("V2 bundle status/contract invalid")
+    children = manifest.get("children") or {}
+    if set(children) != _V2_MANDATORY_CHILDREN:
+        raise AuthorityError("V2 bundle child set is not the exact mandatory set")
+    on_disk = {p.name for p in final.iterdir()}                    # Gate 7 — no extra/unexpected file on disk
+    if on_disk != _V2_ALLOWED_NAMES:
+        raise AuthorityError("V2 bundle directory contains an unexpected or missing file")
+    root = final.resolve()
+    for name, meta in children.items():
+        if name not in _V2_ALLOWED_NAMES or not _V2_SAFE_NAME.match(name) or name != meta.get("file"):
+            raise AuthorityError(f"V2 bundle child name invalid: {name!r}")
+        cpath = (final / name).resolve()
+        if cpath.parent != root:
+            raise AuthorityError("V2 bundle child escapes the bundle root")
+        if cpath.is_symlink() or not cpath.is_file():
+            raise AuthorityError(f"V2 bundle child missing or is a link: {name}")
+        if hashlib.sha256(cpath.read_bytes()).hexdigest() != meta["sha256"]:
+            raise AuthorityError(f"V2 bundle child failed checksum: {name}")
+    inv = json.loads((final / _V2_CHILD_SHA_INVENTORY).read_bytes().decode("utf-8"))
+    for name in _V2_CONTENT_CHILDREN:
+        if (inv.get("children") or {}).get(name) != children[name]["sha256"]:
+            raise AuthorityError("child-sha-inventory disagrees with the manifest")
+    manifest["bundleManifestSha256"] = manifest_sha   # the content-address (never stored inside the manifest)
+    return final, manifest
+
+
+def verify_model_run_receipt(*, project_id: str, run_id: str, expected_binding: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Gate 8 — the ONE canonical verifier: registry -> immutable receipt (SHA re-verified) -> content-addressed
+    V2 bundle (manifest + every child) -> cross-checked receipt/manifest identities -> COMPLETE -> no sealed
+    year. Mutable run JSON is never trusted. A forged index mapping cannot make a mismatched receipt acceptable
+    (the receipt's own SHA + runId/project are re-verified after lookup)."""
+    if not _OPAQUE_RE.match(run_id or ""):
+        raise AuthorityError("invalid run id")
+    receipt_sha = _evidence_registry_get(project_id, run_id)
+    rpath = _v2_receipt_dir(project_id, receipt_sha) / "receipt.json"
+    if not rpath.is_file() or rpath.is_symlink():
+        raise AuthorityError("run receipt missing")
+    try:
+        receipt = json.loads(rpath.read_bytes().decode("utf-8"))
+    except Exception as exc:
+        raise AuthorityError(f"run receipt is corrupt (fail-closed): {exc}")
+    if not isinstance(receipt, dict):
+        raise AuthorityError("run receipt is malformed (fail-closed)")
+    body = {k: v for k, v in receipt.items() if k != "receiptSha256"}
+    if sha256_bytes(canonical_json_bytes(body)) != receipt_sha or receipt.get("receiptSha256") != receipt_sha:
+        raise AuthorityError("run receipt SHA does not verify (tampered)")
+    if receipt.get("runId") != run_id or receipt.get("projectStorageKey") != _project_key(project_id):
+        raise AuthorityError("run receipt run-id/project mismatch")
+    if receipt.get("status") != "COMPLETE":
+        raise AuthorityError(f"run receipt status is {receipt.get('status')!r}; only COMPLETE is usable")
+    if expected_binding is not None:
+        if receipt.get("bindingId") != expected_binding.get("bindingId") \
+                or int(receipt.get("bindingRevision", -1)) != int(expected_binding.get("revision", -2)):
+            raise StaleAuthorityError("run receipt binding does not match the active binding")
+    bundle_dir, manifest = _load_v2_bundle(project_id, receipt["bundleManifestSha256"])
+    for k in ("runId", "bindingId", "bindingRevision", "runAuthorityId", "datasetVersionId", "datasetContentSha256",
+              "generation", "modelFamily", "preprocessorSha256", "modelSha256", "predictionSha256"):
+        if str(receipt.get(k)) != str(manifest.get(k)):
+            raise AuthorityError(f"receipt/manifest disagree on {k}")
+    seals = set(int(s) for s in (manifest.get("seasonsInObject") or [])) & {2025, 2026}
+    if seals or int(manifest.get("validationSeason", 0)) in (2025, 2026):
+        raise AuthorityError("SEAL VIOLATION: sealed-year evidence present in the run bundle")
+    return {"receipt": receipt, "manifest": manifest, "bundleDir": bundle_dir, "receiptSha256": receipt_sha}
+
+
+def _v2_child_bytes(bundle_dir: Path, manifest: Mapping[str, Any], name: str) -> bytes:
+    """Read one already-verified V2 child by its fixed name (containment re-checked)."""
+    if name not in _V2_MANDATORY_CHILDREN:
+        raise AuthorityError(f"unknown V2 child {name!r}")
+    cpath = (bundle_dir / name).resolve()
+    if cpath.parent != bundle_dir.resolve() or cpath.is_symlink() or not cpath.is_file():
+        raise AuthorityError("V2 child path invalid")
+    data = cpath.read_bytes()
+    if hashlib.sha256(data).hexdigest() != manifest["children"][name]["sha256"]:
+        raise AuthorityError(f"V2 child failed checksum at read: {name}")
+    return data
+
+
+def load_fitted_estimator_v2(*, project_id: str, run_id: str) -> Any:
+    """Gate 9 — reload the fitted estimator from the verified V2 bundle: read the model artifact bytes ONCE,
+    verify their SHA, deserialize from the in-memory buffer, and check the recorded class. No TOCTOU."""
+    import io
+    import joblib
+    v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    data = _v2_child_bytes(v["bundleDir"], v["manifest"], "model.artifact")
+    est = joblib.load(io.BytesIO(data))
+    meta = json.loads(_v2_child_bytes(v["bundleDir"], v["manifest"], "model-metadata.json").decode("utf-8"))
+    if meta.get("estimator") and type(est).__name__ != meta["estimator"]:
+        raise AuthorityError("reloaded estimator class does not match the V2 model metadata")
+    return est
+
+
+def verify_estimator_reload_v2(*, project_id: str, run_id: str) -> dict[str, Any]:
+    """Gate 9 — reload preprocessor + estimator from the verified V2 bundle, recompute the 2024 validation
+    probabilities from the re-verified object, and compare bit-for-bit to the persisted predictions."""
+    from ..sports_modeling.training import FoldPreprocessor
+    v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    manifest, bdir = v["manifest"], v["bundleDir"]
+    authority = json.loads(_v2_child_bytes(bdir, manifest, "run-authority.json").decode("utf-8"))
+    entry = _resolve_version(authority["datasetVersionId"])
+    path, _ = _verify_object(entry)
+    feature_order = list(json.loads(_v2_child_bytes(bdir, manifest, "effective-features.json").decode("utf-8"))["featureOrder"])
+    fv, seasons, labels, dates, ids, game_ids = _load_authorized_frame(path, feature_order)
+    val_mask = seasons == int(manifest["validationSeason"])
+    pre = FoldPreprocessor.from_state(json.loads(_v2_child_bytes(bdir, manifest, "preprocessor.artifact").decode("utf-8")))
+    est = load_fitted_estimator_v2(project_id=project_id, run_id=run_id)
+    X = pre.transform(fv, val_mask)
+    if manifest["modelFamily"] == "governed_logistic":
+        proba = est.predict_proba(X)
+    else:
+        proba = np.zeros((int(val_mask.sum()), len(PA_CLASS_ORDER))); proba[:, est.classes_] = est.predict_proba(X)
+    persisted = np.frombuffer(_v2_child_bytes(bdir, manifest, "validation-probabilities.f64"), dtype=np.float64).reshape(proba.shape)
+    recomputed_sha = hashlib.sha256(np.ascontiguousarray(proba, dtype=np.float64).tobytes()).hexdigest()
+    exact = recomputed_sha == manifest["predictionSha256"]
+    return {"runId": run_id, "modelFamily": manifest["modelFamily"], "validationRows": int(val_mask.sum()),
+            "bitForBitMatch": bool(exact), "maxAbsProbabilityDiff": float(np.max(np.abs(proba - persisted)))}
+
+
+def recompute_validation_logloss_v2(*, project_id: str, run_id: str) -> dict[str, Any]:
+    """Gate 12/15 — recompute the full validation metrics from the MANIFEST-ANCHORED V2 predictions+target
+    (never a stored metric JSON)."""
+    v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    manifest, bdir = v["manifest"], v["bundleDir"]
+    pm = manifest["children"]["validation-probabilities.f64"]
+    n_rows, k = int(manifest["validationRows"]), len(PA_CLASS_ORDER)
+    proba = np.frombuffer(_v2_child_bytes(bdir, manifest, "validation-probabilities.f64"), dtype=np.float64).reshape(n_rows, k)
+    vt = json.loads(_v2_child_bytes(bdir, manifest, "validation-target.json").decode("utf-8"))
+    labels = np.asarray(vt["labels"], dtype=object)
+    metrics = evaluate_multiclass(labels, proba)
+    stored = json.loads(_v2_child_bytes(bdir, manifest, "aggregate-metrics.json").decode("utf-8"))
+    return {"runId": run_id, "recomputedLogLoss": float(metrics["logLoss"]), "recomputedBrier": float(metrics["brierScore"]),
+            "recomputedEce": float(metrics["topLabelEce"]), "recomputedTop1": float(metrics["top1Accuracy"]),
+            "recomputedMacroF1": float(metrics["macroF1"]), "storedLogLoss": float(stored["logLoss"]),
+            "validationRows": n_rows, "matchesStored": abs(float(metrics["logLoss"]) - float(stored["logLoss"])) < 1e-9}
+
+
 def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
     """Gate 23 — trusted-local INTERPROCESS bound: one heavy run per project at a time. The per-project lock
     is same-thread reentrant (an in-process ablation orchestrator running control then challenger through
@@ -1303,6 +1688,33 @@ def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> di
                                     val_encoded=encoded[val_mask], val_ids=ids[val_mask], val_dates=dates[val_mask],
                                     val_game_ids=game_ids[val_mask], full_metrics=metrics, model_artifact=model_artifact,
                                     preprocessor_state=pre.state(), fitted_estimator=est)
+    # Phase 7D.3 Gate 1-5 — publish the COMPLETE run as one content-addressed V2 bundle + an immutable run
+    # receipt registered create-once in the canonical evidence registry (inside this critical section, on the
+    # already-verified post-fit code/environment identity).
+    import io as _io
+    import joblib as _joblib
+    _buf = _io.BytesIO(); _joblib.dump(est, _buf); _estimator_bytes = _buf.getvalue()
+    binding_for_bundle = get_binding(project_id=project_id, binding_id=authority["bindingId"])
+    if authority["modelFamily"] == "governed_logistic":
+        _feature_evidence = {"kind": "logistic_coefficients", "coef": model_artifact.get("coef"), "intercept": model_artifact.get("intercept")}
+    else:
+        _feature_evidence = {"kind": "tree_ensemble", "nIter": model_artifact.get("nIter"),
+                             "note": "persisted validation predictions are the authoritative reproducible artifact"}
+    _runtime = round(time.time() - t0, 2)
+    v2_children = _build_v2_content_children(
+        authority=authority, binding=binding_for_bundle, object_receipt=receipt,
+        contracts=GC.contracts_for_generation(authority["generation"]), feature_order=feature_order,
+        model_artifact=model_artifact, preprocessor_state=pre.state(), estimator_bytes=_estimator_bytes,
+        proba=proba, val_ids=ids[val_mask], val_game_ids=game_ids[val_mask], val_dates=dates[val_mask],
+        val_encoded=encoded[val_mask], val_labels=labels[val_mask], full_metrics=metrics, scalar_metrics=scalar_metrics,
+        convergence=convergence, code=code, env_sha=_env_sha(), runtime_seconds=_runtime,
+        feature_evidence=_feature_evidence, project_id=project_id)
+    v2_manifest = _publish_v2_bundle(
+        project_id=project_id, run_id=run_id, authority=authority, content_children=v2_children,
+        dev_seasons=dev_seasons, dev_rows=int(dev_mask.sum()), val_season=val_season, val_rows=int(val_mask.sum()),
+        feature_order=feature_order, seasons_in_object=seasons_in_object)
+    v2_receipt = _publish_run_receipt(project_id=project_id, run_id=run_id, authority=authority,
+                                      object_receipt=receipt, bundle_manifest=v2_manifest)
     # A2-10 — complete authority + receipt echo. Every id + sha the run authority carries is echoed.
     evidence = {
         "schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1", "experimentRunId": run_id, "runAuthorityId": authority["runAuthorityId"],
@@ -1330,6 +1742,10 @@ def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> di
         "evidenceBundleSha256": bundle["manifestSha256"], "predictionSha256": bundle["predictionSha256"],
         "validationTargetSha256": bundle["validationTargetSha256"], "diagnosticsSha256": bundle["diagnosticsSha256"],
         "modelSha256": bundle["modelSha256"], "preprocessorSha256": bundle["preprocessorSha256"],
+        # Phase 7D.3 — pointers into the immutable V2 authority (the mutable run JSON is an operational attempt
+        # record only; scientific truth is the content-addressed bundle resolved via the run receipt).
+        "runReceiptSha256": v2_receipt["receiptSha256"], "bundleManifestSha256": v2_manifest["bundleManifestSha256"],
+        "evidenceBundleContract": RUN_EVIDENCE_BUNDLE_V2,
         "codeRevision": code["codeRevision"], "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": _env_sha(),
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "COMPLETE",
     }
@@ -1553,65 +1969,87 @@ def _verify_run_chain(project_id: str, run_id: str) -> tuple[dict[str, Any], dic
     return run, authority, manifest, result_fp
 
 
-def activate_candidate(*, actor: str, project_id: str, run_id: str) -> dict[str, Any]:
-    run, authority, manifest, result_fp = _verify_run_chain(project_id, run_id)
+def activate_candidate(*, actor: str, project_id: str, run_id: str,
+                       expected_binding_revision: int | None = None) -> dict[str, Any]:
+    """Gate 10 — reconstruct + verify the FULL immutable parent chain (evidence registry -> run receipt ->
+    V2 bundle -> authority/object/request/binding) before activating. Accepts only project id, run id, and an
+    optional expected active-binding revision; everything scientific is resolved from immutable evidence, never
+    client-supplied. Writes an ACTIVE_CANDIDATE_REVIEW_V2 pointer (immutable references only)."""
+    binding = active_binding(project_id=project_id)
+    if binding is None:
+        raise AuthorityError("no active binding for project")
+    if expected_binding_revision is not None and int(binding["revision"]) != int(expected_binding_revision):
+        raise StaleAuthorityError("expected active binding revision does not match the current active binding")
+    v = verify_model_run_receipt(project_id=project_id, run_id=run_id, expected_binding=binding)
+    manifest = v["manifest"]
+    prev_p = _state(project_id, "active-candidate.json")
+    prev = _read_json(prev_p) if prev_p.is_file() else None
     activation = {
-        "schemaVersion": "ACTIVE_CANDIDATE_REVIEW_V1", "projectId": project_id, "actor": actor,
-        "experimentRunId": run_id, "runAuthorityId": run["runAuthorityId"], "bindingId": run["bindingId"],
-        "bindingRevision": run["bindingRevision"], "generation": run["generation"],
-        "datasetVersionId": run["datasetVersionId"], "datasetContentSha256": run["datasetContentSha256"],
-        "evidenceBundleSha256": run.get("evidenceBundleSha256"), "resultFingerprint": result_fp,
+        "schemaVersion": ACTIVE_CANDIDATE_REVIEW_V2, "projectId": project_id,
+        "activationRevision": int((prev or {}).get("activationRevision", 0)) + 1,
+        "runId": run_id, "runReceiptSha256": v["receiptSha256"], "bundleManifestSha256": v["receipt"]["bundleManifestSha256"],
+        "bindingId": binding["bindingId"], "bindingRevision": binding["revision"], "actor": actor,
         "activatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "ACTIVE",
     }
     _write_json_atomic(_state(project_id, "activations", f"{run_id}.json"), activation)
-    _write_json_atomic(_state(project_id, "active-candidate.json"), activation)
-    return activation
+    _write_json_atomic(prev_p, activation)
+    # backward-compatible echo (all resolved from immutable evidence, not client-supplied)
+    return {**activation, "experimentRunId": run_id, "runAuthorityId": manifest["runAuthorityId"],
+            "datasetVersionId": manifest["datasetVersionId"], "datasetContentSha256": manifest["datasetContentSha256"],
+            "generation": manifest["generation"], "evidenceBundleSha256": v["receipt"]["bundleManifestSha256"]}
 
 
 def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
-    """Downstream stages resolve the active candidate here by run id — never a browser/last-file result.
-    The full parent chain is RE-VERIFIED on every read (Gate 16): a run whose evidence/authority/binding
-    was tampered or superseded after activation fails closed."""
+    """Gate 11 — resolve the active candidate and RE-VERIFY the full immutable parent chain on every read
+    (registry -> receipt -> bundle). If the binding changed since activation, there is no active candidate
+    (STALE). No mutable metrics are returned from the activation JSON."""
     p = _state(project_id, "active-candidate.json")
     if not p.is_file():
         return None
     act = _read_json(p)
-    run, authority, manifest, result_fp = _verify_run_chain(project_id, act["experimentRunId"])
-    if act.get("runAuthorityId") != run["runAuthorityId"] or act.get("datasetContentSha256") != run["datasetContentSha256"] \
-            or act.get("resultFingerprint") != result_fp or act.get("evidenceBundleSha256") != run.get("evidenceBundleSha256"):
+    if act.get("schemaVersion") != ACTIVE_CANDIDATE_REVIEW_V2:
+        raise AuthorityError("active candidate is not a V2 review (fail-closed)")
+    binding = active_binding(project_id=project_id)
+    if binding is None:
+        return None
+    if act.get("bindingId") != binding["bindingId"] or int(act.get("bindingRevision", -1)) != int(binding["revision"]):
+        return None  # binding changed since activation -> STALE / no active candidate
+    v = verify_model_run_receipt(project_id=project_id, run_id=act["runId"], expected_binding=binding)
+    if v["receiptSha256"] != act.get("runReceiptSha256") or v["receipt"]["bundleManifestSha256"] != act.get("bundleManifestSha256"):
         raise AuthorityError("active candidate parent chain does not verify (tampered/stale)")
-    return {**act, "run": {k: run[k] for k in ("experimentRunId", "runAuthorityId", "datasetVersionId", "generation",
-                                               "developmentSeasons", "developmentRows", "validationSeason", "validationRows",
-                                               "modelFamily", "metrics", "objectReceipt", "evidenceBundleSha256",
-                                               "predictionSha256", "diagnosticsSha256", "preprocessingContractId")}}
+    m = v["manifest"]
+    return {**act, "experimentRunId": act["runId"], "run": {
+        "experimentRunId": act["runId"], "runAuthorityId": m["runAuthorityId"], "datasetVersionId": m["datasetVersionId"],
+        "generation": m["generation"], "developmentSeasons": m["developmentSeasons"], "developmentRows": m["developmentRows"],
+        "validationSeason": m["validationSeason"], "validationRows": m["validationRows"], "modelFamily": m["modelFamily"],
+        "runReceiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "preprocessingContractId": m["preprocessingContractId"]}}
 
 
 def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
-    """Gate 18/19 — Evaluation and Calibration resolve the project's ACTIVE CANDIDATE and its immutable
-    2024-validation evidence bundle (full diagnostics: metrics, confusion, per-class, reliability), plus an
-    INDEPENDENT log-loss recomputation from the persisted prediction/target artifacts. No browser result and
-    no 2025 row is involved. Returns None when no candidate is active."""
+    """Gate 12 — Evaluation and Calibration consume the V2 verified evidence ONLY: they resolve the active
+    candidate, load metrics/per-class/confusion/reliability from the verified bundle, and INDEPENDENTLY
+    recompute the metrics from the persisted predictions/target. No mutable run JSON, no browser result, no
+    2025 row. Returns None when no candidate is active."""
     act = get_active_candidate(project_id=project_id)
     if act is None:
         return None
-    run_id = act["experimentRunId"]
-    run = get_run(project_id=project_id, run_id=run_id)
-    bundle = load_evidence_diagnostics(project_id=project_id, run_id=run_id)
-    recomputed = recompute_validation_logloss(project_id=project_id, run_id=run_id)
-    diagnostics = bundle["diagnostics"]
-    # calibrator artifact is not fit in this phase — Calibration shows RAW diagnostics, CALIBRATOR NOT CONFIGURED
+    run_id = act["runId"]
+    v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    m, bdir = v["manifest"], v["bundleDir"]
+    recomputed = recompute_validation_logloss_v2(project_id=project_id, run_id=run_id)
+    stored_metrics = json.loads(_v2_child_bytes(bdir, m, "aggregate-metrics.json").decode("utf-8"))
+    reliability = json.loads(_v2_child_bytes(bdir, m, "reliability-diagnostics.json").decode("utf-8"))
+    per_class = json.loads(_v2_child_bytes(bdir, m, "per-class-metrics.json").decode("utf-8"))
+    confusion = json.loads(_v2_child_bytes(bdir, m, "confusion-matrix.json").decode("utf-8"))
     return {
-        "runId": run_id, "runAuthorityId": run["runAuthorityId"], "generation": run["generation"],
-        "datasetVersionId": run["datasetVersionId"], "datasetContentSha256": run["datasetContentSha256"],
-        "developmentSeasons": run["developmentSeasons"], "developmentRows": run.get("developmentRows"),
-        "validationSeason": run["validationSeason"], "validationRows": run.get("validationRows"),
-        "modelFamily": run["modelFamily"], "featureCount": run.get("objectReceipt", {}).get("featureCount"),
-        "preprocessingContractId": run.get("preprocessingContractId"),
+        "runId": run_id, "runReceiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "runAuthorityId": m["runAuthorityId"], "generation": m["generation"], "datasetVersionId": m["datasetVersionId"],
+        "datasetContentSha256": m["datasetContentSha256"], "developmentSeasons": m["developmentSeasons"],
+        "developmentRows": m["developmentRows"], "validationSeason": m["validationSeason"], "validationRows": m["validationRows"],
+        "modelFamily": m["modelFamily"], "featureCount": len(m["orderedFeatures"]), "preprocessingContractId": m["preprocessingContractId"],
         "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
-        "evidenceBundleSha256": run.get("evidenceBundleSha256"), "predictionSha256": run.get("predictionSha256"),
-        "diagnosticsSha256": run.get("diagnosticsSha256"), "resultFingerprint": act.get("resultFingerprint"),
-        "metrics": run["metrics"], "diagnostics": diagnostics,
-        "independentRecomputedLogLoss": recomputed["recomputedLogLoss"],
-        "recomputationMatchesStored": abs(recomputed["recomputedLogLoss"] - float(run["metrics"]["logLoss"])) < 1e-9,
+        "metrics": stored_metrics, "perClass": per_class, "confusion": confusion, "diagnostics": reliability,
+        "independentRecomputedLogLoss": recomputed["recomputedLogLoss"], "recomputationMatchesStored": recomputed["matchesStored"],
         "validationLabel": "2024 validation (2025 sealed — never scored)",
     }

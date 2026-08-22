@@ -300,7 +300,8 @@ def gen3_run(project_id: str, run_id: str, user: dict = Depends(require_user)) -
 @router.post("/cockpit/gen3/activate")
 def gen3_activate(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
-    return _guard(G3A.activate_candidate, actor=_actor(user), project_id=pid, run_id=payload.get("runId", ""))
+    return _guard(G3A.activate_candidate, actor=_actor(user), project_id=pid, run_id=payload.get("runId", ""),
+                  expected_binding_revision=payload.get("expectedBindingRevision"))
 
 
 @router.get("/cockpit/gen3/active-candidate/{project_id}")

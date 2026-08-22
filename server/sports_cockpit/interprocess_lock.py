@@ -79,6 +79,8 @@ class _FileLock:
             fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             return False
+        except PermissionError:
+            return False  # Windows: O_EXCL create raced with a concurrent delete/create; treat as contended
         try:
             os.write(fd, json.dumps({"pid": os.getpid(), "token": self.token,
                                      "createdAt": time.time()}).encode("utf-8"))
@@ -149,44 +151,51 @@ class _FileLock:
 
 
 # --------------------------------------------------------------------------- reentrant, cross-process API
-_GUARD = threading.Lock()
-_HELD: dict[str, dict] = {}  # lock path -> {"lock": _FileLock, "count": int, "thread": int}
+# A per-key in-process RLock serializes THREADS of this interpreter first (same-thread reentrant), so only one
+# thread at a time touches the cross-process lockfile — this eliminates the Windows create/unlink/resolve race
+# under high intra-process contention while the file lock still enforces cross-PROCESS mutual exclusion.
+_KEY_GUARD = threading.Lock()
+_KEY_STATE: dict[str, dict] = {}  # lock path -> {"rlock": RLock, "filelock": _FileLock|None, "depth": int}
+
+
+def _key_state(key: str) -> dict:
+    with _KEY_GUARD:
+        st = _KEY_STATE.get(key)
+        if st is None:
+            st = {"rlock": threading.RLock(), "filelock": None, "depth": 0}
+            _KEY_STATE[key] = st
+        return st
 
 
 @contextmanager
 def interprocess_lock(lock_path: Path | str, *, blocking: bool = True, timeout: float = 30.0,
                       stale_after: float = 1800.0) -> Iterator[None]:
-    """Acquire an interprocess lock at ``lock_path``. Same-thread reentrant; a different thread or process is
-    excluded. ``blocking=False`` raises :class:`LockBusy` instead of waiting. Always released in ``finally``."""
+    """Acquire an interprocess lock at ``lock_path``. Same-thread reentrant; a different thread of this process
+    OR a different process is excluded. ``blocking=False`` raises :class:`LockBusy` instead of waiting. Always
+    released in ``finally``."""
     key = str(Path(lock_path))
-    tid = threading.get_ident()
-    with _GUARD:
-        held = _HELD.get(key)
-        if held is not None and held["thread"] == tid:
-            held["count"] += 1
-            reentered = True
-        else:
-            reentered = False
-    if not reentered:
-        fl = _FileLock(Path(lock_path), timeout=timeout, stale_after=stale_after)
-        try:
-            ok = fl.acquire(blocking=blocking)
-        except LockTimeout as exc:
-            raise LockBusy(str(exc)) from exc
-        if not ok:
-            raise LockBusy(f"lock is held by another owner: {Path(lock_path).name}")
-        with _GUARD:
-            _HELD[key] = {"lock": fl, "count": 1, "thread": tid}
+    st = _key_state(key)
+    rlock = st["rlock"]
+    got = rlock.acquire(blocking, timeout) if blocking else rlock.acquire(False)
+    if not got:
+        raise LockBusy(f"lock is held by another thread: {Path(lock_path).name}")
     try:
-        yield
+        if st["depth"] == 0:                      # first (non-reentrant) acquire in this thread -> take the file lock
+            fl = _FileLock(Path(lock_path), timeout=timeout, stale_after=stale_after)
+            try:
+                ok = fl.acquire(blocking=blocking)
+            except LockTimeout as exc:
+                raise LockBusy(str(exc)) from exc
+            if not ok:
+                raise LockBusy(f"lock is held by another process: {Path(lock_path).name}")
+            st["filelock"] = fl
+        st["depth"] += 1
+        try:
+            yield
+        finally:
+            st["depth"] -= 1
+            if st["depth"] == 0 and st["filelock"] is not None:
+                fl = st["filelock"]; st["filelock"] = None
+                fl.release()
     finally:
-        fl_to_release = None
-        with _GUARD:
-            held = _HELD.get(key)
-            if held is not None:
-                held["count"] -= 1
-                if held["count"] <= 0:
-                    fl_to_release = held["lock"]
-                    del _HELD[key]
-        if fl_to_release is not None:
-            fl_to_release.release()
+        rlock.release()
