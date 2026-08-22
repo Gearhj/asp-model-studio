@@ -187,6 +187,8 @@ def _arguments() -> argparse.Namespace:
 
 
 def main() -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # fits/scores and surfaces final2025 -> exit before any data open
     args = _arguments()
     if not args.exchange_root:
         print("--exchange-root or ASP_MODEL_EXCHANGE_ROOT is required.", file=sys.stderr)

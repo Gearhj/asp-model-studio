@@ -56,6 +56,8 @@ def _log(msg: str) -> None:
 
 
 def main() -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # one-time builder physically opens 2025 PA; the immutable object already exists -> exit
     exchange_root = _exchange_root()
     _log("validating FD1 package …")
     parent = SportsDatasetManifestConsumer(
