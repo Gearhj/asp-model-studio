@@ -30,6 +30,7 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 
 from ..sports_datasets.consumer import canonical_json_bytes, sha256_bytes
+from ..sports_modeling import feature_semantics as FS
 from ..sports_modeling import gen3_contracts as GC
 from ..sports_modeling.feature_contract import C_GRID, FEATURE_NAMES
 from ..sports_modeling.metrics import PA_CLASS_ORDER, encode_labels, evaluate_multiclass
@@ -830,6 +831,19 @@ def _require_known_code_env(code: Mapping[str, Any], env_sha: str) -> None:
         raise StaleAuthorityError("code/environment identity is UNKNOWN; run refused (fail-closed)")
 
 
+def _semantic_feature_identity(binding: Mapping[str, Any], feature_set: str) -> dict[str, Any]:
+    """Gate 2 (7D.2) — the immutable SEMANTIC feature-set identity for the governed 'base' feature set of a
+    registered generation, bound to the dataset version + content sha. Advanced Phase 7B feature sets carry
+    their own semantic contracts once registered; here only the governed base set has semantic contracts, so
+    a non-base set binds None (its ordered names + V1 contract + strict ablation identity still apply)."""
+    if feature_set != "base" or binding["generation"] not in ("GEN2", "GEN3"):
+        return {"semanticFeatureSetContractId": None, "semanticFeatureSetSha256": None, "semanticFeatureFamilyIds": []}
+    fsc = FS.base_feature_set_contract(dataset_version_id=binding["datasetVersionId"],
+                                       dataset_content_sha=binding["datasetContentSha256"])
+    return {"semanticFeatureSetContractId": fsc["id"], "semanticFeatureSetSha256": fsc["sha256"],
+            "semanticFeatureFamilyIds": list(FS.BASE_FAMILY_ORDER)}
+
+
 def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_family: str,
                         hyperparameters: Mapping[str, Any] | None = None, seed: int = 20260819,
                         feature_set: str = "base") -> dict[str, Any]:
@@ -846,6 +860,7 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
     _require_known_code_env(code, env_sha)
     effective_config = _effective_config(binding, fsc, model_family, eff_hyper, seed, code, env_sha, feature_set)
     config_sha = sha256_bytes(canonical_json_bytes(effective_config))
+    sem = _semantic_feature_identity(binding, feature_set)
     authority = {
         "schemaVersion": "MODEL_EXPERIMENT_RUN_AUTHORITY_V1", "runAuthorityId": uuid.uuid4().hex, "actor": actor,
         "projectId": project_id, "bindingId": binding_id, "bindingRevision": binding["revision"], "authorityRevision": 1,
@@ -854,6 +869,7 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
         "targetContractId": binding["targetContractId"], "populationContractId": binding["populationContractId"],
         "temporalContractId": binding["temporalContractId"], "featureContractId": binding["featureContractId"],
         "preprocessingContractId": binding["preprocessingContractId"], "knowledgeTimeContractId": binding["knowledgeTimeContractId"],
+        **sem,
     }
     _write_json_atomic(_state(project_id, "authorities", f"{authority['runAuthorityId']}.json"), authority)
     return authority
@@ -904,6 +920,12 @@ def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[
     if authority.get("featureSetSha256") != fsc["sha256"] or list(authority.get("featureSet", [])) != list(fsc["payload"]["featureOrder"]) \
             or authority.get("featureSetContractId") != fsc["id"]:
         raise AuthorityError("FORGED authority: feature-set contract does not verify against the registry")
+    # semantic feature-set identity reconstructed from the binding (Gate 2, 7D.2) — fail closed on a forged echo
+    sem = _semantic_feature_identity(binding, authority.get("featureSetName", "base"))
+    if authority.get("semanticFeatureSetSha256") != sem["semanticFeatureSetSha256"] \
+            or authority.get("semanticFeatureSetContractId") != sem["semanticFeatureSetContractId"] \
+            or list(authority.get("semanticFeatureFamilyIds", [])) != list(sem["semanticFeatureFamilyIds"]):
+        raise AuthorityError("FORGED authority: semantic feature-set identity does not verify against the binding")
     if authority.get("modelFamily") not in _ALLOWED_FAMILIES:
         raise AuthorityError("unsupported model family in authority")
     # fold seasons must match the binding
@@ -1228,6 +1250,9 @@ def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> di
         "featureContractId": authority["featureContractId"], "featureContractSha256": authority["featureContractSha256"],
         "preprocessingContractId": authority["preprocessingContractId"], "preprocessingContractSha256": authority["preprocessingContractSha256"],
         "knowledgeTimeContractId": authority["knowledgeTimeContractId"], "knowledgeTimeContractSha256": authority["knowledgeTimeContractSha256"],
+        "semanticFeatureSetContractId": authority.get("semanticFeatureSetContractId"),
+        "semanticFeatureSetSha256": authority.get("semanticFeatureSetSha256"),
+        "semanticFeatureFamilyIds": authority.get("semanticFeatureFamilyIds", []),
         "developmentSeasons": dev_seasons, "developmentRows": int(dev_mask.sum()),
         "validationSeason": val_season, "validationRows": int(val_mask.sum()),
         "seasonsInObject": seasons_in_object, "sealedSeasonsAccessed": [],
