@@ -439,20 +439,22 @@ export function TuningStep() {
 // state / config hash). Shows the immutable candidate identity; no 2025 payload.
 function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
   const [cand, setCand] = useState<ActiveCandidateResponseV2 | null>(null);
-  const [state, setState] = useState<"LOADING" | "ACTIVE" | "NONE" | "ERROR">("LOADING");
+  const [state, setState] = useState<V2ReadState>("LOADING");
   useEffect(() => {
     let alive = true; setState("LOADING"); setCand(null);
     cockpitGet<ActiveCandidateResponseV2>(gen3V2Paths.activeCandidate(projectId))
       .then((c) => { if (alive) { setCand(c); setState("ACTIVE"); } })
-      .catch((e) => { if (alive) setState(/failed:\s*404/.test(String(e)) ? "NONE" : "ERROR"); });
+      .catch((e) => { if (alive) setState(classifyReadError(e)); });
     return () => { alive = false; };
   }, [projectId]);
+  const problem = state !== "LOADING" && state !== "ACTIVE";
   return (
     <Card title="Active candidate · server authority" icon={Trophy}
       description="Downstream evaluation consumes the project's active candidate resolved from the backend by immutable run id — never a local browser result.">
       {state === "LOADING" && <p className="text-sm text-slate-500">Resolving the active candidate…</p>}
-      {state === "NONE" && <p className="text-sm text-amber-700">No active candidate — activate one from the Model Laboratory run plan.</p>}
-      {state === "ERROR" && <p className="text-sm text-rose-700">Could not resolve the active candidate (verification failed or unavailable).</p>}
+      {problem && (
+        <p className={`text-sm ${state === "NONE" ? "text-amber-700" : "text-rose-700"}`}>{readStateLabel(state)}</p>
+      )}
       {state === "ACTIVE" && cand && (
         <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard label="Run id" value={cand.runId.slice(0, 12) + "…"} detail="immutable" />
@@ -477,7 +479,7 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
     return (
       <div className="space-y-4">
         <Gen3ActiveCandidateCard projectId={projectId} />
-        <NeedRun label={ev.state === "ERROR" ? "Could not resolve the active candidate's evidence." : "Activate a candidate from the Model Laboratory run plan to populate diagnostics (server-authoritative; 2025 is sealed)."} />
+        <NeedRun label={readStateLabel(ev.state)} />
       </div>
     );
   }
@@ -533,14 +535,33 @@ export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
 
 // Gate 9/18/19 — a generic hook that resolves one active-candidate V2 evidence read for a project. Each of
 // Evaluation / Calibration / Registry hits its OWN strict V2 endpoint (one scientific shape, no legacy paths).
-type V2State<T> = { state: "LOADING" | "ACTIVE" | "NONE" | "ERROR"; data?: T };
+// A project-resolution failure is surfaced HONESTLY (UNAUTHENTICATED 401 / UNAUTHORIZED 403), distinct from a
+// genuine empty scientific state (NONE 404) — never disguised as a fabricated success.
+type V2ReadState = "LOADING" | "ACTIVE" | "NONE" | "UNAUTHENTICATED" | "UNAUTHORIZED" | "ERROR";
+type V2State<T> = { state: V2ReadState; data?: T };
+function classifyReadError(e: unknown): V2ReadState {
+  const s = String(e);
+  if (/failed:\s*401/.test(s)) return "UNAUTHENTICATED";
+  if (/failed:\s*403/.test(s)) return "UNAUTHORIZED";
+  if (/failed:\s*404/.test(s)) return "NONE";
+  return "ERROR";
+}
+// Honest label for every non-verified state — a resolution failure is never rendered as "no candidate".
+function readStateLabel(state: V2ReadState): string {
+  switch (state) {
+    case "UNAUTHENTICATED": return "Sign in to view this project's active candidate.";
+    case "UNAUTHORIZED": return "You do not have access to this project (unauthorized).";
+    case "ERROR": return "Could not resolve the active candidate's evidence — verification failed or unavailable.";
+    default: return "Activate a candidate from the Model Laboratory run plan to populate this view (server-authoritative; 2025 is sealed).";
+  }
+}
 function useActiveV2<T>(path: string, projectId: string): V2State<T> {
   const [st, setSt] = useState<V2State<T>>({ state: "LOADING" });
   useEffect(() => {
     let alive = true; setSt({ state: "LOADING" });
     cockpitGet<T>(path)
       .then((d) => { if (alive) setSt({ state: "ACTIVE", data: d }); })
-      .catch((e) => { if (alive) setSt({ state: /failed:\s*404/.test(String(e)) ? "NONE" : "ERROR" }); });
+      .catch((e) => { if (alive) setSt({ state: classifyReadError(e) }); });
     return () => { alive = false; };
   }, [path, projectId]);
   return st;
@@ -563,7 +584,7 @@ export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: str
   if (ev.state !== "ACTIVE" || !ev.data) return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
-      <NeedRun label="Calibration diagnostics are computed on the server-authorized active candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." />
+      <NeedRun label={ev.state === "NONE" ? "Calibration diagnostics are computed on the server-authorized active candidate. Activate a candidate from the Model Laboratory — 2025 is sealed and is never calibrated." : readStateLabel(ev.state)} />
     </div>
   );
   const d = ev.data;
@@ -669,7 +690,7 @@ export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string
   if (ev.state !== "ACTIVE" || !ev.data) return (
     <div className="space-y-4">
       <Gen3ActiveCandidateCard projectId={projectId} />
-      <NeedRun label="Activate a candidate from the Model Laboratory to view its immutable registry record and model card (server-authoritative; 2025 sealed)." />
+      <NeedRun label={ev.state === "NONE" ? "Activate a candidate from the Model Laboratory to view its immutable registry record and model card (server-authoritative; 2025 sealed)." : readStateLabel(ev.state)} />
     </div>
   );
   const d = ev.data;

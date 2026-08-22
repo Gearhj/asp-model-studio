@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronDown, LogOut, Settings2, ShieldCheck, UserCircle } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import ErrorBoundary from "../components/ErrorBoundary";
@@ -231,7 +231,7 @@ export default function ModelingApp() {
                   <Route path="/player-team-state" element={<PlayerTeamStatePage />} />
                   <Route path="/participation-usage" element={<ParticipationUsagePage />} />
                   <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
-                  <Route path="/pa-modeling-cockpit" element={<RetainedToolRoute label="MLB PA Modeling Cockpit"><PaModelingCockpit /></RetainedToolRoute>} />
+                  <Route path="/pa-modeling-cockpit" element={<StandaloneCockpitRoute />} />
                   <Route path="/modeling-cockpit" element={<Navigate to="/pa-modeling-cockpit" replace />} />
                   <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
                   <Route path="/simulation-studio" element={<SimulationStudioPage />} />
@@ -275,6 +275,33 @@ export default function ModelingApp() {
         </div>
       </div>
     </div>
+  );
+}
+
+// The standalone PA Modeling Cockpit route resolves the GOVERNED project explicitly instead of a fixed default:
+// an authorized deep-link (?projectId=<id>) wins, else the current workflow project. The backend still authorizes
+// the id (unknown -> 404, unauthorized -> 403), so the cockpit can never invent ownership. When no project can be
+// resolved, an explicit "no project selected" state is shown — never a silent fixed project masquerading as empty
+// scientific state.
+function StandaloneCockpitRoute() {
+  const [params] = useSearchParams();
+  const urlProjectId = (params.get("projectId") || "").trim();
+  const storeProjectId = useWorkflowStore((s) => s.projectId);
+  const projectId = urlProjectId || (storeProjectId || "").trim();
+  return (
+    <RetainedToolRoute label="MLB PA Modeling Cockpit">
+      {projectId ? (
+        <PaModelingCockpit projectId={projectId} />
+      ) : (
+        <section className="grid min-h-[40vh] place-items-center rounded-2xl border border-amber-300 bg-amber-50 p-8 text-center">
+          <div className="max-w-md">
+            <p className="text-sm font-semibold text-amber-900">No project is selected</p>
+            <p className="mt-2 text-sm text-amber-800">Open a project from Sports Projects, or deep-link this
+              cockpit with <code className="rounded bg-amber-100 px-1">?projectId=&lt;id&gt;</code>.</p>
+          </div>
+        </section>
+      )}
+    </RetainedToolRoute>
   );
 }
 
