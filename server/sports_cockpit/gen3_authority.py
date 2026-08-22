@@ -117,14 +117,46 @@ def _env_sha() -> str:
                                               "numpy": np.__version__, "pandas": pandas.__version__, "sklearn": sklearn.__version__}))
 
 
+# Gate 11 (7D.2) — the ONLY untracked content excluded from the code/environment identity is the named audit
+# Markdown reports (plan/report/acceptance/readiness + the GPT-5.6 Sol audit). Everything else untracked and
+# non-ignored (new scientific/config/lock files) is bound by CONTENT. The external Bronze staging root and
+# .runtime are git-ignored, so `ls-files --others --exclude-standard` never lists them.
+_EXCLUDED_UNTRACKED_PATTERNS = (
+    re.compile(r"(^|/)GPT.*_ASP_AUDIT\.md$", re.IGNORECASE),
+    re.compile(r"(^|/)docs/PHASE_.*_(REPORT|PLAN|ACCEPTANCE_REPORT|ACQUISITION[_A-Z]*REPORT|READINESS_REPORT|CODEX[_A-Z]*REPORT)\.md$", re.IGNORECASE),
+    re.compile(r"_CODEX_[A-Z_]*REPORT\.md$", re.IGNORECASE),
+)
+
+
+def _is_excluded_audit_report(rel_path: str) -> bool:
+    p = rel_path.replace("\\", "/")
+    return any(pat.search(p) for pat in _EXCLUDED_UNTRACKED_PATTERNS)
+
+
 def _code_identity() -> dict[str, Any]:
-    """Current git HEAD + a CONTENT digest of the worktree diff (not merely a dirty boolean, A2-11)."""
+    """Gate 11 — current git HEAD + a CONTENT digest of (a) the tracked worktree diff and (b) every UNTRACKED,
+    non-ignored file's CONTENT (new scientific/config/lock files), excluding ONLY the named audit Markdown
+    reports. This is not merely a dirty boolean or an untracked NAME list: a change to an untracked scientific
+    or config/lock file changes the identity and so trips the drift guard."""
     try:
         rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT).decode().strip()
         diff = subprocess.check_output(["git", "diff", "HEAD"], cwd=REPO_ROOT)
-        untracked = subprocess.check_output(["git", "status", "--porcelain"], cwd=REPO_ROOT)
-        worktree_sha = hashlib.sha256(diff + b"\x00" + untracked).hexdigest()
-        return {"codeRevision": rev, "worktreeContentSha256": worktree_sha, "dirty": bool(diff.strip() or untracked.strip())}
+        others = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"],
+                                         cwd=REPO_ROOT).decode().splitlines()
+        h = hashlib.sha256()
+        h.update(diff)
+        bound = []
+        for rel in sorted(x.strip() for x in others if x.strip()):
+            if _is_excluded_audit_report(rel):
+                continue
+            try:
+                data = (REPO_ROOT / rel).read_bytes()
+            except Exception:
+                data = b"<UNREADABLE>"
+            h.update(b"\x00" + rel.encode("utf-8") + b"\x00" + hashlib.sha256(data).digest())
+            bound.append(rel)
+        return {"codeRevision": rev, "worktreeContentSha256": h.hexdigest(),
+                "untrackedBoundCount": len(bound), "dirty": bool(diff.strip() or bound)}
     except Exception:
         return {"codeRevision": "UNKNOWN", "worktreeContentSha256": "UNKNOWN", "dirty": True}
 
