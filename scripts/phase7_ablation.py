@@ -32,6 +32,7 @@ from server.sports_cockpit import engine as E
 from server.sports_modeling.metrics import PA_CLASS_ORDER, encode_labels, evaluate_multiclass
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import HistGradientBoostingClassifier
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 GEN3 = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v1/mlb-pa-gen3-feature-view-v1.parquet"
 OUT = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v1/phase7-ablation.json"
@@ -107,6 +108,7 @@ def _evaluate(dev: pd.DataFrame, val: pd.DataFrame, family: str) -> dict:
 
 
 def main() -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-secondary-oot-2025", action="store_true", help="score the sealed 2025 OOT season")
     args = ap.parse_args()
