@@ -151,6 +151,12 @@ class FoldPreprocessor:
             "imputationScope": "TRAINING_ROWS_OF_THIS_FIT_ONLY",
         }
 
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any]) -> "FoldPreprocessor":
+        """Reconstruct the exact fitted preprocessor from a persisted ``state()`` payload (Gate 18), so a
+        run's validation predictions can be recomputed independently from immutable evidence alone."""
+        return cls(feature_names=tuple(state["featureNames"]), numeric_state=dict(state.get("numericState", {})))
+
 
 @dataclass(frozen=True)
 class GlobalFrequencyModel:

@@ -174,16 +174,18 @@ GEN2_RESEARCH_REGISTRATION = (
 
 
 def _feature_view_path() -> Path:
-    """Resolve the immutable Gen-2 RESEARCH object (2023-2024) through the ONE canonical registry resolver
-    (Gate 1/3) — never the combined 2023-2025 object, a sidecar, or a glob. Research-only capability is
-    enforced by the resolver; the path is contained under the fixed immutable object root."""
+    """Resolve the immutable Gen-2 RESEARCH object (2023-2024) through the ONE verified read boundary
+    (Gate 3/4): verified_research_object() resolves the selectable research entry from the canonical registry
+    and runs the COMPLETE object verification (containment, physical/logical/schema SHAs, publication
+    manifest, embedded identities, contracts, counts, no sealed leak) BEFORE any modeling read. Never the
+    combined 2023-2025 object, a sidecar, or a glob."""
     from . import gen3_authority as _G3A  # lazy import avoids the engine<->authority import cycle
 
     try:
-        return _G3A.research_object_path("GEN2")
+        return _G3A.verified_research_object("GEN2")["path"]
     except _G3A.AuthorityError as exc:
         raise CockpitError(
-            f"Gen-2 research object is not resolvable through the canonical registry: {exc}. "
+            f"Gen-2 research object is not resolvable/verifiable through the canonical registry: {exc}. "
             "Run scripts/phase7c_publish_gen2.py and the registry migration."
         )
 

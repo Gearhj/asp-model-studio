@@ -77,19 +77,16 @@ class BusyError(AuthorityError):
     """A heavy run is already in progress for the project (route maps to HTTP 429). Gate 22."""
 
 
-import threading as _threading  # noqa: E402
-_PROJECT_EXEC_LOCKS: dict[str, "_threading.RLock"] = {}
-_LOCKS_GUARD = _threading.Lock()
+from .interprocess_lock import LockBusy, interprocess_lock  # noqa: E402
 
 
-def _project_exec_lock(project_id: str) -> "_threading.RLock":
-    key = _project_key(project_id)
-    with _LOCKS_GUARD:
-        lock = _PROJECT_EXEC_LOCKS.get(key)
-        if lock is None:
-            lock = _threading.RLock()
-            _PROJECT_EXEC_LOCKS[key] = lock
-    return lock
+def _project_exec_lock_path(project_id: str) -> Path:
+    """Gate 23 — the single per-project heavy-work lock path (governed execution AND a complete feature-family
+    ablation share it, so suites never interleave and no two heavy runs touch one project at once). The lock
+    itself (see interprocess_lock) is INTERPROCESS + same-thread REENTRANT, so an in-process ablation
+    orchestrator that runs the control then the challenger through the one authorized execute() path does not
+    self-deadlock, while a concurrent request from another thread or process is refused with 429/BUSY."""
+    return _state(project_id, "locks", "exec.lock")
 
 
 # --------------------------------------------------------------------------- safe storage (A2-02)
@@ -241,34 +238,75 @@ def _with_object_path(entry: dict[str, Any]) -> dict[str, Any]:
     return {**entry, "objectPath": _object_path(root, entry["logicalContentSha256"], entry["objectKind"])}
 
 
-def migrate_registry(*, migration_reason: str = "phase7d-canonical-registry") -> dict[str, Any]:
-    """Gate 1/2 — ATOMIC, IDEMPOTENT migration of the canonical registry (the SOLE resolver). Reads the
-    publisher sidecars ONCE, writes EXACTLY the 4 current entries (2 selectable research + 2 restricted
-    sealed), and ARCHIVES every other pre-existing entry (legacy combined / Gen-3 V1 / intermediate /
-    superseded / duplicate) as nonselectable lineage. Records a migration id + before/after inventory.
-    Re-runs are a no-op when the canonical set already matches."""
-    prior = _read_json(ASP_REGISTRY) if ASP_REGISTRY.is_file() else {"datasets": []}
-    before = [{"datasetVersionId": d.get("datasetVersionId"), "selectable": d.get("selectable"),
-               "archived": bool(d.get("archived"))} for d in prior.get("datasets", [])]
+_REGISTRY_SCHEMA = "ASP_DATASET_REGISTRY_V3"
+
+
+def _build_canonical_datasets(prior: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Deterministic end-state dataset list: the 4 current canonical entries (2 selectable research + 2
+    restricted sealed) resolved from the immutable publisher sidecars, plus every OTHER prior entry demoted
+    to nonselectable ARCHIVED_LINEAGE. A PURE FUNCTION of (sidecars, prior) — sorted, carrying no volatile
+    field — so building it twice from the same inputs yields byte-identical output (Gate 2)."""
     canonical = [{k: v for k, v in e.items() if k != "objectPath"} for e in _sidecar_catalog()]
     canonical_ids = {e["datasetVersionId"] for e in canonical}
-    seen = set(canonical_ids)
-    archived = []
+    archived: list[dict[str, Any]] = []
+    seen_arch: set[str] = set()
     for d in prior.get("datasets", []):
         vid = d.get("datasetVersionId")
-        if vid in canonical_ids or vid in (a.get("datasetVersionId") for a in archived):
-            continue  # canonical entries are replaced fresh; skip prior copies
-        seen.add(vid)
-        archived.append({**d, "selectable": False, "archived": True, "status": "ARCHIVED_LINEAGE",
-                         "archivedReason": "superseded / non-canonical (Phase 7D registry migration)"})
-    migration_id = uuid.uuid4().hex
-    reg = {"schemaVersion": "ASP_DATASET_REGISTRY_V3", "migrationId": migration_id, "migrationReason": migration_reason,
-           "migratedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-           "before": before, "datasets": [*canonical, *archived]}
-    _write_json_atomic(ASP_REGISTRY, reg)
-    return {"migrationId": migration_id, "selectable": [e["datasetVersionId"] for e in canonical if e.get("selectable")],
+        if vid in canonical_ids or vid in seen_arch:
+            continue  # canonical entries are replaced fresh; prior copies are dropped
+        seen_arch.add(vid)
+        archived.append({**{k: v for k, v in d.items() if k != "objectPath"},
+                         "selectable": False, "archived": True, "status": "ARCHIVED_LINEAGE",
+                         "archivedReason": "superseded / non-canonical (canonical registry migration)"})
+    canonical.sort(key=lambda e: e["datasetVersionId"])
+    archived.sort(key=lambda e: e["datasetVersionId"])
+    return [*canonical, *archived]
+
+
+def _canonical_registry_payload(prior: Mapping[str, Any]) -> dict[str, Any]:
+    datasets = _build_canonical_datasets(prior)
+    migration_id = sha256_bytes(canonical_json_bytes({"schemaVersion": _REGISTRY_SCHEMA, "datasets": datasets}))
+    return {"schemaVersion": _REGISTRY_SCHEMA, "migrationId": migration_id, "datasets": datasets}
+
+
+def _record_migration_audit(prior: Mapping[str, Any], payload: Mapping[str, Any], reason: str) -> None:
+    """Append-only, create-once before/after audit (kept OUT of the registry so the registry stays byte-
+    idempotent). The audit file is named by the deterministic migration id."""
+    def _inv(ds):
+        return [{"datasetVersionId": d.get("datasetVersionId"), "selectable": bool(d.get("selectable")),
+                 "archived": bool(d.get("archived"))} for d in ds]
+    audit = {"schemaVersion": "ASP_DATASET_REGISTRY_MIGRATION_AUDIT_V1", "migrationId": payload["migrationId"],
+             "migrationReason": reason, "migratedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             "before": _inv(prior.get("datasets", [])), "after": _inv(payload["datasets"])}
+    p = ASP_REGISTRY.parent / "registry-migrations" / f"{payload['migrationId']}.json"
+    if not p.is_file():
+        _write_json_atomic(p, audit)
+
+
+def migrate_registry(*, migration_reason: str = "canonical-registry-migration") -> dict[str, Any]:
+    """Gate 1/2 — the ONLY writer of the canonical registry (the sole resolver). An explicit administrative
+    operation guarded by an INTERPROCESS migration lock. The persisted payload is a pure function of the
+    publisher sidecars + prior lineage with a DETERMINISTIC migration id and NO volatile timestamp, so:
+      * the first migration publishes atomically (staging + atomic replace — no partial write can replace it);
+      * an exact rerun is a BYTE-FOR-BYTE no-op (the file is not rewritten);
+      * two concurrent migrations cannot both publish (only the lock holder writes);
+      * conflicting source input surfaces as a fresh id, never a silent merge.
+    The before/after inventory + reason + UTC is recorded in a separate append-only audit."""
+    lock_path = ASP_REGISTRY.parent / ".registry-migration.lock"
+    with interprocess_lock(lock_path, blocking=True, timeout=60.0, stale_after=600.0):
+        prior = _read_json(ASP_REGISTRY) if ASP_REGISTRY.is_file() else {"datasets": []}
+        payload = _canonical_registry_payload(prior)
+        new_bytes = canonical_json_bytes(payload)
+        existing = ASP_REGISTRY.read_bytes() if ASP_REGISTRY.is_file() else None
+        noop = existing is not None and existing == new_bytes
+        if not noop:
+            _write_json_atomic(ASP_REGISTRY, payload)     # staging tmp + os.replace (atomic, never partial)
+            _record_migration_audit(prior, payload, migration_reason)
+    canonical = [e for e in payload["datasets"] if not e.get("archived")]
+    return {"migrationId": payload["migrationId"], "noop": bool(noop),
+            "selectable": [e["datasetVersionId"] for e in canonical if e.get("selectable")],
             "restricted": [e["datasetVersionId"] for e in canonical if not e.get("selectable")],
-            "archived": [d["datasetVersionId"] for d in archived]}
+            "archived": [e["datasetVersionId"] for e in payload["datasets"] if e.get("archived")]}
 
 
 # Back-compat alias for the build scripts that call register_gen3() at the end of publication.
@@ -277,13 +315,56 @@ def register_gen3() -> dict[str, Any]:
     return {"registered": out["selectable"] + out["restricted"]}
 
 
+def _validate_registry_consistency(reg: Any) -> None:
+    """Gate 1 — structural + internal-consistency validation of the sole registry. ANY violation fails closed
+    (never a silent fallback): schema version; non-empty datasets; unique dataset version ids; unique content
+    addresses among live (non-archived selectable) entries; research/sealed selectability; required identity +
+    season roles on each live entry; at least one selectable research entry."""
+    if not isinstance(reg, dict) or reg.get("schemaVersion") != _REGISTRY_SCHEMA:
+        raise AuthorityError("canonical registry schema version is not ASP_DATASET_REGISTRY_V3 (fail-closed)")
+    datasets = reg.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise AuthorityError("canonical registry has no datasets (fail-closed)")
+    ids = [d.get("datasetVersionId") for d in datasets]
+    if any(not isinstance(i, str) or not i for i in ids):
+        raise AuthorityError("canonical registry has a dataset without a version id (fail-closed)")
+    if len(set(ids)) != len(ids):
+        raise AuthorityError("canonical registry has duplicate dataset version ids (fail-closed)")
+    live = [d for d in datasets if not d.get("archived")]
+    live_addresses = [d.get("logicalContentSha256") for d in live if d.get("selectable")]
+    if len(set(live_addresses)) != len(live_addresses):
+        raise AuthorityError("canonical registry has duplicate live content addresses (fail-closed)")
+    selectable_research = 0
+    for d in live:
+        if not str(d.get("generation", "")):
+            raise AuthorityError("canonical registry live entry is missing a generation (fail-closed)")
+        if d.get("selectable"):
+            if str(d.get("generation", "")).endswith("_SEALED"):
+                raise AuthorityError("canonical registry marks a sealed generation selectable (fail-closed)")
+            for k in ("objectKind", "logicalContentSha256", "status", "seasons", "developmentSeasons",
+                      "validationSeason", "sealedSeasons"):
+                if d.get(k) in (None, ""):
+                    raise AuthorityError(f"canonical registry selectable entry missing '{k}' (fail-closed)")
+            selectable_research += 1
+        elif not str(d.get("status", "")):
+            raise AuthorityError("canonical registry restricted entry missing status (fail-closed)")
+    if selectable_research < 1:
+        raise AuthorityError("canonical registry has no selectable research entry (fail-closed)")
+
+
 def _canonical_registry() -> dict[str, Any]:
-    """The SOLE resolver (Gate 1). If the canonical registry does not yet exist, derive it from the sidecars
-    read-only (fresh env) — never persist as a side effect of an ordinary read."""
-    if ASP_REGISTRY.is_file():
-        return _read_json(ASP_REGISTRY)
-    return {"schemaVersion": "ASP_DATASET_REGISTRY_V3", "migrationId": None,
-            "datasets": [{k: v for k, v in e.items() if k != "objectPath"} for e in _sidecar_catalog()]}
+    """Gate 1 — the SOLE resolver. Fail closed if the canonical registry is missing, malformed, schema-
+    invalid, or internally inconsistent. It NEVER reconstructs an executable catalog from the publisher
+    sidecars: sidecars are migration INPUT ONLY, reachable exclusively via the explicit migrate_registry
+    administrative command."""
+    if not ASP_REGISTRY.is_file():
+        raise AuthorityError("canonical dataset registry is missing; administrative migration required (fail-closed)")
+    try:
+        reg = _read_json(ASP_REGISTRY)
+    except Exception as exc:
+        raise AuthorityError(f"canonical dataset registry is malformed JSON (fail-closed): {exc}")
+    _validate_registry_consistency(reg)
+    return reg
 
 
 def catalog() -> list[dict[str, Any]]:
@@ -304,15 +385,48 @@ def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     raise AuthorityError(f"dataset version not found in the canonical registry: {dataset_version_id}")
 
 
-def research_object_path(generation: str = "GEN2") -> Path:
-    """Gate 1/3 — the ONE resolver the descriptive engine and research scripts use to obtain a RESEARCH
-    object path. Resolves the selectable research entry from the canonical registry, enforces the
-    research-only capability, and returns the contained path (no sealed/archived/combined object)."""
+VERIFIED_RESEARCH_OBJECT_SCHEMA = "VERIFIED_RESEARCH_OBJECT_V1"
+
+
+def _selectable_research_entry(generation: str) -> dict[str, Any]:
     for e in catalog():
         if e["generation"] == generation and e.get("selectable") and not e.get("archived"):
-            _reject_sealed_target_read(e, RESEARCH_OBJECT_READ)
-            return _contain_object_path(e["objectPath"])
+            return e
     raise AuthorityError(f"no selectable research object for generation {generation} in the canonical registry")
+
+
+def verified_research_object(generation: str = "GEN2") -> dict[str, Any]:
+    """Gate 3/4 — the ONE verified read boundary for governed research consumers. Resolves the selectable
+    research entry for `generation` from the canonical registry, runs the COMPLETE object verification
+    (containment before any open; physical/logical/schema SHAs; publication manifest; embedded identities;
+    generation-correct bundle + all contract ids; row/season/per-season counts; no sealed leak; target
+    column; ordered features), and returns an IMMUTABLE handle carrying the contained path plus the full
+    receipt. No governed consumer may read a bare filesystem path — they use this handle."""
+    entry = _selectable_research_entry(generation)
+    path, receipt = _verify_object(entry, capability=RESEARCH_OBJECT_READ)   # full verification before use
+    contracts = GC.contracts_for_generation(entry["generation"])
+    return {
+        "schemaVersion": VERIFIED_RESEARCH_OBJECT_SCHEMA, "capability": RESEARCH_OBJECT_READ,
+        "datasetVersionId": entry["datasetVersionId"], "generation": entry["generation"], "objectKind": entry.get("objectKind"),
+        "path": path, "containedPath": str(path),
+        "physicalParquetSha256": receipt["physicalParquetSha256"], "logicalContentSha256": receipt["logicalContentSha256"],
+        "schemaSha256": receipt["schemaSha256"], "contractBundleSha256": receipt["contractBundleSha256"],
+        "canonicalObjectId": receipt["canonicalObjectId"], "rows": receipt["rows"], "seasons": receipt["seasons"],
+        "perSeasonRows": {int(k): int(v) for k, v in (entry.get("perSeasonRows") or {}).items()},
+        "developmentSeasons": entry.get("developmentSeasons"), "validationSeason": entry.get("validationSeason"),
+        "sealedSeasons": entry.get("sealedSeasons"), "targetClassOrder": list(PA_CLASS_ORDER),
+        "orderedFeatures": list(FEATURE_NAMES), "featureCount": receipt["featureCount"],
+        "contracts": {k: v["id"] for k, v in contracts.items()},
+        "contractShas": {k: v["sha256"] for k, v in contracts.items()},
+        "verifiedAt": receipt["verifiedAt"], "verificationState": "VERIFIED",
+    }
+
+
+def research_object_path(generation: str = "GEN2") -> Path:
+    """RETIRED as a scientific read boundary (Gate 3): kept only as a thin accessor that returns the
+    CONTAINED, FULLY VERIFIED research object path via verified_research_object(). Governed consumers should
+    prefer verified_research_object() so they receive the complete receipt, not a bare path."""
+    return verified_research_object(generation)["path"]
 
 
 # --------------------------------------------------------------------------- data-access capability boundary (Gate 3)
@@ -356,6 +470,11 @@ def _contain_object_path(raw: str) -> Path:
 
 
 # --------------------------------------------------------------------------- object integrity (Gate 6/7: complete, contained receipt verification)
+# Gate 5 — the cross-request verification cache is RETIRED for this trusted-local integration phase: the
+# COMPLETE receipt (physical SHA + schema + row/season counts + bundle + contracts + season set + target
+# column + feature order) is recomputed on EVERY governed read, so a same-size/same-mtime byte substitution
+# can never be served from a warm cache. The symbol is kept (empty, unused) only so pre-existing defensive
+# `.clear()` calls in tests remain valid.
 _VERIFIED_OBJECT_CACHE: dict[tuple, dict[str, Any]] = {}
 _REQUIRED_EMBEDDED = ("objectKind", "logicalContentSha256", "schemaSha256", "contractBundleSha256",
                       "temporalContractId", "featureSchemaId", "targetContractId")
@@ -379,13 +498,9 @@ def _verify_object(entry: Mapping[str, Any], *, capability: str = RESEARCH_OBJEC
         raise AuthorityError("registered object missing or is a link")
     _record_open(path)
     data = path.read_bytes()
-    physical = hashlib.sha256(data).hexdigest()             # ALWAYS recompute physical SHA (Gate 8)
+    physical = hashlib.sha256(data).hexdigest()             # ALWAYS recompute physical SHA (Gate 5/8)
     if entry.get("physicalParquetSha256") and physical != entry["physicalParquetSha256"]:
         raise AuthorityError("registered object bytes differ from the registry receipt (tampered)")
-    cache_key = (str(path), physical, entry["logicalContentSha256"], entry["generation"], entry.get("objectKind"))
-    cached = _VERIFIED_OBJECT_CACHE.get(cache_key)
-    if cached is not None:
-        return path, dict(cached)
     table = pq.read_table(path)
     md = table.schema.metadata or {}
     rows = table.num_rows
@@ -464,7 +579,6 @@ def _verify_object(entry: Mapping[str, Any], *, capability: str = RESEARCH_OBJEC
                "contractBundleSha256": bundle, "objectKind": entry.get("objectKind"), "rows": rows,
                "seasons": seasons, "generation": entry["generation"], "featureCount": len(FEATURE_NAMES),
                "canonicalObjectId": canonical_object_id, "verifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    _VERIFIED_OBJECT_CACHE[cache_key] = dict(receipt)
     return path, receipt
 
 
@@ -475,7 +589,8 @@ def _active_pointer(project_id: str) -> dict[str, Any] | None:
 
 
 def create_binding(*, actor: str, project_id: str, dataset_version_id: str,
-                   expected_content_sha: str | None = None, expected_revision: int | None = None) -> dict[str, Any]:
+                   expected_content_sha: str | None = None, expected_revision: int | None = None,
+                   revision_reason: str | None = None) -> dict[str, Any]:
     entry = _resolve_version(dataset_version_id)
     if not entry.get("selectable", False):
         raise AuthorityError("dataset version is not selectable for ordinary development")
@@ -484,6 +599,14 @@ def create_binding(*, actor: str, project_id: str, dataset_version_id: str,
     _verify_object(entry)
     contracts = GC.contracts_for_generation(entry["generation"])
     prev = _active_pointer(project_id)
+    prev_binding = active_binding(project_id=project_id) if prev else None
+    # Gate 24 — re-selecting the SAME dataset version is a NO-OP by default (the active revision is returned
+    # unchanged, not churned). A new revision requires an explicit revision_reason, a material content change,
+    # or a client-supplied expected_revision (which also arms the CAS check below).
+    if prev_binding is not None and expected_revision is None and not revision_reason \
+            and prev_binding.get("datasetVersionId") == dataset_version_id \
+            and prev_binding.get("datasetContentSha256") == entry["logicalContentSha256"]:
+        return prev_binding
     if expected_revision is not None and (prev or {}).get("revision", 0) != expected_revision:
         raise StaleAuthorityError("binding CAS failed: expected revision does not match the active binding")
     revision = int((prev or {}).get("revision", 0)) + 1
@@ -886,16 +1009,57 @@ def load_evidence_diagnostics(*, project_id: str, run_id: str) -> dict[str, Any]
 
 
 def load_fitted_estimator(*, project_id: str, run_id: str) -> Any:
-    """Load the checksum-verified fitted estimator from the run's evidence bundle (Gate 15). The estimator
-    is an internal, server-written joblib artifact whose SHA is anchored by the run-verified manifest; it is
-    never a user-supplied model. Fail-closed on any checksum/anchor mismatch before deserialization."""
+    """Gate 18 — load the fitted estimator with NO checksum/load TOCTOU: the estimator file is opened ONCE,
+    its bytes are hashed and compared to the run-manifest-anchored SHA, and deserialization happens from the
+    verified IN-MEMORY bytes (never a second filesystem read that a racing writer could have changed). The
+    reloaded object's class is checked against the recorded estimator. It is an internal, server-written
+    joblib artifact whose SHA is anchored by the run-verified manifest — never a user-supplied model."""
+    import io
     import joblib
     run = get_run(project_id=project_id, run_id=run_id)
     bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
     child = manifest["children"].get("estimator")
     if not child:
         raise AuthorityError("run has no persisted fitted estimator")
-    return joblib.load(bdir / child["file"])   # bytes already checksum-verified by _open_verified_evidence
+    data = (bdir / child["file"]).read_bytes()                 # SINGLE read
+    if hashlib.sha256(data).hexdigest() != child["sha256"]:    # verify the exact bytes we will deserialize
+        raise AuthorityError("fitted estimator bytes failed checksum at load (tampered)")
+    est = joblib.load(io.BytesIO(data))                        # deserialize from verified memory, not the file
+    expected_cls = child.get("estimator")
+    if expected_cls and type(est).__name__ != expected_cls:
+        raise AuthorityError("reloaded estimator class does not match the recorded estimator")
+    return est
+
+
+def verify_estimator_reload(*, project_id: str, run_id: str) -> dict[str, Any]:
+    """Gate 18 — reload the fitted estimator AND the preprocessor from the run's verified bundle, recompute
+    the 2024 validation probabilities from the RE-VERIFIED object, and compare to the persisted predictions.
+    Proves the estimator (logistic or HGB) round-trips and the run is independently reproducible from
+    immutable evidence alone. No 2025 fold is ever transformed or scored."""
+    from ..sports_modeling.training import FoldPreprocessor
+    run = get_run(project_id=project_id, run_id=run_id)
+    authority = get_run_authority(project_id=project_id, run_authority_id=run["runAuthorityId"])
+    entry = _resolve_version(authority["datasetVersionId"])
+    path, _ = _verify_object(entry)                            # re-verify the exact object bytes
+    feature_order = list(authority["featureSet"])
+    fv, seasons, labels, dates, ids, game_ids = _load_authorized_frame(path, feature_order)
+    val_mask = seasons == int(authority["validationSeason"])
+    bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
+    pre_state = json.loads((bdir / manifest["children"]["preprocessor"]["file"]).read_bytes().decode("utf-8"))
+    pre = FoldPreprocessor.from_state(pre_state)
+    est = load_fitted_estimator(project_id=project_id, run_id=run_id)
+    X = pre.transform(fv, val_mask)
+    if authority["modelFamily"] == "governed_logistic":
+        proba = est.predict_proba(X)
+    else:
+        proba = np.zeros((int(val_mask.sum()), len(PA_CLASS_ORDER))); proba[:, est.classes_] = est.predict_proba(X)
+    pm = manifest["children"]["predictions"]
+    persisted = np.frombuffer((bdir / pm["file"]).read_bytes(), dtype=np.float64).reshape(pm["shape"])
+    recomputed_bytes = np.ascontiguousarray(proba, dtype=np.float64).tobytes()
+    exact = hashlib.sha256(recomputed_bytes).hexdigest() == pm["sha256"]
+    max_abs = float(np.max(np.abs(proba - persisted))) if proba.shape == persisted.shape else None
+    return {"runId": run_id, "modelFamily": authority["modelFamily"], "validationRows": int(val_mask.sum()),
+            "bitForBitMatch": bool(exact), "maxAbsProbabilityDiff": max_abs}
 
 
 def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, Any]:
@@ -913,15 +1077,14 @@ def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, A
 
 
 def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
-    """Gate 22 — trusted-local bound: one heavy run per project at a time (reentrant so an orchestrator
-    running several candidates in one thread is fine; a concurrent request from another thread gets 429)."""
-    lock = _project_exec_lock(project_id)
-    if not lock.acquire(blocking=False):
-        raise BusyError("a heavy run is already in progress for this project; retry after it completes")
+    """Gate 23 — trusted-local INTERPROCESS bound: one heavy run per project at a time. The per-project lock
+    is same-thread reentrant (an in-process ablation orchestrator running control then challenger through
+    this one path is fine) but excludes any concurrent request from another thread OR process with 429/BUSY."""
     try:
-        return _execute_locked(actor=actor, project_id=project_id, run_authority_id=run_authority_id)
-    finally:
-        lock.release()
+        with interprocess_lock(_project_exec_lock_path(project_id), blocking=False):
+            return _execute_locked(actor=actor, project_id=project_id, run_authority_id=run_authority_id)
+    except LockBusy:
+        raise BusyError("a heavy run is already in progress for this project; retry after it completes")
 
 
 def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
@@ -1085,58 +1248,52 @@ def _validation_evidence(project_id: str, run_id: str) -> dict[str, Any]:
             "rowIds": vt["rowIds"], "gameIds": vt.get("gameIds") or vt["rowIds"], "run": run}
 
 
-def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str, model_family: str = "governed_logistic",
-                                control_feature_set: str = "base", challenger_feature_set: str,
-                                hyperparameters: Mapping[str, Any] | None = None, seed: int = 20260819,
-                                bootstrap_iterations: int = 1000) -> dict[str, Any]:
-    """Gate 12 — MODEL_FEATURE_FAMILY_ABLATION_V1. CONTROL and CHALLENGER differ ONLY by the registered
-    feature-set contract (challenger = base + the advanced feature family); everything else — binding,
-    target, population, temporal + preprocessing contracts, model family, hyperparameters, seed — is
-    identical. Both branches take the single authorized run path (unique immutable run ids + evidence
-    bundles). Comparison uses 2024 validation ONLY, with a PAIRED GAME-CLUSTER BOOTSTRAP for the log-loss
-    delta uncertainty. Persists an immutable comparison manifest. No 2025."""
-    if not isinstance(challenger_feature_set, str) or challenger_feature_set == control_feature_set:
-        raise AuthorityError("challenger feature set must differ from the control feature set")
-    if not isinstance(bootstrap_iterations, int) or not (100 <= bootstrap_iterations <= 5000):
-        raise AuthorityError("bootstrap_iterations must be an integer in [100, 5000]")
-    binding = _require_active_binding(project_id, binding_id)
-    entry = _resolve_version(binding["datasetVersionId"])
-    # both feature sets must be registered/authorized for this dataset version (client never submits columns)
-    base_fs = _resolve_feature_set(entry, control_feature_set)
-    adv_fs = _resolve_feature_set(entry, challenger_feature_set)
-    added = [f for f in adv_fs["payload"]["featureOrder"] if f not in set(base_fs["payload"]["featureOrder"])]
-    lock = _project_exec_lock(project_id)
-    if not lock.acquire(blocking=False):
-        raise BusyError("a heavy run is already in progress for this project; retry after it completes")
-    try:
-        hyper = dict(hyperparameters or {})
-        au_c = issue_run_authority(actor=actor, project_id=project_id, binding_id=binding_id, model_family=model_family,
-                                   hyperparameters=hyper, seed=seed, feature_set=control_feature_set)
-        ev_c = execute(actor=actor, project_id=project_id, run_authority_id=au_c["runAuthorityId"])
-        au_h = issue_run_authority(actor=actor, project_id=project_id, binding_id=binding_id, model_family=model_family,
-                                   hyperparameters=hyper, seed=seed, feature_set=challenger_feature_set)
-        ev_h = execute(actor=actor, project_id=project_id, run_authority_id=au_h["runAuthorityId"])
-    finally:
-        lock.release()
+def _assert_strict_control_plus_one_family(control_order: list[str], challenger_order: list[str]) -> list[str]:
+    """Gate 13 — the challenger feature set must be EXACTLY the control feature set as an ordered PREFIX,
+    plus one contiguous block of added features. Rejects (structurally, before any fit): a control feature
+    removed, reordered, or substituted; a challenger with no added feature (incl. the one-feature challenger
+    that replaces the control); duplicate features; and an added block that intersects the control."""
+    if len(set(control_order)) != len(control_order):
+        raise AuthorityError("control feature set has duplicate features")
+    if len(set(challenger_order)) != len(challenger_order):
+        raise AuthorityError("challenger feature set has duplicate features")
+    if len(challenger_order) <= len(control_order):
+        raise AuthorityError("challenger feature set does not add any feature over the control (Gate 13)")
+    if challenger_order[:len(control_order)] != control_order:
+        raise AuthorityError("challenger is not the control set plus one family: a control feature was "
+                             "removed, reordered, or substituted (Gate 13)")
+    added = challenger_order[len(control_order):]
+    if not added:
+        raise AuthorityError("challenger adds an empty feature family (Gate 13)")
+    if set(added) & set(control_order):
+        raise AuthorityError("added family duplicates a control feature (Gate 13)")
+    return added
 
+
+def _build_and_persist_ablation_comparison(*, project_id: str, actor: str, binding: Mapping[str, Any],
+                                           model_family: str, seed: int, control_feature_set: str,
+                                           challenger_feature_set: str, base_fs: Mapping[str, Any],
+                                           adv_fs: Mapping[str, Any], added: list[str], ev_c: Mapping[str, Any],
+                                           ev_h: Mapping[str, Any], bootstrap_iterations: int) -> dict[str, Any]:
+    """Gate 14 — the 2024-only paired comparison, built under the held ablation lock. Both arms are the
+    manifest-anchored 2024 validation predictions/target of their own immutable runs; the paired game-cluster
+    bootstrap gives the log-loss delta uncertainty. Persisted as immutable content-addressed evidence (no
+    overwrite)."""
     c = _validation_evidence(project_id, ev_c["experimentRunId"])
     h = _validation_evidence(project_id, ev_h["experimentRunId"])
     if c["rowIds"] != h["rowIds"]:
         raise AuthorityError("control/challenger validation rows differ; comparison is not paired")
-    k = len(PA_CLASS_ORDER)
     y = c["encoded"]; n = len(y)
     eps = 1e-15
     row_ll_c = -np.log(np.clip(c["proba"][np.arange(n), y], eps, 1.0))
     row_ll_h = -np.log(np.clip(h["proba"][np.arange(n), y], eps, 1.0))
     delta_row = row_ll_h - row_ll_c
     logloss_delta = float(row_ll_h.mean() - row_ll_c.mean())
-    # class-conditional log-loss deltas
     class_cond = {}
     for ci, cls in enumerate(PA_CLASS_ORDER):
         mask = y == ci
         if int(mask.sum()) > 0:
             class_cond[cls] = float(row_ll_h[mask].mean() - row_ll_c[mask].mean())
-    # paired GAME-CLUSTER bootstrap for the log-loss delta (predeclared method)
     game_ids = np.asarray(c["gameIds"], dtype=object)
     uniq_games = np.unique(game_ids)
     game_to_rows = {g: np.where(game_ids == g)[0] for g in uniq_games}
@@ -1149,11 +1306,10 @@ def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str,
     ci_lo, ci_hi = (float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975)))
     uncertainty = {"method": "PAIRED_GAME_CLUSTER_BOOTSTRAP", "iterations": bootstrap_iterations,
                    "games": int(len(uniq_games)), "logLossDeltaMean": float(delta_row.mean()),
-                   "logLossDelta95CI": [ci_lo, ci_hi],
-                   "challengerImproves": bool(ci_hi < 0.0)}
+                   "logLossDelta95CI": [ci_lo, ci_hi], "challengerImproves": bool(ci_hi < 0.0)}
     comparison = {
         "schemaVersion": "MODEL_FEATURE_FAMILY_ABLATION_V1", "projectId": project_id, "actor": actor,
-        "bindingId": binding_id, "bindingRevision": binding["revision"], "generation": binding["generation"],
+        "bindingId": binding["bindingId"], "bindingRevision": binding["revision"], "generation": binding["generation"],
         "datasetVersionId": binding["datasetVersionId"], "modelFamily": model_family, "seed": seed,
         "controlFeatureSet": control_feature_set, "challengerFeatureSet": challenger_feature_set,
         "featureFamilyAdded": added, "controlFeatureSetSha256": base_fs["sha256"], "challengerFeatureSetSha256": adv_fs["sha256"],
@@ -1169,10 +1325,52 @@ def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str,
         "classConditionalLogLossDelta": class_cond, "uncertainty": uncertainty,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    comp_bytes = canonical_json_bytes(comparison); comp_sha = sha256_bytes(comp_bytes)
-    _write_json_atomic(_state(project_id, "ablations", f"{comp_sha}.json"), {**comparison, "comparisonManifestSha256": comp_sha})
+    comp_sha = sha256_bytes(canonical_json_bytes(comparison))
+    out = _state(project_id, "ablations", "sha256", f"{comp_sha}.json")   # immutable, content-addressed
+    if not out.is_file():
+        _write_json_atomic(out, {**comparison, "comparisonManifestSha256": comp_sha})
     comparison["comparisonManifestSha256"] = comp_sha
     return comparison
+
+
+def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str, model_family: str = "governed_logistic",
+                                control_feature_set: str = "base", challenger_feature_set: str,
+                                hyperparameters: Mapping[str, Any] | None = None, seed: int = 20260819,
+                                bootstrap_iterations: int = 1000) -> dict[str, Any]:
+    """Gate 13/14 — MODEL_FEATURE_FAMILY_ABLATION_V1. The challenger is EXACTLY the control ordered feature
+    set plus ONE contiguous added family (strict prefix identity — see _assert_strict_control_plus_one_family);
+    everything else — binding, target, population, temporal + preprocessing contracts, model family,
+    hyperparameters, seed, code/environment, validation fold — is identical because both arms take the SINGLE
+    authorized run path with the same binding/seed/hyperparameters. Both branches, and the whole 2024-only
+    paired comparison, are held under ONE ablation lock (Gate 23); the comparison is persisted as immutable
+    content-addressed evidence. No 2025."""
+    if not isinstance(challenger_feature_set, str) or challenger_feature_set == control_feature_set:
+        raise AuthorityError("challenger feature set must differ from the control feature set")
+    if not isinstance(bootstrap_iterations, int) or not (100 <= bootstrap_iterations <= 5000):
+        raise AuthorityError("bootstrap_iterations must be an integer in [100, 5000]")
+    binding = _require_active_binding(project_id, binding_id)
+    entry = _resolve_version(binding["datasetVersionId"])
+    # both feature sets must be registered/authorized for this dataset version (client never submits columns)
+    base_fs = _resolve_feature_set(entry, control_feature_set)
+    adv_fs = _resolve_feature_set(entry, challenger_feature_set)
+    added = _assert_strict_control_plus_one_family(list(base_fs["payload"]["featureOrder"]),
+                                                   list(adv_fs["payload"]["featureOrder"]))
+    hyper = dict(hyperparameters or {})
+    try:
+        with interprocess_lock(_project_exec_lock_path(project_id), blocking=False):
+            au_c = issue_run_authority(actor=actor, project_id=project_id, binding_id=binding_id, model_family=model_family,
+                                       hyperparameters=hyper, seed=seed, feature_set=control_feature_set)
+            ev_c = execute(actor=actor, project_id=project_id, run_authority_id=au_c["runAuthorityId"])
+            au_h = issue_run_authority(actor=actor, project_id=project_id, binding_id=binding_id, model_family=model_family,
+                                       hyperparameters=hyper, seed=seed, feature_set=challenger_feature_set)
+            ev_h = execute(actor=actor, project_id=project_id, run_authority_id=au_h["runAuthorityId"])
+            return _build_and_persist_ablation_comparison(
+                project_id=project_id, actor=actor, binding=binding, model_family=model_family, seed=seed,
+                control_feature_set=control_feature_set, challenger_feature_set=challenger_feature_set,
+                base_fs=base_fs, adv_fs=adv_fs, added=added, ev_c=ev_c, ev_h=ev_h,
+                bootstrap_iterations=bootstrap_iterations)
+    except LockBusy:
+        raise BusyError("a heavy run is already in progress for this project; retry after it completes")
 
 
 def get_run(*, project_id: str, run_id: str) -> dict[str, Any]:
