@@ -38,6 +38,15 @@ ALLOWED_PREDICTOR_CLASSES = frozenset({PREGAME_KNOWN, CONDITIONAL_PRE_PA_STATE, 
 PROHIBITED_PREDICTOR_CLASSES = frozenset({POST_PA_PROHIBITED, FUTURE_PROHIBITED,
                                           IDENTIFIER_NOT_PREDICTOR, TARGET_PROHIBITED})
 
+# Gate 2 (7D.4 / B2) — leakageClassification is a strict CLOSED enum. Only explicit SAFE classes may enter an
+# authorized feature set; unknown / blank / null / unregistered values are rejected before registration.
+SAFE_LEAKAGE_CLASSES = frozenset({"SAFE_PREGAME", "SAFE_HISTORICAL_AS_OF", "SAFE_CONDITIONAL_PRE_PA"})
+PROHIBITED_LEAKAGE_CLASSES = frozenset({"TARGET_PROHIBITED", "POST_PA_PROHIBITED", "FUTURE_PROHIBITED",
+                                        "IDENTIFIER_PROHIBITED", "UNRESOLVED_PROHIBITED"})
+LEAKAGE_CLASSIFICATIONS = SAFE_LEAKAGE_CLASSES | PROHIBITED_LEAKAGE_CLASSES
+_KT_TO_SAFE_LEAKAGE = {PREGAME_KNOWN: "SAFE_PREGAME", CONDITIONAL_PRE_PA_STATE: "SAFE_CONDITIONAL_PRE_PA",
+                       HISTORICAL_AS_OF_CUTOFF: "SAFE_HISTORICAL_AS_OF"}
+
 # Fields that may NEVER appear as a derivation source (post-PA outcome / target / post-score / future).
 PROHIBITED_SOURCE_FIELDS = frozenset({
     "outcome", "events", "description", "launch_speed", "launch_angle", "hit_distance",
@@ -122,7 +131,7 @@ def feature_semantic_contract(feature_id: str) -> dict[str, Any]:
                        else "full prior-season aggregate as-of the eligibility cutoff"),
         "allowedSeasons": [2021, 2022, 2023, 2024], "availabilityStart": 2021, "availabilityEnd": 2024,
         "missingnessSemantics": missingness, "imputationEligibility": bool(impute),
-        "leakageClassification": "SAFE_PREGAME_OR_PRE_PA_STATE",
+        "leakageClassification": _KT_TO_SAFE_LEAKAGE[ktc],
         "prohibitedSourceFields": sorted(PROHIBITED_SOURCE_FIELDS),
         "identifierClassification": "NOT_IDENTIFIER",
         "targetRelationshipClassification": "INDEPENDENT_OF_TARGET_PA_OUTCOME",
@@ -143,7 +152,7 @@ def build_semantic_contract(*, feature_id: str, display_name: str, family_id: st
                             source_columns: list[str], canonical_derivation: str, derivation_code_digest: str,
                             derivation_version: str, window_rule: str, allowed_seasons: list[int],
                             missingness_semantics: str = "", imputation_eligibility: bool = True,
-                            leakage_classification: str = "SAFE_HISTORICAL_AS_OF_CUTOFF",
+                            leakage_classification: str = "SAFE_HISTORICAL_AS_OF",
                             identifier_classification: str = "NOT_IDENTIFIER",
                             target_relationship_classification: str = "INDEPENDENT_OF_TARGET_PA_OUTCOME",
                             dtype: str = "float64", nullable: bool = False,
@@ -192,6 +201,12 @@ def validate_feature_semantic_contract(contract: Mapping[str, Any]) -> None:
         raise LeakageError(f"unknown knowledge-time class for {fid!r}")
     if ktc in PROHIBITED_PREDICTOR_CLASSES:
         raise LeakageError(f"feature {fid!r} has a prohibited knowledge-time class {ktc}")
+    # Gate 2 (B2) — leakageClassification is a strict closed enum; only explicit SAFE classes may be authorized
+    lc = p.get("leakageClassification")
+    if lc not in LEAKAGE_CLASSIFICATIONS:
+        raise LeakageError(f"feature {fid!r} has an unknown/blank leakage classification {lc!r}")
+    if lc not in SAFE_LEAKAGE_CLASSES:
+        raise LeakageError(f"feature {fid!r} has a prohibited leakage classification {lc}")
     # declared lineage + derivation + as-of are MANDATORY (structural provability)
     if not p.get("sourceObjectIds") or not p.get("sourceReceiptShas"):
         raise LeakageError(f"feature {fid!r} is missing source lineage (object/receipt)")
