@@ -18,8 +18,8 @@ from . import simulation as S
 from . import gen3_authority as G3A
 from .engine import ALL_FEATURES, CockpitError
 from .cockpit_dtos import (
-    ActiveCandidateResponseV2, ModelCalibrationResponseV2, ModelEvaluationResponseV2,
-    ModelRegistryEvidenceResponseV2,
+    ActiveCandidateResponseV2, FeatureFamilyComparisonResponseV2, ModelCalibrationResponseV2,
+    ModelEvaluationResponseV2, ModelRegistryEvidenceResponseV2,
 )
 from ..security.security_store import require_user
 from ..core.modeling_scope import authorize_modeling_scope
@@ -278,15 +278,17 @@ def gen3_run_suite(payload: dict[str, Any] = Body(...), user: dict = Depends(req
                   source=str(payload.get("source", "suite")))
 
 
-@router.post("/cockpit/gen3/feature-family-ablation")
-def gen3_feature_family_ablation(req: AblationRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
-    # Gate 12 — canonical 2024-only feature-family ablation (control vs challenger differ only by the
-    # registered feature-family contract); paired game-cluster bootstrap; immutable comparison manifest.
+@router.post("/cockpit/gen3/feature-family-ablation", response_model=FeatureFamilyComparisonResponseV2)
+def gen3_feature_family_ablation(req: AblationRequest, user: dict = Depends(require_user)) -> FeatureFamilyComparisonResponseV2:
+    # Gate 10/12 (B6) — canonical 2024-only feature-family comparison. Both arms resolve ONLY through the V2
+    # canonical chain; the result is a strict, content-addressed, immutable MODEL_FEATURE_FAMILY_COMPARISON_
+    # RECEIPT_V1 binding both arms' receipt/bundle SHAs + the single added family's contract SHA. Never 2025.
     pid = authorize_modeling_scope(user, req.projectId, "edit")
-    return _guard(G3A.run_feature_family_ablation, actor=_actor(user), project_id=pid, binding_id=req.bindingId,
-                  model_family=req.modelFamily, control_feature_set=req.controlFeatureSet,
-                  challenger_feature_set=req.challengerFeatureSet, hyperparameters=req.hyperparameters,
-                  seed=req.seed, bootstrap_iterations=req.bootstrapIterations)
+    out = _guard(G3A.run_feature_family_ablation, actor=_actor(user), project_id=pid, binding_id=req.bindingId,
+                 model_family=req.modelFamily, control_feature_set=req.controlFeatureSet,
+                 challenger_feature_set=req.challengerFeatureSet, hyperparameters=req.hyperparameters,
+                 seed=req.seed, bootstrap_iterations=req.bootstrapIterations)
+    return FeatureFamilyComparisonResponseV2.model_validate(out)
 
 
 @router.get("/cockpit/gen3/runs/{project_id}")

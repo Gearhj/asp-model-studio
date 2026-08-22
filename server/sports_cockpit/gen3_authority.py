@@ -1987,15 +1987,46 @@ def run_authorized_suite(*, actor: str, project_id: str, binding_id: str,
             "bestLogLoss": best["metrics"]["logLoss"] if best else None}
 
 
-def _validation_evidence(project_id: str, run_id: str) -> dict[str, Any]:
-    """Return the manifest-anchored 2024 validation predictions + target for a run (paired-comparison input)."""
-    run = get_run(project_id=project_id, run_id=run_id)
-    bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
-    pm = manifest["children"]["predictions"]
-    proba = np.frombuffer((bdir / pm["file"]).read_bytes(), dtype=np.float64).reshape(pm["shape"])
-    vt = json.loads((bdir / manifest["children"]["validationTarget"]["file"]).read_bytes().decode("utf-8"))
+def _v2_validation_evidence(project_id: str, run_id: str) -> dict[str, Any]:
+    """Gate 10 (B6) — resolve ONE comparison arm's 2024 validation predictions/target ONLY through the canonical
+    V2 chain: evidence registry -> immutable MODEL_RUN_RECEIPT_V1 -> content-addressed MODEL_RUN_EVIDENCE_BUNDLE_V2
+    -> every child SHA -> full parent-chain reconstruction (pinned to the CURRENT active binding). No mutable run
+    JSON, no V1 bundle, no 2025. A stale/superseded binding, missing receipt, or forged arm fails closed here."""
+    v = verify_canonical_model_run_chain(project_id=project_id, run_id=run_id, require_current_binding=True)
+    m, bdir = v["manifest"], v["bundleDir"]
+    n_rows, k = int(m["validationRows"]), len(PA_CLASS_ORDER)
+    proba = np.frombuffer(_v2_child_bytes(bdir, m, "validation-probabilities.f64"), dtype=np.float64).reshape(n_rows, k)
+    vt = json.loads(_v2_child_bytes(bdir, m, "validation-target.json").decode("utf-8"))
+    rids = json.loads(_v2_child_bytes(bdir, m, "validation-row-ids.json").decode("utf-8"))
+    metrics = json.loads(_v2_child_bytes(bdir, m, "aggregate-metrics.json").decode("utf-8"))
     return {"proba": proba, "encoded": np.asarray(vt["encoded"], dtype=np.int64),
-            "rowIds": vt["rowIds"], "gameIds": vt.get("gameIds") or vt["rowIds"], "run": run}
+            "rowIds": rids["rowIds"], "gameIds": rids.get("gameIds") or rids["rowIds"],
+            "metrics": {kk: float(metrics[kk]) for kk in ("logLoss", "brierScore", "topLabelEce", "top1Accuracy", "macroF1")},
+            "receiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+            "featureSetName": m["featureSetName"], "featureSetSha256": m["featureSetSha256"], "manifest": m}
+
+
+def _added_family_contract(entry: Mapping[str, Any], challenger_feature_set: str, added: list[str]) -> dict[str, Any]:
+    """Gate 10 (B6) — prove the challenger adds EXACTLY ONE registered feature family. Every added tail feature
+    must be declared in the challenger's V2 feature-set semantic contracts, pass the leakage validator, and
+    share one family; the returned MLB_FEATURE_FAMILY_CONTRACT_V1 (id + sha) content-addresses that single-family
+    provenance so the comparison receipt binds it (not just ordered-prefix arithmetic)."""
+    spec = (entry.get("featureSets") or {}).get(challenger_feature_set)
+    if not isinstance(spec, Mapping) or not isinstance(spec.get("semanticContracts"), list):
+        raise AuthorityError("challenger feature set lacks V2 semantic authority for family provenance (B6)")
+    by_id = {c["payload"]["featureId"]: c for c in spec["semanticContracts"] if isinstance(c, Mapping)}
+    fams: set[str] = set()
+    members: dict[str, Any] = {}
+    for fid in added:
+        c = by_id.get(fid)
+        if c is None:
+            raise AuthorityError(f"added feature '{fid}' has no semantic contract in the challenger set (B6)")
+        FS.validate_feature_semantic_contract(c)
+        members[fid] = c
+        fams.add(c["payload"]["featureFamilyId"])
+    if len(fams) != 1:
+        raise AuthorityError("challenger adds features from more than one family; not a single-family comparison (B6)")
+    return FS.feature_family_contract(next(iter(fams)), list(added), members)
 
 
 def _assert_strict_control_plus_one_family(control_order: list[str], challenger_order: list[str]) -> list[str]:
@@ -2021,24 +2052,38 @@ def _assert_strict_control_plus_one_family(control_order: list[str], challenger_
 
 
 def _build_and_persist_ablation_comparison(*, project_id: str, actor: str, binding: Mapping[str, Any],
-                                           model_family: str, seed: int, control_feature_set: str,
-                                           challenger_feature_set: str, base_fs: Mapping[str, Any],
-                                           adv_fs: Mapping[str, Any], added: list[str], ev_c: Mapping[str, Any],
-                                           ev_h: Mapping[str, Any], bootstrap_iterations: int) -> dict[str, Any]:
-    """Gate 14 — the 2024-only paired comparison, built under the held ablation lock. Both arms are the
-    manifest-anchored 2024 validation predictions/target of their own immutable runs; the paired game-cluster
-    bootstrap gives the log-loss delta uncertainty. Persisted as immutable content-addressed evidence (no
-    overwrite)."""
-    c = _validation_evidence(project_id, ev_c["experimentRunId"])
-    h = _validation_evidence(project_id, ev_h["experimentRunId"])
+                                           entry: Mapping[str, Any], model_family: str, seed: int,
+                                           control_feature_set: str, challenger_feature_set: str,
+                                           base_fs: Mapping[str, Any], adv_fs: Mapping[str, Any], added: list[str],
+                                           ev_c: Mapping[str, Any], ev_h: Mapping[str, Any],
+                                           bootstrap_iterations: int) -> dict[str, Any]:
+    """Gate 10 (B6) — the 2024-only paired comparison, built under the held ablation lock. BOTH arms resolve
+    ONLY through the canonical V2 chain (registry -> immutable receipt -> content-addressed bundle -> verified
+    children -> full parent reconstruction pinned to the current active binding); the paired game-cluster
+    bootstrap gives the log-loss delta uncertainty. The result is an IMMUTABLE, content-addressed, create-once
+    MODEL_FEATURE_FAMILY_COMPARISON_RECEIPT_V1 (SHA over the body excluding its own field), binding both arms'
+    run-receipt + bundle-manifest SHAs, both feature-set SHAs, and the single added family's contract SHA. No
+    V1/mutable evidence; no 2025."""
+    c = _v2_validation_evidence(project_id, ev_c["experimentRunId"])
+    h = _v2_validation_evidence(project_id, ev_h["experimentRunId"])
     if c["rowIds"] != h["rowIds"]:
         raise AuthorityError("control/challenger validation rows differ; comparison is not paired")
+    family = _added_family_contract(entry, challenger_feature_set, added)   # single-family provenance (B6)
+    # both arms are pinned to the current active binding by _v2_validation_evidence; assert they agree on the
+    # authorized dataset + binding + the expected control/challenger feature-set identities.
+    cm_, hm_ = c["manifest"], h["manifest"]
+    if cm_["datasetContentSha256"] != hm_["datasetContentSha256"] or cm_["bindingId"] != hm_["bindingId"] \
+            or int(cm_["bindingRevision"]) != int(hm_["bindingRevision"]):
+        raise AuthorityError("comparison arms disagree on dataset/binding (incompatible comparison)")
+    if c["featureSetName"] != control_feature_set or h["featureSetName"] != challenger_feature_set:
+        raise AuthorityError("comparison arms do not carry the expected control/challenger feature sets")
+    if c["featureSetSha256"] != base_fs["sha256"] or h["featureSetSha256"] != adv_fs["sha256"]:
+        raise AuthorityError("comparison arm feature-set SHAs disagree with the resolved feature-set contracts")
     y = c["encoded"]; n = len(y)
     eps = 1e-15
     row_ll_c = -np.log(np.clip(c["proba"][np.arange(n), y], eps, 1.0))
     row_ll_h = -np.log(np.clip(h["proba"][np.arange(n), y], eps, 1.0))
     delta_row = row_ll_h - row_ll_c
-    logloss_delta = float(row_ll_h.mean() - row_ll_c.mean())
     class_cond = {}
     for ci, cls in enumerate(PA_CLASS_ORDER):
         mask = y == ci
@@ -2054,33 +2099,40 @@ def _build_and_persist_ablation_comparison(*, project_id: str, actor: str, bindi
         idx = np.concatenate([game_to_rows[g] for g in pick])
         boot[b] = float(delta_row[idx].mean())
     ci_lo, ci_hi = (float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975)))
-    uncertainty = {"method": "PAIRED_GAME_CLUSTER_BOOTSTRAP", "iterations": bootstrap_iterations,
-                   "games": int(len(uniq_games)), "logLossDeltaMean": float(delta_row.mean()),
-                   "logLossDelta95CI": [ci_lo, ci_hi], "challengerImproves": bool(ci_hi < 0.0)}
-    comparison = {
-        "schemaVersion": "MODEL_FEATURE_FAMILY_ABLATION_V1", "projectId": project_id, "actor": actor,
-        "bindingId": binding["bindingId"], "bindingRevision": binding["revision"], "generation": binding["generation"],
-        "datasetVersionId": binding["datasetVersionId"], "modelFamily": model_family, "seed": seed,
+    cm, hm = c["metrics"], h["metrics"]
+    body = {
+        "schemaVersion": "MODEL_FEATURE_FAMILY_COMPARISON_RECEIPT_V1", "projectId": project_id,
+        "bindingId": binding["bindingId"], "bindingRevision": int(binding["revision"]), "generation": binding["generation"],
+        "datasetVersionId": binding["datasetVersionId"], "datasetContentSha256": binding["datasetContentSha256"],
+        "modelFamily": model_family, "seed": int(seed),
         "controlFeatureSet": control_feature_set, "challengerFeatureSet": challenger_feature_set,
-        "featureFamilyAdded": added, "controlFeatureSetSha256": base_fs["sha256"], "challengerFeatureSetSha256": adv_fs["sha256"],
-        "controlRunId": ev_c["experimentRunId"], "challengerRunId": ev_h["experimentRunId"],
-        "controlEvidenceSha256": ev_c.get("evidenceBundleSha256"), "challengerEvidenceSha256": ev_h.get("evidenceBundleSha256"),
+        "featureFamilyAdded": list(added), "featureFamilyId": family["id"], "featureFamilySha256": family["sha256"],
+        "control": {"runId": ev_c["experimentRunId"], "runReceiptSha256": c["receiptSha256"],
+                    "bundleManifestSha256": c["bundleManifestSha256"], "featureSetName": c["featureSetName"],
+                    "featureSetSha256": c["featureSetSha256"], "metrics": cm},
+        "challenger": {"runId": ev_h["experimentRunId"], "runReceiptSha256": h["receiptSha256"],
+                       "bundleManifestSha256": h["bundleManifestSha256"], "featureSetName": h["featureSetName"],
+                       "featureSetSha256": h["featureSetSha256"], "metrics": hm},
         "validationSeason": 2024, "validationRows": int(n),
-        "metricDelta": {"logLoss": logloss_delta,
-                        "brierScore": float(ev_h["metrics"]["brierScore"] - ev_c["metrics"]["brierScore"]),
-                        "topLabelEce": float(ev_h["metrics"]["topLabelEce"] - ev_c["metrics"]["topLabelEce"]),
-                        "top1Accuracy": float(ev_h["metrics"]["top1Accuracy"] - ev_c["metrics"]["top1Accuracy"]),
-                        "macroF1": float(ev_h["metrics"]["macroF1"] - ev_c["metrics"]["macroF1"])},
-        "controlMetrics": ev_c["metrics"], "challengerMetrics": ev_h["metrics"],
-        "classConditionalLogLossDelta": class_cond, "uncertainty": uncertainty,
+        "metricDelta": {"logLoss": float(hm["logLoss"] - cm["logLoss"]), "brierScore": float(hm["brierScore"] - cm["brierScore"]),
+                        "topLabelEce": float(hm["topLabelEce"] - cm["topLabelEce"]),
+                        "top1Accuracy": float(hm["top1Accuracy"] - cm["top1Accuracy"]), "macroF1": float(hm["macroF1"] - cm["macroF1"])},
+        "classConditionalLogLossDelta": class_cond,
+        "uncertainty": {"method": "PAIRED_GAME_CLUSTER_BOOTSTRAP", "iterations": int(bootstrap_iterations),
+                        "games": int(len(uniq_games)), "logLossDeltaMean": float(delta_row.mean()),
+                        "logLossDelta95CI": [ci_lo, ci_hi], "challengerImproves": bool(ci_hi < 0.0)},
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    comp_sha = sha256_bytes(canonical_json_bytes(comparison))
-    out = _state(project_id, "ablations", "sha256", f"{comp_sha}.json")   # immutable, content-addressed
-    if not out.is_file():
-        _write_json_atomic(out, {**comparison, "comparisonManifestSha256": comp_sha})
-    comparison["comparisonManifestSha256"] = comp_sha
-    return comparison
+    comp_sha = sha256_bytes(canonical_json_bytes(body))
+    receipt = {**body, "comparisonReceiptSha256": comp_sha}
+    out = _state(project_id, "comparisons", "sha256", f"{comp_sha}.json")   # immutable, content-addressed, create-once
+    if out.is_file():
+        existing = _read_json(out)
+        if existing.get("comparisonReceiptSha256") != comp_sha:
+            raise AuthorityError("feature-family comparison receipt content-address conflict")
+    else:
+        _write_json_atomic(out, receipt)
+    return receipt
 
 
 def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str, model_family: str = "governed_logistic",
@@ -2115,7 +2167,7 @@ def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str,
                                        hyperparameters=hyper, seed=seed, feature_set=challenger_feature_set)
             ev_h = execute(actor=actor, project_id=project_id, run_authority_id=au_h["runAuthorityId"])
             return _build_and_persist_ablation_comparison(
-                project_id=project_id, actor=actor, binding=binding, model_family=model_family, seed=seed,
+                project_id=project_id, actor=actor, binding=binding, entry=entry, model_family=model_family, seed=seed,
                 control_feature_set=control_feature_set, challenger_feature_set=challenger_feature_set,
                 base_fs=base_fs, adv_fs=adv_fs, added=added, ev_c=ev_c, ev_h=ev_h,
                 bootstrap_iterations=bootstrap_iterations)

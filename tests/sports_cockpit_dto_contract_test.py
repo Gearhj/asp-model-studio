@@ -45,6 +45,7 @@ def _route(path: str):
     ("/cockpit/gen3/evaluation/{project_id}", ModelEvaluationResponseV2),
     ("/cockpit/gen3/calibration/{project_id}", ModelCalibrationResponseV2),
     ("/cockpit/gen3/registry-evidence/{project_id}", ModelRegistryEvidenceResponseV2),
+    ("/cockpit/gen3/feature-family-ablation", FeatureFamilyComparisonResponseV2),
 ])
 def test_route_declares_strict_v2_response_model(path, model):
     assert _route(path).response_model is model
