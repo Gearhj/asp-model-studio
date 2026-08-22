@@ -27,6 +27,7 @@ Thumbs.db
 # Scratch / temp
 .tmp/
 .runtime/
+test-results/
 server/artifacts/security/*.db
 server/data/*.db
 server/data/*.db-*
