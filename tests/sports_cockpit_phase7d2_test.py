@@ -99,3 +99,35 @@ def test_canonical_research_path_is_2024_only_no_frozen():
     assert pop["validationSeason"] == 2024 and pop["sealedSeasons"] == [2025]
     assert 2025 not in pop["developmentSeasons"]
     assert "frozen2025" not in json.dumps(pop) and "final2025" not in json.dumps(pop)
+
+
+# ============================================================ Gate 5 — immutable model-request receipt (D)
+@pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
+def test_model_request_receipt_is_server_issued_and_content_addressed():
+    proj = "test-7d2-rr-" + uuid.uuid4().hex[:10]
+    dsid = {c["generation"]: c["datasetVersionId"] for c in A.catalog()}["GEN3"]
+    b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=dsid)
+    au = A.issue_run_authority(actor="t@asp", project_id=proj, binding_id=b["bindingId"],
+                               model_family="governed_hgb", hyperparameters={"maxIter": 40})
+    rr = au["modelRequestReceiptSha256"]
+    assert rr and A._state(proj, "requests", rr + ".json").is_file()   # content-addressed, server-issued
+    A._validate_authority(au, proj)                                    # reconstructs + passes
+
+
+@pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
+@pytest.mark.parametrize("field, value", [
+    ("modelRequestReceiptSha256", "dead" * 16),   # request-receipt tamper
+    ("modelFamily", "governed_logistic"),          # model-family forgery
+    ("seed", 987654),                              # seed forgery
+    ("semanticFeatureSetSha256", "dead" * 16),     # semantic feature-set forgery
+    ("effectiveHyperparameters", {"maxIter": 99999}),  # out-of-bounds hyperparameter forgery
+])
+def test_self_attested_authority_forgery_is_rejected(field, value):
+    proj = "test-7d2-forge-" + uuid.uuid4().hex[:10]
+    dsid = {c["generation"]: c["datasetVersionId"] for c in A.catalog()}["GEN3"]
+    b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=dsid)
+    au = A.issue_run_authority(actor="t@asp", project_id=proj, binding_id=b["bindingId"], model_family="governed_hgb")
+    p = A._state(proj, "authorities", au["runAuthorityId"] + ".json")
+    forged = json.loads(p.read_text()); forged[field] = value; p.write_text(json.dumps(forged))
+    with pytest.raises(A.AuthorityError):
+        A._validate_authority(A.get_run_authority(project_id=proj, run_authority_id=au["runAuthorityId"]), proj)

@@ -876,6 +876,30 @@ def _semantic_feature_identity(binding: Mapping[str, Any], feature_set: str) -> 
             "semanticFeatureFamilyIds": list(FS.BASE_FAMILY_ORDER)}
 
 
+def _model_request_receipt(binding: Mapping[str, Any], model_family: str, eff_hyper: Mapping[str, Any], seed: int,
+                           feature_set: str, fsc: Mapping[str, Any], sem: Mapping[str, Any],
+                           code: Mapping[str, Any], env_sha: str) -> dict[str, Any]:
+    """Gate 5 — the server-issued immutable MODEL_REQUEST_RECEIPT_V1, computed over the STRICTLY-VALIDATED
+    request (model family + effective hyperparameters after defaults + seed + feature set) and the active
+    binding / contracts / semantic identity / code+environment. The client cannot supply the authoritative
+    receipt sha: it is recomputed at validate time from the current binding/registry, so a forged model
+    family / hyperparameter / seed / feature set does not reconstruct."""
+    payload = {
+        "schemaVersion": "MODEL_REQUEST_RECEIPT_V1",
+        "projectId": binding["projectId"], "bindingId": binding["bindingId"], "bindingRevision": binding["revision"],
+        "datasetVersionId": binding["datasetVersionId"], "datasetContentSha256": binding["datasetContentSha256"],
+        "generation": binding["generation"], "targetContractSha256": binding["targetContractSha256"],
+        "populationContractSha256": binding["populationContractSha256"], "temporalContractSha256": binding["temporalContractSha256"],
+        "preprocessingContractSha256": binding["preprocessingContractSha256"], "knowledgeTimeContractSha256": binding["knowledgeTimeContractSha256"],
+        "featureSetName": feature_set, "featureSetContractId": fsc["id"], "featureSetSha256": fsc["sha256"],
+        "semanticFeatureSetSha256": sem.get("semanticFeatureSetSha256"),
+        "modelFamily": model_family, "effectiveHyperparameters": dict(eff_hyper), "seed": int(seed),
+        "requestSchemaVersion": "MODEL_EXPERIMENT_RUN_AUTHORITY_V1",
+        "codeRevision": code["codeRevision"], "worktreeContentSha256": code["worktreeContentSha256"], "environmentSha256": env_sha,
+    }
+    return {**payload, "requestReceiptSha256": sha256_bytes(canonical_json_bytes(payload))}
+
+
 def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_family: str,
                         hyperparameters: Mapping[str, Any] | None = None, seed: int = 20260819,
                         feature_set: str = "base") -> dict[str, Any]:
@@ -893,6 +917,10 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
     effective_config = _effective_config(binding, fsc, model_family, eff_hyper, seed, code, env_sha, feature_set)
     config_sha = sha256_bytes(canonical_json_bytes(effective_config))
     sem = _semantic_feature_identity(binding, feature_set)
+    request_receipt = _model_request_receipt(binding, model_family, eff_hyper, seed, feature_set, fsc, sem, code, env_sha)
+    rr_path = _state(project_id, "requests", f"{request_receipt['requestReceiptSha256']}.json")
+    if not rr_path.is_file():                       # content-addressed, create-once (append-only)
+        _write_json_atomic(rr_path, request_receipt)
     authority = {
         "schemaVersion": "MODEL_EXPERIMENT_RUN_AUTHORITY_V1", "runAuthorityId": uuid.uuid4().hex, "actor": actor,
         "projectId": project_id, "bindingId": binding_id, "bindingRevision": binding["revision"], "authorityRevision": 1,
@@ -901,7 +929,7 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
         "targetContractId": binding["targetContractId"], "populationContractId": binding["populationContractId"],
         "temporalContractId": binding["temporalContractId"], "featureContractId": binding["featureContractId"],
         "preprocessingContractId": binding["preprocessingContractId"], "knowledgeTimeContractId": binding["knowledgeTimeContractId"],
-        **sem,
+        **sem, "modelRequestReceiptSha256": request_receipt["requestReceiptSha256"],
     }
     _write_json_atomic(_state(project_id, "authorities", f"{authority['runAuthorityId']}.json"), authority)
     return authority
@@ -981,6 +1009,12 @@ def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[
                                        code, _env_sha(), authority.get("featureSetName", "base"))
     if sha256_bytes(canonical_json_bytes(recomputed_cfg)) != authority["canonicalEffectiveConfigSha256"]:
         raise AuthorityError("FORGED authority: reconstructed canonical effective-config sha does not verify")
+    # Gate 5 — the immutable model-request receipt must reconstruct from the current binding/contracts/feature
+    # set/semantic identity/validated request/code+environment (a forged family/hyper/seed/feature set fails)
+    recomputed_receipt = _model_request_receipt(binding, authority["modelFamily"], eff_hyper, int(authority["seed"]),
+                                                authority.get("featureSetName", "base"), fsc, sem, code, _env_sha())
+    if authority.get("modelRequestReceiptSha256") != recomputed_receipt["requestReceiptSha256"]:
+        raise AuthorityError("FORGED authority: model-request receipt does not reconstruct")
     path, receipt = _verify_object(entry, capability=RESEARCH_OBJECT_READ)  # integrity before load
     return entry, path, receipt
 
@@ -1285,6 +1319,7 @@ def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> di
         "semanticFeatureSetContractId": authority.get("semanticFeatureSetContractId"),
         "semanticFeatureSetSha256": authority.get("semanticFeatureSetSha256"),
         "semanticFeatureFamilyIds": authority.get("semanticFeatureFamilyIds", []),
+        "modelRequestReceiptSha256": authority.get("modelRequestReceiptSha256"),
         "developmentSeasons": dev_seasons, "developmentRows": int(dev_mask.sum()),
         "validationSeason": val_season, "validationRows": int(val_mask.sum()),
         "seasonsInObject": seasons_in_object, "sealedSeasonsAccessed": [],
