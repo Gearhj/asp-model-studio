@@ -2,9 +2,10 @@
   "schemaVersion": "PHASE_7D5A2_GATE_POLICY_V1",
   "policyVersion": 1,
   "selection": "tests/sports_*_test.py",
-  "collectionDigest": "9b123cbb7f737bfe7e494fe6494ce75a7cb40090971fe8cb2e10998e03888c17",
+  "collectionDigest": "b4dde6ecc8384458c78fadc116446189a20932b0a18bfdc03166a20af462bfec",
   "expectedCollected": [
     "tests/sports_cockpit_correlation_test.py::test_correlation_computed_on_development_only",
+    "tests/sports_cockpit_correlation_test.py::test_correlation_is_fold_local_and_bounded",
     "tests/sports_cockpit_correlation_test.py::test_profile_exposes_iv_screening_threshold",
     "tests/sports_cockpit_correlation_test.py::test_strong_pairs_are_real",
     "tests/sports_cockpit_data_preview_test.py::test_preview_is_bounded",
