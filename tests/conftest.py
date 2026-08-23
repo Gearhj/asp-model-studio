@@ -23,7 +23,19 @@ def pytest_runtest_setup(item):
         G.set_current_nodeid(item.nodeid)
 
 
+MANIFEST_SCHEMA = "PHASE_7D5A2_ISOLATED_DATA_MANIFEST_V1"
+
+
+def _fail_session(session, msg: str) -> None:
+    import sys
+    sys.stderr.write(f"ISOLATED-DATA-MANIFEST FATAL: {msg}\n")
+    session.exitstatus = 1
+
+
 def pytest_sessionfinish(session, exitstatus):
+    """R7 — the external-data manifest is MANDATORY under the isolated guard: it is always written, it MERGES with
+    any prior (collection-time) violations so execution cannot overwrite them, and a write failure is FATAL (the
+    session returns nonzero) rather than silently swallowed."""
     from tests import _isolated_data_guard as G
     if not G._installed["on"]:
         return
@@ -33,10 +45,19 @@ def pytest_sessionfinish(session, exitstatus):
             from server.sports_cockpit.engine import RUNTIME_ROOT
             out = str(Path(RUNTIME_ROOT) / "isolated-data-violations.json")
         except Exception:
-            return
+            out = ""
+    if not out:
+        _fail_session(session, "no isolated-data manifest path is configured")
+        return
+    existing = []
+    try:
+        if Path(out).is_file():
+            existing = json.loads(Path(out).read_text(encoding="utf-8")).get("violations", [])
+    except Exception:
+        existing = []
+    merged = list(existing) + [v for v in G.violations() if v not in existing]
     try:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
-        Path(out).write_text(json.dumps({"schema": "PHASE_7D5A2_ISOLATED_DATA_MANIFEST_V1",
-                                         "violations": G.violations()}, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+        Path(out).write_text(json.dumps({"schema": MANIFEST_SCHEMA, "violations": merged}, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _fail_session(session, f"the mandatory external-data manifest could not be written ({out}): {exc}")

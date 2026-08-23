@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-_DATA_SUFFIXES = {".parquet", ".pq", ".csv", ".feather", ".arrow"}
+_DATA_SUFFIXES = {".parquet", ".pq", ".csv", ".feather", ".arrow", ".joblib", ".pkl", ".pickle", ".npy", ".npz"}
 _violations: list[dict] = []
 _current_nodeid = {"id": "<session>"}
 _installed = {"on": False}
@@ -24,10 +24,16 @@ def is_active() -> bool:
 
 
 def _allowed_roots() -> list[Path]:
-    from server.sports_cockpit.engine import REPO_ROOT, RUNTIME_ROOT
-    import tempfile
-    roots = [Path(RUNTIME_ROOT).resolve(), Path(tempfile.gettempdir()).resolve(),
-             Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
+    # ONLY exact, explicitly-governed roots — NEVER the blanket OS temp tree. The isolated test temp must be
+    # declared (ASP_ISOLATED_TEST_TEMP, set by the gate runner to a dir beneath the isolated runtime root).
+    from server.sports_cockpit.engine import RUNTIME_ROOT
+    roots = [Path(RUNTIME_ROOT).resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
+    test_temp = os.environ.get("ASP_ISOLATED_TEST_TEMP", "").strip()
+    if test_temp:
+        try:
+            roots.append(Path(test_temp).resolve())
+        except OSError:
+            pass
     return [r for r in roots if r]
 
 
@@ -89,64 +95,73 @@ def set_current_nodeid(nodeid: str):
     _current_nodeid["id"] = nodeid
 
 
+class GuardInstallError(RuntimeError):
+    """A REQUIRED data reader could not be wrapped — the guard is not trustworthy, so installation fails closed."""
+
+
+def _mk_first_arg(orig, rlabel):
+    def _g(path, *a, **k):
+        if isinstance(path, (str, os.PathLike)):
+            check_open(path, rlabel)
+        return orig(path, *a, **k)
+    return _g
+
+
 def install():
-    """Wrap the high-level data readers. Idempotent; only meaningful under is_active()."""
+    """Wrap the high-level data readers. Idempotent. A REQUIRED reader that cannot be wrapped is FATAL: a guard
+    that silently fails to cover a reader would let external data through, so it must not report success."""
     if _installed["on"]:
         return
     _installed["on"] = True
 
+    # ---- builtins.open + Path.read_bytes: the lowest-level data readers many others route through ------------
+    try:
+        import builtins
+        _orig_open = builtins.open
+
+        def _guarded_open(file, *a, **k):
+            if isinstance(file, (str, os.PathLike)):
+                check_open(file, "builtins.open")
+            return _orig_open(file, *a, **k)
+        builtins.open = _guarded_open
+
+        _orig_read_bytes = Path.read_bytes
+
+        def _guarded_read_bytes(self, *a, **k):
+            check_open(self, "Path.read_bytes")
+            return _orig_read_bytes(self, *a, **k)
+        Path.read_bytes = _guarded_read_bytes
+    except Exception as exc:
+        raise GuardInstallError(f"required reader builtins.open/Path.read_bytes could not be wrapped: {exc}")
+
+    # ---- pyarrow.parquet + pyarrow.dataset (REQUIRED) --------------------------------------------------------
     try:
         import pyarrow.parquet as _pq
-        _orig_read_table = _pq.read_table
-        _orig_pf = _pq.ParquetFile
+        _pq.read_table = _mk_first_arg(_pq.read_table, "pyarrow.parquet.read_table")
+        _pq.ParquetFile = _mk_first_arg(_pq.ParquetFile, "pyarrow.parquet.ParquetFile")
+        import pyarrow.dataset as _ds
+        _ds.dataset = _mk_first_arg(_ds.dataset, "pyarrow.dataset.dataset")
+    except Exception as exc:
+        raise GuardInstallError(f"required reader pyarrow.parquet/dataset could not be wrapped: {exc}")
 
-        def _guarded_read_table(source, *a, **k):
-            if isinstance(source, (str, os.PathLike)):
-                check_open(source, "pyarrow.parquet.read_table")
-            return _orig_read_table(source, *a, **k)
-
-        def _guarded_pf(source, *a, **k):
-            if isinstance(source, (str, os.PathLike)):
-                check_open(source, "pyarrow.parquet.ParquetFile")
-            return _orig_pf(source, *a, **k)
-
-        _pq.read_table = _guarded_read_table
-        _pq.ParquetFile = _guarded_pf
-    except Exception:
-        pass
-
+    # ---- pandas + joblib (REQUIRED) --------------------------------------------------------------------------
     try:
         import pandas as _pd
         for name, reader in (("read_parquet", "pandas.read_parquet"), ("read_csv", "pandas.read_csv"),
                              ("read_feather", "pandas.read_feather")):
-            _orig = getattr(_pd, name, None)
-            if _orig is None:
-                continue
+            if getattr(_pd, name, None) is not None:
+                setattr(_pd, name, _mk_first_arg(getattr(_pd, name), reader))
+        import joblib as _jl
+        _jl.load = _mk_first_arg(_jl.load, "joblib.load")
+    except Exception as exc:
+        raise GuardInstallError(f"required reader pandas/joblib could not be wrapped: {exc}")
 
-            def _mk(orig, rlabel):
-                def _g(path, *a, **k):
-                    if isinstance(path, (str, os.PathLike)):
-                        check_open(path, rlabel)
-                    return orig(path, *a, **k)
-                return _g
-            setattr(_pd, name, _mk(_orig, reader))
-    except Exception:
-        pass
-
+    # ---- polars (OPTIONAL — not installed in every environment) ----------------------------------------------
     try:
         import polars as _pl
         for name, reader in (("read_parquet", "polars.read_parquet"), ("scan_parquet", "polars.scan_parquet"),
                              ("read_csv", "polars.read_csv")):
-            _orig = getattr(_pl, name, None)
-            if _orig is None:
-                continue
-
-            def _mk(orig, rlabel):
-                def _g(path, *a, **k):
-                    if isinstance(path, (str, os.PathLike)):
-                        check_open(path, rlabel)
-                    return orig(path, *a, **k)
-                return _g
-            setattr(_pl, name, _mk(_orig, reader))
-    except Exception:
+            if getattr(_pl, name, None) is not None:
+                setattr(_pl, name, _mk_first_arg(getattr(_pl, name), reader))
+    except ImportError:
         pass

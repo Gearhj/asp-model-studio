@@ -27,6 +27,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 POLICY_SCHEMA = "PHASE_7D5A2_GATE_POLICY_V1"
+EXPECTED_POLICY_VERSION = 1
 DEFAULT_POLICY = Path(__file__).with_name("phase7d5a_gate_policy.json")
 
 # CRITICAL Phase-7D.5A/.2 ingress-safety test files: any of their nodes must be collected, not skipped, and pass.
@@ -150,7 +151,8 @@ def main() -> int:
         for n, reason in sorted(skipped.items()):
             if is_critical(n):
                 continue
-            allowed[n] = {"reason": reason, "reasonCode": reason_code(reason) or "UNCLASSIFIED"}
+            rc = reason_code(reason) or "UNCLASSIFIED"
+            allowed[n] = {"reason": reason, "reasonCode": rc, "category": rc}
         policy = {"schemaVersion": POLICY_SCHEMA, "policyVersion": 1, "selection": args.selection,
                   "collectionDigest": collection_digest(collected), "expectedCollected": collected,
                   "criticalPatterns": list(CRITICAL_FILE_PATTERNS), "allowedSkips": allowed}
@@ -165,6 +167,18 @@ def main() -> int:
     allowed = policy["allowedSkips"]
 
     fails: list[str] = []
+    # (0) immutable policy-metadata authority (R8): schema version, policy version, selection, critical authority
+    if policy.get("schemaVersion") != POLICY_SCHEMA:
+        fails.append(f"policy schemaVersion invalid: {policy.get('schemaVersion')!r}")
+    if policy.get("policyVersion") != EXPECTED_POLICY_VERSION:
+        fails.append(f"policy policyVersion invalid: {policy.get('policyVersion')!r} (expected {EXPECTED_POLICY_VERSION})")
+    if args.selection and policy.get("selection") != args.selection:
+        fails.append(f"policy selection {policy.get('selection')!r} != gate selection {args.selection!r}")
+    if not policy.get("criticalPatterns"):
+        fails.append("policy critical authority is erased/empty")
+    for n in collected:               # every analyzer-critical collected node must be covered by a policy pattern
+        if is_critical(n) and not any(pat in n for pat in policy.get("criticalPatterns", [])):
+            fails.append(f"policy critical authority does not cover collected critical node: {n}")
     # (1) exact collection parity
     missing = sorted(exp - set(collected))
     extra = sorted(set(collected) - exp)
@@ -172,6 +186,15 @@ def main() -> int:
         fails.append(f"EXPECTED NODE MISSING FROM COLLECTION: {m}")
     for x in extra:
         fails.append(f"UNEXPECTED NODE APPEARED IN COLLECTION (needs reviewed policy update): {x}")
+    # (1b) EXACT collection<->junit parity: every collected node must be executed, and vice versa
+    junit_nodes = set(junit)
+    for n in sorted(set(collected) - junit_nodes):
+        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {n}")
+    for n in sorted(junit_nodes - set(collected)):
+        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {n}")
+    # (1c) EXACT allowed-skip <-> actual-skip equality: an expected skip that unexpectedly passes fails closed
+    for n in sorted(set(allowed) - set(skipped)):
+        fails.append(f"EXPECTED ALLOWED SKIP DID NOT SKIP (passed or executed): {n}")
     # (2) collection digest
     if collection_digest(collected) != policy["collectionDigest"]:
         fails.append("COLLECTION DIGEST MISMATCH")
@@ -200,7 +223,9 @@ def main() -> int:
             if pol.get("reason") != reason:
                 fails.append(f"SKIP REASON CHANGED for {n}: policy={pol.get('reason')!r} actual={reason!r}")
             if pol.get("reasonCode") != code:
-                fails.append(f"SKIP CATEGORY CHANGED for {n}: policy={pol.get('reasonCode')} actual={code}")
+                fails.append(f"SKIP REASON-CODE CHANGED for {n}: policy={pol.get('reasonCode')} actual={code}")
+            if "category" in pol and pol.get("category") != code:
+                fails.append(f"SKIP CATEGORY (independently governed) CHANGED for {n}: policy={pol.get('category')} actual={code}")
         grouped.setdefault(code or "UNCLASSIFIED", []).append(n)
 
     manifest = {"schema": "PHASE_7D5A2_SKIP_MANIFEST_V1", "collectedCount": len(collected),

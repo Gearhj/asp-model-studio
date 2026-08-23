@@ -32,8 +32,15 @@ New-Item -ItemType Directory -Force -Path $root | Out-Null
 $env:ASP_MODEL_STUDIO_RUNTIME_ROOT = $root
 $env:ASP_REQUIRE_ISOLATED_RUNTIME = "1"
 $env:PYTHONDONTWRITEBYTECODE = "1"
-$dataManifest = Join-Path $root "isolated-data-violations.json"
-$env:ASP_ISOLATED_DATA_MANIFEST = $dataManifest
+# R7: the pytest temp lives under the isolated runtime root so the narrowed data guard (which does NOT blanket-allow
+# the OS temp tree) permits tmp_path reads; and COLLECTION and EXECUTION keep DISTINCT external-data manifests so a
+# clean execution can never overwrite a collection-time violation.
+$pytestBaseTemp = Join-Path $root "pytest-basetemp"
+New-Item -ItemType Directory -Force -Path $pytestBaseTemp | Out-Null
+$env:ASP_ISOLATED_TEST_TEMP = $pytestBaseTemp
+$collectionDataManifest = Join-Path $root "external-access-collection.json"
+$executionDataManifest = Join-Path $root "external-access-execution.json"
+if ($collectionDataManifest -eq $executionDataManifest) { throw "collection and execution data manifests must be distinct" }
 Write-Host "== Phase 7D.5A.2 isolated gate ==" -ForegroundColor Cyan
 Write-Host "isolated runtime root: $root"
 
@@ -54,10 +61,12 @@ try {
     Write-Host ("-- collecting {0} governed test files (collect-only) --" -f $Select.Count)
     # capture STDOUT only (node ids); Set-Content preserves each line verbatim (Out-File WRAPS at the console width
     # and would silently drop a long parametrized node id), and 2>$null keeps stderr warnings out of the file
-    & $py -m pytest @Select --collect-only -q -p no:cacheprovider 2>$null | Set-Content -Path $collected -Encoding utf8
+    $env:ASP_ISOLATED_DATA_MANIFEST = $collectionDataManifest
+    & $py -m pytest @Select --collect-only -q -p no:cacheprovider --basetemp $pytestBaseTemp 2>$null | Set-Content -Path $collected -Encoding utf8
 
     Write-Host "-- running the full governed selection under isolation (data guard active) --"
-    & $py -m pytest @Select -rsfE -p no:cacheprovider -q "--junitxml=$junit"
+    $env:ASP_ISOLATED_DATA_MANIFEST = $executionDataManifest
+    & $py -m pytest @Select -rsfE -p no:cacheprovider -q --basetemp $pytestBaseTemp "--junitxml=$junit"
     $pytestRc = $LASTEXITCODE
 
     Write-Host "-- collection-aware skip governance (fail-closed) --"
@@ -67,14 +76,16 @@ try {
     & $py @govArgs
     $govRc = $LASTEXITCODE
 
-    Write-Host "-- external-data access manifest --"
+    Write-Host "-- external-data access manifests (collection + execution) --"
     $dataRc = 0
-    if (Test-Path $dataManifest) {
-        $dm = Get-Content $dataManifest -Raw | ConvertFrom-Json
+    foreach ($dmPath in @($collectionDataManifest, $executionDataManifest)) {
+        if (-not (Test-Path $dmPath)) { Write-Host "  MANDATORY external-data manifest missing: $dmPath" -ForegroundColor Red; $dataRc = 1; continue }
+        $dm = Get-Content $dmPath -Raw | ConvertFrom-Json
+        if ($dm.schema -ne "PHASE_7D5A2_ISOLATED_DATA_MANIFEST_V1") { Write-Host "  INVALID external-data manifest schema: $dmPath" -ForegroundColor Red; $dataRc = 1; continue }
         $vcount = @($dm.violations).Count
-        if ($vcount -gt 0) { Write-Host "  EXTERNAL-DATA VIOLATIONS: $vcount" -ForegroundColor Red; $dataRc = 1 }
-        else { Write-Host "  zero unexpected external-data opens" }
-    } else { Write-Host "  (no data manifest written)" }
+        if ($vcount -gt 0) { Write-Host "  EXTERNAL-DATA VIOLATIONS ($dmPath): $vcount" -ForegroundColor Red; $dataRc = 1 }
+        else { Write-Host "  zero unexpected external-data opens ($([IO.Path]::GetFileName($dmPath)))" }
+    }
 
     Write-Host "-- skip manifest: $manifest --"
     if ($pytestRc -ne 0 -or ($govRc -ne 0 -and -not $WritePolicy) -or $dataRc -ne 0) { $rc = 1 } else { $rc = 0 }
