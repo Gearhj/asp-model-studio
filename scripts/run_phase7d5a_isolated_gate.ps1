@@ -52,8 +52,9 @@ try {
     $policy = Join-Path $repo "scripts/phase7d5a_gate_policy.json"
 
     Write-Host ("-- collecting {0} governed test files (collect-only) --" -f $Select.Count)
-    # capture STDOUT only (node ids); discard stderr warnings so they can never interleave with a node line
-    & $py -m pytest @Select --collect-only -q -p no:cacheprovider 2>$null | Out-File -FilePath $collected -Encoding utf8
+    # capture STDOUT only (node ids); Set-Content preserves each line verbatim (Out-File WRAPS at the console width
+    # and would silently drop a long parametrized node id), and 2>$null keeps stderr warnings out of the file
+    & $py -m pytest @Select --collect-only -q -p no:cacheprovider 2>$null | Set-Content -Path $collected -Encoding utf8
 
     Write-Host "-- running the full governed selection under isolation (data guard active) --"
     & $py -m pytest @Select -rsfE -p no:cacheprovider -q "--junitxml=$junit"
