@@ -180,7 +180,10 @@ def publish_silver(*, silver_root: Path, source_object_id: str, source_receipt_s
         "producedAdvancedFeatures": list(_ADV), "rowIdentityColumn": id_col, "valueDigestSha256": vdigest,
         "outputPhysicalSha256": physical, "outputLogicalSha256": logical, "outputSchemaSha256": schema_sha,
         "rowCount": table.num_rows, "perSeasonRows": _per_season(source_rows, season_of_row),
-        "codeIdentity": ST.TRANSFORM_ID, "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "codeIdentity": ST.TRANSFORM_ID,
+        # DETERMINISTIC issuance: the receipt/manifest carry NO wall-clock timestamp, so identical content is
+        # content-addressed to the same immutable object and converges idempotently across processes; the receipt
+        # SHA is the deterministic issuance authority.
     }
     receipt_sha = sha256_bytes(canonical_json_bytes(receipt_body))
     receipt = {**receipt_body, "receiptSha256": receipt_sha}
@@ -211,8 +214,12 @@ def publish_silver(*, silver_root: Path, source_object_id: str, source_receipt_s
         (staging / "feature-set-contract.json").write_bytes(canonical_json_bytes(fsc))
         (staging / "manifest.json").write_bytes(canonical_json_bytes(manifest))
         if final.exists():
-            raise SilverPublishError("Silver content-address conflict (published during staging)")
-        os.replace(staging, final)
+            existing = final / "manifest.json"
+            if not (existing.is_file() and existing.read_bytes() == canonical_json_bytes(manifest)):
+                raise SilverPublishError("Silver content-address conflict (published during staging)")
+            # idempotent: another process published byte-identical content concurrently -> reuse it
+        else:
+            os.replace(staging, final)
     finally:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
