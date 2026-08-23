@@ -267,6 +267,7 @@ def feature_family_contract(family_id: str, ordered_feature_ids: list[str],
         raise LeakageError(f"feature family {family_id!r} is empty")
     kt_policies = set()
     ordered_ids, ordered_shas = [], []
+    member_receipt_shas: set[str] = set()
     for fid in ordered_feature_ids:
         c = contracts[fid]
         validate_feature_semantic_contract(c)
@@ -275,12 +276,13 @@ def feature_family_contract(family_id: str, ordered_feature_ids: list[str],
             raise LeakageError(f"feature {fid!r} does not belong to family {family_id!r}")
         kt_policies.add(p["knowledgeTimeClass"])
         ordered_ids.append(c["id"]); ordered_shas.append(c["sha256"])
+        member_receipt_shas.update(p.get("sourceReceiptShas", []))  # lineage DERIVED from verified members
     if len(kt_policies) != 1:
         raise LeakageError(f"family {family_id!r} mixes knowledge-time policies: {sorted(kt_policies)}")
     payload = {
         "contractVersion": FAMILY_CONTRACT_VERSION, "familyId": family_id, "familyName": family_id,
         "orderedFeatureIds": ordered_ids, "orderedFeatureContractShas": ordered_shas,
-        "sourceReceiptShas": list(_SOURCE_RECEIPT_SHAS), "sharedKnowledgeTimeClass": next(iter(kt_policies)),
+        "sourceReceiptShas": sorted(member_receipt_shas), "sharedKnowledgeTimeClass": next(iter(kt_policies)),
         "derivationVersion": "MLB_GEN3_BASE_FEATURE_CONTRACT_V1", "featureCount": len(ordered_ids),
     }
     digest = sha256_bytes(canonical_json_bytes(payload))

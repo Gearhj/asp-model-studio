@@ -159,7 +159,20 @@ def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]
     child, atomically and reparse-safe, and register it under an interprocess lock. Returns the registry entry."""
     if not rows:
         raise SourceAuthorityError("cannot publish an empty governed source")
-    seasons = sorted({int(season_of_row(r)) for r in rows})
+    # SERVER-OWNED season derivation: the season is the calendar year of game_date; a caller callback may only
+    # mirror it. A disagreeing callback (or a stored season field) is a false derivation and fails closed.
+    for r in rows:
+        if "game_date" not in r or r["game_date"] is None:
+            raise SourceAuthorityError("source row missing game_date; season cannot be governed-derived")
+        derived = ST.derive_season(r["game_date"])
+        if season_of_row is not None:
+            claimed = season_of_row(r)
+            if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
+                raise SourceAuthorityError(
+                    f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
+        if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
+            raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
+    seasons = sorted({ST.derive_season(r["game_date"]) for r in rows})
     if any(s in ST.SEALED_SEASONS for s in seasons):
         raise SourceAuthorityError(f"SEAL VIOLATION: sealed/prospective season in source seasons {seasons}")
     table = _canon_source_table(rows).replace_schema_metadata(None).combine_chunks()
@@ -255,30 +268,55 @@ def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple
     final = contained_no_reparse(objects_root / logical, [objects_root])
     for name in ("source.parquet", "source-receipt.json", "source-publication-manifest.json"):
         contained_no_reparse(final / name, [objects_root])
-    # manifest self-address + registry cross-check
+
+    def _fail(msg):
+        raise SourceAuthorityError(msg)
+
     manifest = json.loads((final / "source-publication-manifest.json").read_bytes().decode("utf-8"))
-    if sha256_bytes(canonical_json_bytes({k: v for k, v in manifest.items() if k != "manifestSha256"})) != entry["manifestSha256"]:
-        raise SourceAuthorityError("source manifest does not match its registered content address (tampered)")
-    # receipt self-address + cross-check
     receipt = json.loads((final / "source-receipt.json").read_bytes().decode("utf-8"))
-    if sha256_bytes(canonical_json_bytes({k: v for k, v in receipt.items() if k != "receiptSha256"})) != receipt.get("receiptSha256") \
-            or receipt["receiptSha256"] != entry["receiptSha256"] or receipt["receiptSha256"] != manifest["receiptSha256"]:
-        raise SourceAuthorityError("source receipt does not verify against its address / manifest / registry")
-    # object bytes rehash (physical) + child sha cross-check from the manifest
     obj_bytes = (final / "source.parquet").read_bytes()
-    if sha256_bytes(obj_bytes) != receipt["physicalSha256"] or receipt["physicalSha256"] != manifest["physicalSha256"]:
-        raise SourceAuthorityError("source object bytes differ from the receipt/manifest physical sha (tampered)")
-    if sha256_bytes(obj_bytes) != manifest["children"]["source.parquet"]["sha256"]:
-        raise SourceAuthorityError("source object child sha mismatch in the publication manifest (tampered)")
+
+    # ---- reconstruct EVERY identity from the OBJECT bytes (never trust an embedded/copied field) --------------
+    physical = sha256_bytes(obj_bytes)
     table = pq.read_table(pa.BufferReader(obj_bytes))
-    if _schema_sha_of(table) != receipt["schemaSha256"]:
-        raise SourceAuthorityError("source schema sha mismatch (tampered)")
+    schema_sha = _schema_sha_of(table)
+    row_count = table.num_rows
+    recomputed_logical = sha256_bytes(canonical_json_bytes(
+        {"schemaVersion": "MLB_SILVER_SOURCE_OBJECT_V1", "schemaSha256": schema_sha, "rows": row_count,
+         "physicalSha256": physical}))
     rows = table.to_pylist()
+    derived_seasons = sorted({ST.derive_season(r["game_date"]) for r in rows}) if rows else []
+
+    # ---- self-address of each sidecar must equal recomputed content address AND the registry -----------------
+    manifest_self = sha256_bytes(canonical_json_bytes({k: v for k, v in manifest.items() if k != "manifestSha256"}))
+    if manifest.get("manifestSha256") != manifest_self or manifest_self != entry["manifestSha256"]:
+        _fail("source publication manifest self-address does not verify (tampered/readdressed)")
+    receipt_self = sha256_bytes(canonical_json_bytes({k: v for k, v in receipt.items() if k != "receiptSha256"}))
+    if receipt.get("receiptSha256") != receipt_self or receipt_self != entry["receiptSha256"] \
+            or receipt_self != manifest.get("receiptSha256"):
+        _fail("source receipt self-address does not verify against its address / manifest / registry")
+
+    # ---- reconstructed identities must agree across object, receipt, manifest, registry, and the DIR address --
+    if not (physical == receipt.get("physicalSha256") == manifest.get("physicalSha256")
+            == manifest.get("children", {}).get("source.parquet", {}).get("sha256")):
+        _fail("reconstructed physical sha disagrees with the receipt/manifest/child inventory (tampered)")
+    if not (schema_sha == receipt.get("schemaSha256") == manifest.get("schemaSha256")):
+        _fail("reconstructed schema sha disagrees with the receipt/manifest (tampered)")
+    if not (row_count == receipt.get("rowCount") == manifest.get("rowCount")):
+        _fail("reconstructed row count disagrees with the receipt/manifest (tampered)")
+    if not (recomputed_logical == receipt.get("logicalSha256") == manifest.get("logicalSha256") == logical):
+        _fail("reconstructed logical identity disagrees with the receipt/manifest/registry/directory (tampered)")
+    if sorted(int(s) for s in receipt.get("seasons", [])) != derived_seasons \
+            or sorted(int(s) for s in manifest.get("seasons", [])) != derived_seasons:
+        _fail("reconstructed season set (derived from object game_date) disagrees with the receipt/manifest")
+    if not (receipt.get("datasetVersionId") == manifest.get("datasetVersionId") == dataset_version_id):
+        _fail("source dataset identity disagrees across the request / receipt / manifest (tampered)")
+
     handle = VerifiedSourceHandle(dataset_version_id=dataset_version_id, object_path=str(final),
-                                  physical_sha256=receipt["physicalSha256"], logical_sha256=logical,
-                                  schema_sha256=receipt["schemaSha256"], receipt_sha256=receipt["receiptSha256"],
-                                  manifest_sha256=manifest["manifestSha256"], seasons=tuple(receipt["seasons"]),
-                                  row_count=table.num_rows, _token=_ISSUE_TOKEN)
+                                  physical_sha256=physical, logical_sha256=recomputed_logical,
+                                  schema_sha256=schema_sha, receipt_sha256=receipt_self,
+                                  manifest_sha256=manifest_self, seasons=tuple(derived_seasons),
+                                  row_count=row_count, _token=_ISSUE_TOKEN)
     return handle, rows
 
 
@@ -308,19 +346,22 @@ def transform_code_receipt(*, params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 # =========================================================================== semantic authority (no V1 downgrade)
-def silver_semantic_contracts(*, source_object_id: str, source_receipt_sha: str) -> dict[str, dict[str, Any]]:
+def silver_semantic_contracts(*, source_object_id: str, source_receipt_sha: str, transform_code_sha: str,
+                              has_game_sequence: bool = False) -> dict[str, dict[str, Any]]:
+    # the derivation identity binds the VERIFIED transform-code receipt SHA (not a static transform name); when the
+    # chronology actually used game_sequence, it is part of the source + order authority.
+    order_cols = ["game_date"] + (["game_sequence"] if has_game_sequence else []) + ["game_id", "at_bat_number", "plate_appearance_id"]
+    prior_source_cols = [ST.BATTER_KEY] + order_cols
     common = dict(family_id=SILVER_FAMILY_ID, knowledge_time_class=FS.HISTORICAL_AS_OF_CUTOFF,
                   leakage_classification="SAFE_HISTORICAL_AS_OF",
                   as_of_rule=("aggregate over plate appearances for the SAME batter whose governed chronological key "
                               "is STRICTLY EARLIER than the current PA; the current PA never counts itself"),
                   source_object_ids=[source_object_id], source_receipt_shas=[source_receipt_sha],
-                  derivation_code_digest=ST.TRANSFORM_ID, derivation_version=ST.TRANSFORM_ID,
+                  derivation_code_digest=transform_code_sha, derivation_version=ST.TRANSFORM_ID,
                   window_rule="strictly-earlier same-batter PA history", allowed_seasons=[2021, 2022, 2023, 2024])
     prior = FS.build_semantic_contract(
         feature_id=PRIOR_PA_COUNT, display_name="Prior PA count (strictly earlier, same batter)",
-        source_columns=[ST.BATTER_KEY, "game_date", "game_id", "at_bat_number", "plate_appearance_id"],
-        partition_columns=[ST.BATTER_KEY],
-        order_columns=["game_date", "game_id", "at_bat_number", "plate_appearance_id"],
+        source_columns=prior_source_cols, partition_columns=[ST.BATTER_KEY], order_columns=order_cols,
         derivation_type="POINT_IN_TIME_COUNT_AGGREGATION",
         canonical_derivation="count of strictly-earlier plate appearances for the same batter", **common)
     log1p = FS.build_semantic_contract(
@@ -371,9 +412,20 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     handle, source_rows = resolve_verified_source(source_root, source_dataset_version_id)
     if not source_rows:
         raise SilverPublishError("verified source is empty")
-    seasons = sorted({int(season_of_row(r)) for r in source_rows})
-    if 2025 in seasons or 2026 in seasons:
-        raise SilverPublishError("SEAL VIOLATION: sealed season present in a Silver source")
+    # ---- Repair 1: SEMANTIC input allowlist — only the governed chronology + declared base features (+ the
+    # season/game_sequence keys) are authorized source columns; any other column (post-event score, injected, or an
+    # innocuously-named unapproved signal) fails closed. Authorization is by declaration, never by name pattern.
+    allowed_columns = set(ST.REQUIRED_CHRONOLOGY) | {ST.GAME_SEQUENCE, "season"} | set(base_feature_ids)
+    for i, r in enumerate(source_rows):
+        extra = set(r.keys()) - allowed_columns
+        if extra:
+            raise SilverPublishError(
+                f"row {i}: unauthorized source column(s) {sorted(extra)} — not in the governed input allowlist")
+
+    # ---- Repair 1: seasons are SERVER-DERIVED from game_date (never the caller callback), then authorized.
+    seasons = sorted({ST.derive_season(r["game_date"]) for r in source_rows})
+    if any(s in ST.SEALED_SEASONS for s in seasons):
+        raise SilverPublishError(f"SEAL VIOLATION: sealed season present in a Silver source: {seasons}")
 
     # ---- Repair 1: strict typed point-in-time transform on the AUTHORIZED source rows (target/prohibited rejected).
     recomputed = ST.compute_prior_pa(source_rows, authorized_seasons=authorized_seasons, season_of_row=season_of_row)
@@ -392,8 +444,28 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     logical = sha256_bytes(canonical_json_bytes({"schemaVersion": "MLB_SILVER_OBJECT_V1", "schemaSha256": schema_sha,
                                                  "rows": table.num_rows, "valueDigest": vdigest}))
 
-    # ---- semantic / family / OUTPUT-bound feature-set V2 (binds the output logical identity, not the source)
-    contracts = silver_semantic_contracts(source_object_id=handle.dataset_version_id, source_receipt_sha=handle.receipt_sha256)
+    temporal, population, ktime = GC.temporal_contract(), GC.population_contract(), GC.knowledge_time_contract()
+    # ---- material temporal + generation + base-source authority digests bound into the transform-code receipt
+    generation_authority = sha256_bytes(canonical_json_bytes(
+        {"generation": generation, "temporalContractSha256": temporal["sha256"],
+         "populationContractSha256": population["sha256"], "knowledgeTimeContractSha256": ktime["sha256"]}))
+    base_feature_source_authority = sha256_bytes(canonical_json_bytes(
+        {"sourceReceiptSha256": handle.receipt_sha256, "sourceLogicalSha256": handle.logical_sha256,
+         "baseFeatureIds": list(base_feature_ids)}))
+    tcr_params = {
+        "transformId": ST.TRANSFORM_ID, "idColumn": id_col, "generation": generation,
+        "authorizedSeasons": list(ST.DEFAULT_AUTHORIZED_SEASONS),
+        "seasonDerivationSha256": ST.season_derivation_digest(),
+        "generationAuthoritySha256": generation_authority,
+        "baseFeatureSourceAuthoritySha256": base_feature_source_authority,
+    }
+    tcr = transform_code_receipt(params=tcr_params)
+
+    # ---- semantic / family / OUTPUT-bound feature-set V2 (binds the OUTPUT logical + the VERIFIED transform-code sha)
+    has_game_sequence = all(ST.GAME_SEQUENCE in r for r in source_rows)
+    contracts = silver_semantic_contracts(source_object_id=handle.dataset_version_id,
+                                          source_receipt_sha=handle.receipt_sha256, transform_code_sha=tcr["sha256"],
+                                          has_game_sequence=has_game_sequence)
     for c in contracts.values():
         FS.validate_feature_semantic_contract(c)
     family = silver_family_contract(contracts)
@@ -402,9 +474,6 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
                                 base_feature_ids=base_feature_ids, contracts=full_contracts)
     if not contracts or not family or not fsc:
         raise SilverPublishError("refusing to publish Silver with empty semantic/family/set children")
-
-    tcr = transform_code_receipt(params={"transformId": ST.TRANSFORM_ID, "idColumn": id_col, "generation": generation})
-    temporal, population, ktime = GC.temporal_contract(), GC.population_contract(), GC.knowledge_time_contract()
 
     receipt_body = {
         "receiptContract": SILVER_TRANSFORM_RECEIPT, "receiptVersion": "1.0.0", "transformId": ST.TRANSFORM_ID,
@@ -421,7 +490,10 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
         "orderedOutputFeatures": list(fsc["payload"]["exactFinalOrderedFeatureIds"]),
         "producedAdvancedFeatures": list(_ADV), "rowIdentityColumn": id_col, "valueDigestSha256": vdigest,
         "outputPhysicalSha256": physical, "outputLogicalSha256": logical, "outputSchemaSha256": schema_sha,
-        "rowCount": table.num_rows, "perSeasonRows": _per_season(source_rows, season_of_row),
+        "rowCount": table.num_rows, "perSeasonRows": {str(s): sum(1 for r in source_rows if ST.derive_season(r["game_date"]) == s) for s in seasons},
+        # the transformation receipt MIRRORS the material temporal/generation authority bound in the code receipt
+        "authorizedSeasons": list(ST.DEFAULT_AUTHORIZED_SEASONS), "seasonDerivationSha256": ST.season_derivation_digest(),
+        "generationAuthoritySha256": generation_authority, "baseFeatureSourceAuthoritySha256": base_feature_source_authority,
     }
     receipt_sha = sha256_bytes(canonical_json_bytes(receipt_body))
     receipt = {**receipt_body, "receiptSha256": receipt_sha}

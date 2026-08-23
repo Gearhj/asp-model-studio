@@ -48,11 +48,32 @@ PROHIBITED_COLUMNS = frozenset({
     TARGET_COLUMN, "outcome_class", "outcome_code", "label", "target", "y", "result", "events", "description",
     "post_outcome", "next_pa", "future_pa", "delta_run_expectancy", "woba_value", "babip_value", "launch_speed",
     "launch_angle", "hit_distance", "estimated_woba",
+    # post-event score columns (a plate appearance's own outcome moves these) — never a pre-outcome input
+    "post_home_score", "post_visiting_score", "home_score", "visiting_score", "runs_scored",
+    "home_score_before", "home_score_after", "visiting_score_before", "visiting_score_after",
+    "visiting_score_before_", "batting_score_after", "fielding_score_after",
 })
 
-# Default authorized source seasons (the Gen-3 research frame is 2021-2024; sealed 2025 / prospective 2026 excluded).
+# The SERVER owns the authorized source seasons AND the season-derivation rule. A caller may not extend the authorized
+# set (e.g. inject 2019) nor decide how a row's season is derived: the governed rule is "season = calendar year of the
+# canonicalized game_date". Any caller-supplied season that disagrees with the derived season is a false derivation.
 DEFAULT_AUTHORIZED_SEASONS = (2021, 2022, 2023, 2024)
 SEALED_SEASONS = (2025, 2026)
+SEASON_DERIVATION_RULE = "MLB_SILVER_SEASON_FROM_GAME_DATE_YEAR_V1"
+
+
+def derive_season(game_date: Any, row_index: int = -1) -> int:
+    """The single GOVERNED, server-owned season derivation: the calendar year of the canonicalized game_date."""
+    iso = _canon_date(game_date, row_index)
+    return int(iso[:4])
+
+
+def season_derivation_digest() -> str:
+    """Content address of the season-derivation authority (binds the rule + the default authorized seasons)."""
+    from ..sports_datasets.consumer import canonical_json_bytes, sha256_bytes
+    return sha256_bytes(canonical_json_bytes(
+        {"rule": SEASON_DERIVATION_RULE, "authorizedSeasons": list(DEFAULT_AUTHORIZED_SEASONS),
+         "sealedSeasons": list(SEALED_SEASONS)}))
 
 PRIOR_PA_COUNT = "prior_pa_count"
 LOG1P_PRIOR_PA_COUNT = "log1p_prior_pa_count"
@@ -136,7 +157,13 @@ def compute_prior_pa(rows: Sequence[Mapping[str, Any]], *,
     game_sequence; or any row's season is outside the authorized set (2019 / sealed 2025-2026 rejected)."""
     if not rows:
         return []
-    authorized = tuple(authorized_seasons) if authorized_seasons is not None else DEFAULT_AUTHORIZED_SEASONS
+    # The authorized set is SERVER-OWNED: a caller-supplied authorized_seasons can never extend it. If the caller
+    # names anything outside the governed default, that is an authorization-injection attempt and fails closed.
+    if authorized_seasons is not None and not set(int(s) for s in authorized_seasons) <= set(DEFAULT_AUTHORIZED_SEASONS):
+        raise SilverTransformError(
+            f"caller may not authorize seasons outside the server-owned default {DEFAULT_AUTHORIZED_SEASONS}: "
+            f"{sorted(set(int(s) for s in authorized_seasons))}")
+    authorized = DEFAULT_AUTHORIZED_SEASONS
     has_sequence = all(GAME_SEQUENCE in r for r in rows)
 
     # 1) EVERY row: required columns present, no prohibited column, season authorized.
@@ -151,15 +178,27 @@ def compute_prior_pa(rows: Sequence[Mapping[str, Any]], *,
                 raise SilverTransformError(f"row {i}: missing required chronology column '{c}'")
             if row[c] is None:
                 raise SilverTransformError(f"row {i}: required chronology column '{c}' is null")
+        # SERVER-OWNED season authority: derive the season from game_date; a caller-supplied season (row field or
+        # callback) may only mirror it — never decide or relabel it.
+        derived = derive_season(row[GAME_DATE], i)
         if season_of_row is not None:
-            s = season_of_row(row)
-            if isinstance(s, bool) or not isinstance(s, int):
-                raise SilverTransformError(f"row {i}: season must be a strict integer, got {s!r}")
-            if s in SEALED_SEASONS:
-                raise SilverTransformError(f"row {i}: SEAL VIOLATION — sealed/prospective season {s} may not be transformed")
-            if s not in authorized:
+            claimed = season_of_row(row)
+            if isinstance(claimed, bool) or not isinstance(claimed, int):
+                raise SilverTransformError(f"row {i}: season must be a strict integer, got {claimed!r}")
+            if claimed != derived:
                 raise SilverTransformError(
-                    f"row {i}: season {s} is not in the authorized source seasons {authorized} (e.g. 2019 is not authorized)")
+                    f"row {i}: false season derivation — caller season {claimed} disagrees with the server-derived "
+                    f"season {derived} (from game_date {row[GAME_DATE]!r}); the caller may not decide a row's season")
+        if "season" in row and isinstance(row["season"], int) and not isinstance(row["season"], bool) \
+                and int(row["season"]) != derived:
+            raise SilverTransformError(
+                f"row {i}: stored season {row['season']} disagrees with the server-derived season {derived}")
+        if derived in SEALED_SEASONS:
+            raise SilverTransformError(f"row {i}: SEAL VIOLATION — sealed/prospective season {derived} may not be transformed")
+        if derived not in authorized:
+            raise SilverTransformError(
+                f"row {i}: season {derived} is not in the server-authorized source seasons {authorized} "
+                f"(a caller cannot authorize e.g. 2019)")
 
     # 2) typed keys + GLOBAL plate_appearance_id uniqueness + per-batter same-key collision detection.
     tagged: list[tuple[str, tuple, int]] = []
