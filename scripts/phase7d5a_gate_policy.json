@@ -1,0 +1,1602 @@
+{
+  "schemaVersion": "PHASE_7D5A2_GATE_POLICY_V1",
+  "policyVersion": 1,
+  "selection": "tests/sports_*_test.py",
+  "collectionDigest": "9b123cbb7f737bfe7e494fe6494ce75a7cb40090971fe8cb2e10998e03888c17",
+  "expectedCollected": [
+    "tests/sports_cockpit_correlation_test.py::test_correlation_computed_on_development_only",
+    "tests/sports_cockpit_correlation_test.py::test_profile_exposes_iv_screening_threshold",
+    "tests/sports_cockpit_correlation_test.py::test_strong_pairs_are_real",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_is_bounded",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_leaks_no_filesystem_paths",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_rows_are_real_registered_records",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_schema_roles",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_season_filter",
+    "tests/sports_cockpit_data_preview_test.py::test_preview_target_distribution_and_splits",
+    "tests/sports_cockpit_dto_contract_test.py::test_cockpit_steps2_uses_no_legacy_field_paths",
+    "tests/sports_cockpit_dto_contract_test.py::test_misnested_field_fails",
+    "tests/sports_cockpit_dto_contract_test.py::test_missing_critical_field_fails",
+    "tests/sports_cockpit_dto_contract_test.py::test_prohibited_extra_in_nested_metrics_fails",
+    "tests/sports_cockpit_dto_contract_test.py::test_renamed_field_fails",
+    "tests/sports_cockpit_dto_contract_test.py::test_route_declares_strict_v2_response_model[/cockpit/gen3/active-candidate/{project_id}-ActiveCandidateResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_route_declares_strict_v2_response_model[/cockpit/gen3/calibration/{project_id}-ModelCalibrationResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_route_declares_strict_v2_response_model[/cockpit/gen3/evaluation/{project_id}-ModelEvaluationResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_route_declares_strict_v2_response_model[/cockpit/gen3/feature-family-ablation-FeatureFamilyComparisonResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_route_declares_strict_v2_response_model[/cockpit/gen3/registry-evidence/{project_id}-ModelRegistryEvidenceResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_shared_fixture_validates_and_key_set_matches[activeCandidate-ActiveCandidateResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_shared_fixture_validates_and_key_set_matches[calibration-ModelCalibrationResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_shared_fixture_validates_and_key_set_matches[comparison-FeatureFamilyComparisonResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_shared_fixture_validates_and_key_set_matches[evaluation-ModelEvaluationResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_shared_fixture_validates_and_key_set_matches[registryEvidence-ModelRegistryEvidenceResponseV2]",
+    "tests/sports_cockpit_dto_contract_test.py::test_unexpected_field_fails",
+    "tests/sports_cockpit_gen3_acl_test.py::test_binding_change_invalidates_active_candidate",
+    "tests/sports_cockpit_gen3_acl_test.py::test_cross_project_state_is_isolated",
+    "tests/sports_cockpit_gen3_acl_test.py::test_owner_is_authorized_and_non_owner_is_forbidden",
+    "tests/sports_cockpit_gen3_acl_test.py::test_traversal_shaped_project_ids_cannot_escape_the_fixed_root",
+    "tests/sports_cockpit_gen3_acl_test.py::test_unknown_and_blank_projects_are_rejected",
+    "tests/sports_cockpit_gen3_authority_test.py::test_2025_is_never_loaded_scored_or_returned",
+    "tests/sports_cockpit_gen3_authority_test.py::test_binding_rejects_client_forged_content_sha",
+    "tests/sports_cockpit_gen3_authority_test.py::test_candidate_activation_and_downstream_resolution",
+    "tests/sports_cockpit_gen3_authority_test.py::test_catalog_registers_gen2_gen3_and_restricted_sealed",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[datasetContentSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[featureContractSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[knowledgeTimeContractSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[preprocessingContractSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[targetContractSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_execute_fails_closed_on_any_forged_authority_sha[temporalContractSha256]",
+    "tests/sports_cockpit_gen3_authority_test.py::test_gen2_selection_executes_gen2_and_gen3_selection_executes_gen3",
+    "tests/sports_cockpit_gen3_authority_test.py::test_opaque_ids_are_validated",
+    "tests/sports_cockpit_gen3_authority_test.py::test_result_authority_echoes_run_authority_with_full_receipt",
+    "tests/sports_cockpit_gen3_authority_test.py::test_retries_get_unique_run_ids_with_a_constant_config_fingerprint",
+    "tests/sports_cockpit_gen3_authority_test.py::test_runs_are_project_scoped",
+    "tests/sports_cockpit_gen3_authority_test.py::test_sealed_object_is_not_bindable",
+    "tests/sports_cockpit_gen3_authority_test.py::test_superseded_binding_cannot_issue_or_execute",
+    "tests/sports_cockpit_gen3_flow_test.py::test_1_49223_root_cause_is_model_family_not_config",
+    "tests/sports_cockpit_gen3_flow_test.py::test_active_binding_restores_and_latest_server_binding_wins",
+    "tests/sports_cockpit_gen3_flow_test.py::test_catalog_lists_gen2_gen3_and_restricted_sealed",
+    "tests/sports_cockpit_gen3_flow_test.py::test_flow_error_states_fail_closed",
+    "tests/sports_cockpit_gen3_flow_test.py::test_server_authorized_a2_logistic_reproduces_governed_a2_within_tolerance",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_binding_a_sealed_object_is_refused_and_never_opens_it",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_binding_population_derives_without_opening_any_object",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_catalog_opens_no_object",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_legacy_engine_frame_is_research_only",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_ordinary_flow_never_opens_a_sealed_object[GEN2]",
+    "tests/sports_cockpit_gen3_sealed_access_test.py::test_ordinary_flow_never_opens_a_sealed_object[GEN3]",
+    "tests/sports_cockpit_missing_test.py::test_before_after_histograms_share_bins_and_add_imputed_mass",
+    "tests/sports_cockpit_missing_test.py::test_by_season_is_descriptive_and_not_used_for_fitting",
+    "tests/sports_cockpit_missing_test.py::test_categorical_features_have_no_missing_or_histogram",
+    "tests/sports_cockpit_missing_test.py::test_fill_statistics_are_fold_local_development_only",
+    "tests/sports_cockpit_missing_test.py::test_indicator_applies_only_to_continuous_with_missing",
+    "tests/sports_cockpit_missing_test.py::test_method_change_changes_fill_value",
+    "tests/sports_cockpit_missing_test.py::test_missing_counts_are_default_sorted_descending",
+    "tests/sports_cockpit_missing_test.py::test_most_frequent_is_development_mode",
+    "tests/sports_cockpit_missing_test.py::test_none_resolves_to_median_fallback",
+    "tests/sports_cockpit_missing_test.py::test_payload_is_non_empty_and_development_scoped",
+    "tests/sports_cockpit_missing_test.py::test_per_feature_override_uses_existing_backend",
+    "tests/sports_cockpit_outliers_test.py::test_analyzed_features_are_continuous_only",
+    "tests/sports_cockpit_outliers_test.py::test_before_after_histograms_share_bins",
+    "tests/sports_cockpit_outliers_test.py::test_default_sort_is_outlier_count_descending",
+    "tests/sports_cockpit_outliers_test.py::test_iqr_multiplier_changes_the_result",
+    "tests/sports_cockpit_outliers_test.py::test_method_change_changes_counts_and_thresholds",
+    "tests/sports_cockpit_outliers_test.py::test_none_leaves_distribution_unchanged",
+    "tests/sports_cockpit_outliers_test.py::test_per_feature_override_uses_existing_backend",
+    "tests/sports_cockpit_outliers_test.py::test_thresholds_are_fold_local_development_2023_only",
+    "tests/sports_cockpit_outliers_test.py::test_winsorize_exposes_actual_percentile_bounds",
+    "tests/sports_cockpit_phase6b_test.py::test_ablation_produces_verdict",
+    "tests/sports_cockpit_phase6b_test.py::test_calendar_is_temporally_safe_month_range",
+    "tests/sports_cockpit_phase6b_test.py::test_eligibility_gate",
+    "tests/sports_cockpit_phase6b_test.py::test_engineered_feature_flows_through_experiment",
+    "tests/sports_cockpit_phase6b_test.py::test_feature_availability_classification",
+    "tests/sports_cockpit_phase6b_test.py::test_fold_reproduces_model_bitforbit",
+    "tests/sports_cockpit_phase6b_test.py::test_fold_reproduces_subset_with_policies",
+    "tests/sports_cockpit_phase6b_test.py::test_full_lineup_rotation_simulation_runs",
+    "tests/sports_cockpit_phase6b_test.py::test_full_simulation_rejects_ineligible_model",
+    "tests/sports_cockpit_phase6b_test.py::test_game_preps_resolve_participants",
+    "tests/sports_cockpit_phase6b_test.py::test_materialize_all_kinds",
+    "tests/sports_cockpit_phase6b_test.py::test_profile_engineered_returns_iv_mi_and_sim_availability",
+    "tests/sports_cockpit_phase6b_test.py::test_segmentation_grid_dev_boundaries_and_pca",
+    "tests/sports_cockpit_phase6b_test.py::test_segmentation_kmeans_diagnostics",
+    "tests/sports_cockpit_phase6b_test.py::test_segmentation_never_touches_pa_model",
+    "tests/sports_cockpit_phase6f_test.py::test_2021_2022_are_not_in_the_modeling_matrix",
+    "tests/sports_cockpit_phase6f_test.py::test_dbscan_produces_clusters_and_labels_noise[BATTERS]",
+    "tests/sports_cockpit_phase6f_test.py::test_dbscan_produces_clusters_and_labels_noise[PITCHERS]",
+    "tests/sports_cockpit_phase6f_test.py::test_grid_guidance_ranks_real_pairs[BATTERS]",
+    "tests/sports_cockpit_phase6f_test.py::test_grid_guidance_ranks_real_pairs[PITCHERS]",
+    "tests/sports_cockpit_phase6f_test.py::test_kmeans_exposes_size_balance_decision_fields",
+    "tests/sports_cockpit_phase6f_test.py::test_lab_legacy_training_is_retired",
+    "tests/sports_cockpit_phase6f_test.py::test_preprocessor_fits_on_development_only_frozen_protected",
+    "tests/sports_cockpit_phase6f_test.py::test_temporal_preview_date_holdout_splits_development_by_date",
+    "tests/sports_cockpit_phase6f_test.py::test_temporal_preview_random_is_flagged_research_only",
+    "tests/sports_cockpit_phase6f_test.py::test_temporal_preview_rolling_never_tunes_on_frozen",
+    "tests/sports_cockpit_phase6f_test.py::test_temporal_preview_season_holdout_real_rows",
+    "tests/sports_cockpit_phase6g1_test.py::test_cluster_profiles_have_data_derived_labels",
+    "tests/sports_cockpit_phase6g1_test.py::test_dbscan_has_a_recommendation_state",
+    "tests/sports_cockpit_phase6g1_test.py::test_grid_quality_score_is_transparent",
+    "tests/sports_cockpit_phase6g1_test.py::test_kmeans_exploratory_score_is_transparent_composite",
+    "tests/sports_cockpit_phase6g1_test.py::test_profile_exposes_per_class_ovr_iv",
+    "tests/sports_cockpit_phase6g1_test.py::test_source_evidence_carries_real_games_batters_pitchers_including_prior_years",
+    "tests/sports_cockpit_phase6g_test.py::test_available_families_are_honest",
+    "tests/sports_cockpit_phase6g_test.py::test_model_lab_legacy_training_is_retired_and_champion_reference_unchanged",
+    "tests/sports_cockpit_phase6g_test.py::test_target_analysis_excludes_prior_only_and_sealed_seasons",
+    "tests/sports_cockpit_phase6g_test.py::test_target_analysis_reports_classes_and_per_season_distribution",
+    "tests/sports_cockpit_phase6h_test.py::test_all_eight_model_families_registered_and_boosters_installed",
+    "tests/sports_cockpit_phase6h_test.py::test_date_holdout_partitions_only_development_2023",
+    "tests/sports_cockpit_phase6h_test.py::test_date_holdout_rejects_invalid_or_out_of_window_dates",
+    "tests/sports_cockpit_phase6h_test.py::test_dbscan_noise_is_cluster_minus_one_and_has_recommendation",
+    "tests/sports_cockpit_phase6h_test.py::test_distinct_configs_legacy_execution_is_retired",
+    "tests/sports_cockpit_phase6h_test.py::test_every_engineered_kind_materializes_and_profiles",
+    "tests/sports_cockpit_phase6h_test.py::test_feature_builder_rejects_invalid_specs",
+    "tests/sports_cockpit_phase6h_test.py::test_frozen_2025_is_never_a_training_fold_in_any_policy",
+    "tests/sports_cockpit_phase6h_test.py::test_grid_quality_score_matches_formula_and_is_ranked",
+    "tests/sports_cockpit_phase6h_test.py::test_kmeans_recommendedK_equals_documented_argmax_score",
+    "tests/sports_cockpit_phase6h_test.py::test_legacy_ablation_execution_is_retired",
+    "tests/sports_cockpit_phase6h_test.py::test_legacy_autopilot_is_retired",
+    "tests/sports_cockpit_phase6h_test.py::test_legacy_fit_and_evaluate_is_retired",
+    "tests/sports_cockpit_phase6h_test.py::test_preprocessor_is_fold_local_and_frozen_transform_never_mutates_state",
+    "tests/sports_cockpit_phase6h_test.py::test_target_and_identifier_columns_are_never_predictors",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_binding_cas_conflict_rejected",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_concurrent_migrations_do_not_diverge",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_duplicate_dataset_ids_fail_closed",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_duplicate_live_content_addresses_fail_closed",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_estimator_reload_fails_closed_on_byte_substitution",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_estimator_reload_returns_recorded_class",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_execute_refuses_when_project_lock_is_held",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_accepts_valid_and_does_not_truncate",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper0]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper10]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper11]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper1]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper2]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper3]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper4]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper5]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper6]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper7]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper8]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_hgb_strict_rejections[hyper9]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_interprocess_lock_is_same_thread_reentrant",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_logistic_accepts_empty_and_returns_fixed_policy",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_logistic_rejects_any_hyperparameter",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_malformed_registry_fails_closed",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_migration_is_byte_idempotent",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_migration_never_writes_before_or_timestamp",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_missing_registry_fails_closed_no_sidecar_fallback",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_phase7b_research_entry_point_is_research_only",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_phase7b_research_refuses_sealed_or_unknown_generation",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_revision_reason_forces_new_revision",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_same_version_binding_is_noop",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_sealed_generation_marked_selectable_fails_closed",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_accepts_prefix_plus_family",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger0-one-feature challenger replacing control (removed c)]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger1-reordered control]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger2-substituted control feature c->x]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger3-empty added family]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger4-duplicate feature]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger5-added family duplicates a control feature]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_strict_control_plus_one_family_rejections[challenger6-prefix is not the control set]",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_unsupported_family_rejected",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_verification_cache_is_retired",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_verified_handle_generation_specific_contracts",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_verified_research_object_handle",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_verify_estimator_reload_recomputes_predictions",
+    "tests/sports_cockpit_phase7d1_integration_test.py::test_wrong_schema_version_fails_closed",
+    "tests/sports_cockpit_phase7d2_test.py::test_all_legacy_execution_functions_are_retired_before_data_open",
+    "tests/sports_cockpit_phase7d2_test.py::test_canonical_research_path_is_2024_only_no_frozen",
+    "tests/sports_cockpit_phase7d2_test.py::test_champion_reference_carries_no_2025_metric",
+    "tests/sports_cockpit_phase7d2_test.py::test_champion_reference_fallback_has_no_frozen_constant",
+    "tests/sports_cockpit_phase7d2_test.py::test_code_identity_binds_untracked_content_and_excludes_audit_reports",
+    "tests/sports_cockpit_phase7d2_test.py::test_model_request_receipt_is_server_issued_and_content_addressed",
+    "tests/sports_cockpit_phase7d2_test.py::test_retired_message_points_to_the_canonical_path",
+    "tests/sports_cockpit_phase7d2_test.py::test_self_attested_authority_forgery_is_rejected[effectiveHyperparameters-value4]",
+    "tests/sports_cockpit_phase7d2_test.py::test_self_attested_authority_forgery_is_rejected[modelFamily-governed_logistic]",
+    "tests/sports_cockpit_phase7d2_test.py::test_self_attested_authority_forgery_is_rejected[modelRequestReceiptSha256-deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead]",
+    "tests/sports_cockpit_phase7d2_test.py::test_self_attested_authority_forgery_is_rejected[seed-987654]",
+    "tests/sports_cockpit_phase7d2_test.py::test_self_attested_authority_forgery_is_rejected[semanticFeatureSetSha256-deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead]",
+    "tests/sports_cockpit_phase7d2_test.py::test_unknown_code_or_environment_is_rejected",
+    "tests/sports_cockpit_phase7d3_test.py::test_active_candidate_read_reverifies_after_tamper",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[aggregate-metrics.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[child-sha-inventory.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[code-environment-receipt.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[confusion-matrix.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[feature-semantic-contracts.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[feature-set-contract.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[model-metadata.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[model-request-receipt.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[model.artifact]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[per-class-metrics.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[preprocessor.artifact]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[reliability-diagnostics.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[run-authority.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[validation-probabilities.f64]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[validation-row-ids.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[validation-target.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_child_tamper_fails_closed[verified-object-receipt.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_complete_run_activates_and_reverifies",
+    "tests/sports_cockpit_phase7d3_test.py::test_coordinated_child_and_manifest_tamper_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_extra_prohibited_child_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_fabricated_run_rejected",
+    "tests/sports_cockpit_phase7d3_test.py::test_manifest_tamper_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_missing_bundle_rejected",
+    "tests/sports_cockpit_phase7d3_test.py::test_missing_mandatory_child_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_non_complete_receipt_status_rejected",
+    "tests/sports_cockpit_phase7d3_test.py::test_receipt_tamper_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_registry_concurrent_same_receipt_no_partial",
+    "tests/sports_cockpit_phase7d3_test.py::test_registry_index_tamper_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_registry_missing_or_corrupt_fails_closed",
+    "tests/sports_cockpit_phase7d3_test.py::test_registry_same_run_different_receipt_conflicts",
+    "tests/sports_cockpit_phase7d3_test.py::test_registry_same_run_same_receipt_is_idempotent",
+    "tests/sports_cockpit_phase7d3_test.py::test_stale_and_cross_project_rejected",
+    "tests/sports_cockpit_phase7d3_test.py::test_tampered_bundle_child_rejected_at_activation[aggregate-metrics.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_tampered_bundle_child_rejected_at_activation[feature-set-contract.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_tampered_bundle_child_rejected_at_activation[model-metadata.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_tampered_bundle_child_rejected_at_activation[model-request-receipt.json]",
+    "tests/sports_cockpit_phase7d3_test.py::test_v2_child_name_guard_rejects_unsafe_names",
+    "tests/sports_cockpit_phase7d3_test.py::test_valid_v2_bundle_verifies_and_reload_reproduces",
+    "tests/sports_cockpit_phase7d4_browser_test.py::test_cockpit_browser_acceptance",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_no_environment_variable_re_enables_a_retired_script",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_research_entry_point_is_not_retired_and_still_runs",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[phase7_build_gen3]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[phase7a_build_gen3]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[phase7a_governed_ablation]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[phase7c_publish_gen2]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_catcher_readiness]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_dynamic_player_state]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_game_replay]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_pa_baseline]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_participation_usage]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_pitch_sequence_features]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_process_interactions]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_2025_script_exits_before_any_open[run_mlb_severe_miss_forensics]",
+    "tests/sports_cockpit_phase7d4_gate12_scripts_test.py::test_residual_final2025_writers_are_only_reached_through_retired_scripts",
+    "tests/sports_cockpit_phase7d4_http_test.py::test_authenticated_http_cockpit_flow_through_the_v2_chain",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_evidence_registry_create_once_conflict_across_processes",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_evidence_registry_idempotent_for_identical_content_across_processes",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_held_lock_excludes_a_second_process",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_lock_reclaimed_after_owner_process_dies",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_project_exec_lock_serializes_runs_across_processes",
+    "tests/sports_cockpit_phase7d4_interprocess_test.py::test_registry_migration_idempotent_across_processes",
+    "tests/sports_cockpit_phase7d4_isolated_inventory_test.py::test_full_governed_inventory_isolated_leaves_runtime_untouched",
+    "tests/sports_cockpit_phase7d4_isolated_inventory_test.py::test_isolated_inventory_via_env_seam_subprocess_leaves_runtime_untouched",
+    "tests/sports_cockpit_phase7d4_isolated_inventory_test.py::test_representative_governed_file_runs_under_isolated_roots",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_comparison_arm_resolution_rejects_a_superseded_binding",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[bare_namelist]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[blank_leakage_class]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[future]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[identifier_derived]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[incomplete_semantic_authority]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[post_pa]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[prohibited_leakage_class]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[target_derived]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_leaky_advanced_feature_rejected_before_any_complete_evidence[unknown_leakage_class]",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_safe_advanced_feature_traverses_full_production_chain",
+    "tests/sports_cockpit_phase7d4_production_chain_test.py::test_v2_only_feature_family_comparison_and_immutable_receipt",
+    "tests/sports_cockpit_phase7d4_test.py::test_canonical_chain_accepts_valid_run",
+    "tests/sports_cockpit_phase7d4_test.py::test_coordinated_forgery_accepted_by_narrow_verifier_rejected_by_chain",
+    "tests/sports_cockpit_phase7d4_test.py::test_injected_late_drift_yields_no_complete_evidence",
+    "tests/sports_cockpit_phase7d4_test.py::test_leakage_enum_rejects_unknown_blank_and_prohibited",
+    "tests/sports_cockpit_phase7d4_test.py::test_missing_request_receipt_fails_closed",
+    "tests/sports_cockpit_phase7d4_test.py::test_non_base_bare_namelist_feature_set_is_refused",
+    "tests/sports_cockpit_phase7d4_test.py::test_non_base_v2_semantic_set_is_accepted_and_leakage_validated",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[phase7_ablation]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_base_out_transition]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_e1_e2_incremental_signal_study]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_projected_participation_ablation]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_simulation_input_layer]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_starter_identity]",
+    "tests/sports_cockpit_phase7d4_test.py::test_ordinary_2025_scripts_exit_before_any_open[run_mlb_whole_game_monte_carlo]",
+    "tests/sports_cockpit_phase7d4_test.py::test_superseded_binding_rejected_by_chain",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_ambiguous_target_seasons_name_is_eliminated",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_engine_and_feature_contract_modeling_windows_agree",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_engine_roles_are_explicit_and_separate",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_fit_binding_on_a_sealed_object_fails_before_any_open",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_gen2_and_gen3_roles_are_distinct_and_each_correct",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_gen3_development_is_2021_2023_and_validation_2024",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_ordinary_dataset_selection_excludes_sealed_objects",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_ordinary_modeling_window_excludes_sealed_season",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_ordinary_research_resolver_refuses_sealed_generation",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_quarantined_silver_publish_rejects_sealed_or_future_season[2025]",
+    "tests/sports_cockpit_phase7d5a1_season_roles_test.py::test_quarantined_silver_publish_rejects_sealed_or_future_season[2026]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[estimated_woba]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[events]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[label]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[launch_speed]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[outcome]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_any_prohibited_column_on_any_row_fails_closed[target]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_appending_future_rows_does_not_change_earlier_values",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_at_bat_2_sorts_before_10_numerically",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_authorized_2021_2024_seasons_pass",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_batter_histories_are_isolated",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_duplicate_governed_key_same_batter_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_duplicate_pa_id_across_different_batters_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_input_order_does_not_change_values",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_matches_independent_reference_on_a_longer_sequence",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_missing_required_chronology_column_fails_closed[at_bat_number]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_missing_required_chronology_column_fails_closed[batter_canonical_player_uuid]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_missing_required_chronology_column_fails_closed[game_date]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_missing_required_chronology_column_fails_closed[game_id]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_missing_required_chronology_column_fails_closed[plate_appearance_id]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_null_chronology_value_fails_closed[at_bat_number]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_null_chronology_value_fails_closed[game_date]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_null_chronology_value_fails_closed[game_id]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_null_chronology_value_fails_closed[plate_appearance_id]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_same_day_multiple_games_with_governed_sequence_is_ordered",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_same_day_multiple_games_without_sequence_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_sealed_or_prospective_season_fails_closed[2025]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_sealed_or_prospective_season_fails_closed[2026]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_string_or_nonint_at_bat_number_fails_closed[10.0]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_string_or_nonint_at_bat_number_fails_closed[10]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_string_or_nonint_at_bat_number_fails_closed[True]",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_target_on_second_row_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_unauthorized_2019_season_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_chronology_test.py::test_unparseable_game_date_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_guard_allows_isolated_runtime_and_temp_opens",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_guard_blocks_real_model_exchange_open",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_guard_blocks_real_runtime_sealed_open",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_guard_ignores_when_not_installed",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_play_transition_glob_avoids_model_exchange_under_isolation",
+    "tests/sports_cockpit_phase7d5a2_isolation_guard_test.py::test_play_transition_glob_uses_exchange_when_not_isolated",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_binding_a_sealed_generation_is_rejected",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_caller_selectable_true_cannot_override_quarantined_status",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_entry_fails_closed[entry0]",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_entry_fails_closed[entry1]",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_entry_fails_closed[entry2]",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_entry_fails_closed[entry3]",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_entry_fails_closed[entry4]",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_contradictory_registry_fails_closed_at_catalog",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_direct_binding_with_a_silver_id_fails_before_resolution",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_resolve_version_rejects_silver_id_no_fallback_to_base",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_silver_prefixed_id_is_rejected_by_the_decision",
+    "tests/sports_cockpit_phase7d5a2_quarantine_test.py::test_valid_gen3_binding_and_run_still_authorized",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_adding_an_extra_child_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_embedded_receipt_sha_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[feature-family-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[feature-set-v2-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[object.parquet]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[prior-pa-semantic-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[source-object-receipt.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[transform-code-receipt.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_byte_of_any_child_fails_closed[transformation-receipt.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_one_feature_value_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_receipt_output_logical_sha_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_altering_transform_params_in_code_receipt_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[feature-family-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[log1p-prior-pa-semantic-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[object.parquet]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[prior-pa-semantic-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[temporal-contract.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[transform-code-receipt.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_deleting_any_required_child_fails_closed[value-digest.json]",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_exact_child_set_and_full_verify",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_manifest_forced_model_eligible_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_silver_integrity_test.py::test_republish_over_incomplete_existing_object_fails_closed",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_baseline_valid_triple_passes",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_changed_skip_category_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_changed_skip_reason_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_critical_test_not_passing_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_omitting_a_critical_test_from_collection_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_removed_expected_allowed_skip_node_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_skipping_a_critical_test_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_subset_collection_cannot_claim_full_gate",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_unexpected_collected_test_fails",
+    "tests/sports_cockpit_phase7d5a2_skip_governance_test.py::test_unknown_skipped_node_fails",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_changing_transform_implementation_changes_the_digest",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_handle_cannot_be_forged_from_caller_values",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_non_hex_registered_source_sha_rejected",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_nonexistent_source_identity_rejected",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_publish_silver_takes_no_caller_source_rows_or_shas",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_resolve_verifies_and_issues_handle",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_source_object_bytes_tamper_rejected",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_source_receipt_or_manifest_tamper_rejected[source-publication-manifest.json]",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_source_receipt_or_manifest_tamper_rejected[source-receipt.json]",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_transform_code_receipt_binds_implementation_and_files",
+    "tests/sports_cockpit_phase7d5a2_source_authority_test.py::test_transform_params_change_the_receipt_digest",
+    "tests/sports_cockpit_phase7d5a_champion2024_test.py::test_champion_reference_never_globs_the_combined_artifact",
+    "tests/sports_cockpit_phase7d5a_champion2024_test.py::test_champion_reference_source_does_not_reference_the_combined_artifact",
+    "tests/sports_cockpit_phase7d5a_champion2024_test.py::test_migration_produces_a_2024_only_reference",
+    "tests/sports_cockpit_phase7d5a_cleanup_test.py::test_refuses_on_identity_mismatch",
+    "tests/sports_cockpit_phase7d5a_cleanup_test.py::test_refuses_when_active_candidate_present",
+    "tests/sports_cockpit_phase7d5a_cleanup_test.py::test_refuses_when_complete_evidence_present",
+    "tests/sports_cockpit_phase7d5a_cleanup_test.py::test_verify_and_quarantine_moves_incomplete_namespace",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_guard_allows_explicit_throwaway_root",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_guard_refuses_resolving_back_to_shared_runtime",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_guard_requires_explicit_override",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_relative_override_is_rejected",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_seed_then_resolve_reproducibly_from_empty_root",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_seeder_refuses_relative_root",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_seeder_refuses_repo_internal_root",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_seeder_refuses_shared_runtime",
+    "tests/sports_cockpit_phase7d5a_isolation_test.py::test_seeder_refuses_without_root",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_contained_no_reparse_rejects_escaping_and_reparse",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_junction_creation_is_available_on_windows",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_object_boundary_rejects_final_junction",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_object_boundary_rejects_intermediate_junction",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_silver_registry_parent_junction_rejected",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_silver_source_resolution_rejects_junction",
+    "tests/sports_cockpit_phase7d5a_reparse_test.py::test_silver_verify_rejects_junction",
+    "tests/sports_cockpit_phase7d5a_silver_concurrency_test.py::test_conflicting_same_key_content_fails_closed",
+    "tests/sports_cockpit_phase7d5a_silver_concurrency_test.py::test_failed_publication_leaves_no_registry_entry",
+    "tests/sports_cockpit_phase7d5a_silver_concurrency_test.py::test_identical_content_converges_idempotently_across_processes",
+    "tests/sports_cockpit_phase7d5a_silver_concurrency_test.py::test_two_different_objects_both_survive_in_the_registry",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_any_silver_prefixed_id_is_model_ineligible",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_log1p_is_exactly_log1p_of_prior_count",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_publish_binds_transformation_receipt_and_value_digest",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_published_silver_is_quarantined_and_not_model_eligible",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_v2_to_v1_downgrade_is_refused",
+    "tests/sports_cockpit_phase7d5a_silver_test.py::test_value_digest_binds_actual_values_not_just_names",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_advanced_feature_enters_the_canonical_run",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_authority_forgery_rejected",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_evidence_activation_and_estimator",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_feature_family_ablation_is_2024_only_and_paired",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_object_verifier_containment_and_tamper",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_registry_is_sole_resolver_with_four_entries_and_zero_opens",
+    "tests/sports_cockpit_phase7d_acquisition_test.py::test_verification_cache_rejects_same_size_substitution",
+    "tests/sports_cockpit_route_contract_test.py::test_backend_has_cockpit_routes_mounted",
+    "tests/sports_cockpit_route_contract_test.py::test_core_15_step_cockpit_endpoints_present",
+    "tests/sports_cockpit_route_contract_test.py::test_every_frontend_cockpit_path_resolves_to_a_mounted_route",
+    "tests/sports_cockpit_route_contract_test.py::test_frontend_uses_single_shared_api_client",
+    "tests/sports_cockpit_test.py::test_all_features_and_class_order_frozen",
+    "tests/sports_cockpit_test.py::test_autopilot_budget_is_bounded",
+    "tests/sports_cockpit_test.py::test_champion_reference_is_2024_only_and_read_only",
+    "tests/sports_cockpit_test.py::test_experiment_rejects_unknown_feature_and_target_leak",
+    "tests/sports_cockpit_test.py::test_family_availability_is_honest",
+    "tests/sports_cockpit_test.py::test_feature_kinds_and_outlier_eligibility",
+    "tests/sports_cockpit_test.py::test_iv_is_one_vs_rest_development_only",
+    "tests/sports_cockpit_test.py::test_legacy_champion_baseline_is_retired",
+    "tests/sports_cockpit_test.py::test_legacy_experiment_execution_is_retired",
+    "tests/sports_cockpit_test.py::test_legacy_fit_and_evaluate_is_retired_before_any_data_open",
+    "tests/sports_cockpit_test.py::test_missing_indicator_adds_column",
+    "tests/sports_cockpit_test.py::test_missing_summary_reports_by_season",
+    "tests/sports_cockpit_test.py::test_outlier_bounds_methods",
+    "tests/sports_cockpit_test.py::test_outlier_summary_is_fold_local_and_skips_binary",
+    "tests/sports_cockpit_test.py::test_preprocessor_fits_on_development_only",
+    "tests/sports_cockpit_test.py::test_profile_reports_real_missing_and_outliers",
+    "tests/sports_cockpit_test.py::test_woe_iv_zero_when_no_events",
+    "tests/sports_dataset_feature_authority_test.py::SportsDatasetFeatureAuthorityTests::test_live_feature_audit_matches_independent_package_authority",
+    "tests/sports_dataset_feature_authority_test.py::SportsDatasetFeatureAuthorityTests::test_package_only_identity_authority_blocks_feature_materialization",
+    "tests/sports_dataset_feature_authority_test.py::SportsDatasetFeatureAuthorityTests::test_schema_authority_excludes_leakage_and_timing_risk_fields",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_changed_partition_hash_schema_and_row_count_are_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_class_order_mismatch_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_exact_golden_package_validates",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_limitation_mismatch_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_manifest_does_not_coerce_scalar_types",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_missing_file_inventory_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_rights_mismatch_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_schema_registry_change_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_second_validation_reuses_only_fully_bound_cache_entries",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_semantic_digest_and_partition_authority_are_independent",
+    "tests/sports_dataset_manifest_consumer_test.py::GoldenManifestConsumerTests::test_superseded_package_identity_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_absolute_unc_file_and_traversal_paths_are_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_duplicate_keys_are_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_invalid_utf8_is_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_nan_and_infinity_are_rejected",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_reparse_chain_rejects_an_intermediate_boundary",
+    "tests/sports_dataset_manifest_consumer_test.py::StrictJsonAndPathTests::test_validation_cache_rejects_a_descendant_reparse_before_writing",
+    "tests/sports_dataset_pa_baseline_scope_test.py::SportsDatasetPABaselineScopeTest::test_baseline_requires_exact_rendered_dataset_registration",
+    "tests/sports_dataset_pa_baseline_scope_test.py::SportsDatasetPABaselineScopeTest::test_baseline_requires_exact_rendered_governed_project",
+    "tests/sports_dataset_pa_baseline_scope_test.py::SportsDatasetPABaselineScopeTest::test_exact_dataset_and_project_lineage_attaches_baseline",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_attaches_only_as_a_separate_exact_parent_child",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>0]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>1]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>2]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>3]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>4]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>5]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>6]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>7]",
+    "tests/sports_dataset_phase4_scope_test.py::test_phase4_scope_mismatch_is_not_projected[<lambda>8]",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_approved_root_checks_each_unresolved_component",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_bounded_preview_and_read_only_package",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_class_distribution_and_missingness_scan_exact_2025_rows",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_family_season_aggregation_uses_registered_metadata",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_fold_scan_plan_contains_only_logical_registered_partitions",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_metadata_only_registration_and_project_binding",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_missingness_counts_a_wholly_absent_physical_variant",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_only_logical_uris_are_persisted_or_exposed",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_preview_materializes_nulls_for_an_absent_physical_variant_field",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_query_cancellation_is_checked_before_read",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_registration_is_idempotent_and_unique",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_row_and_memory_limits_fail_closed",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_schema_and_feature_eligibility_are_allowlisted",
+    "tests/sports_dataset_registry_access_test.py::SportsDatasetRegistryAccessTests::test_shared_cache_lock_and_every_read_authority_checks",
+    "tests/sports_dataset_totals_authority_test.py::DatasetTotalsAuthorityTest::test_other_totals_still_derive_from_manifest",
+    "tests/sports_dataset_totals_authority_test.py::DatasetTotalsAuthorityTest::test_package_files_references_validated_authority",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_exact_golden_bridge_validates_through_public_consumer",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_exact_join_audit_matches_all_frozen_authorities",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_frozen_row_authorities_reconcile",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_join_audit_is_public_safe_and_emits_completion_progress",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_manifest_extra_key_and_semantic_change_are_rejected",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_rights_and_one_player_zero_impact_are_fail_closed",
+    "tests/sports_identity_bridge_consumer_test.py::GoldenIdentityBridgeTests::test_y_minus_one_counts_and_primary_pa_counts_are_exact",
+    "tests/sports_identity_bridge_consumer_test.py::IdentityBridgeStrictUnitTests::test_duplicate_keys_and_invalid_utf8_are_rejected",
+    "tests/sports_identity_bridge_consumer_test.py::IdentityBridgeStrictUnitTests::test_retrosheet_resolution_is_exact_and_has_no_fallback",
+    "tests/sports_identity_bridge_consumer_test.py::IdentityBridgeStrictUnitTests::test_runtime_physical_and_credential_fields_are_rejected",
+    "tests/sports_identity_bridge_registry_test.py::SportsIdentityBridgeRegistryTests::test_failed_join_audit_cannot_clear_the_blocker",
+    "tests/sports_identity_bridge_registry_test.py::SportsIdentityBridgeRegistryTests::test_metadata_only_registration_is_exact_idempotent_and_logical",
+    "tests/sports_identity_bridge_registry_test.py::SportsIdentityBridgeRegistryTests::test_parent_partition_authority_mismatch_fails_closed",
+    "tests/sports_modeling_feature_semantics_test.py::test_advanced_feature_set_includes_synthetic_exactly_once_at_exact_position",
+    "tests/sports_modeling_feature_semantics_test.py::test_all_base_features_have_valid_semantic_contracts",
+    "tests/sports_modeling_feature_semantics_test.py::test_base_feature_set_v2_binds_exact_ordered_ids",
+    "tests/sports_modeling_feature_semantics_test.py::test_context_and_prior_knowledge_time_classes",
+    "tests/sports_modeling_feature_semantics_test.py::test_families_bind_ordered_members_under_one_knowledge_time_policy",
+    "tests/sports_modeling_feature_semantics_test.py::test_feature_set_rejects_unregistered_and_duplicate_features",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides0-target column]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides1-encoded target]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides10-player id value source]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides11-identifier classified]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides12-unknown leakage class]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides13-missing lineage]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides14-missing receipt lineage]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides15-missing derivation]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides16-unprovable as-of]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides2-target proxy]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides3-post-PA]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides4-post-PA launch speed]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides5-target wOBA result]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides6-delta run expectancy]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides7-future]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides8-game id as source]",
+    "tests/sports_modeling_feature_semantics_test.py::test_leakage_validator_rejects[overrides9-PA id as predictor]",
+    "tests/sports_modeling_feature_semantics_test.py::test_preprocessor_fingerprint_changes_when_synthetic_added",
+    "tests/sports_modeling_feature_semantics_test.py::test_reordered_feature_set_has_a_different_identity",
+    "tests/sports_modeling_feature_semantics_test.py::test_safe_historical_feature_accepted",
+    "tests/sports_modeling_feature_semantics_test.py::test_synthetic_feature_contract_is_historical_and_valid",
+    "tests/sports_modeling_feature_semantics_test.py::test_synthetic_feature_is_point_in_time_safe",
+    "tests/sports_modeling_phase7_gen3_test.py::test_2021_2022_anomalies_are_explicitly_quarantined_not_silently_dropped",
+    "tests/sports_modeling_phase7_gen3_test.py::test_2021_is_fully_prior_blind_and_2022_2023_are_prior_valid",
+    "tests/sports_modeling_phase7_gen3_test.py::test_gen3_2023_2025_prior_coverage_matches_frozen_gen2_authority",
+    "tests/sports_modeling_phase7_gen3_test.py::test_gen3_builder_rejects_out_of_range_seasons",
+    "tests/sports_modeling_phase7_gen3_test.py::test_gen3_schema_has_the_22_base_features_target_and_season",
+    "tests/sports_modeling_phase7_gen3_test.py::test_gen3_temporal_contract_invariants",
+    "tests/sports_modeling_phase7_gen3_test.py::test_gen3_view_covers_2021_2025_and_reconciliation_present",
+    "tests/sports_modeling_phase7a_authority_test.py::test_2025_is_physically_absent_from_the_research_object",
+    "tests/sports_modeling_phase7a_authority_test.py::test_all_seven_contracts_have_canonical_digests_and_are_deterministic",
+    "tests/sports_modeling_phase7a_authority_test.py::test_experiment_id_path_traversal_is_rejected",
+    "tests/sports_modeling_phase7a_authority_test.py::test_innings_15_16_are_included_and_only_convention_rows_quarantined",
+    "tests/sports_modeling_phase7a_authority_test.py::test_preprocessing_contract_declares_governed_mean_standardize",
+    "tests/sports_modeling_phase7a_authority_test.py::test_publisher_is_content_addressed_idempotent_and_tamper_safe",
+    "tests/sports_modeling_phase7a_authority_test.py::test_publisher_rejects_symlinked_object_dir",
+    "tests/sports_modeling_phase7a_authority_test.py::test_quarantine_ledger_is_content_addressed_and_row_level",
+    "tests/sports_modeling_phase7a_authority_test.py::test_registration_binds_research_and_sealed_objects",
+    "tests/sports_modeling_phase7a_authority_test.py::test_temporal_contract_seals_2025_and_2026",
+    "tests/sports_modeling_phase7a_authority_test.py::test_user_python_execution_is_disabled_by_default",
+    "tests/sports_pa_metrics_test.py::SportsPaMetricsTests::test_frozen_class_order_and_strict_probability_validation",
+    "tests/sports_pa_metrics_test.py::SportsPaMetricsTests::test_game_cluster_bootstrap_is_deterministic_and_samples_whole_games",
+    "tests/sports_pa_metrics_test.py::SportsPaMetricsTests::test_metrics_preserve_summed_brier_and_fixed_order_evidence",
+    "tests/sports_pa_metrics_test.py::SportsPaMetricsTests::test_temperature_candidate_is_rejected_when_brier_worsens",
+    "tests/sports_pa_metrics_test.py::SportsPaMetricsTests::test_temperature_scaling_uses_only_2024_and_retains_improvement",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_alternate_fabricated_pass_join_audit_is_not_substitutable",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_artifact_inventory_identity_media_and_namespace_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_blocked_run_is_publicly_honest_and_does_not_complete_workflow",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_bootstrap_point_dispersion_interval_and_cluster_tampering_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_bridge_companion_count_and_rights_mutation_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_c0_selection_and_unreconciled_calibration_are_rejected",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_candidate_config_aggregate_and_selection_tampering_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_complete_candidate_eligibility_and_2025_execution_are_exact",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_complete_decision_prose_and_blocked_suitability_are_governed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_complete_run_is_metadata_only_idempotent_and_public",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_database_rejects_nonfrozen_feature_contract_authority",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_embedded_drive_unc_and_posix_paths_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_false_challenger_claim_is_rejected_without_partial_rows",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_false_rejected_baseline_claim_is_rejected",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_metric_schema_and_internal_evidence_tampering_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_migration_foreign_keys_reject_orphan_feature_view",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_new_execution_identity_reuses_feature_and_experiment_authority_safely",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_research_baseline_requires_mixed_evidence",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_reused_run_deep_verifies_same_count_child_rows",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_run_identity_core_and_full_payload_digests_are_independent_gates",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_tampered_class_order_physical_paths_and_model_bytes_fail_closed",
+    "tests/sports_pa_registry_test.py::SportsPAResearchRegistryTests::test_temperature_bounds_and_c1_selected_artifact_branch",
+    "tests/sports_pa_runner_test.py::SportsPACommandProvenanceTest::test_explicit_code_revision_is_preserved",
+    "tests/sports_pa_runner_test.py::SportsPACommandProvenanceTest::test_hardlinked_database_is_rejected_before_initialization",
+    "tests/sports_pa_runner_test.py::SportsPACommandProvenanceTest::test_missing_git_provenance_fails_closed",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_bridge_authorities_use_the_versioned_nested_manifest_contract",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_contract_audits_every_feature_and_full_exclusions",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_feature_view_is_sorted_content_addressed_and_uses_latest_prior",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_feature_view_rejects_top_bottom_team_conflict",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_future_prior_is_ignored_and_invalid_prior_grain_fails",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_legitimate_missing_prior_is_explicit_and_rates_remain_missing",
+    "tests/sports_pa_runner_test.py::SportsPAFeatureViewTest::test_unused_null_prior_metric_is_allowed_but_required_metric_is_not",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_assembly_writes_content_addressed_artifacts_and_exact_payload",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_descendant_chain_is_rejected_before_directory_creation",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_frozen_training_policy_and_convergence",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_preprocessor_uses_only_training_rows_and_fixed_encoding",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_runtime_escape_is_rejected_before_writes",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_scientific_fit_and_model_state_are_deterministic",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_self_consistently_rehashed_tampered_feature_artifact_is_rejected",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_stale_rebuilt_table_with_reused_declared_sha_is_rejected",
+    "tests/sports_pa_runner_test.py::SportsPATrainingRunnerTest::test_tampered_checkpoint_absolute_artifact_uri_is_rejected",
+    "tests/sports_phase4_catcher_readiness_run_test.py::ComputeAuditTest::test_coverage_and_no_self_inclusion",
+    "tests/sports_phase4_catcher_readiness_run_test.py::ComputeAuditTest::test_no_fabricated_metrics_in_payload",
+    "tests/sports_phase4_catcher_readiness_run_test.py::ReconstructionTest::test_single_multi_and_missing_team_games",
+    "tests/sports_phase4_catcher_readiness_run_test.py::VectorizedPriorCountTest::test_matches_pure_bisect_engine",
+    "tests/sports_phase4_catcher_readiness_test.py::FallbackLevelTest::test_levels_partition_population_monotonically",
+    "tests/sports_phase4_catcher_readiness_test.py::InventoryAndPayloadTest::test_audit_payload_has_no_fabricated_model_metrics",
+    "tests/sports_phase4_catcher_readiness_test.py::InventoryAndPayloadTest::test_free_inventory_uses_governed_labels_only",
+    "tests/sports_phase4_catcher_readiness_test.py::InventoryAndPayloadTest::test_future_design_estimates_nothing",
+    "tests/sports_phase4_catcher_readiness_test.py::InventoryAndPayloadTest::test_premium_gaps_never_claim_availability",
+    "tests/sports_phase4_catcher_readiness_test.py::NoFuzzyNameJoinTest::test_input_contract_has_no_name_fields",
+    "tests/sports_phase4_catcher_readiness_test.py::PlateAppearanceAssignmentTest::test_ambiguous_starter_makes_pas_ambiguous",
+    "tests/sports_phase4_catcher_readiness_test.py::PlateAppearanceAssignmentTest::test_contradictory_substitution_is_ambiguous_not_forward_filled",
+    "tests/sports_phase4_catcher_readiness_test.py::PlateAppearanceAssignmentTest::test_missing_starter_makes_pas_missing",
+    "tests/sports_phase4_catcher_readiness_test.py::PlateAppearanceAssignmentTest::test_no_substitution_assigns_starter_to_every_pa",
+    "tests/sports_phase4_catcher_readiness_test.py::PlateAppearanceAssignmentTest::test_substitution_splits_assignment_by_pa_index",
+    "tests/sports_phase4_catcher_readiness_test.py::PriorHistoryNoSelfInclusionTest::test_bands_and_percentiles_present",
+    "tests/sports_phase4_catcher_readiness_test.py::PriorHistoryNoSelfInclusionTest::test_distinct_pairs_do_not_share_history",
+    "tests/sports_phase4_catcher_readiness_test.py::PriorHistoryNoSelfInclusionTest::test_same_ordinal_ties_excluded_from_prior",
+    "tests/sports_phase4_catcher_readiness_test.py::PriorHistoryNoSelfInclusionTest::test_target_pa_never_counted_in_its_own_history",
+    "tests/sports_phase4_catcher_readiness_test.py::ReadinessDecisionTest::test_all_terminal_statuses_are_governed",
+    "tests/sports_phase4_catcher_readiness_test.py::ReadinessDecisionTest::test_blocked_when_linkage_unreliable",
+    "tests/sports_phase4_catcher_readiness_test.py::ReadinessDecisionTest::test_partial_when_pa_assignment_incomplete",
+    "tests/sports_phase4_catcher_readiness_test.py::ReadinessDecisionTest::test_ready_requires_high_coverage_and_evidence",
+    "tests/sports_phase4_catcher_readiness_test.py::StartingCatcherReconstructionTest::test_letter_and_numeric_catcher_codes_both_recognized",
+    "tests/sports_phase4_catcher_readiness_test.py::StartingCatcherReconstructionTest::test_no_catcher_start_is_missing",
+    "tests/sports_phase4_catcher_readiness_test.py::StartingCatcherReconstructionTest::test_single_catcher_start_is_deterministic",
+    "tests/sports_phase4_catcher_readiness_test.py::StartingCatcherReconstructionTest::test_two_catcher_starts_is_ambiguous_not_silently_picked",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_cli_freezes_governed_bootstrap_defaults_and_has_preflight",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_cli_rejects_nonrepository_runtime_before_source_access",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_fresh_or_tampered_database_blocks_before_any_source_read",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_full_run_registers_complete_component_and_prints_study_graph_ids",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_main_uses_whole_cli_supervisor_and_frozen_fit_limits",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_preflight_rejects_any_cache_miss_before_runtime_read",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_preflight_reuses_exact_governed_validation_cache_authority",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_progress_names_milestone_component_throughput_and_honest_eta",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_revision_accepts_explicit_content_bound_override",
+    "tests/sports_phase4_dynamic_cli_test.py::SportsPhase4DynamicCliTest::test_validation_cache_requires_existing_single_link_exact_path",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_artifact_body_verifier_rejects_tampered_bytes",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_assembly_returns_exact_common_component_and_separate_artifacts",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_checkpoint_rejects_hardlinked_artifact",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_checkpoint_reuse_is_byte_exact_and_cross_revision",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_new_checkpoint_validates_history_before_pointer_is_valid",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_new_checkpoint_validates_parquet_read_before_pointer_is_valid",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_parquet_artifact_type_cannot_be_relabelled",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_runtime_root_must_use_raw_repository_owned_spelling",
+    "tests/sports_phase4_dynamic_runner_test.py::SportsPhase4DynamicRunnerTest::test_self_consistent_stale_checkpoint_artifact_is_rejected_against_fresh_bytes",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_contract_has_exact_public_name_bindings_and_decision_enum",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_exact_bridge_rejects_ambiguous_and_unresolved_source_ids",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_frozen_role_state_evidence_is_complete_and_2025_cannot_affect_policy",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_historical_index_roundtrip_and_on_demand_rows_are_exact_and_tamper_evident",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_history_content_sha_is_stable_across_live_parquet_batch_layout",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_logical_content_sha_is_stable_across_live_parquet_batch_layout",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_materialization_has_deterministic_ids_checksums_and_bytes",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_preseason_and_recency_states_are_nonoverlapping_and_explicit",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_prior_date_rule_and_final_availability_are_fail_closed",
+    "tests/sports_phase4_dynamic_state_test.py::SportsPhase4DynamicStateTest::test_tuning_uses_only_date_atomic_inner_2023_and_is_deterministic",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_clean_worker_forwards_output_and_preserves_protocol_evidence",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_dynamic_fit_start_activates_operation_and_is_hard_stopped",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_fit_finished_event_clears_operation_as_one_atomic_wire_state",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_fit_limit_kills_worker_descendant_and_prevents_postfit_write",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_silence_overall_and_rss_limits_fail_closed",
+    "tests/sports_phase4_dynamic_supervision_test.py::SportsPhase4DynamicSupervisionTest::test_unavailable_tree_memory_accounting_fails_closed",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_2025_labels_and_predictions_cannot_change_2024_selection",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_blocking_fit_heartbeat_is_two_argument_and_elapsed_gate_is_fail_closed",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_calibration_requires_both_2024_and_2025_nonworsening",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_candidate_selection_and_folds_obey_frozen_sequence",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_d0_lineage_is_exact_and_never_relabelled",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_evaluation_preserves_raw_scaled_bootstrap_and_subgroups",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_join_binds_to_exact_dynamic_semantic_content",
+    "tests/sports_phase4_dynamic_training_test.py::SportsPhase4DynamicTrainingTest::test_scaled_only_improvement_and_raw_calibration_defect_cannot_earn_challenger",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_confusion_pairs_account_for_all_severe_rows",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_functions_do_not_mutate_or_drop_population",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_individual_brier_is_summed_one_vs_all",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_individual_log_loss_matches_governed_floor",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_min_segment_size_pools_small_segments",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_over_index_ratio_semantics",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_pareto_shares_monotonic_and_full_is_one",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_pareto_worst_fraction_row_counts_are_exact",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_priority_row_validates_scores_and_sums",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_randomness_verdict_random_when_auc_low",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_randomness_verdict_structured_when_auc_high",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_severe_miss_classifier_runs_out_of_time_and_reports_auc",
+    "tests/sports_phase4_forensic_severe_miss_test.py::test_tail_sensitivity_is_labelled_diagnostic_and_preserves_official",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_decision_impl_is_private_and_not_exported",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_impl_confirmed_when_both_years_decisive_and_meaningful",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_impl_marginal_when_decisive_but_below_small_band",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_impl_negative_when_worse_both_years",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_impl_path_2_when_e1_helps_but_e2_not_confirmed",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_archival_impl_path_4_when_only_strikeout_improves",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_bootstrap_uses_whole_game_clusters",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_branch_feature_composition_is_nested_a_subset_b_subset_c",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_branch_features_never_include_the_target_or_identity",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_decide_feature_value_is_retired_for_ordinary_research",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_fixed_c_is_the_frozen_d3_regularization",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_environment_capability_re_enables_2025_selection[1]",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_environment_capability_re_enables_2025_selection[None]",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_environment_capability_re_enables_2025_selection[RESEARCH_OBJECT_READ]",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_environment_capability_re_enables_2025_selection[SEALED_TARGET_DATA_READ]",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_environment_capability_re_enables_2025_selection[true]",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_no_selfgrant_capability_string_in_module_source",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_population_alignment_identical_rows_across_branches",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_research_only_constants_do_not_imply_promotion",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_train_branch_uses_rolling_origin_folds_and_fixed_c",
+    "tests/sports_phase4_incremental_signal_study_test.py::test_unknown_branch_rejected",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_artifact_union_rejects_same_id_with_contradictory_reference",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_dynamic_and_output_runtime_roots_cannot_be_swapped_or_aliased",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_hidden_worker_mode_is_also_hard_retired",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_live_cli_uses_the_whole_worker_hard_stop_boundary",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_main_is_hard_retired_before_any_estimate_or_live_work",
+    "tests/sports_phase4_participation_cli_test.py::ParticipationCliTest::test_progress_surface_has_every_required_operational_field",
+    "tests/sports_phase4_participation_contract_test.py::ParticipationContractTest::test_bullpen_gate_uses_raw_logloss_brier_calibration_and_coverage",
+    "tests/sports_phase4_participation_contract_test.py::ParticipationContractTest::test_contract_names_features_and_enums_are_exact",
+    "tests/sports_phase4_participation_contract_test.py::ParticipationContractTest::test_dynamic_contract_sha_is_shared_and_tamper_fails",
+    "tests/sports_phase4_participation_contract_test.py::ParticipationContractTest::test_lineup_decision_uses_both_folds_and_coverage",
+    "tests/sports_phase4_participation_contract_test.py::ParticipationContractTest::test_starter_decision_requires_s0_and_s1_all_metrics_both_folds",
+    "tests/sports_phase4_participation_features_test.py::ParticipationFeaturesTest::test_bullpen_zero_reliever_and_empty_pool_denominators_reconcile",
+    "tests/sports_phase4_participation_features_test.py::ParticipationFeaturesTest::test_complete_lineup_eligibility_excludes_both_teams_and_is_measured",
+    "tests/sports_phase4_participation_features_test.py::ParticipationFeaturesTest::test_current_target_participant_is_not_injected",
+    "tests/sports_phase4_participation_features_test.py::ParticipationFeaturesTest::test_exact_feature_columns_and_id_exclusion",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_2024_selection_recomputes_from_governing_metrics",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_artifact_references_and_body_bindings_reconcile",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_candidate_folds_have_full_lineage_and_policy_not_runs",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_common_component_shape_and_identity_are_exact",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_each_governed_training_stage_emits_a_bound_finish_event",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_feature_and_prediction_parquet_have_honest_fold_bindings",
+    "tests/sports_phase4_participation_training_runner_test.py::ParticipationTrainingRunnerTest::test_feature_preparation_has_an_unconditional_heartbeat",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseQualityTest::test_category_table_only_supported",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseQualityTest::test_quality_counts",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseQualityTest::test_readiness_thresholds",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_deterministic",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_empty_sequence",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_foul_does_not_add_third_strike",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_hit_by_pitch_terminal",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_real_sample_with_markers",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_two_strike_reconstruction",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_unknown_counted_not_dropped",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParseSequenceTest::test_walk_sequence",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParserSupportedSymbolsTest::test_core_categories",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParserSupportedSymbolsTest::test_non_pitch_markers",
+    "tests/sports_phase4_pitch_sequence_features_test.py::ParserSupportedSymbolsTest::test_unknown_symbol",
+    "tests/sports_phase4_pitch_sequence_run_test.py::LeakageSafeCumulativeTest::test_cumulative_prior_counts_earlier_dates_only",
+    "tests/sports_phase4_pitch_sequence_run_test.py::LeakageSafeCumulativeTest::test_same_date_excluded_from_own_history",
+    "tests/sports_phase4_pitch_sequence_run_test.py::LeakageSafeCumulativeTest::test_trailing_window_excludes_out_of_window_history",
+    "tests/sports_phase4_pitch_sequence_run_test.py::ParseCountsTest::test_counts_frame",
+    "tests/sports_phase4_pitch_sequence_run_test.py::ReadinessPayloadTest::test_payload_shape_and_no_model_metrics",
+    "tests/sports_phase4_process_interactions_test.py::AuditTest::test_distribution_and_redundancy_shape",
+    "tests/sports_phase4_process_interactions_test.py::AuditTest::test_payload_no_model_metrics_and_row_preserved",
+    "tests/sports_phase4_process_interactions_test.py::FormulaTest::test_absdiff_formula",
+    "tests/sports_phase4_process_interactions_test.py::FormulaTest::test_cross_patience_command",
+    "tests/sports_phase4_process_interactions_test.py::FormulaTest::test_log_sample_product",
+    "tests/sports_phase4_process_interactions_test.py::FormulaTest::test_product_formula",
+    "tests/sports_phase4_process_interactions_test.py::NullAndIndicatorTest::test_both_low_sample",
+    "tests/sports_phase4_process_interactions_test.py::NullAndIndicatorTest::test_both_missing_and_present_indicators",
+    "tests/sports_phase4_process_interactions_test.py::NullAndIndicatorTest::test_null_propagates_not_imputed",
+    "tests/sports_phase4_process_interactions_test.py::RowAlignmentTest::test_feature_count_within_hard_bound",
+    "tests/sports_phase4_process_interactions_test.py::RowAlignmentTest::test_missing_parent_column_raises",
+    "tests/sports_phase4_process_interactions_test.py::RowAlignmentTest::test_output_row_count_equals_input",
+    "tests/sports_phase4_registry_test.py::test_database_parent_mismatch_fails_closed",
+    "tests/sports_phase4_registry_test.py::test_dynamic_artifact_ownership_and_exact_candidate_fold_coverage",
+    "tests/sports_phase4_registry_test.py::test_dynamic_blocked_is_a_non_persisted_fail_closed_terminal",
+    "tests/sports_phase4_registry_test.py::test_exact_phase3_artifact_and_registered_partition_lineage_are_required",
+    "tests/sports_phase4_registry_test.py::test_frozen_study_narrative_and_artifact_media_are_not_caller_controlled",
+    "tests/sports_phase4_registry_test.py::test_graph_preserves_exact_research_decision_and_future_scope",
+    "tests/sports_phase4_registry_test.py::test_preflight_deeply_revalidates_phase3_child_rows",
+    "tests/sports_phase4_registry_test.py::test_public_projection_fails_closed_after_parent_deactivation",
+    "tests/sports_phase4_registry_test.py::test_public_projection_revalidates_direct_sql_child_tamper[component]",
+    "tests/sports_phase4_registry_test.py::test_public_projection_revalidates_direct_sql_child_tamper[graph]",
+    "tests/sports_phase4_registry_test.py::test_read_only_authority_preflight_rejects_fresh_and_substituted_pass_audit",
+    "tests/sports_phase4_registry_test.py::test_registers_metadata_only_and_reuses_exact_a_b_a",
+    "tests/sports_phase4_registry_test.py::test_registration_locks_parent_authorities_before_reading_them",
+    "tests/sports_phase4_registry_test.py::test_rejects_refinalized_physical_path_and_graph_status_lie",
+    "tests/sports_phase4_registry_test.py::test_rejects_refinalized_scientific_claim_tamper[<lambda>-bootstrap point estimate]",
+    "tests/sports_phase4_registry_test.py::test_rejects_refinalized_scientific_claim_tamper[<lambda>-posterior-predictive metric]",
+    "tests/sports_phase4_registry_test.py::test_rejects_refinalized_scientific_claim_tamper[<lambda>-selection .*reconcile|selection differs]",
+    "tests/sports_phase4_registry_test.py::test_rejects_refinalized_scientific_claim_tamper[<lambda>-terminal decision]",
+    "tests/sports_phase4_registry_test.py::test_rejects_replicate_and_full_metric_tamper[<lambda>-bootstrap evidence policy]",
+    "tests/sports_phase4_registry_test.py::test_rejects_replicate_and_full_metric_tamper[<lambda>-bootstrapMean|standardError|interval]",
+    "tests/sports_phase4_registry_test.py::test_rejects_replicate_and_full_metric_tamper[<lambda>-multiclass metric contract0]",
+    "tests/sports_phase4_registry_test.py::test_rejects_replicate_and_full_metric_tamper[<lambda>-multiclass metric contract1]",
+    "tests/sports_phase4_registry_test.py::test_rejects_replicate_and_full_metric_tamper[<lambda>-standardError]",
+    "tests/sports_phase4_registry_test.py::test_rejects_unfinalized_authority_artifact_and_graph_tamper[<lambda>-core digest0]",
+    "tests/sports_phase4_registry_test.py::test_rejects_unfinalized_authority_artifact_and_graph_tamper[<lambda>-core digest1]",
+    "tests/sports_phase4_registry_test.py::test_rejects_unfinalized_authority_artifact_and_graph_tamper[<lambda>-studySha0]",
+    "tests/sports_phase4_registry_test.py::test_rejects_unfinalized_authority_artifact_and_graph_tamper[<lambda>-studySha1]",
+    "tests/sports_phase4_registry_test.py::test_reuse_deep_compares_child_rows",
+    "tests/sports_phase5_base_out_transition_test.py::test_apply_covers_every_enumerated_legal_transition",
+    "tests/sports_phase5_base_out_transition_test.py::test_apply_transition_no_duplicate_or_loss",
+    "tests/sports_phase5_base_out_transition_test.py::test_apply_transition_strands_on_inning_end",
+    "tests/sports_phase5_base_out_transition_test.py::test_bip_out_multi_out_transition_present",
+    "tests/sports_phase5_base_out_transition_test.py::test_conservation_and_hold_are_legal",
+    "tests/sports_phase5_base_out_transition_test.py::test_different_seed_can_produce_alternative_legal_path",
+    "tests/sports_phase5_base_out_transition_test.py::test_distribution_sums_to_one_and_is_legal",
+    "tests/sports_phase5_base_out_transition_test.py::test_empirical_probabilities_reflect_counts",
+    "tests/sports_phase5_base_out_transition_test.py::test_enumerate_legal_only_returns_legal",
+    "tests/sports_phase5_base_out_transition_test.py::test_fallback_hierarchy_uses_legal_prior_for_unseen_cell",
+    "tests/sports_phase5_base_out_transition_test.py::test_forced_walk_bases_loaded_scores_run",
+    "tests/sports_phase5_base_out_transition_test.py::test_forward_assignment_flexibility_and_impossible_rejection",
+    "tests/sports_phase5_base_out_transition_test.py::test_home_run_distribution_is_point_mass",
+    "tests/sports_phase5_base_out_transition_test.py::test_home_run_is_deterministic_for_all_states",
+    "tests/sports_phase5_base_out_transition_test.py::test_illegal_mass_rejected_by_validator",
+    "tests/sports_phase5_base_out_transition_test.py::test_illegal_transitions_rejected",
+    "tests/sports_phase5_base_out_transition_test.py::test_json_round_trip_is_data_only",
+    "tests/sports_phase5_base_out_transition_test.py::test_sampling_is_reproducible_and_legal",
+    "tests/sports_phase5_base_out_transition_test.py::test_temporal_seasons_recorded_and_2025_excluded_by_construction",
+    "tests/sports_phase5_base_out_transition_test.py::test_unknown_outcome_rejected",
+    "tests/sports_phase5_base_out_transition_test.py::test_unseen_but_legal_gets_positive_smoothed_mass",
+    "tests/sports_phase5_game_replay_test.py::test_bases_loaded_walk_forces_one_run",
+    "tests/sports_phase5_game_replay_test.py::test_continuity_mismatch_detected_on_broken_before_state",
+    "tests/sports_phase5_game_replay_test.py::test_double_play_records_two_outs",
+    "tests/sports_phase5_game_replay_test.py::test_empty_events_rejected",
+    "tests/sports_phase5_game_replay_test.py::test_event_from_row_handles_nan_and_none",
+    "tests/sports_phase5_game_replay_test.py::test_extra_innings_ghost_runner_after_marker",
+    "tests/sports_phase5_game_replay_test.py::test_full_scoreless_game_ends_after_regulation_exact_replay",
+    "tests/sports_phase5_game_replay_test.py::test_home_run_clears_bases_and_scores",
+    "tests/sports_phase5_game_replay_test.py::test_impossible_outs_before_is_flagged",
+    "tests/sports_phase5_game_replay_test.py::test_inning_ending_out_transitions_half",
+    "tests/sports_phase5_game_replay_test.py::test_pitcher_changes_are_tracked",
+    "tests/sports_phase5_game_replay_test.py::test_real_governed_games_replay_exactly",
+    "tests/sports_phase5_game_replay_test.py::test_score_attribution_flags_wrong_team_scoring_in_top",
+    "tests/sports_phase5_game_replay_test.py::test_single_uses_actual_advancement_not_one_base_rule",
+    "tests/sports_phase5_game_replay_test.py::test_source_insufficient_on_non_full_pbp",
+    "tests/sports_phase5_game_replay_test.py::test_strikeout_and_ordinary_out_increment_outs",
+    "tests/sports_phase5_game_replay_test.py::test_walk_off_home_run_in_bottom_ninth",
+    "tests/sports_phase5_game_replay_test.py::test_walk_puts_runner_on_first",
+    "tests/sports_phase5_participation_ablation_test.py::test_all_four_branches_defined",
+    "tests/sports_phase5_participation_ablation_test.py::test_build_team_projections_top9_and_recall",
+    "tests/sports_phase5_participation_ablation_test.py::test_magnitude_thresholds",
+    "tests/sports_phase5_participation_ablation_test.py::test_p0_uses_actual_sequences",
+    "tests/sports_phase5_participation_ablation_test.py::test_p1_projects_lineup_keeps_oracle_pitching",
+    "tests/sports_phase5_participation_ablation_test.py::test_p2_projects_starter_duration_keeps_starter_identity",
+    "tests/sports_phase5_participation_ablation_test.py::test_p3_projects_bullpen_no_actual_reliever_leakage",
+    "tests/sports_phase5_participation_ablation_test.py::test_record_branches_and_no_betting",
+    "tests/sports_phase5_participation_ablation_test.py::test_registry_projection_authority_gated",
+    "tests/sports_phase5_participation_ablation_test.py::test_temporal_resolver_exact_prior_league",
+    "tests/sports_phase5_simulation_input_test.py::test_class_order_is_frozen_eight",
+    "tests/sports_phase5_simulation_input_test.py::test_d3_artifact_missing_file_fails_closed",
+    "tests/sports_phase5_simulation_input_test.py::test_d3_artifact_sha_guard_accepts_matching",
+    "tests/sports_phase5_simulation_input_test.py::test_d3_artifact_sha_guard_rejects_tampered",
+    "tests/sports_phase5_simulation_input_test.py::test_d3_reproduction_sample_bit_exact",
+    "tests/sports_phase5_simulation_input_test.py::test_game_initialization_valid_opener",
+    "tests/sports_phase5_simulation_input_test.py::test_invalid_initialization_rejected",
+    "tests/sports_phase5_simulation_input_test.py::test_no_game_forecast_or_betting_metrics",
+    "tests/sports_phase5_simulation_input_test.py::test_participant_incomplete_when_pbp_not_full",
+    "tests/sports_phase5_simulation_input_test.py::test_participant_pitcher_replay",
+    "tests/sports_phase5_simulation_input_test.py::test_participant_starting_catcher_role_code_two",
+    "tests/sports_phase5_simulation_input_test.py::test_participant_starting_lineup_and_order",
+    "tests/sports_phase5_simulation_input_test.py::test_participant_substitution_replay_detected",
+    "tests/sports_phase5_simulation_input_test.py::test_persisted_record_reports_passed_gates_and_exact_reproduction",
+    "tests/sports_phase5_simulation_input_test.py::test_probability_validation_rules",
+    "tests/sports_phase5_simulation_input_test.py::test_registry_projection_authority_gated",
+    "tests/sports_phase5_simulation_input_test.py::test_rng_lineage_reproducible_and_divergent",
+    "tests/sports_phase5_simulation_input_test.py::test_state_table_authority_mismatch_rejected",
+    "tests/sports_phase5_starter_identity_test.py::test_candidate_pool_and_features_are_prior_date_only",
+    "tests/sports_phase5_starter_identity_test.py::test_doubleheader_two_starters_same_date",
+    "tests/sports_phase5_starter_identity_test.py::test_label_not_leaked_first_game_pool_miss",
+    "tests/sports_phase5_starter_identity_test.py::test_magnitude_classifier",
+    "tests/sports_phase5_starter_identity_test.py::test_model_beats_baseline_on_clean_rotation",
+    "tests/sports_phase5_starter_identity_test.py::test_model_roundtrip",
+    "tests/sports_phase5_starter_identity_test.py::test_q1_override_missing_canonical_keeps_but_flagged",
+    "tests/sports_phase5_starter_identity_test.py::test_q1_override_uses_projected_identity_and_duration",
+    "tests/sports_phase5_starter_identity_test.py::test_rank_metrics_and_baselines",
+    "tests/sports_phase5_starter_identity_test.py::test_record_shape_and_no_betting",
+    "tests/sports_phase5_starter_identity_test.py::test_registry_projection_authority_gated",
+    "tests/sports_phase5_whole_game_mc_test.py::test_brier_logloss",
+    "tests/sports_phase5_whole_game_mc_test.py::test_calibration_bins",
+    "tests/sports_phase5_whole_game_mc_test.py::test_crps_matches_reference",
+    "tests/sports_phase5_whole_game_mc_test.py::test_different_seed_diverges",
+    "tests/sports_phase5_whole_game_mc_test.py::test_extra_innings_occur_and_terminate",
+    "tests/sports_phase5_whole_game_mc_test.py::test_fastd3fold_reproduces_provider",
+    "tests/sports_phase5_whole_game_mc_test.py::test_interval_hits",
+    "tests/sports_phase5_whole_game_mc_test.py::test_no_sportsbook_or_betting_metrics",
+    "tests/sports_phase5_whole_game_mc_test.py::test_record_is_oracle_and_legal",
+    "tests/sports_phase5_whole_game_mc_test.py::test_registry_projection_authority_gated",
+    "tests/sports_phase5_whole_game_mc_test.py::test_requires_fold_or_fixed_probs",
+    "tests/sports_phase5_whole_game_mc_test.py::test_same_seed_reproducible",
+    "tests/sports_phase5_whole_game_mc_test.py::test_score_metrics_bias_sign",
+    "tests/sports_phase5_whole_game_mc_test.py::test_simulate_game_terminates_and_is_legal",
+    "tests/sports_phase5_whole_game_mc_test.py::test_summary_shape",
+    "tests/sports_population_authority_test.py::test_engine_development_constants_agree_with_governed_window",
+    "tests/sports_population_authority_test.py::test_feature_contract_definitions_unchanged_by_the_audit",
+    "tests/sports_population_authority_test.py::test_feature_contract_seasons_are_2023_2025_only",
+    "tests/sports_population_authority_test.py::test_lineage_waterfall_does_not_drop_prior_history",
+    "tests/sports_population_authority_test.py::test_matrix_contains_no_prior_only_history_rows",
+    "tests/sports_population_authority_test.py::test_objective_and_preview_agree_on_the_same_temporal_window",
+    "tests/sports_population_authority_test.py::test_population_payload_declares_source_vs_development_authority",
+    "tests/sports_population_authority_test.py::test_population_payload_reports_2023_development_only",
+    "tests/sports_population_authority_test.py::test_source_evidence_two_layer_counts_and_roles"
+  ],
+  "criticalPatterns": [
+    "sports_cockpit_phase7d5a2_chronology_test",
+    "sports_cockpit_phase7d5a2_source_authority_test",
+    "sports_cockpit_phase7d5a2_silver_integrity_test",
+    "sports_cockpit_phase7d5a2_quarantine_test",
+    "sports_cockpit_phase7d5a2_isolation_guard_test",
+    "sports_cockpit_phase7d5a2_skip_governance_test",
+    "sports_cockpit_phase7d5a_silver_test",
+    "sports_cockpit_phase7d5a_silver_concurrency_test",
+    "sports_cockpit_phase7d5a_reparse_test",
+    "sports_cockpit_phase7d5a_champion2024_test",
+    "sports_cockpit_phase7d5a_cleanup_test",
+    "sports_cockpit_phase7d5a_isolation_test",
+    "sports_cockpit_phase7d5a1_season_roles_test",
+    "sports_modeling_feature_semantics_test"
+  ],
+  "allowedSkips": {
+    "tests.sports_cockpit_correlation_test::test_correlation_computed_on_development_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_correlation_test::test_correlation_is_fold_local_and_bounded": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_correlation_test::test_profile_exposes_iv_screening_threshold": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_correlation_test::test_strong_pairs_are_real": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_is_bounded": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_leaks_no_filesystem_paths": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_rows_are_real_registered_records": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_schema_roles": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_season_filter": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_data_preview_test::test_preview_target_distribution_and_splits": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_gen3_authority_test::test_gen2_selection_executes_gen2_and_gen3_selection_executes_gen3": {
+      "reason": "asserts REAL production development/validation row counts; not meaningful on a synthetic seed",
+      "reasonCode": "REAL_RECONCILIATION_ARTIFACT"
+    },
+    "tests.sports_cockpit_gen3_flow_test::test_1_49223_root_cause_is_model_family_not_config": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_cockpit_gen3_flow_test::test_active_binding_restores_and_latest_server_binding_wins": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_cockpit_gen3_flow_test::test_catalog_lists_gen2_gen3_and_restricted_sealed": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_cockpit_gen3_flow_test::test_flow_error_states_fail_closed": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_cockpit_gen3_flow_test::test_server_authorized_a2_logistic_reproduces_governed_a2_within_tolerance": {
+      "reason": "server-authorized governed-logistic reconciliation not run",
+      "reasonCode": "REAL_RECONCILIATION_ARTIFACT"
+    },
+    "tests.sports_cockpit_gen3_sealed_access_test::test_binding_population_derives_without_opening_any_object": {
+      "reason": "asserts REAL registered per-season row structure (unequal counts); a synthetic seed has equal-sized seasons",
+      "reasonCode": "REAL_DATA_ONLY_UNDER_SYNTHETIC_SEED"
+    },
+    "tests.sports_cockpit_missing_test::test_before_after_histograms_share_bins_and_add_imputed_mass": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_by_season_is_descriptive_and_not_used_for_fitting": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_categorical_features_have_no_missing_or_histogram": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_fill_statistics_are_fold_local_development_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_indicator_applies_only_to_continuous_with_missing": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_method_change_changes_fill_value": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_missing_counts_are_default_sorted_descending": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_most_frequent_is_development_mode": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_none_resolves_to_median_fallback": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_payload_is_non_empty_and_development_scoped": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_missing_test::test_per_feature_override_uses_existing_backend": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_analyzed_features_are_continuous_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_before_after_histograms_share_bins": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_default_sort_is_outlier_count_descending": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_iqr_multiplier_changes_the_result": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_method_change_changes_counts_and_thresholds": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_none_leaves_distribution_unchanged": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_per_feature_override_uses_existing_backend": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_thresholds_are_fold_local_development_2023_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_outliers_test::test_winsorize_exposes_actual_percentile_bounds": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_ablation_produces_verdict": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_calendar_is_temporally_safe_month_range": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_engineered_feature_flows_through_experiment": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_fold_reproduces_model_bitforbit": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_fold_reproduces_subset_with_policies": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_full_lineup_rotation_simulation_runs": {
+      "reason": "feature view / play_transition unavailable",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_full_simulation_rejects_ineligible_model": {
+      "reason": "feature view / play_transition unavailable",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_game_preps_resolve_participants": {
+      "reason": "feature view / play_transition unavailable",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_materialize_all_kinds": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_profile_engineered_returns_iv_mi_and_sim_availability": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_segmentation_grid_dev_boundaries_and_pca": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_segmentation_kmeans_diagnostics": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6b_test::test_segmentation_never_touches_pa_model": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_2021_2022_are_not_in_the_modeling_matrix": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_dbscan_produces_clusters_and_labels_noise[BATTERS]": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_dbscan_produces_clusters_and_labels_noise[PITCHERS]": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_grid_guidance_ranks_real_pairs[BATTERS]": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_grid_guidance_ranks_real_pairs[PITCHERS]": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_kmeans_exposes_size_balance_decision_fields": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_lab_legacy_training_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_preprocessor_fits_on_development_only_frozen_protected": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_temporal_preview_date_holdout_splits_development_by_date": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_temporal_preview_random_is_flagged_research_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_temporal_preview_rolling_never_tunes_on_frozen": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6f_test::test_temporal_preview_season_holdout_real_rows": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_cluster_profiles_have_data_derived_labels": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_dbscan_has_a_recommendation_state": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_grid_quality_score_is_transparent": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_kmeans_exploratory_score_is_transparent_composite": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_profile_exposes_per_class_ovr_iv": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g1_test::test_source_evidence_carries_real_games_batters_pitchers_including_prior_years": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g_test::test_available_families_are_honest": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g_test::test_model_lab_legacy_training_is_retired_and_champion_reference_unchanged": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g_test::test_target_analysis_excludes_prior_only_and_sealed_seasons": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6g_test::test_target_analysis_reports_classes_and_per_season_distribution": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_all_eight_model_families_registered_and_boosters_installed": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_date_holdout_partitions_only_development_2023": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_date_holdout_rejects_invalid_or_out_of_window_dates": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_dbscan_noise_is_cluster_minus_one_and_has_recommendation": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_distinct_configs_legacy_execution_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_every_engineered_kind_materializes_and_profiles": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_feature_builder_rejects_invalid_specs": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_frozen_2025_is_never_a_training_fold_in_any_policy": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_grid_quality_score_matches_formula_and_is_ranked": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_kmeans_recommendedK_equals_documented_argmax_score": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_legacy_ablation_execution_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_legacy_autopilot_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_legacy_fit_and_evaluate_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_preprocessor_is_fold_local_and_frozen_transform_never_mutates_state": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_phase6h_test::test_target_and_identifier_columns_are_never_predictors": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_all_features_and_class_order_frozen": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_autopilot_budget_is_bounded": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_champion_reference_is_2024_only_and_read_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_experiment_rejects_unknown_feature_and_target_leak": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_family_availability_is_honest": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_feature_kinds_and_outlier_eligibility": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_iv_is_one_vs_rest_development_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_legacy_champion_baseline_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_legacy_experiment_execution_is_retired": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_legacy_fit_and_evaluate_is_retired_before_any_data_open": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_missing_indicator_adds_column": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_missing_summary_reports_by_season": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_outlier_bounds_methods": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_outlier_summary_is_fold_local_and_skips_binary": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_preprocessor_fits_on_development_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_profile_reports_real_missing_and_outliers": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_cockpit_test::test_woe_iv_zero_when_no_events": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_dataset_feature_authority_test.SportsDatasetFeatureAuthorityTests::test_live_feature_audit_matches_independent_package_authority": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for package authority tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_feature_authority_test.SportsDatasetFeatureAuthorityTests::test_package_only_identity_authority_blocks_feature_materialization": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for package authority tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_feature_authority_test.SportsDatasetFeatureAuthorityTests::test_schema_authority_excludes_leakage_and_timing_risk_fields": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for package authority tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_changed_partition_hash_schema_and_row_count_are_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_class_order_mismatch_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_exact_golden_package_validates": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_limitation_mismatch_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_manifest_does_not_coerce_scalar_types": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_missing_file_inventory_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_rights_mismatch_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_schema_registry_change_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_second_validation_reuses_only_fully_bound_cache_entries": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_semantic_digest_and_partition_authority_are_independent": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_manifest_consumer_test.GoldenManifestConsumerTests::test_superseded_package_identity_is_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_approved_root_checks_each_unresolved_component": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_bounded_preview_and_read_only_package": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_class_distribution_and_missingness_scan_exact_2025_rows": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_family_season_aggregation_uses_registered_metadata": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_fold_scan_plan_contains_only_logical_registered_partitions": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_metadata_only_registration_and_project_binding": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_missingness_counts_a_wholly_absent_physical_variant": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_only_logical_uris_are_persisted_or_exposed": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_preview_materializes_nulls_for_an_absent_physical_variant_field": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_query_cancellation_is_checked_before_read": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_registration_is_idempotent_and_unique": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_row_and_memory_limits_fail_closed": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_schema_and_feature_eligibility_are_allowlisted": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_dataset_registry_access_test.SportsDatasetRegistryAccessTests::test_shared_cache_lock_and_every_read_authority_checks": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_exact_golden_bridge_validates_through_public_consumer": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_exact_join_audit_matches_all_frozen_authorities": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_frozen_row_authorities_reconcile": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_join_audit_is_public_safe_and_emits_completion_progress": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_manifest_extra_key_and_semantic_change_are_rejected": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_rights_and_one_player_zero_impact_are_fail_closed": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_identity_bridge_consumer_test.GoldenIdentityBridgeTests::test_y_minus_one_counts_and_primary_pa_counts_are_exact": {
+      "reason": "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
+      "reasonCode": "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"
+    },
+    "tests.sports_modeling_phase7_gen3_test::test_2021_2022_anomalies_are_explicitly_quarantined_not_silently_dropped": {
+      "reason": "Gen-3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_modeling_phase7_gen3_test::test_2021_is_fully_prior_blind_and_2022_2023_are_prior_valid": {
+      "reason": "Gen-3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_modeling_phase7_gen3_test::test_gen3_2023_2025_prior_coverage_matches_frozen_gen2_authority": {
+      "reason": "Gen-3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_modeling_phase7_gen3_test::test_gen3_schema_has_the_22_base_features_target_and_season": {
+      "reason": "Gen-3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_modeling_phase7_gen3_test::test_gen3_view_covers_2021_2025_and_reconciliation_present": {
+      "reason": "Gen-3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_modeling_phase7a_authority_test::test_2025_is_physically_absent_from_the_research_object": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_modeling_phase7a_authority_test::test_innings_15_16_are_included_and_only_convention_rows_quarantined": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_modeling_phase7a_authority_test::test_publisher_rejects_symlinked_object_dir": {
+      "reason": "symlink creation not permitted in this environment",
+      "reasonCode": "OS_CAPABILITY_NON_WINDOWS"
+    },
+    "tests.sports_modeling_phase7a_authority_test::test_quarantine_ledger_is_content_addressed_and_row_level": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_modeling_phase7a_authority_test::test_registration_binds_research_and_sealed_objects": {
+      "reason": "Gen-3 v2 authority not published",
+      "reasonCode": "REAL_PUBLISHED_AUTHORITY"
+    },
+    "tests.sports_pa_runner_test.SportsPATrainingRunnerTest::test_assembly_writes_content_addressed_artifacts_and_exact_payload": {
+      "reason": "legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate",
+      "reasonCode": "LEGACY_SHARED_RUNTIME_BOUNDARY"
+    },
+    "tests.sports_pa_runner_test.SportsPATrainingRunnerTest::test_self_consistently_rehashed_tampered_feature_artifact_is_rejected": {
+      "reason": "legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate",
+      "reasonCode": "LEGACY_SHARED_RUNTIME_BOUNDARY"
+    },
+    "tests.sports_phase4_dynamic_runner_test.SportsPhase4DynamicRunnerTest::test_parquet_artifact_type_cannot_be_relabelled": {
+      "reason": "legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate",
+      "reasonCode": "LEGACY_SHARED_RUNTIME_BOUNDARY"
+    },
+    "tests.sports_phase5_game_replay_test::test_real_governed_games_replay_exactly": {
+      "reason": "isolated gate: external FD1 play_transition corpus is out of bounds",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_participation_ablation_test::test_record_branches_and_no_betting": {
+      "reason": "ablation record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_participation_ablation_test::test_registry_projection_authority_gated": {
+      "reason": "ablation record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_simulation_input_test::test_d3_reproduction_sample_bit_exact": {
+      "reason": "governed D3 runtime artifacts not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_simulation_input_test::test_no_game_forecast_or_betting_metrics": {
+      "reason": "simulation-input record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_simulation_input_test::test_persisted_record_reports_passed_gates_and_exact_reproduction": {
+      "reason": "simulation-input record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_simulation_input_test::test_registry_projection_authority_gated": {
+      "reason": "simulation-input record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_simulation_input_test::test_state_table_authority_mismatch_rejected": {
+      "reason": "governed D3 runtime artifacts not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_starter_identity_test::test_record_shape_and_no_betting": {
+      "reason": "starter-identity record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_starter_identity_test::test_registry_projection_authority_gated": {
+      "reason": "starter-identity record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_whole_game_mc_test::test_fastd3fold_reproduces_provider": {
+      "reason": "governed D3 runtime artifacts not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_whole_game_mc_test::test_no_sportsbook_or_betting_metrics": {
+      "reason": "monte-carlo record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_whole_game_mc_test::test_record_is_oracle_and_legal": {
+      "reason": "monte-carlo record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_phase5_whole_game_mc_test::test_registry_projection_authority_gated": {
+      "reason": "monte-carlo record not present",
+      "reasonCode": "HISTORICAL_PHASE5_SIMULATION"
+    },
+    "tests.sports_population_authority_test::test_lineage_waterfall_does_not_drop_prior_history": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_population_authority_test::test_matrix_contains_no_prior_only_history_rows": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_population_authority_test::test_objective_and_preview_agree_on_the_same_temporal_window": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_population_authority_test::test_population_payload_declares_source_vs_development_authority": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_population_authority_test::test_population_payload_reports_2023_development_only": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    },
+    "tests.sports_population_authority_test::test_source_evidence_two_layer_counts_and_roles": {
+      "reason": "D3 feature view not materialized",
+      "reasonCode": "REAL_D3_GEN2_VIEW"
+    }
+  }
+}
