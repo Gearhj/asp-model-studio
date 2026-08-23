@@ -1,0 +1,182 @@
+{
+  "schemaVersion": "CODEX_PHASE7D5A3_ACCEPTANCE_MANIFEST_V1",
+  "manifestVersion": 1,
+  "suiteId": "ASP_MODEL_STUDIO_PHASE_7D5A3_CODEX_RED_SILVER_GATE",
+  "baselineHead": "5ec6c9b7267f0d209fbc93c4397315a9fe5fe216",
+  "repair5Disposition": "PASS_NOT_A_RED_FINDING",
+  "builderConstraints": {
+    "prohibitedActions": [
+      "editing",
+      "deleting",
+      "renaming",
+      "weakening",
+      "skipping",
+      "replacing",
+      "bypassing"
+    ],
+    "testsImmutableToBuilder": true,
+    "runnerImmutableToBuilder": true
+  },
+  "findings": [
+    {
+      "findingId": "R1_SEASON_AND_COLUMN_AUTHORITY",
+      "auditFinding": "Silver publication trusts caller-owned season scope, season derivation, and undeclared source columns, permitting historical rows to be relabeled and post-outcome columns to enter the published object.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_caller_authorized_2019",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_false_season_derivation_callback",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_row_and_receipt_season_disagreement",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_post_home_score",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_unapproved_source_column_even_when_not_named_outcome"
+      ],
+      "currentExpectedFailureBehavior": "At baseline 5ec6c9b production accepts each unsafe caller-controlled season or column condition, so the rejection assertions fail directly.",
+      "requiredCorrectedBehavior": "The server must own the authorized season set and season derivation, reconstruct consistent season evidence across every receipt and output, and reject every source column outside a canonical pre-outcome allowlist.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_transform and server.sports_modeling.silver_publish ingestion/publication boundary",
+      "windowsOnly": false,
+      "subprocessRequired": false
+    },
+    {
+      "findingId": "R2_SOURCE_AND_TRANSFORM_AUTHORITY",
+      "auditFinding": "Source identity can be self-minted or relationally inconsistent, while transform, semantic, family, ordering, generation, and source-authority relationships are incomplete or static.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_source_manifest_embedded_sha_mismatch",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[dataset-id]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[logical-sha]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[schema-sha]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[row-count]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[season-set]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[object-directory-address]",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_rows_cannot_mint_governed_source",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_season_callback_cannot_mint_governed_source",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_silver_requires_server_issued_source_authority",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_semantics_bind_actual_transform_receipt",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_semantics_bind_game_sequence_when_used",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_family_lineage_is_derived_from_verified_members",
+        "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_tcr_binds_all_material_temporal_and_generation_parameters"
+      ],
+      "currentExpectedFailureBehavior": "The source resolver, publisher, and emitted contracts accept forged or incomplete authority and produce mismatched lineage fields, causing every red assertion to fail on the production result.",
+      "requiredCorrectedBehavior": "Only a server-issued canonical source may enter Silver, and verification must reconstruct source, transform-code, semantic-member, ordering, generation, authorized-season, and base-feature authority from immutable receipts.",
+      "affectedProductionBoundary": "Silver source resolver, source issuer, transformation receipt, semantic contracts, feature-family lineage, and feature-set publication",
+      "windowsOnly": false,
+      "subprocessRequired": false
+    },
+    {
+      "findingId": "R3_RELATIONAL_SILVER_VERIFICATION",
+      "auditFinding": "The Silver verifier validates outer child hashes but accepts coordinated re-addressing when embedded self-addresses or cross-child contract relationships are forged.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r3_baseline_is_an_exact_verified_non_self_referential_14_child_object",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[feature-family-body-stale-self-sha]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[semantic-body-stale-self-sha]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[temporal-contract-readdressed]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[population-contract-readdressed]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[knowledge-time-contract-readdressed]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[source-manifest-dataset-relationship]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[source-manifest-logical-relationship]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[source-manifest-row-count-relationship]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[source-manifest-season-relationship]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[value-digest-relational-metadata]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[semantic-to-transformation-receipt]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[family-to-semantic-members]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[feature-set-to-family-and-output]",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_coordinated_readdressed_contract_tampering_is_rejected[publication-manifest-contract-identity]"
+      ],
+      "currentExpectedFailureBehavior": "The valid 14-child positive control passes; each of the fourteen coordinated mutation cases is accepted by the baseline verifier and therefore fails its production rejection assertion.",
+      "requiredCorrectedBehavior": "Verification must recompute embedded self-addresses and reconstruct every source, value, semantic, family, feature-set, transform, output, and publication-manifest relationship from canonical authority.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_publish.verify_silver relational verification",
+      "windowsOnly": false,
+      "subprocessRequired": false
+    },
+    {
+      "findingId": "R4_CANONICAL_QUARANTINE_BOUNDARY",
+      "auditFinding": "Canonical eligibility ignores approvedForTraining=false, and direct persisted-run, estimator, V2 recompute, and V1 recompute paths can bypass a later dataset quarantine.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_baseline_eligible_entry_remains_allowed",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_not_approved_for_training_is_never_selectable",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_listing_discloses_quarantine_only_as_nonselectable",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_binding_rejects_quarantined_dataset",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_run_authority_rejects_quarantined_dataset",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_execution_rejects_preissued_authority_after_quarantine",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_post_quarantine_model_reload_is_rejected",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_post_quarantine_v2_recompute_is_rejected",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_post_quarantine_v1_recompute_is_rejected",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_direct_run_id_cannot_bypass_quarantine",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_direct_artifact_reference_cannot_bypass_quarantine",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_activation_rejects_quarantined_parent",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_active_model_read_rejects_quarantined_parent",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_active_evaluation_rejects_quarantined_parent",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_comparison_initiation_rejects_quarantined_parent",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_comparison_arm_read_rejects_quarantined_parent",
+        "tests/codex_phase7d5a3_red_gate/test_r3_r4.py::test_r4_export_boundary_is_absent"
+      ],
+      "currentExpectedFailureBehavior": "The six required open boundaries accept not-approved or quarantined evidence and fail directly; already-closed listing, binding, execution, activation, active-read, comparison, and no-export controls pass.",
+      "requiredCorrectedBehavior": "Every catalog, binding, execution, activation, reload, recompute, direct run, direct artifact, active-read, comparison, and export boundary must re-evaluate canonical eligibility and fail closed after quarantine.",
+      "affectedProductionBoundary": "server.sports_cockpit.gen3_authority canonical eligibility and all persisted-evidence consumers",
+      "windowsOnly": false,
+      "subprocessRequired": false
+    },
+    {
+      "findingId": "R6_COMPLETE_REPARSE_CONTAINMENT",
+      "auditFinding": "Several Windows filesystem authorities inspect, resolve through, read, or mutate a junction before complete reparse containment is established.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_source_object_directory_junction_rejected_before_read",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_silver_staging_root_junction_rejected_before_create_or_write",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_silver_final_object_directory_junction_rejected_before_iteration",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_silver_registry_parent_junction_rejected_before_write",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_registry_lock_parent_junction_rejected_before_lock_create",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_v2_evidence_directory_junction_rejected_before_manifest_read",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_v2_evidence_child_junction_rejected_before_resolve",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_request_receipt_parent_junction_rejected_before_exists_or_read",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_run_receipt_directory_junction_rejected_before_receipt_read",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_transformation_receipt_junction_rejected_before_reuse_read",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_quarantine_source_junction_rejected_before_iteration",
+        "tests/codex_phase7d5a3_red_gate/test_r6.py::test_quarantine_destination_junction_rejected_before_move"
+      ],
+      "currentExpectedFailureBehavior": "Five already-contained object, staging, registry, and lock boundaries pass; seven evidence, receipt, and quarantine boundaries perform or permit the unsafe operation and fail their rejection assertions.",
+      "requiredCorrectedBehavior": "Every existing ancestor, parent, directory, final object, child, receipt, quarantine source, and quarantine destination must be reparse-checked before exists, iteration, resolution, read, write, mkdir, rename, replace, or move.",
+      "affectedProductionBoundary": "Windows containment in Silver publication, Gen3 V2 evidence/receipt handling, registry locking, and incomplete-namespace quarantine",
+      "windowsOnly": true,
+      "subprocessRequired": true
+    },
+    {
+      "findingId": "R7_DATA_HERMETIC_GATE",
+      "auditFinding": "The isolated-data guard misses common readers, blanket-allows OS temp, swallows installation and manifest failures, permits missing or invalid manifests, and overwrites collection evidence.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_builtin_open_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_path_read_bytes_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_joblib_load_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_pyarrow_dataset_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_os_temp_root_is_not_blanket_allowed",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_install_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_manifest_write_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_collection_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_execution_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_and_execution_manifests_are_distinct",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_violation_cannot_be_overwritten_by_execution",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_gate_fails_when_manifest_schema_is_invalid"
+      ],
+      "currentExpectedFailureBehavior": "All twelve required probes fail because the production guard or committed full-gate runner accepts the bypass, swallows the error, shares/loses the manifest, or lacks schema enforcement.",
+      "requiredCorrectedBehavior": "Every reader entry point must be guarded before ordinary I/O, roots must be narrowly authoritative, installation/write/schema failures must be fatal, and distinct collection/execution evidence must both be present and preserved.",
+      "affectedProductionBoundary": "tests._isolated_data_guard, tests.conftest, and scripts/run_phase7d5a_isolated_gate.ps1",
+      "windowsOnly": false,
+      "subprocessRequired": true
+    },
+    {
+      "findingId": "R8_COLLECTION_AND_SKIP_GOVERNANCE",
+      "auditFinding": "The committed analyzer does not enforce policy schema/version/selection, reverse collection-to-JUnit parity, exact allowed-to-actual skip equality, complete critical authority, or an independently bound category.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_allowed_skip_that_unexpectedly_passes",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_wrong_schema_version_or_selection",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_collected_node_missing_from_junit",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_erased_critical_authority",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_requires_exact_collection_junit_parity",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_requires_exact_allowed_actual_skip_equality",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_changed_skip_reason",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_changed_skip_category"
+      ],
+      "currentExpectedFailureBehavior": "Seven governance mutations false-pass and therefore fail the red assertions; the analyzer already rejects an exact reason change, so that immutable positive boundary passes.",
+      "requiredCorrectedBehavior": "The analyzer must validate exact policy identity and selection, enforce three-way collection/JUnit parity, require exact expected/actual skip equality, preserve all critical authorities, and bind both skip reason and category.",
+      "affectedProductionBoundary": "scripts/phase7d5a_skip_governance.py policy and JUnit/collection analyzer",
+      "windowsOnly": false,
+      "subprocessRequired": true
+    }
+  ]
+}
