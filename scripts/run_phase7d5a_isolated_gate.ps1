@@ -16,7 +16,8 @@
 [CmdletBinding()]
 param(
     [string[]]$Select,
-    [switch]$KeepRoot
+    [switch]$KeepRoot,
+    [switch]$WriteBaseline   # explicit policy update: record the current skip node set as the committed baseline
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -43,9 +44,20 @@ try {
     if (-not $Select -or $Select.Count -eq 0) {
         $Select = (& git ls-files "tests/sports_*_test.py") -split "`n" | Where-Object { $_ -ne "" }
     }
+    $junit = Join-Path $root "gate-junit.xml"
+    $manifest = Join-Path $root "skip-manifest.json"
     Write-Host ("-- running {0} governed test files under isolation --" -f $Select.Count)
-    & $py -m pytest @Select -rsfE -p no:cacheprovider -q
-    $rc = $LASTEXITCODE
+    # -rs surfaces every skip with its reason; --junitxml records skip node IDs + reasons machine-readably
+    & $py -m pytest @Select -rsfE -p no:cacheprovider -q "--junitxml=$junit"
+    $pytestRc = $LASTEXITCODE
+    Write-Host "-- skip governance (fail-closed on critical / unknown / unexpected skips) --"
+    $govArgs = @("scripts/phase7d5a_skip_governance.py", "--junit", $junit, "--out", $manifest)
+    if ($WriteBaseline) { $govArgs += "--write-baseline" }
+    & $py @govArgs
+    $govRc = $LASTEXITCODE
+    Write-Host "-- skip manifest: $manifest --"
+    # the gate fails if pytest failed OR skip governance failed
+    if ($pytestRc -ne 0 -or $govRc -ne 0) { $rc = 1 } else { $rc = 0 }
 }
 finally {
     Pop-Location
