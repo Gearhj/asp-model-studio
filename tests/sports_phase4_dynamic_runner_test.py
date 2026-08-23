@@ -375,6 +375,8 @@ class SportsPhase4DynamicRunnerTest(unittest.TestCase):
         self.assertEqual(final_envelope["payload"]["decision"], component["decision"])
 
     def test_parquet_artifact_type_cannot_be_relabelled(self) -> None:
+        if os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes"):
+            self.skipTest("legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate")
         checkpoint = persist_dynamic_materialization_checkpoint(
             self.state,
             self.history,

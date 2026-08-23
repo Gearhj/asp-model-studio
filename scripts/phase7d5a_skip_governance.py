@@ -66,6 +66,8 @@ REASON_CODES = (
     ("starter", "HISTORICAL_PHASE5_SIMULATION"),
     ("participation ablation", "HISTORICAL_PHASE5_SIMULATION"),
     ("ASP_MODEL_EXCHANGE_ROOT is required", "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"),
+    ("external FD1 play_transition corpus is out of bounds", "ISOLATED_EXTERNAL_CORPUS"),
+    ("shared .runtime governed boundary", "LEGACY_SHARED_RUNTIME_BOUNDARY"),
     ("browser tooling", "OPTIONAL_LIVE_BROWSER_TOOLING"),
     ("playwright", "OPTIONAL_LIVE_BROWSER_TOOLING"),
     ("chromium", "OPTIONAL_LIVE_BROWSER_TOOLING"),

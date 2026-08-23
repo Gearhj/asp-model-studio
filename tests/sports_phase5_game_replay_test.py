@@ -286,6 +286,9 @@ def _load_governed_games(limit: int = 8):
     import os
     from pathlib import Path
 
+    # Repair 7: the external FD1 play_transition corpus is out of bounds under the isolated gate — never reach for it.
+    if os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes"):
+        pytest.skip("isolated gate: external FD1 play_transition corpus is out of bounds")
     exchange = Path(os.getenv("ASP_MODEL_EXCHANGE_ROOT", "") or r"C:/Users/james/asp-model-exchange")
     manifest = "1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49"
     base = exchange / "datasets" / "mlb-fd1" / f"sha256-{manifest}" / "parquet" / "play_transition"
