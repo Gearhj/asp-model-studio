@@ -18,9 +18,7 @@ from server.sports_modeling.feature_contract import EXPECTED_SEASON_ROWS as GEN2
 from server.sports_modeling.feature_view import FeatureViewIntegrityError
 
 REPO = Path(__file__).resolve().parents[1]
-GEN3_PARQUET = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v1/mlb-pa-gen3-feature-view-v1.parquet"
-RECON = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v1/gen3-reconciliation.json"
-_HAS_GEN3 = GEN3_PARQUET.is_file()
+from tests._runtime_probe import GEN3_V1_PARQUET as GEN3_PARQUET, GEN3_V1_RECON as RECON, HAS_REAL_GEN3_V1 as _HAS_GEN3  # real Gen-3 v1 view
 skip_gen3 = pytest.mark.skipif(not _HAS_GEN3, reason="Gen-3 feature view not materialized")
 
 

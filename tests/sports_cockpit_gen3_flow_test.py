@@ -13,8 +13,7 @@ from server.sports_cockpit import gen3_authority as A
 from server.sports_cockpit.gen3_authority import AuthorityError
 
 REPO = Path(__file__).resolve().parents[1]
-GEN3_ROOT = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v2"
-_HAS_V2 = (GEN3_ROOT / "registration.json").is_file()
+from tests._runtime_probe import GEN3_V2_ROOT as GEN3_ROOT, HAS_REAL_GEN3_V2 as _HAS_V2  # real 7A sidecars; skip under synthetic seed
 pytestmark = pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
 
 

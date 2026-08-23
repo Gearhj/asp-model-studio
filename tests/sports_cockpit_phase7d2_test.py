@@ -16,7 +16,7 @@ from server.sports_cockpit import gen3_authority as A
 from server.sports_cockpit import modeling as M
 
 REPO = Path(__file__).resolve().parents[1]
-_HAS_V2 = (REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v2/registration.json").is_file()
+from tests._runtime_probe import HAS_GEN3_V2 as _HAS_V2  # seam-aware: runs on the seeded isolated authority
 
 
 # ============================================================ Gate 11 — code/environment content closure

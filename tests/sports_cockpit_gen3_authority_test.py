@@ -18,7 +18,7 @@ from server.sports_cockpit import gen3_authority as A
 from server.sports_cockpit.gen3_authority import AuthorityError, StaleAuthorityError
 
 REPO = Path(__file__).resolve().parents[1]
-_HAS_V2 = (REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v2/registration.json").is_file()
+from tests._runtime_probe import HAS_GEN3_V2 as _HAS_V2, IS_SYNTHETIC_SEED  # seam-aware: runs on the seeded isolated authority
 pytestmark = pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
 
 ACTOR = "pytest@asp"
@@ -72,6 +72,7 @@ def test_binding_rejects_client_forged_content_sha():
 
 
 # ---------------- Gate 12 (7A.3): Gen-2 / Gen-3 execution distinction ----------------
+@pytest.mark.skipif(IS_SYNTHETIC_SEED, reason="asserts REAL production development/validation row counts; not meaningful on a synthetic seed")
 def test_gen2_selection_executes_gen2_and_gen3_selection_executes_gen3(executed):
     e2, e3 = executed["gen2"]["evidence"], executed["gen3"]["evidence"]
     assert e2["generation"] == "GEN2" and e2["developmentSeasons"] == [2023] and e2["developmentRows"] == 184_104

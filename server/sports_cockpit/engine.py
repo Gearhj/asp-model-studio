@@ -64,13 +64,22 @@ def _resolve_runtime_root() -> Path:
     control, not a request/caller-supplied path: the per-project + object-root containment checks in
     gen3_authority still apply strictly beneath whatever root this resolves, so it introduces no runtime path
     escape. A relative override is rejected (fail-closed)."""
+    default_root = REPO_ROOT / ".runtime" / "asp-model-studio"
+    require_isolated = os.environ.get("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes")
     override = os.environ.get("ASP_MODEL_STUDIO_RUNTIME_ROOT")
     if override:
         p = Path(override)
         if not p.is_absolute():
             raise ValueError("ASP_MODEL_STUDIO_RUNTIME_ROOT must be an absolute path")
-        return p.resolve()
-    return REPO_ROOT / ".runtime" / "asp-model-studio"
+        resolved = p.resolve()
+        if require_isolated and resolved == default_root.resolve():
+            # the isolated gate MUST NOT be pointed back at the shared development .runtime
+            raise ValueError("ASP_REQUIRE_ISOLATED_RUNTIME=1 forbids resolving to the shared development runtime root")
+        return resolved
+    if require_isolated:
+        # fail-closed: the isolated gate demands an explicit throwaway root, never the shared .runtime default
+        raise ValueError("ASP_REQUIRE_ISOLATED_RUNTIME=1 requires an explicit ASP_MODEL_STUDIO_RUNTIME_ROOT override")
+    return default_root
 
 
 RUNTIME_ROOT = _resolve_runtime_root()

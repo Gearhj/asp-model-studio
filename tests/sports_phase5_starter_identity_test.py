@@ -20,7 +20,8 @@ from server.sports_phase5 import starter_identity as si
 from server.sports_phase5.participation_projection import TeamProjection
 
 REPO = Path(__file__).resolve().parents[1]
-REC = REPO / ".runtime/asp-model-studio/sports-phase5/starter-identity/latest.starter.json"
+from server.sports_cockpit.engine import RUNTIME_ROOT  # seam-aware runtime root
+REC = RUNTIME_ROOT / "sports-phase5/starter-identity/latest.starter.json"
 
 _spec = importlib.util.spec_from_file_location("p5f_cli", REPO / "scripts" / "run_mlb_starter_identity.py")
 cli = importlib.util.module_from_spec(_spec)

@@ -91,22 +91,15 @@ def _table(seasons, per_class=14, seed=1, with_advanced=True):
     return pa.table({k: (pa.array(v, pa.int16()) if k == "season" else v) for k, v in cols.items()}, schema=schema)
 
 
-def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] | None = None,
-                        migrate: bool = True) -> dict[str, Any]:
-    """Publish real Gen-3 + Gen-2 objects into isolated temp roots through the ACTUAL publisher, register the
-    advanced V2 feature set, migrate the canonical registry, and return handles. `advanced_spec` overrides the
-    registered advanced feature-set (used by the leaky-variant production-path rejection tests). `migrate=False`
-    leaves the sidecars unmigrated so a concurrency test can race the FIRST canonical registry migration.
-
-    The physical layout (tmp_path/sports-modeling/... + tmp_path/artifacts/datasets/registry.json) is EXACTLY
-    what ``ASP_MODEL_STUDIO_RUNTIME_ROOT=<tmp_path>`` resolves to, so a subprocess launched with that env var
-    resolves the SAME roots — this is the shared substrate for the interprocess / HTTP / isolated-root batteries."""
-    gen3 = tmp_path / "sports-modeling" / "mlb-pa-gen3-v2"
-    gen2 = tmp_path / "sports-modeling" / "mlb-pa-gen2-v1"
-    monkeypatch.setattr(A, "GEN3_ROOT", gen3)
-    monkeypatch.setattr(A, "GEN2_ROOT", gen2)
-    monkeypatch.setattr(A, "STATE_ROOT", gen3 / "authority")
-    monkeypatch.setattr(A, "ASP_REGISTRY", tmp_path / "artifacts" / "datasets" / "registry.json")
+def _seed_objects(*, advanced_spec: dict[str, Any] | None = None, migrate: bool = True) -> dict[str, Any]:
+    """Publish the real Gen-3 + Gen-2 objects into whatever ``A.GEN3_ROOT`` / ``A.GEN2_ROOT`` currently resolve to,
+    through the ACTUAL production publisher, and (optionally) migrate the canonical registry. The roots are read
+    from the module globals so the SAME body serves both isolation seams: the pytest fixture monkeypatches them to
+    a tmp tree, and the committed governed seeder (``tests/_governed_runtime_seed``) runs under
+    ``ASP_MODEL_STUDIO_RUNTIME_ROOT=<throwaway>`` so the import-time seam already points them at the isolated root.
+    No monkeypatch, no ``.runtime`` copy — the objects are published fresh from committed code every time."""
+    gen3 = A.GEN3_ROOT
+    gen2 = A.GEN2_ROOT
     A._VERIFIED_OBJECT_CACHE.clear()
     contracts = C.all_contracts()
     bundle = C.contract_bundle_sha_for("GEN3")
@@ -150,4 +143,24 @@ def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] 
     if migrate:
         A.migrate_registry()
     return {"gen3Root": gen3, "gen2Root": gen2, "researchId": reg["registrationId"],
-            "advancedFeature": ADVANCED_FEATURE, "advancedFamily": ADVANCED_FAMILY, "runtimeRoot": tmp_path}
+            "advancedFeature": ADVANCED_FEATURE, "advancedFamily": ADVANCED_FAMILY, "runtimeRoot": gen3.parent.parent}
+
+
+def build_hermetic_gen3(tmp_path, monkeypatch, *, advanced_spec: dict[str, Any] | None = None,
+                        migrate: bool = True) -> dict[str, Any]:
+    """Publish real Gen-3 + Gen-2 objects into isolated temp roots through the ACTUAL publisher, register the
+    advanced V2 feature set, migrate the canonical registry, and return handles. `advanced_spec` overrides the
+    registered advanced feature-set (used by the leaky-variant production-path rejection tests). `migrate=False`
+    leaves the sidecars unmigrated so a concurrency test can race the FIRST canonical registry migration.
+
+    The physical layout (tmp_path/sports-modeling/... + tmp_path/artifacts/datasets/registry.json) is EXACTLY
+    what ``ASP_MODEL_STUDIO_RUNTIME_ROOT=<tmp_path>`` resolves to, so a subprocess launched with that env var
+    resolves the SAME roots — this is the shared substrate for the interprocess / HTTP / isolated-root batteries."""
+    gen3 = tmp_path / "sports-modeling" / "mlb-pa-gen3-v2"
+    gen2 = tmp_path / "sports-modeling" / "mlb-pa-gen2-v1"
+    monkeypatch.setattr(A, "GEN3_ROOT", gen3)
+    monkeypatch.setattr(A, "GEN2_ROOT", gen2)
+    monkeypatch.setattr(A, "STATE_ROOT", gen3 / "authority")
+    monkeypatch.setattr(A, "ASP_REGISTRY", tmp_path / "artifacts" / "datasets" / "registry.json")
+    A._VERIFIED_OBJECT_CACHE.clear()
+    return _seed_objects(advanced_spec=advanced_spec, migrate=migrate)

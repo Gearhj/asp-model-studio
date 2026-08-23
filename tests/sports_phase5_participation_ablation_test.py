@@ -21,7 +21,8 @@ from server.sports_phase5.participation_projection import (
 from server.sports_phase4.dynamic_contract import STATE_VALUE_COLUMNS
 
 REPO = Path(__file__).resolve().parents[1]
-REC = REPO / ".runtime/asp-model-studio/sports-phase5/projected-participation-ablation/latest.ablation.json"
+from server.sports_cockpit.engine import RUNTIME_ROOT  # seam-aware runtime root
+REC = RUNTIME_ROOT / "sports-phase5/projected-participation-ablation/latest.ablation.json"
 
 _spec = importlib.util.spec_from_file_location("p5e_cli", REPO / "scripts" / "run_mlb_projected_participation_ablation.py")
 cli = importlib.util.module_from_spec(_spec)

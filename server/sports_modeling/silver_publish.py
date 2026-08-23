@@ -213,13 +213,20 @@ def publish_silver(*, silver_root: Path, source_object_id: str, source_receipt_s
         (staging / "feature-family-contract.json").write_bytes(canonical_json_bytes(family))
         (staging / "feature-set-contract.json").write_bytes(canonical_json_bytes(fsc))
         (staging / "manifest.json").write_bytes(canonical_json_bytes(manifest))
-        if final.exists():
+        published = False
+        if not final.exists():
+            try:
+                os.replace(staging, final)                             # atomic create-once publish
+                published = True
+            except OSError:
+                # lost the create race to a concurrent publisher (on Windows an os.replace onto a now-existing
+                # non-empty dir raises WinError 5, not FileExistsError) -> fall through to the reuse/conflict check
+                published = False
+        if not published:
             existing = final / "manifest.json"
             if not (existing.is_file() and existing.read_bytes() == canonical_json_bytes(manifest)):
                 raise SilverPublishError("Silver content-address conflict (published during staging)")
             # idempotent: another process published byte-identical content concurrently -> reuse it
-        else:
-            os.replace(staging, final)
     finally:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)

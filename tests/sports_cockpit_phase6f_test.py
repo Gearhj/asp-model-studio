@@ -17,7 +17,9 @@ from server.sports_cockpit import segmentation as SEG
 
 _HAS_VIEW = True
 try:
+    from tests._runtime_probe import IS_SYNTHETIC_SEED as _IS_SYNTHETIC_SEED
     E._feature_view_path()
+    _HAS_VIEW = not _IS_SYNTHETIC_SEED   # real D3/Gen-2 view only; a synthetic seed fails real-data assertions
 except Exception:
     _HAS_VIEW = False
 
