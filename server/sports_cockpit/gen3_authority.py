@@ -428,18 +428,83 @@ def catalog() -> list[dict[str, Any]]:
     """The canonical modeling-dataset catalog — the NON-ARCHIVED entries of the sole canonical registry.
     Opens no modeling or sealed object and reads no target rows (Gate 1/4/7)."""
     reg = _canonical_registry()
+    _assert_registry_consistency(reg["datasets"])          # Repair 4: a contradictory registry fails closed here
     return [_with_object_path(d) for d in reg["datasets"] if not d.get("archived")]
 
 
 def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     if not isinstance(dataset_version_id, str) or not _ID_RE.match(dataset_version_id):
         raise AuthorityError("invalid dataset version id")
+    if dataset_version_id.startswith("silver:"):
+        raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
     for entry in catalog():
         if entry["datasetVersionId"] == dataset_version_id:
             if entry.get("archived"):
                 raise AuthorityError("dataset version is archived and not resolvable")
             return entry
     raise AuthorityError(f"dataset version not found in the canonical registry: {dataset_version_id}")
+
+
+# --------------------------------------------------------------------------- Repair 4 (7D.5A.2): ONE eligibility decision
+_QUARANTINE_STATUSES = {"QUARANTINED", "SILVER_NORMALIZED", "SEALED_OOT_RESTRICTED"}
+
+
+def _entry_flags(entry: Mapping[str, Any]) -> dict[str, bool]:
+    dsid = str(entry.get("datasetVersionId", ""))
+    status = str(entry.get("status", "")).upper()
+    return {
+        "silver": dsid.startswith("silver:"),
+        "selectable": bool(entry.get("selectable")),
+        "quarantined": (entry.get("quarantine") in (True, "QUARANTINED")) or status in _QUARANTINE_STATUSES,
+        "sealed": str(entry.get("generation", "")).endswith("_SEALED") or status == "SEALED_OOT_RESTRICTED",
+        "archived": bool(entry.get("archived")),
+        "modelIneligible": entry.get("modelEligible", True) is False,
+        "notApproved": entry.get("approvedForTraining", True) is False,
+    }
+
+
+def assert_registry_entry_consistent(entry: Mapping[str, Any]) -> None:
+    """A registry entry whose fields CONTRADICT each other is structurally invalid and fails closed — a stale or
+    forged 'quarantined + selectable' (etc.) entry can never be honored."""
+    f = _entry_flags(entry)
+    dsid = entry.get("datasetVersionId")
+    if f["quarantined"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (quarantined AND selectable): {dsid}")
+    if f["modelIneligible"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (not model-eligible AND selectable): {dsid}")
+    if f["sealed"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (sealed AND selectable): {dsid}")
+    if f["archived"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (archived AND selectable): {dsid}")
+    if f["silver"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (silver AND selectable): {dsid}")
+
+
+def assert_canonical_eligibility(entry_or_id: Any) -> None:
+    """The ONE modeling-eligibility decision, re-checked at every ordinary-model boundary (selection, binding,
+    run-authority, execution, activation). Fails closed on a 'silver:' id, a contradictory entry, or a
+    quarantined / sealed / archived / non-selectable / not-model-eligible / not-approved dataset. A caller-supplied
+    ``selectable``/``modelEligible`` cannot override status, because status→quarantine is evaluated independently."""
+    if isinstance(entry_or_id, str):
+        if entry_or_id.startswith("silver:"):
+            raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
+        return
+    entry = entry_or_id
+    assert_registry_entry_consistent(entry)
+    f = _entry_flags(entry)
+    if f["silver"]:
+        raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: quarantined Silver dataset")
+    if not f["selectable"]:
+        raise AuthorityError("dataset version is not selectable for ordinary development")
+    if f["quarantined"] or f["sealed"] or f["archived"]:
+        raise AuthorityError("dataset is quarantined/sealed/archived and is not model-eligible")
+    if f["modelIneligible"]:
+        raise AuthorityError("dataset is not model-eligible")
+
+
+def _assert_registry_consistency(datasets) -> None:
+    for e in datasets:
+        assert_registry_entry_consistent(e)
 
 
 VERIFIED_RESEARCH_OBJECT_SCHEMA = "VERIFIED_RESEARCH_OBJECT_V1"
@@ -656,9 +721,9 @@ def _active_pointer(project_id: str) -> dict[str, Any] | None:
 def create_binding(*, actor: str, project_id: str, dataset_version_id: str,
                    expected_content_sha: str | None = None, expected_revision: int | None = None,
                    revision_reason: str | None = None) -> dict[str, Any]:
+    assert_canonical_eligibility(dataset_version_id)       # Repair 4: reject a silver: id before resolution
     entry = _resolve_version(dataset_version_id)
-    if not entry.get("selectable", False):
-        raise AuthorityError("dataset version is not selectable for ordinary development")
+    assert_canonical_eligibility(entry)                    # the ONE eligibility decision (selectable + non-contradictory)
     if expected_content_sha and expected_content_sha != entry["logicalContentSha256"]:
         raise AuthorityError("client-asserted content sha does not match the registered object")
     _verify_object(entry)
@@ -962,6 +1027,7 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
         raise AuthorityError(f"unsupported model family: {model_family}")
     binding = _require_active_binding(project_id, binding_id)  # only the current active binding may authorize
     entry = _resolve_version(binding["datasetVersionId"])
+    assert_canonical_eligibility(entry)                       # Repair 4: re-check eligibility at the run-authority boundary
     if entry["logicalContentSha256"] != binding["datasetContentSha256"]:
         raise StaleAuthorityError("binding is stale: registered content sha changed")
     fsc = _resolve_feature_set(entry, feature_set)  # generation-specific ordered feature-set contract
@@ -1791,6 +1857,7 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
 def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
     authority = get_run_authority(project_id=project_id, run_authority_id=run_authority_id)
     entry, path, receipt = _validate_authority(authority, project_id)
+    assert_canonical_eligibility(entry)                       # Repair 4: re-check eligibility at the execution boundary
     dev_seasons = list(authority["developmentSeasons"]); val_season = int(authority["validationSeason"])
     sealed = set(entry.get("sealedSeasons") or [])
     feature_order = list(authority["featureSet"])   # Gate 9 — the bound generation-specific ordered set
@@ -2233,6 +2300,7 @@ def activate_candidate(*, actor: str, project_id: str, run_id: str,
     binding = active_binding(project_id=project_id)
     if binding is None:
         raise AuthorityError("no active binding for project")
+    assert_canonical_eligibility(_resolve_version(binding["datasetVersionId"]))   # Repair 4: re-check at activation
     if expected_binding_revision is not None and int(binding["revision"]) != int(expected_binding_revision):
         raise StaleAuthorityError("expected active binding revision does not match the current active binding")
     v = verify_canonical_model_run_chain(project_id=project_id, run_id=run_id,
