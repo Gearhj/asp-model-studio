@@ -22,6 +22,7 @@ import pyarrow.compute as pc
 from server.sports_cockpit import gen3_authority as A
 from server.sports_modeling import feature_semantics as FS
 from server.sports_modeling import gen3_contracts as C
+from server.sports_modeling import silver_transform as ST
 from server.sports_modeling.gen3_publish import publish_object
 from server.sports_modeling.feature_contract import FEATURE_NAMES
 from server.sports_modeling.metrics import PA_CLASS_ORDER
@@ -70,11 +71,16 @@ def _table(seasons, per_class=14, seed=1, with_advanced=True):
                 for f in FEATURE_NAMES:
                     r[f] = float(rng.choice(_CATEG[f])) if f in _CATEG else (
                         float(rng.integers(1, 10)) if f == "context_inning" else float(rng.random()))
-                if with_advanced:
-                    prior_pa = float(rng.integers(0, 700))               # a real prior-season PA count
-                    r["prior_pa_count"] = prior_pa
-                    r[ADVANCED_FEATURE] = float(np.log1p(prior_pa)) + 0.001 * float(ci)  # safe derived + faint signal
                 rows.append(r)
+    if with_advanced:
+        # Phase 7D.5A: GENUINE point-in-time features (no target term). prior_pa_count = count of strictly-earlier
+        # PAs for the same batter; log1p_prior_pa_count = log1p(that). Computed from identity/order columns only.
+        proj = [{"batter_canonical_player_uuid": r["batter_canonical_player_uuid"], "game_date": r["game_date"],
+                 "game_id": r["game_id"], "plate_appearance_id": r["plate_appearance_id"]} for r in rows]
+        feats = ST.compute_prior_pa(proj)
+        for r, f in zip(rows, feats):
+            r["prior_pa_count"] = f[ST.PRIOR_PA_COUNT]
+            r[ADVANCED_FEATURE] = f[ST.LOG1P_PRIOR_PA_COUNT]
     cols = {k: [r[k] for r in rows] for k in rows[0]}
     fields = [("plate_appearance_id", pa.string()), ("game_id", pa.string()), ("game_date", pa.string()),
               ("season", pa.int16()), ("outcome", pa.string()), ("batter_canonical_player_uuid", pa.string()),

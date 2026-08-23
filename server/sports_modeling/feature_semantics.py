@@ -157,18 +157,27 @@ def build_semantic_contract(*, feature_id: str, display_name: str, family_id: st
                             target_relationship_classification: str = "INDEPENDENT_OF_TARGET_PA_OUTCOME",
                             dtype: str = "float64", nullable: bool = False,
                             simulator_availability: str = "PREGAME_PRIOR_RESOLVED",
-                            source_terms: str = "declared historical fixture") -> dict[str, Any]:
+                            source_terms: str = "declared historical fixture",
+                            partition_columns: list[str] | None = None, order_columns: list[str] | None = None,
+                            derivation_type: str = "DECLARED_DERIVATION") -> dict[str, Any]:
     """Generic immutable semantic-contract constructor (Gate 1) for an advanced/derived feature — used to
     register a scientifically-safe advanced feature (and, in tests, to construct the leaky variants that the
     validator must reject). The record carries the SAME mandatory lineage/derivation/as-of/knowledge-time
-    fields as a base feature; nothing is authorized merely because a column exists."""
+    fields as a base feature; nothing is authorized merely because a column exists.
+
+    ``partition_columns`` / ``order_columns`` (Phase 7D.5A) declare grouping/ordering KEYS for a point-in-time
+    aggregation feature (e.g. a per-batter count of strictly-earlier PAs). Identity/temporal keys may appear
+    there — they determine the aggregation, not the feature's numeric VALUE — but the target / post-PA / future
+    prohibition still applies to them, and an identifier may enter ``source_columns`` only when it is also a
+    declared partition/order key."""
     payload = {
         "contractVersion": SEMANTIC_CONTRACT_VERSION,
         "featureId": feature_id, "featureName": feature_id, "displayName": display_name,
         "dtype": dtype, "nullable": bool(nullable), "featureFamilyId": family_id,
         "sourceObjectIds": list(source_object_ids), "sourceReceiptShas": list(source_receipt_shas),
         "sourceColumns": list(source_columns),
-        "derivationType": "DECLARED_DERIVATION", "canonicalDerivation": canonical_derivation,
+        "partitionColumns": list(partition_columns or []), "orderColumns": list(order_columns or []),
+        "derivationType": derivation_type, "canonicalDerivation": canonical_derivation,
         "derivationCodeDigest": derivation_code_digest, "derivationVersion": derivation_version,
         "grain": "PLATE_APPEARANCE", "knowledgeTimeClass": knowledge_time_class, "asOfRule": as_of_rule,
         "windowRule": window_rule, "allowedSeasons": list(allowed_seasons),
@@ -227,13 +236,20 @@ def validate_feature_semantic_contract(contract: Mapping[str, Any]) -> None:
         raise LeakageError("the target column may never be authorized as a predictor")
     if fid in IDENTIFIER_COLUMNS:
         raise LeakageError(f"identifier column {fid!r} may never be an ordinary numeric predictor")
-    # a prohibited (post-PA/target/future) field may never appear as a derivation source
-    leaked = set(str(c) for c in p.get("sourceColumns", [])) & PROHIBITED_SOURCE_FIELDS
+    # a prohibited (post-PA/target/future) field may never appear as ANY source/partition/order key
+    src = set(str(c) for c in p.get("sourceColumns", []))
+    partition = set(str(c) for c in p.get("partitionColumns", []))
+    order = set(str(c) for c in p.get("orderColumns", []))
+    leaked = (src | partition | order) & PROHIBITED_SOURCE_FIELDS
     if leaked:
         raise LeakageError(f"feature {fid!r} derives from prohibited source field(s): {sorted(leaked)}")
-    id_leaked = set(str(c) for c in p.get("sourceColumns", [])) & IDENTIFIER_COLUMNS
+    # an identifier column may enter the derivation ONLY as a declared partition/order key (grouping/ordering),
+    # never as a VALUE source (which would encode identity into the numeric feature).
+    value_source = src - partition - order
+    id_leaked = value_source & IDENTIFIER_COLUMNS
     if id_leaked:
-        raise LeakageError(f"feature {fid!r} derives its VALUE from identifier column(s): {sorted(id_leaked)}")
+        raise LeakageError(f"feature {fid!r} derives its VALUE from identifier column(s) (not as a partition/order "
+                           f"key): {sorted(id_leaked)}")
 
 
 def validate_registered_feature(contract: Mapping[str, Any]) -> dict[str, Any]:
