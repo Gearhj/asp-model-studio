@@ -96,10 +96,19 @@ FEATURE_VIEW_GLOB = str(
 
 DEV_SEASON = 2023
 VAL_SEASON = 2024
-FROZEN_SEASON = 2025
-# Phase 7C: the ordinary engine frame is research-only (2023 dev + 2024 val). 2025 is sealed and is never
-# a target season for any legacy in-process route (no target distribution, preview, or scoring).
-TARGET_SEASONS = (DEV_SEASON, VAL_SEASON)
+FROZEN_SEASON = 2025  # physically SEALED out-of-time evidence — NEVER an ordinary modeling/scoring season
+
+# Phase 7D.5A.1 — EXPLICIT season-role authority (replaces the ambiguous ``TARGET_SEASONS`` name, which read
+# like "all target seasons" but meant only the ordinary modeling window). Ordinary cockpit modeling fits on
+# DEVELOPMENT and validates on VALIDATION; the frozen 2025 season is sealed evidence and is never an ordinary
+# modeling/scoring/selection season. ALL_GOVERNED_SEASONS is the full physical inventory (INCLUDING sealed 2025)
+# and must NEVER be used to authorize an ordinary model path — no fallback may substitute it for a missing
+# ordinary-season definition.
+DEVELOPMENT_SEASONS = (DEV_SEASON,)
+VALIDATION_SEASONS = (VAL_SEASON,)
+SEALED_EVIDENCE_SEASONS = (FROZEN_SEASON,)
+MODELING_SEASONS = (DEV_SEASON, VAL_SEASON)  # ordinary fit + validate window; EXCLUDES sealed 2025
+ALL_GOVERNED_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)  # full physical inventory (incl. sealed)
 
 # Phase 6E.1 — full registered source-evidence authority. Counts and season roles are read from the
 # governed FD1 dataset manifest `seasons` block (2021-2022 = PRIOR_ONLY_HISTORY, 2023-2025 =
@@ -332,7 +341,7 @@ def objective_payload() -> dict[str, Any]:
         "targetColumn": "outcome",
         "targetDistribution": distribution,
         "totalRows": total,
-        "seasons": list(TARGET_SEASONS),
+        "seasons": list(MODELING_SEASONS),
         "champion": {
             "modelId": "D3 (candidate C4)",
             "family": "Logistic Regression (multinomial)",
@@ -352,7 +361,7 @@ def objective_payload() -> dict[str, Any]:
 def population_payload() -> dict[str, Any]:
     frame = load_frame()
     per_season = []
-    for season in TARGET_SEASONS:
+    for season in MODELING_SEASONS:
         mask = _season_mask(frame, season)
         sub = frame.loc[mask]
         per_season.append(
@@ -535,7 +544,7 @@ def feature_profile(force: bool = False) -> dict[str, Any]:
             outlier_count = int(((finite_vals < lo) | (finite_vals > hi)).sum())
         # Drift: mean per season
         season_means = {}
-        for season in TARGET_SEASONS:
+        for season in MODELING_SEASONS:
             sc = col[_season_mask(frame, season)]
             scf = sc[np.isfinite(sc)]
             season_means[str(season)] = float(scf.mean()) if scf.size else None
@@ -706,7 +715,7 @@ def target_analysis() -> dict[str, Any]:
     counts = frame["outcome"].value_counts()
     overall = [{"class": c, "count": int(counts.get(c, 0)), "share": float(counts.get(c, 0) / total)} for c in PA_CLASS_ORDER]
     per_season = []
-    for s in TARGET_SEASONS:
+    for s in MODELING_SEASONS:
         sub = frame.loc[_season_mask(frame, s), "outcome"]
         n = int(len(sub))
         vc = sub.value_counts()
@@ -731,8 +740,8 @@ def target_analysis() -> dict[str, Any]:
         "dominantClass": {"class": dominant["class"], "share": dominant["share"]},
         "rarestClass": {"class": rarest["class"], "share": rarest["share"]},
         "imbalanceRatio": float(dominant["share"] / rarest["share"]) if rarest["share"] > 0 else None,
-        "modelingSeasons": list(TARGET_SEASONS),
-        "note": "Class distribution over the modeling target rows (2023-2025). 2021-2022 are prior-only history and are not target rows; their raw outcomes live in the Data Warehouse, not the modeling matrix.",
+        "modelingSeasons": list(MODELING_SEASONS),
+        "note": "Class distribution over the ordinary modeling target rows (2023 development + 2024 validation). 2025 is sealed out-of-time evidence and is not an ordinary modeling season; 2021-2022 are prior-only history and are not target rows; their raw outcomes live in the Data Warehouse, not the modeling matrix.",
     }
 
 
@@ -880,7 +889,7 @@ def feature_detail(name: str) -> dict[str, Any]:
             {"lo": float(edges[i]), "hi": float(edges[i + 1]), "count": int(counts[i])}
             for i in range(len(counts))
         ]
-        for season in TARGET_SEASONS:
+        for season in MODELING_SEASONS:
             sc = col[_season_mask(frame, season)]
             scf = sc[np.isfinite(sc)]
             c, _ = np.histogram(np.clip(scf, lo, hi), bins=edges) if scf.size else (np.zeros(30), None)
