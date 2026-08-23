@@ -175,15 +175,17 @@ def main() -> int:
     # (2) collection digest
     if collection_digest(collected) != policy["collectionDigest"]:
         fails.append("COLLECTION DIGEST MISMATCH")
-    # (3) every critical pattern must be collected at least once; every critical node not skipped and passing
+    # (3) every critical pattern must be collected at least once (collected namespace); and every critical node in
+    # the junit must have PASSED (junit namespace). parse_collected yields file-path ids and parse_junit yields
+    # classname ids, so each check stays within its own namespace (is_critical matches the file substring in both).
     for pat in policy["criticalPatterns"]:
         if not any(pat in n for n in collected):
             fails.append(f"CRITICAL FILE NOT COLLECTED: {pat}")
-    for n in collected:
-        if is_critical(n):
-            st = junit.get(n, {}).get("status", "MISSING_FROM_JUNIT")
-            if st != "passed":
-                fails.append(f"CRITICAL NODE not passed (status={st}): {n}")
+        if not any(pat in n for n in junit):
+            fails.append(f"CRITICAL FILE NOT EXECUTED (absent from junit): {pat}")
+    for n, v in junit.items():
+        if is_critical(n) and v["status"] != "passed":
+            fails.append(f"CRITICAL NODE not passed (status={v['status']}): {n}")
     # (4) skips: exact allowed-skip match (reason + code)
     grouped: dict[str, list[str]] = {}
     for n, reason in sorted(skipped.items()):
