@@ -29,8 +29,12 @@ def test_play_transition_glob_uses_exchange_when_not_isolated(monkeypatch):
 
 
 def _guarded(monkeypatch, tmp_path):
-    """Activate the guard's decision with controlled roots (no global reader wrapping in this unit test)."""
+    """Activate the guard's decision with controlled roots (no global reader wrapping in this unit test). The
+    intentional violations these tests trigger are captured in a LOCAL list so they never contaminate the real
+    isolated-gate session manifest."""
     monkeypatch.setitem(G._installed, "on", True)
+    monkeypatch.setattr(G, "_violations", [])       # isolate this test's intentional violations
+    monkeypatch.setattr(G, "_current_nodeid", {"id": "<unit-test>"})
     iso_runtime = tmp_path / "iso-runtime"
     repo = tmp_path / "repo"
     real_rt = repo / ".runtime"

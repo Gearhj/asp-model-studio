@@ -1,30 +1,42 @@
-"""Phase 7D.5A.1 (Workstream 2) — fail-closed skip governance for the isolated governed gate.
+"""Phase 7D.5A.2 (Repair 8) — COLLECTION-AWARE, policy-driven, fail-closed skip governance for the isolated gate.
 
-Parses a pytest JUnit XML, classifies EVERY skipped test against an explicit policy, and fails closed when:
-  * a Phase-7D.5A CRITICAL ingress-safety test is skipped (never permitted — a missing synthetic fixture is not
-    permission to skip a safety behavior);
-  * a skip reason does not match any allowed, explicitly-justified category (unknown/unclassified);
-  * a NEW skip node appears that is not in the committed baseline allowlist (an unexpected skip-set change).
-It emits a machine-readable skip manifest (grouped by category, with counts and node lists) to the log dir.
+The prior analyzer only evaluated tests that appeared as skipped in JUnit — a critical test silently dropped from
+COLLECTION would go unnoticed — and classified reasons with broad substrings. This version enforces an EXACT,
+versioned gate policy (``scripts/phase7d5a_gate_policy.json``):
+
+  * runs ``pytest --collect-only`` first and compares the EXACT collected node set + a collection digest against the
+    policy — an expected node that disappears, an unexpected node that appears, or a critical node that is not
+    collected fails the gate;
+  * every CRITICAL node must be collected, must not be skipped, and must PASS;
+  * every skipped node must be an explicitly-listed allowed skip whose EXACT normalized reason code AND reason match
+    the policy — an unknown node, a changed reason, or a changed category fails the gate.
+
+The policy is NEVER regenerated automatically; ``--write-policy`` records it as a deliberate, reviewed action.
 
 Usage:
-    python scripts/phase7d5a_skip_governance.py --junit <gate-junit.xml> --out <skip-manifest.json>
-                                                [--baseline scripts/phase7d5a_skip_baseline.json]
-                                                [--write-baseline]
-
-Exit code 0 = governance passed; non-zero = a governance violation (the gate must fail).
+    python scripts/phase7d5a_skip_governance.py --collected <collected.txt> --junit <gate-junit.xml>
+                                                --out <skip-manifest.json> [--policy <policy.json>] [--write-policy]
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# ---- CRITICAL Phase-7D.5A ingress-safety test files: ANY skip of a test in these files is a violation. ------
+POLICY_SCHEMA = "PHASE_7D5A2_GATE_POLICY_V1"
+DEFAULT_POLICY = Path(__file__).with_name("phase7d5a_gate_policy.json")
+
+# CRITICAL Phase-7D.5A/.2 ingress-safety test files: any of their nodes must be collected, not skipped, and pass.
 CRITICAL_FILE_PATTERNS = (
+    "sports_cockpit_phase7d5a2_chronology_test",
+    "sports_cockpit_phase7d5a2_source_authority_test",
+    "sports_cockpit_phase7d5a2_silver_integrity_test",
+    "sports_cockpit_phase7d5a2_quarantine_test",
+    "sports_cockpit_phase7d5a2_isolation_guard_test",
+    "sports_cockpit_phase7d5a2_skip_governance_test",
     "sports_cockpit_phase7d5a_silver_test",
     "sports_cockpit_phase7d5a_silver_concurrency_test",
     "sports_cockpit_phase7d5a_reparse_test",
@@ -35,141 +47,173 @@ CRITICAL_FILE_PATTERNS = (
     "sports_modeling_feature_semantics_test",
 )
 
-# ---- Allowed, explicitly-justified NON-CRITICAL skip categories: reason-substring -> category label. --------
-# Each is an out-of-scope requirement that cannot be satisfied by small hermetic data without copying the
-# shared runtime (forbidden), and whose equivalent critical behavior is covered hermetically elsewhere.
-ALLOWED_CATEGORIES = (
-    ("D3 feature view not materialized", "real_d3_gen2_view"),
-    ("feature view not materialized", "real_d3_gen2_view"),
-    ("feature view / play_transition", "real_d3_gen2_view"),
-    ("Gen-3 v2 authority not published", "real_published_authority"),
-    ("Gen-3 feature view not materialized", "real_gen3_v1_view"),
-    ("reconciliation not run", "real_reconciliation_artifact"),
-    ("governed-logistic reconciliation", "real_reconciliation_artifact"),
-    ("REAL production development", "real_reconciliation_artifact"),
-    ("synthetic seed", "real_data_only_under_synthetic_seed"),
-    ("play_transition", "historical_phase5_simulation"),
-    ("simulation", "historical_phase5_simulation"),
-    ("monte", "historical_phase5_simulation"),
-    ("starter", "historical_phase5_simulation"),
-    ("participation ablation", "historical_phase5_simulation"),
-    ("ablation record not present", "historical_phase5_simulation"),
-    ("governed d3 runtime artifacts not present", "historical_phase5_simulation"),
-    # Gold / model-exchange governance layer: the golden-package, identity-bridge, and registered data-access
-    # tests require ASP_MODEL_EXCHANGE_ROOT pointing at the real golden exchange corpus (a large pre-existing
-    # artifact, out of scope for the Silver-ingress gate and NOT a Silver-ingress safety behavior).
-    ("asp_model_exchange_root is required", "real_model_exchange_golden_corpus"),
-    ("browser tooling", "optional_live_browser_tooling"),
-    ("node", "optional_live_browser_tooling"),
-    ("playwright", "optional_live_browser_tooling"),
-    ("chromium", "optional_live_browser_tooling"),
-    ("live server", "optional_live_server_tooling"),
-    ("uvicorn", "optional_live_server_tooling"),
-    ("reparse-point creation not permitted", "os_capability_non_windows"),
-    ("symlink", "os_capability_non_windows"),
+# Exact normalized reason -> reason code (for the ALLOWED, non-critical skips). Exact-substring, ordered.
+REASON_CODES = (
+    ("D3 feature view not materialized", "REAL_D3_GEN2_VIEW"),
+    ("feature view not materialized", "REAL_D3_GEN2_VIEW"),
+    ("feature view / play_transition", "REAL_D3_GEN2_VIEW"),
+    ("Gen-3 v2 authority not published", "REAL_PUBLISHED_AUTHORITY"),
+    ("Gen-3 feature view not materialized", "REAL_GEN3_V1_VIEW"),
+    ("reconciliation not run", "REAL_RECONCILIATION_ARTIFACT"),
+    ("governed-logistic reconciliation", "REAL_RECONCILIATION_ARTIFACT"),
+    ("REAL production development", "REAL_RECONCILIATION_ARTIFACT"),
+    ("synthetic seed", "REAL_DATA_ONLY_UNDER_SYNTHETIC_SEED"),
+    ("ablation record not present", "HISTORICAL_PHASE5_SIMULATION"),
+    ("governed D3 runtime artifacts not present", "HISTORICAL_PHASE5_SIMULATION"),
+    ("play_transition", "HISTORICAL_PHASE5_SIMULATION"),
+    ("simulation", "HISTORICAL_PHASE5_SIMULATION"),
+    ("monte", "HISTORICAL_PHASE5_SIMULATION"),
+    ("starter", "HISTORICAL_PHASE5_SIMULATION"),
+    ("participation ablation", "HISTORICAL_PHASE5_SIMULATION"),
+    ("ASP_MODEL_EXCHANGE_ROOT is required", "REAL_MODEL_EXCHANGE_GOLDEN_CORPUS"),
+    ("browser tooling", "OPTIONAL_LIVE_BROWSER_TOOLING"),
+    ("playwright", "OPTIONAL_LIVE_BROWSER_TOOLING"),
+    ("chromium", "OPTIONAL_LIVE_BROWSER_TOOLING"),
+    ("live server", "OPTIONAL_LIVE_SERVER_TOOLING"),
+    ("reparse-point creation not permitted", "OS_CAPABILITY_NON_WINDOWS"),
+    ("symlink", "OS_CAPABILITY_NON_WINDOWS"),
 )
 
 
-def _classify(reason: str) -> str | None:
+def reason_code(reason: str) -> str | None:
     low = (reason or "").lower()
-    for needle, category in ALLOWED_CATEGORIES:
+    for needle, code in REASON_CODES:
         if needle.lower() in low:
-            return category
+            return code
     return None
 
 
-def _is_critical(nodeid: str) -> bool:
-    return any(pat in nodeid for pat in CRITICAL_FILE_PATTERNS)
+def is_critical(nodeid: str) -> bool:
+    return any(p in nodeid for p in CRITICAL_FILE_PATTERNS)
 
 
-def _parse_junit(path: Path) -> list[dict]:
+def _norm_node(nodeid: str) -> str:
+    return nodeid.replace("\\", "/").strip()
+
+
+def parse_collected(path: Path) -> list[str]:
+    nodes = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        s = line.strip()
+        if "::" in s and (s.startswith("tests/") or s.startswith("tests\\") or s.startswith("tests.")):
+            nodes.append(_norm_node(s))
+    return sorted(set(nodes))
+
+
+def parse_junit(path: Path) -> dict[str, dict]:
     root = ET.parse(path).getroot()
-    skips = []
+    out = {}
     for tc in root.iter("testcase"):
-        sk = tc.find("skipped")
-        if sk is None:
-            continue
-        classname = tc.get("classname", "") or ""
-        name = tc.get("name", "") or ""
         file_attr = tc.get("file", "")
-        nodeid = f"{file_attr}::{name}" if file_attr else f"{classname}::{name}"
-        reason = (sk.get("message") or sk.text or "").strip()
-        skips.append({"nodeid": nodeid, "classname": classname, "name": name, "reason": reason})
-    return skips
+        name = tc.get("name", "")
+        nodeid = _norm_node(f"{file_attr}::{name}" if file_attr else f"{tc.get('classname','')}::{name}")
+        status = "passed"
+        reason = ""
+        if tc.find("skipped") is not None:
+            status = "skipped"
+            reason = (tc.find("skipped").get("message") or tc.find("skipped").text or "").strip()
+        elif tc.find("failure") is not None:
+            status = "failed"
+        elif tc.find("error") is not None:
+            status = "error"
+        out[nodeid] = {"status": status, "reason": reason}
+    return out
+
+
+def collection_digest(nodes) -> str:
+    return hashlib.sha256("\n".join(sorted(nodes)).encode()).hexdigest()
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--collected", required=True, type=Path)
     ap.add_argument("--junit", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--baseline", type=Path, default=Path(__file__).with_name("phase7d5a_skip_baseline.json"))
-    ap.add_argument("--write-baseline", action="store_true",
-                    help="record the current skip node set as the baseline (policy update; run intentionally)")
+    ap.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    ap.add_argument("--selection", default="")
+    ap.add_argument("--write-policy", action="store_true")
     args = ap.parse_args()
 
-    if not args.junit.is_file():
-        print(f"SKIP-GOV FAIL: junit xml not found: {args.junit}", file=sys.stderr)
+    if not args.collected.is_file() or not args.junit.is_file():
+        print("SKIP-GOV FAIL: collected/junit input missing", file=sys.stderr)
         return 3
-    skips = _parse_junit(args.junit)
+    collected = parse_collected(args.collected)
+    junit = parse_junit(args.junit)
+    skipped = {n: v["reason"] for n, v in junit.items() if v["status"] == "skipped"}
 
-    critical_violations, unknown_violations, grouped = [], [], {}
-    for s in skips:
-        if _is_critical(s["nodeid"]):
-            critical_violations.append(s)
+    if args.write_policy:
+        allowed = {}
+        for n, reason in sorted(skipped.items()):
+            if is_critical(n):
+                continue
+            allowed[n] = {"reason": reason, "reasonCode": reason_code(reason) or "UNCLASSIFIED"}
+        policy = {"schemaVersion": POLICY_SCHEMA, "policyVersion": 1, "selection": args.selection,
+                  "collectionDigest": collection_digest(collected), "expectedCollected": collected,
+                  "criticalPatterns": list(CRITICAL_FILE_PATTERNS), "allowedSkips": allowed}
+        args.policy.write_text(json.dumps(policy, indent=2), encoding="utf-8")
+        print(f"SKIP-GOV: wrote policy v1 ({len(collected)} collected, {len(allowed)} allowed skips) -> {args.policy}")
+
+    if not args.policy.is_file():
+        print(f"SKIP-GOV FAIL: gate policy not found: {args.policy}", file=sys.stderr)
+        return 3
+    policy = json.loads(args.policy.read_text(encoding="utf-8"))
+    exp = set(policy["expectedCollected"])
+    allowed = policy["allowedSkips"]
+
+    fails: list[str] = []
+    # (1) exact collection parity
+    missing = sorted(exp - set(collected))
+    extra = sorted(set(collected) - exp)
+    for m in missing:
+        fails.append(f"EXPECTED NODE MISSING FROM COLLECTION: {m}")
+    for x in extra:
+        fails.append(f"UNEXPECTED NODE APPEARED IN COLLECTION (needs reviewed policy update): {x}")
+    # (2) collection digest
+    if collection_digest(collected) != policy["collectionDigest"]:
+        fails.append("COLLECTION DIGEST MISMATCH")
+    # (3) every critical pattern must be collected at least once; every critical node not skipped and passing
+    for pat in policy["criticalPatterns"]:
+        if not any(pat in n for n in collected):
+            fails.append(f"CRITICAL FILE NOT COLLECTED: {pat}")
+    for n in collected:
+        if is_critical(n):
+            st = junit.get(n, {}).get("status", "MISSING_FROM_JUNIT")
+            if st != "passed":
+                fails.append(f"CRITICAL NODE not passed (status={st}): {n}")
+    # (4) skips: exact allowed-skip match (reason + code)
+    grouped: dict[str, list[str]] = {}
+    for n, reason in sorted(skipped.items()):
+        if is_critical(n):
+            fails.append(f"CRITICAL NODE SKIPPED: {n} ({reason})")
             continue
-        cat = _classify(s["reason"])
-        if cat is None:
-            unknown_violations.append(s)
-            cat = "UNCLASSIFIED"
-        grouped.setdefault(cat, []).append(s["nodeid"])
+        pol = allowed.get(n)
+        code = reason_code(reason)
+        if pol is None:
+            fails.append(f"UNKNOWN SKIP (not in policy): {n} ({reason})")
+        else:
+            if pol.get("reason") != reason:
+                fails.append(f"SKIP REASON CHANGED for {n}: policy={pol.get('reason')!r} actual={reason!r}")
+            if pol.get("reasonCode") != code:
+                fails.append(f"SKIP CATEGORY CHANGED for {n}: policy={pol.get('reasonCode')} actual={code}")
+        grouped.setdefault(code or "UNCLASSIFIED", []).append(n)
 
-    current_nodes = sorted(s["nodeid"] for s in skips)
-    if args.write_baseline:
-        args.baseline.write_text(json.dumps({"skipNodes": current_nodes}, indent=2), encoding="utf-8")
-        print(f"SKIP-GOV: wrote baseline ({len(current_nodes)} nodes) to {args.baseline}")
-
-    baseline_nodes, new_unexpected = [], []
-    if args.baseline.is_file():
-        baseline_nodes = json.loads(args.baseline.read_text(encoding="utf-8")).get("skipNodes", [])
-        baseline_set = set(baseline_nodes)
-        new_unexpected = [n for n in current_nodes if n not in baseline_set]
-
-    manifest = {
-        "schema": "PHASE_7D5A_SKIP_MANIFEST_V1",
-        "totalSkipped": len(skips),
-        "categories": {k: {"count": len(v), "nodes": sorted(v)} for k, v in sorted(grouped.items())},
-        "criticalViolations": critical_violations,
-        "unknownSkipReasons": unknown_violations,
-        "newUnexpectedVsBaseline": new_unexpected,
-        "baselineNodeCount": len(baseline_nodes),
-    }
+    manifest = {"schema": "PHASE_7D5A2_SKIP_MANIFEST_V1", "collectedCount": len(collected),
+                "collectionDigest": collection_digest(collected), "totalSkipped": len(skipped),
+                "categories": {k: {"count": len(v), "nodes": sorted(v)} for k, v in sorted(grouped.items())},
+                "violations": fails}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    ok = True
-    if critical_violations:
-        ok = False
-        print(f"SKIP-GOV FAIL: {len(critical_violations)} CRITICAL ingress-safety test(s) skipped:", file=sys.stderr)
-        for s in critical_violations:
-            print(f"    CRITICAL SKIP  {s['nodeid']}  ({s['reason']})", file=sys.stderr)
-    if unknown_violations:
-        ok = False
-        print(f"SKIP-GOV FAIL: {len(unknown_violations)} skip(s) with unclassified reason:", file=sys.stderr)
-        for s in unknown_violations:
-            print(f"    UNKNOWN SKIP   {s['nodeid']}  ({s['reason']})", file=sys.stderr)
-    if new_unexpected and not args.write_baseline:
-        ok = False
-        print(f"SKIP-GOV FAIL: {len(new_unexpected)} NEW skip(s) not in the committed baseline "
-              f"(a skip-set change requires an explicit --write-baseline policy update):", file=sys.stderr)
-        for n in new_unexpected:
-            print(f"    NEW SKIP       {n}", file=sys.stderr)
-
-    print(f"SKIP-GOV: total_skipped={len(skips)} categories={ {k: len(v) for k, v in grouped.items()} } "
-          f"manifest={args.out}")
-    if ok:
-        print("SKIP-GOV PASS: no critical skips, no unknown reasons, no unexpected skip-set change.")
-        return 0
-    return 1
+    if fails and not args.write_policy:
+        print(f"SKIP-GOV FAIL: {len(fails)} governance violation(s):", file=sys.stderr)
+        for f in fails[:60]:
+            print("    " + f, file=sys.stderr)
+        return 1
+    print(f"SKIP-GOV: collected={len(collected)} skipped={len(skipped)} "
+          f"categories={ {k: len(v) for k, v in grouped.items()} } manifest={args.out}")
+    print("SKIP-GOV PASS: exact collection, no critical skip/omission, no unknown/changed skip." if not fails
+          else "SKIP-GOV: policy written.")
+    return 0
 
 
 if __name__ == "__main__":
