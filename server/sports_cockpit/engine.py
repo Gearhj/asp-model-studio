@@ -275,44 +275,29 @@ def feature_role(name: str) -> str:
 # ----------------------------------------------------------------------------------------
 # Objective + population
 # ----------------------------------------------------------------------------------------
+CHAMPION_2024_REFERENCE_GLOB = str(
+    RUNTIME_ROOT / "sports-modeling" / "champion-2024-reference" / "reference-sha256-*.json")
+
+
 def _champion_reference() -> dict[str, Any]:
-    """Read the registered C4 champion frozen evidence from the experiment-metrics artifact."""
+    """Return the C4 champion's 2024-VALIDATION-ONLY reference.
+
+    Phase 7D.5A (Workstream H): the ordinary path NEVER opens the combined legacy metrics artifact (which carries
+    a sealed out-of-time section). It reads a 2024-only, content-addressed reference artifact produced by the
+    explicit ``scripts/migrate_champion_2024_reference`` migration; if that artifact is absent, it uses the
+    documented 2024-only fallback constant. No sealed out-of-time metric is ever opened, read, or exposed."""
     try:
-        matches = sorted(
-            glob.glob(
-                str(
-                    RUNTIME_ROOT
-                    / "sports-modeling"
-                    / "mlb-pa-v1"
-                    / "objects"
-                    / "sha256"
-                    / "**"
-                    / "experiment-metrics.json"
-                ),
-                recursive=True,
-            )
-        )
-        for path in matches:
-            payload = json.loads(Path(path).read_text(encoding="utf-8"))
-            candidates = payload.get("payload", {}).get("candidates", [])
-            for cand in candidates:
-                if cand.get("candidateId") == "C4":
-                    agg = cand.get("aggregateMetrics", {})
-                    val = agg.get("validation2024") or agg.get("selection2024") or {}
-                    # Phase 7D.1 Gate 12 — the champion's sealed-2025 metric (agg["final2025"]) is NEVER read
-                    # here, not even into a discarded local. The ordinary objective loads only the 2024 field.
-                    if val.get("logLoss") is not None:
-                        # the ordinary objective NEVER exposes the champion's sealed-2025 metrics — only the
-                        # 2024 validation reference is shown in the model-development workflow.
-                        return {
-                            "candidateId": "C4",
-                            "val2024": {
-                                "logLoss": val.get("logLoss"),
-                                "brierScore": val.get("brierScore"),
-                                "topLabelEce": val.get("topLabelEce"),
-                            },
-                            "sealed2025": "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE",
-                        }
+        matches = sorted(glob.glob(CHAMPION_2024_REFERENCE_GLOB))
+        if matches:
+            payload = json.loads(Path(matches[-1]).read_text(encoding="utf-8"))
+            val = payload.get("val2024") or {}
+            if val.get("logLoss") is not None:
+                return {
+                    "candidateId": "C4",
+                    "val2024": {"logLoss": val.get("logLoss"), "brierScore": val.get("brierScore"),
+                                "topLabelEce": val.get("topLabelEce")},
+                    "sealed2025": "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE",
+                }
     except Exception:
         pass
     ref = dict(CHAMPION_REFERENCE_FALLBACK)
