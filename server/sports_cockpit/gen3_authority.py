@@ -478,6 +478,8 @@ def assert_registry_entry_consistent(entry: Mapping[str, Any]) -> None:
         raise AuthorityError(f"canonical registry contradiction (archived AND selectable): {dsid}")
     if f["silver"] and f["selectable"]:
         raise AuthorityError(f"canonical registry contradiction (silver AND selectable): {dsid}")
+    if f["notApproved"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (not approved for training AND selectable — not eligible): {dsid}")
 
 
 def assert_canonical_eligibility(entry_or_id: Any) -> None:
@@ -500,11 +502,33 @@ def assert_canonical_eligibility(entry_or_id: Any) -> None:
         raise AuthorityError("dataset is quarantined/sealed/archived and is not model-eligible")
     if f["modelIneligible"]:
         raise AuthorityError("dataset is not model-eligible")
+    if f["notApproved"]:
+        raise AuthorityError("dataset is not approved for training and is therefore not model-eligible")
 
 
 def _assert_registry_consistency(datasets) -> None:
     for e in datasets:
         assert_registry_entry_consistent(e)
+
+
+def _run_datasets_eligible(project_id: str, run_id: str) -> None:
+    """Repair 4 — reconstruct a run's dataset PARENT from its immutable receipt and apply the CURRENT canonical
+    eligibility. Any model-reload / recompute / verify / evidence path calls this first so a dataset quarantined
+    AFTER a run was produced blocks every later read of that run — a direct run id or artifact reference can never
+    bypass current quarantine. Fail-closed if the run's receipt cannot be resolved."""
+    if not _OPAQUE_RE.match(run_id or ""):
+        raise AuthorityError("invalid run id")
+    receipt_sha = _evidence_registry_get(project_id, run_id)
+    rdir = _v2_receipt_dir(project_id, receipt_sha)
+    _reject_reparse_authority(rdir, STATE_ROOT)                 # reparse guard BEFORE any read (R6)
+    rpath = rdir / "receipt.json"
+    _reject_reparse_authority(rpath, STATE_ROOT)
+    if not rpath.is_file() or rpath.is_symlink():
+        raise AuthorityError("run receipt missing")
+    receipt = json.loads(rpath.read_bytes().decode("utf-8"))
+    dsid = receipt.get("datasetVersionId")
+    if dsid:
+        assert_canonical_eligibility(_resolve_version(dsid))   # resolves the current catalog entry + checks it
 
 
 VERIFIED_RESEARCH_OBJECT_SCHEMA = "VERIFIED_RESEARCH_OBJECT_V1"
@@ -587,6 +611,18 @@ def _contain_object_path(raw: str) -> Path:
     if not any(r == resolved or r in resolved.parents for r in roots):
         raise AuthorityError("object path escapes the immutable object root")
     return resolved
+
+
+def _reject_reparse_authority(path: Path | str, root: Path | str) -> Path:
+    """Repair 6 — reject a Windows junction / reparse point on ANY existing component from ``root`` down to
+    ``path`` BEFORE the caller does exists()/iterate()/resolve()/read()/write()/replace(). Raises AuthorityError
+    whose message contains 'reparse'/'junction' so a sensitive evidence/receipt/quarantine boundary fails closed
+    at the correct, pre-I/O location."""
+    from .path_containment import ContainmentError, contained_no_reparse
+    try:
+        return contained_no_reparse(path, [Path(root)])
+    except ContainmentError as exc:
+        raise AuthorityError(f"reparse point (junction) rejected before access: {exc}")
 
 
 # --------------------------------------------------------------------------- object integrity (Gate 6/7: complete, contained receipt verification)
@@ -1337,6 +1373,7 @@ def verify_estimator_reload(*, project_id: str, run_id: str) -> dict[str, Any]:
 def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, Any]:
     """Independently recompute the 2024 validation log loss from the persisted, MANIFEST-ANCHORED prediction
     + target artifacts (Gate 29) — not from any stored metric JSON."""
+    _run_datasets_eligible(project_id, run_id)          # R4: current dataset-parent eligibility (quarantine blocks reload)
     from sklearn.metrics import log_loss
     run = get_run(project_id=project_id, run_id=run_id)
     bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
@@ -1395,7 +1432,9 @@ def _build_v2_content_children(*, authority: Mapping[str, Any], binding: Mapping
     """Assemble the fixed content children (Gate 1) as canonical bytes. No host-specific absolute path enters
     logical identity."""
     rr_sha = authority.get("modelRequestReceiptSha256")
+    _reject_reparse_authority(_state(project_id, "requests"), STATE_ROOT)   # R6: reject a junctioned requests dir first
     rr_path = _state(project_id, "requests", f"{rr_sha}.json")
+    _reject_reparse_authority(rr_path, STATE_ROOT)
     if not rr_sha or not rr_path.is_file() or rr_path.is_symlink():   # Gate 5 (B3) — no placeholder fallback
         raise AuthorityError("cannot publish evidence: immutable model-request receipt is missing (fail-closed)")
     request_receipt = _read_json(rr_path)
@@ -1580,7 +1619,9 @@ def _publish_run_receipt(*, project_id: str, run_id: str, authority: Mapping[str
 def _load_v2_bundle(project_id: str, manifest_sha: str) -> tuple[Path, dict[str, Any]]:
     """Gate 7/8 — content-addressed load with full path containment + exact child set + every child SHA."""
     final = _v2_objects_dir(project_id, manifest_sha)              # hex-validated + contained under state root
+    _reject_reparse_authority(final, STATE_ROOT)                   # R6: reject a junctioned bundle dir BEFORE any read
     mpath = final / _V2_MANIFEST_NAME
+    _reject_reparse_authority(mpath, STATE_ROOT)
     if not final.is_dir() or not mpath.is_file() or mpath.is_symlink():
         raise AuthorityError("V2 bundle not found")
     manifest_bytes = mpath.read_bytes()
@@ -1599,6 +1640,7 @@ def _load_v2_bundle(project_id: str, manifest_sha: str) -> tuple[Path, dict[str,
     for name, meta in children.items():
         if name not in _V2_ALLOWED_NAMES or not _V2_SAFE_NAME.match(name) or name != meta.get("file"):
             raise AuthorityError(f"V2 bundle child name invalid: {name!r}")
+        _reject_reparse_authority(final / name, STATE_ROOT)        # R6: reject a junctioned child BEFORE resolve()
         cpath = (final / name).resolve()
         if cpath.parent != root:
             raise AuthorityError("V2 bundle child escapes the bundle root")
@@ -1621,6 +1663,7 @@ def verify_model_run_receipt(*, project_id: str, run_id: str, expected_binding: 
     (the receipt's own SHA + runId/project are re-verified after lookup)."""
     if not _OPAQUE_RE.match(run_id or ""):
         raise AuthorityError("invalid run id")
+    _run_datasets_eligible(project_id, run_id)          # R4/R6: reparse guard + current dataset-parent eligibility
     receipt_sha = _evidence_registry_get(project_id, run_id)
     rpath = _v2_receipt_dir(project_id, receipt_sha) / "receipt.json"
     if not rpath.is_file() or rpath.is_symlink():
@@ -1782,6 +1825,7 @@ def _v2_child_bytes(bundle_dir: Path, manifest: Mapping[str, Any], name: str) ->
 def load_fitted_estimator_v2(*, project_id: str, run_id: str) -> Any:
     """Gate 9 — reload the fitted estimator from the verified V2 bundle: read the model artifact bytes ONCE,
     verify their SHA, deserialize from the in-memory buffer, and check the recorded class. No TOCTOU."""
+    _run_datasets_eligible(project_id, run_id)          # R4: current dataset-parent eligibility (quarantine blocks reload)
     import io
     import joblib
     v = verify_model_run_receipt(project_id=project_id, run_id=run_id)

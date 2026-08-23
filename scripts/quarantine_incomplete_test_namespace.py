@@ -52,6 +52,7 @@ def verify_incomplete(project_id: str, expected_binding: str, expected_request_s
     # NO COMPLETE evidence of any kind
     for forbidden in ("runs", "evidence", "evidence-v2/objects", "evidence-v2/receipts", "activations", "comparisons"):
         d = base / forbidden
+        contained_no_reparse(d, [base])                          # R6: reject a junctioned source dir BEFORE iterating
         if d.is_dir() and any(d.iterdir()):
             raise NamespaceCleanupError(f"COMPLETE/evidence artifact present ({forbidden}); refusing to touch")
     if (base / "evidence-v2" / "registry.json").is_file():
@@ -76,7 +77,9 @@ def quarantine(project_id: str, expected_binding: str, expected_request_sha: str
     disposition = {"action": "DRY_RUN" if not apply else "QUARANTINED", "reason": reason,
                    "from": str(base), "to": str(dest), **info}
     if apply:
+        contained_no_reparse(qroot, [runtime_root])             # R6: reject a junctioned quarantine destination BEFORE move
         qroot.mkdir(parents=True, exist_ok=True)
+        contained_no_reparse(dest, [qroot])
         shutil.move(str(base), str(dest))
         (dest / "_quarantine-manifest.json").write_text(json.dumps(disposition, indent=2), encoding="utf-8")
         # after: confirm removed from state root + no canonical registry reference to this key

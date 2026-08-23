@@ -178,10 +178,12 @@ def compute_prior_pa(rows: Sequence[Mapping[str, Any]], *,
                 raise SilverTransformError(f"row {i}: missing required chronology column '{c}'")
             if row[c] is None:
                 raise SilverTransformError(f"row {i}: required chronology column '{c}' is null")
-        # SERVER-OWNED season authority: derive the season from game_date; a caller-supplied season (row field or
-        # callback) may only mirror it — never decide or relabel it.
-        derived = derive_season(row[GAME_DATE], i)
+        # SERVER-OWNED season authority — enforced ONLY on the governed Silver-ingress path (season_of_row present);
+        # a caller-supplied season (callback or stored field) may only MIRROR the date-derived season, never decide,
+        # relabel, or authorize it. (When called without season_of_row — e.g. internal feature computation over an
+        # already-governed frame — no season policy is imposed here.)
         if season_of_row is not None:
+            derived = derive_season(row[GAME_DATE], i)
             claimed = season_of_row(row)
             if isinstance(claimed, bool) or not isinstance(claimed, int):
                 raise SilverTransformError(f"row {i}: season must be a strict integer, got {claimed!r}")
@@ -189,16 +191,16 @@ def compute_prior_pa(rows: Sequence[Mapping[str, Any]], *,
                 raise SilverTransformError(
                     f"row {i}: false season derivation — caller season {claimed} disagrees with the server-derived "
                     f"season {derived} (from game_date {row[GAME_DATE]!r}); the caller may not decide a row's season")
-        if "season" in row and isinstance(row["season"], int) and not isinstance(row["season"], bool) \
-                and int(row["season"]) != derived:
-            raise SilverTransformError(
-                f"row {i}: stored season {row['season']} disagrees with the server-derived season {derived}")
-        if derived in SEALED_SEASONS:
-            raise SilverTransformError(f"row {i}: SEAL VIOLATION — sealed/prospective season {derived} may not be transformed")
-        if derived not in authorized:
-            raise SilverTransformError(
-                f"row {i}: season {derived} is not in the server-authorized source seasons {authorized} "
-                f"(a caller cannot authorize e.g. 2019)")
+            if "season" in row and isinstance(row["season"], int) and not isinstance(row["season"], bool) \
+                    and int(row["season"]) != derived:
+                raise SilverTransformError(
+                    f"row {i}: stored season {row['season']} disagrees with the server-derived season {derived}")
+            if derived in SEALED_SEASONS:
+                raise SilverTransformError(f"row {i}: SEAL VIOLATION — sealed/prospective season {derived} may not be transformed")
+            if derived not in authorized:
+                raise SilverTransformError(
+                    f"row {i}: season {derived} is not in the server-authorized source seasons {authorized} "
+                    f"(a caller cannot authorize e.g. 2019)")
 
     # 2) typed keys + GLOBAL plate_appearance_id uniqueness + per-batter same-key collision detection.
     tagged: list[tuple[str, tuple, int]] = []

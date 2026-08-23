@@ -239,6 +239,7 @@ def _verify_children_bytes(final: Path, children: Mapping[str, bytes], manifest_
     if present != set(children):
         raise SilverPublishError(f"existing object child set mismatch (have {sorted(present)}, need {sorted(children)})")
     for name, b in children.items():
+        contained_no_reparse(final / name, [final])            # R6: reject a junctioned child BEFORE the reuse read
         if (final / name).read_bytes() != b:
             raise SilverPublishError(f"existing object child '{name}' differs from the content-address bytes")
 
