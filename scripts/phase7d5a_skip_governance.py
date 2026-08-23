@@ -95,8 +95,10 @@ def _norm_node(nodeid: str) -> str:
 
 def parse_collected(path: Path) -> list[str]:
     nodes = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        s = line.strip()
+    # utf-8-sig strips a UTF-8 BOM (PowerShell Set-Content -Encoding utf8 writes one); also lstrip any residual BOM
+    # per line so the FIRST collected node is never silently dropped by a leading ﻿.
+    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        s = line.strip().lstrip("﻿")
         if "::" in s and (s.startswith("tests/") or s.startswith("tests\\") or s.startswith("tests.")):
             nodes.append(_norm_node(s))
     return sorted(set(nodes))
