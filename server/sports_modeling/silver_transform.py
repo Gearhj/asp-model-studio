@@ -1,32 +1,58 @@
-"""Phase 7D.5A — deterministic, point-in-time-correct Silver feature transformation authority.
+"""Phase 7D.5A / 7D.5A.2 — deterministic, point-in-time-correct Silver feature transformation authority.
 
-The prior hermetic "safe" feature was target-leaky: it fabricated ``log1p_prior_pa_count`` as
-``log1p(random) + 0.001 * outcome_class_index`` — i.e. from the current row's target. This module replaces that
-with a GENUINE point-in-time transform whose value for a plate appearance depends only on strictly-earlier plate
-appearances for the same batter, never on the current or any future row and never on the ``outcome`` target.
+The prior hermetic "safe" feature was target-leaky; this module replaces it with a GENUINE point-in-time transform
+whose value for a plate appearance depends only on strictly-earlier plate appearances for the SAME batter, never on
+the current or any future row and never on the ``outcome`` target.
+
+Phase 7D.5A.2 hardens the chronology into an EXPLICIT, TYPED contract (Repair 1):
+  * every required chronology column must exist on EVERY row (no "whichever fields happen to exist" fallback);
+  * ``at_bat_number`` is a STRICT integer (never bool/str/float/None) and is compared NUMERICALLY (2 before 10);
+  * ``game_date`` is parsed+canonicalized to an ISO date; ``game_id`` / the ids are non-empty canonical strings;
+  * ``plate_appearance_id`` is GLOBALLY unique within the publication (duplicates across batters fail closed);
+  * EVERY row is scanned for the prohibited target / post-event columns (not just the first row);
+  * every row season must be in the authorized set (default 2021-2024) — 2019 and sealed 2025/2026 fail closed.
 
 Contract (frozen):
   prior_pa_count(row) = count of PAs for the same batter whose governed chronological key is STRICTLY EARLIER
                         than the current PA (the current PA never counts itself).
   log1p_prior_pa_count = log1p(prior_pa_count).      # no additive/outcome/class/current/future term.
 
-Governed chronological key (deterministic, total order): (game_date, game_id, at_bat_number, plate_appearance_id),
-using whichever of these governed columns exist; plate_appearance_id is the stable final tie-breaker so ties in the
-earlier components are resolved deterministically. The transform NEVER reads ``outcome`` — the caller must project
-only the authorized source columns, and the transform raises if the target column is present.
+Governed chronological key (deterministic total order, all required): (game_date, game_id, at_bat_number,
+plate_appearance_id). ``game_id`` is only accepted as a temporal ordering component when it is itself
+chronologically ordered within a (batter, game_date); otherwise the caller must supply the governed
+``game_sequence`` authority. ``plate_appearance_id`` is the final stable tie-breaker.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import math
 from typing import Any, Mapping, Sequence
 
 TRANSFORM_ID = "MLB_SILVER_PRIOR_PA_TRANSFORM_V1"
 TARGET_COLUMN = "outcome"
 BATTER_KEY = "batter_canonical_player_uuid"
-# the ordered chronological key columns, most-significant first; only those present are used, in this order,
-# and plate_appearance_id is always appended as the final stable tie-breaker.
-_ORDER_COLUMNS = ("game_date", "game_id", "at_bat_number", "plate_appearance_id")
-_STABLE_TIEBREAKER = "plate_appearance_id"
+
+# The REQUIRED, TYPED chronology columns — every one must be present on every row (no partial-subset fallback).
+GAME_DATE = "game_date"
+GAME_ID = "game_id"
+AT_BAT_NUMBER = "at_bat_number"
+PLATE_APPEARANCE_ID = "plate_appearance_id"
+REQUIRED_CHRONOLOGY = (BATTER_KEY, GAME_DATE, GAME_ID, AT_BAT_NUMBER, PLATE_APPEARANCE_ID)
+# Optional governed same-day multi-game ordering authority (start-time / game-number); used between game_date and
+# at_bat_number when present so lexical game_id order is never mistaken for temporal order.
+GAME_SEQUENCE = "game_sequence"
+_STABLE_TIEBREAKER = PLATE_APPEARANCE_ID
+
+# Prohibited target / post-event columns — ANY of these on ANY row fails before transformation.
+PROHIBITED_COLUMNS = frozenset({
+    TARGET_COLUMN, "outcome_class", "outcome_code", "label", "target", "y", "result", "events", "description",
+    "post_outcome", "next_pa", "future_pa", "delta_run_expectancy", "woba_value", "babip_value", "launch_speed",
+    "launch_angle", "hit_distance", "estimated_woba",
+})
+
+# Default authorized source seasons (the Gen-3 research frame is 2021-2024; sealed 2025 / prospective 2026 excluded).
+DEFAULT_AUTHORIZED_SEASONS = (2021, 2022, 2023, 2024)
+SEALED_SEASONS = (2025, 2026)
 
 PRIOR_PA_COUNT = "prior_pa_count"
 LOG1P_PRIOR_PA_COUNT = "log1p_prior_pa_count"
@@ -37,66 +63,149 @@ class SilverTransformError(RuntimeError):
     """A point-in-time transform precondition was violated (fail-closed)."""
 
 
-def governed_sort_key(columns_present: Sequence[str]) -> list[str]:
-    """The deterministic total-order key: the present ordered columns + the stable id tie-breaker (always last)."""
-    key = [c for c in _ORDER_COLUMNS if c in columns_present and c != _STABLE_TIEBREAKER]
-    if _STABLE_TIEBREAKER not in columns_present:
-        raise SilverTransformError(f"stable tie-breaker column '{_STABLE_TIEBREAKER}' is required for a total order")
-    key.append(_STABLE_TIEBREAKER)
-    return key
+def governed_sort_key() -> list[str]:
+    """The deterministic total-order key columns, most-significant first. FIXED and complete — never a subset of
+    whichever columns happen to exist. game_sequence (when present) orders same-day multiple games."""
+    return [GAME_DATE, GAME_SEQUENCE, GAME_ID, AT_BAT_NUMBER, _STABLE_TIEBREAKER]
 
 
-def _row_sort_tuple(row: Mapping[str, Any], key_cols: Sequence[str]) -> tuple:
-    return tuple(str(row[c]) for c in key_cols)
+# --------------------------------------------------------------------------- strict typed field validators
+def _canon_id(value: Any, field: str, row_index: int) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise SilverTransformError(f"row {row_index}: '{field}' must be a non-empty canonical id, got {type(value).__name__}")
+    s = str(value).strip()
+    if not s:
+        raise SilverTransformError(f"row {row_index}: '{field}' must be a non-empty canonical id")
+    return s
 
 
-def compute_prior_pa(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, float]]:
-    """Compute the point-in-time features for a list of source rows (each a mapping of the AUTHORIZED source
-    columns). Returns, in the SAME order as the input rows, a list of {prior_pa_count, log1p_prior_pa_count}.
+def _canon_date(value: Any, row_index: int) -> str:
+    if isinstance(value, _dt.datetime):
+        return value.date().isoformat()
+    if isinstance(value, _dt.date):
+        return value.isoformat()
+    if not isinstance(value, str) or not value.strip():
+        raise SilverTransformError(f"row {row_index}: '{GAME_DATE}' must be a date or ISO date string, got {value!r}")
+    try:
+        return _dt.date.fromisoformat(value.strip()).isoformat()
+    except ValueError:
+        raise SilverTransformError(f"row {row_index}: '{GAME_DATE}' is not a valid ISO date: {value!r}")
 
-    Fail-closed if the target column is present (it must be projected away before calling this), if the batter
-    key or the stable id is missing, or if two distinct rows collide on the full governed key (which would make
-    the order non-deterministic)."""
+
+def _canon_at_bat(value: Any, row_index: int) -> int:
+    # STRICT integer: reject bool, string, float, None. Compared numerically so 2 sorts before 10.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SilverTransformError(
+            f"row {row_index}: '{AT_BAT_NUMBER}' must be a strict integer (not bool/str/float/None), got "
+            f"{type(value).__name__} {value!r}")
+    if value < 0:
+        raise SilverTransformError(f"row {row_index}: '{AT_BAT_NUMBER}' must be non-negative, got {value}")
+    return value
+
+
+def _canon_seq(value: Any, row_index: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SilverTransformError(f"row {row_index}: '{GAME_SEQUENCE}' must be a non-negative strict integer, got {value!r}")
+    return value
+
+
+def _typed_key(row: Mapping[str, Any], row_index: int, *, has_sequence: bool) -> tuple:
+    """Build the strongly-typed, numerically-comparable governed key for one row. Every component is validated;
+    the tuple mixes a canonical date string, an int game_sequence (or the game_id string when no sequence), the
+    game_id string, an int at_bat_number, and the id tie-breaker — comparisons are therefore numeric where numeric."""
+    date = _canon_date(row[GAME_DATE], row_index)
+    gid = _canon_id(row[GAME_ID], GAME_ID, row_index)
+    ab = _canon_at_bat(row[AT_BAT_NUMBER], row_index)
+    pid = _canon_id(row[PLATE_APPEARANCE_ID], PLATE_APPEARANCE_ID, row_index)
+    seq = _canon_seq(row[GAME_SEQUENCE], row_index) if has_sequence else 0
+    # when no governed game_sequence is supplied, game_id must NOT be relied on as temporal beyond tie-breaking:
+    # we keep it in the key ONLY as a deterministic (non-temporal) discriminator after date, and same (batter,date)
+    # spanning multiple distinct games without a sequence is rejected below.
+    return (date, seq, gid, ab, pid)
+
+
+def compute_prior_pa(rows: Sequence[Mapping[str, Any]], *,
+                     authorized_seasons: Sequence[int] | None = None,
+                     season_of_row=None) -> list[dict[str, float]]:
+    """Compute the point-in-time features for a list of AUTHORIZED source rows (each a mapping of the authorized
+    source columns). Returns, in the SAME order as the input rows, a list of {prior_pa_count, log1p_prior_pa_count}.
+
+    Fail-closed (Repair 1) if: ANY row carries a prohibited target/post-event column; any required chronology
+    column is missing / null / blank / mistyped; at_bat_number is not a strict int; game_date is unparseable;
+    plate_appearance_id is not globally unique; a (batter, game_date) spans multiple games with no governed
+    game_sequence; or any row's season is outside the authorized set (2019 / sealed 2025-2026 rejected)."""
     if not rows:
         return []
-    present = set(rows[0].keys())
-    if TARGET_COLUMN in present:
-        raise SilverTransformError("point-in-time transform must not receive the target column 'outcome'")
-    if BATTER_KEY not in present:
-        raise SilverTransformError(f"source is missing the batter key '{BATTER_KEY}'")
-    key_cols = governed_sort_key(sorted(present))
+    authorized = tuple(authorized_seasons) if authorized_seasons is not None else DEFAULT_AUTHORIZED_SEASONS
+    has_sequence = all(GAME_SEQUENCE in r for r in rows)
 
-    # tag each row with its original index + governed key, sort by (batter, key), assign strictly-earlier counts
-    tagged = []
-    seen_keys: dict[tuple, int] = {}
+    # 1) EVERY row: required columns present, no prohibited column, season authorized.
     for i, row in enumerate(rows):
-        for c in key_cols + [BATTER_KEY]:
-            if c not in row:
-                raise SilverTransformError(f"row {i} missing required column '{c}'")
-        gkey = _row_sort_tuple(row, key_cols)
-        if gkey in seen_keys and str(rows[seen_keys[gkey]][BATTER_KEY]) != str(row[BATTER_KEY]):
-            # same full governed key across two different batters is fine; same key for SAME batter is a collision
-            pass
-        tagged.append((str(row[BATTER_KEY]), gkey, i))
-
-    # detect duplicate (batter, gkey) -> ambiguous order for the SAME player at the SAME point in time
-    per_batter_keys: dict[tuple, int] = {}
-    for batter, gkey, i in tagged:
-        bk = (batter, gkey)
-        if bk in per_batter_keys:
+        prohibited = PROHIBITED_COLUMNS & set(row.keys())
+        if prohibited:
             raise SilverTransformError(
-                f"non-deterministic order: batter {batter!r} has two PAs with identical governed key {gkey} "
-                f"(rows {per_batter_keys[bk]} and {i}); the stable tie-breaker must make every key unique")
-        per_batter_keys[bk] = i
+                f"row {i}: prohibited target/post-event column(s) present: {sorted(prohibited)} "
+                f"(the point-in-time transform must receive only authorized pre-outcome source columns)")
+        for c in REQUIRED_CHRONOLOGY:
+            if c not in row:
+                raise SilverTransformError(f"row {i}: missing required chronology column '{c}'")
+            if row[c] is None:
+                raise SilverTransformError(f"row {i}: required chronology column '{c}' is null")
+        if season_of_row is not None:
+            s = season_of_row(row)
+            if isinstance(s, bool) or not isinstance(s, int):
+                raise SilverTransformError(f"row {i}: season must be a strict integer, got {s!r}")
+            if s in SEALED_SEASONS:
+                raise SilverTransformError(f"row {i}: SEAL VIOLATION — sealed/prospective season {s} may not be transformed")
+            if s not in authorized:
+                raise SilverTransformError(
+                    f"row {i}: season {s} is not in the authorized source seasons {authorized} (e.g. 2019 is not authorized)")
 
-    # for each batter, sort its rows by gkey; the strictly-earlier count is the 0-based position in that order
+    # 2) typed keys + GLOBAL plate_appearance_id uniqueness + per-batter same-key collision detection.
+    tagged: list[tuple[str, tuple, int]] = []
+    seen_pid: dict[str, int] = {}
+    for i, row in enumerate(rows):
+        batter = _canon_id(row[BATTER_KEY], BATTER_KEY, i)
+        key = _typed_key(row, i, has_sequence=has_sequence)
+        pid = key[-1]
+        if pid in seen_pid:
+            raise SilverTransformError(
+                f"duplicate plate_appearance_id {pid!r} (rows {seen_pid[pid]} and {i}); "
+                f"plate_appearance_id must be globally unique within a publication")
+        seen_pid[pid] = i
+        tagged.append((batter, key, i))
+
+    # 3) same-day multiple-game guard: without a governed game_sequence, a (batter, game_date) that spans two
+    #    DISTINCT game_ids has no reliable temporal order — fail closed rather than trust lexical game_id order.
+    if not has_sequence:
+        by_bd: dict[tuple, set] = {}
+        for batter, key, i in tagged:
+            date, _seq, gid, _ab, _pid = key
+            by_bd.setdefault((batter, date), set()).add(gid)
+        for (batter, date), gids in by_bd.items():
+            if len(gids) > 1:
+                raise SilverTransformError(
+                    f"batter {batter!r} has plate appearances in multiple games on {date} but no governed "
+                    f"'{GAME_SEQUENCE}' ordering authority; lexical game_id order is not temporal — supply game_sequence")
+
+    # 4) per-batter same-key collision (identical governed key for the SAME batter -> ambiguous order).
+    per_batter: dict[tuple, int] = {}
+    for batter, key, i in tagged:
+        bk = (batter, key)
+        if bk in per_batter:
+            raise SilverTransformError(
+                f"non-deterministic order: batter {batter!r} has two PAs with identical governed key {key} "
+                f"(rows {per_batter[bk]} and {i})")
+        per_batter[bk] = i
+
+    # 5) for each batter, sort by the typed key; the strictly-earlier count is the 0-based position (excludes self).
     out: list[dict[str, float]] = [None] * len(rows)  # type: ignore[list-item]
     by_batter: dict[str, list[tuple]] = {}
-    for batter, gkey, i in tagged:
-        by_batter.setdefault(batter, []).append((gkey, i))
+    for batter, key, i in tagged:
+        by_batter.setdefault(batter, []).append((key, i))
     for batter, items in by_batter.items():
-        items.sort(key=lambda t: t[0])
-        for position, (gkey, i) in enumerate(items):
-            prior = float(position)                     # strictly-earlier PAs for this batter; excludes self
+        items.sort(key=lambda t: t[0])          # numeric where numeric (at_bat 2 < 10), stable id tie-breaker
+        for position, (key, i) in enumerate(items):
+            prior = float(position)
             out[i] = {PRIOR_PA_COUNT: prior, LOG1P_PRIOR_PA_COUNT: float(math.log1p(prior))}
     return out

@@ -129,8 +129,8 @@ def _silver_rows(season_override=None):
 
 @pytest.mark.parametrize("bad_season", [2025, 2026])
 def test_quarantined_silver_publish_rejects_sealed_or_future_season(tmp_path, bad_season):
-    with pytest.raises(SP.SilverPublishError):
-        SP.publish_silver(silver_root=tmp_path / "silver", source_object_id="x", source_receipt_sha="s" * 64,
-                          source_manifest_sha="m" * 64, source_physical_sha="p" * 64, source_logical_sha="l" * 64,
-                          source_schema_sha="c" * 64, source_rows=_silver_rows(bad_season),
-                          base_feature_ids=list(FEATURE_NAMES), season_of_row=lambda r: r["season"])
+    # a governed source carrying a sealed/prospective season cannot even be published as a source (fail-closed)
+    rows = _silver_rows(bad_season)
+    with pytest.raises((SP.SourceAuthorityError, SP.SilverPublishError)):
+        SP.publish_source_object(source_root=tmp_path / "src", rows=rows, dataset_version_id="bad",
+                                 season_of_row=lambda r: r["season"])

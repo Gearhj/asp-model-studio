@@ -1,38 +1,76 @@
-"""Phase 7D.5A (Workstreams B + C) — immutable, semantically-bound, QUARANTINED Silver publication authority.
+"""Phase 7D.5A / 7D.5A.2 — immutable, semantically-bound, QUARANTINED Silver publication authority.
 
-Binds the actual point-in-time transformation (server.sports_modeling.silver_transform) and its produced VALUES to
-a full semantic contract chain — never just feature names/order — and publishes an immutable, content-addressed,
-create-once Silver object that is registered SILVER_NORMALIZED / QUARANTINED / NOT_MODEL_ELIGIBLE. It fails closed
-on: caller-supplied advanced values that disagree with the production recomputation; the old target-contaminated
-formula; a V2->V1 feature-set downgrade; empty semantic/family/set children; and any attempt to make Silver model
-eligible. No model training, activation, or comparison is possible for a quarantined Silver object.
+7D.5A.2 rebuilds the publication integrity core (Repairs 2/3/5/6):
+
+* Repair 2 — SERVER-RESOLVED source authority. ``publish_silver`` no longer accepts caller-attested source SHAs or
+  caller rows. The caller names a canonical Silver-ingress source (``source_dataset_version_id``); the publisher
+  resolves the registered source, RE-HASHES the immutable object + receipt + manifest from stored bytes, cross-checks
+  every identity, enforces the source-authorized seasons, and issues a non-forgeable ``VerifiedSourceHandle``. The
+  authorized rows are read from the verified object — never supplied by the caller. A content-addressed
+  transform-code receipt binds the ACTUAL implementation (function source digests + file SHAs + runtime versions +
+  params), so two implementations sharing the contract name cannot receive the same transform authority.
+* Repair 3 — COMPLETE, output-bound authority. The Silver object carries an EXACT required child set; the
+  publication manifest binds every child (name, sha, bytes, contract id/version); ``verify_silver`` validates
+  containment, the exact child set (no missing/extra), rehashes every child, validates each JSON child's own
+  content address, cross-checks all parent/child identities, recomputes physical/logical/schema/value digests, and
+  confirms the V2 feature-set binds the OUTPUT logical identity. An existing target directory is FULLY re-verified
+  before any reuse or re-registration — a missing/incomplete object never round-trips.
+* Repair 5 — TRANSACTIONAL, interprocess-locked registry (read-after-lock, validate, merge, atomic replace,
+  verify-after-write). Two different valid publications both survive; conflicting content fails closed.
+* Repair 6 — reparse containment before EXISTS / iterate / resolve / read / write / rename / replace on every
+  source, staging, object, registry, and lock path.
 """
 from __future__ import annotations
 
-import math
+import inspect
+import json
 import os
 import shutil
-import time
+import sys
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..sports_cockpit.path_containment import ContainmentError, contained_no_reparse
+from ..sports_cockpit.interprocess_lock import interprocess_lock
+from ..sports_cockpit.path_containment import contained_no_reparse
+from ..sports_datasets import consumer as _consumer
 from ..sports_datasets.consumer import canonical_json_bytes, sha256_bytes
 from . import feature_semantics as FS
 from . import gen3_contracts as GC
 from . import silver_transform as ST
-from .silver_transform import LOG1P_PRIOR_PA_COUNT, PRIOR_PA_COUNT, SilverTransformError
+from .silver_transform import LOG1P_PRIOR_PA_COUNT, PRIOR_PA_COUNT
 
 SILVER_TRANSFORM_RECEIPT = "MLB_SILVER_TRANSFORMATION_RECEIPT_V1"
 SILVER_STATUS = "SILVER_NORMALIZED"
 SILVER_QUARANTINE = "QUARANTINED"
 SILVER_FAMILY_ID = "silver_prior_pa_reliability"
+TRANSFORM_CODE_RECEIPT = "MLB_SILVER_TRANSFORM_CODE_RECEIPT_V1"
+SOURCE_RECEIPT_CONTRACT = "MLB_SILVER_SOURCE_RECEIPT_V1"
+SOURCE_MANIFEST_CONTRACT = "MLB_SILVER_SOURCE_PUBLICATION_MANIFEST_V1"
 _ADV = (PRIOR_PA_COUNT, LOG1P_PRIOR_PA_COUNT)
 _HEX64 = __import__("re").compile(r"^[0-9a-f]{64}$")
+
+# The EXACT required child set of an immutable Silver object (Repair 3). No more, no fewer.
+REQUIRED_SILVER_CHILDREN = (
+    "object.parquet",
+    "source-object-receipt.json",
+    "source-publication-manifest.json",
+    "temporal-contract.json",
+    "population-contract.json",
+    "knowledge-time-contract.json",
+    "prior-pa-semantic-contract.json",
+    "log1p-prior-pa-semantic-contract.json",
+    "feature-family-contract.json",
+    "feature-set-v2-contract.json",
+    "transform-code-receipt.json",
+    "transformation-receipt.json",
+    "value-digest.json",
+    "publication-manifest.json",
+)
 
 
 class SilverPublishError(RuntimeError):
@@ -43,10 +81,234 @@ class DatasetNotModelEligibleError(RuntimeError):
     """A quarantined Silver dataset was offered to a model-eligible path (fail-closed)."""
 
 
-# --------------------------------------------------------------------------- semantic authority (no V1 downgrade)
+class SourceAuthorityError(RuntimeError):
+    """A governed Silver source could not be resolved/verified server-side (fail-closed)."""
+
+
+def _require_hex64(value: str, label: str) -> str:
+    if not isinstance(value, str) or not _HEX64.match(value):
+        raise SourceAuthorityError(f"{label} must be lowercase hex [0-9a-f]{{64}}, got {value!r}")
+    return value
+
+
+def _file_sha(path: str) -> str:
+    return sha256_bytes(Path(path).read_bytes())
+
+
+# =========================================================================== Repair 2 — server-resolved source
+_ISSUE_TOKEN = object()          # module-private; a VerifiedSourceHandle cannot be built from caller values
+
+
+@dataclass(frozen=True)
+class VerifiedSourceHandle:
+    """A server-issued, verified handle to an immutable governed Silver source. Issued ONLY by
+    ``resolve_verified_source`` after re-hashing the stored object/receipt/manifest; callers cannot construct one."""
+    dataset_version_id: str
+    object_path: str
+    physical_sha256: str
+    logical_sha256: str
+    schema_sha256: str
+    receipt_sha256: str
+    manifest_sha256: str
+    seasons: tuple[int, ...]
+    row_count: int
+    _token: Any = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self._token is not _ISSUE_TOKEN:
+            raise SourceAuthorityError("VerifiedSourceHandle may only be issued by server-side verification")
+
+
+def _source_objects_root(source_root: Path) -> Path:
+    return Path(source_root) / "objects" / "sha256"
+
+
+def _source_registry_path(source_root: Path) -> Path:
+    return Path(source_root) / "silver-source-registry.json"
+
+
+def _source_lock_path(source_root: Path) -> Path:
+    return Path(source_root) / ".silver-source-registry.lock"
+
+
+def _canon_source_table(rows: Sequence[Mapping[str, Any]]) -> pa.Table:
+    cols = {k: [r[k] for r in rows] for k in rows[0]}
+    fields = []
+    for k in rows[0]:
+        v0 = rows[0][k]
+        if isinstance(v0, bool):
+            fields.append((k, pa.bool_()))
+        elif isinstance(v0, int):
+            fields.append((k, pa.int64()))
+        elif isinstance(v0, float):
+            fields.append((k, pa.float64()))
+        else:
+            fields.append((k, pa.string()))
+    return pa.table({k: cols[k] for k, _ in fields}, schema=pa.schema(fields))
+
+
+def _schema_sha_of(table: pa.Table) -> str:
+    return sha256_bytes(canonical_json_bytes(
+        [{"name": f.name, "type": str(f.type), "nullable": f.nullable} for f in table.schema]))
+
+
+def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]], dataset_version_id: str,
+                          season_of_row) -> dict[str, Any]:
+    """The PRODUCTION Silver-ingress source publisher (used by any real flow AND by the hermetic tests): write one
+    immutable, content-addressed source object with a source receipt + a source publication manifest binding every
+    child, atomically and reparse-safe, and register it under an interprocess lock. Returns the registry entry."""
+    if not rows:
+        raise SourceAuthorityError("cannot publish an empty governed source")
+    seasons = sorted({int(season_of_row(r)) for r in rows})
+    if any(s in ST.SEALED_SEASONS for s in seasons):
+        raise SourceAuthorityError(f"SEAL VIOLATION: sealed/prospective season in source seasons {seasons}")
+    table = _canon_source_table(rows).replace_schema_metadata(None).combine_chunks()
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink, compression="none", row_group_size=max(1, table.num_rows), use_dictionary=False,
+                   write_statistics=False, store_schema=True)
+    obj_bytes = sink.getvalue().to_pybytes()
+    physical = sha256_bytes(obj_bytes)
+    schema_sha = _schema_sha_of(table)
+    logical = sha256_bytes(canonical_json_bytes({"schemaVersion": "MLB_SILVER_SOURCE_OBJECT_V1",
+                                                 "schemaSha256": schema_sha, "rows": table.num_rows,
+                                                 "physicalSha256": physical}))
+    receipt_body = {"receiptContract": SOURCE_RECEIPT_CONTRACT, "datasetVersionId": dataset_version_id,
+                    "physicalSha256": physical, "logicalSha256": logical, "schemaSha256": schema_sha,
+                    "rowCount": table.num_rows, "seasons": seasons}
+    receipt_sha = sha256_bytes(canonical_json_bytes(receipt_body))
+    receipt = {**receipt_body, "receiptSha256": receipt_sha}
+
+    objects_root = _source_objects_root(source_root)
+    final = contained_no_reparse(objects_root / logical, [objects_root])
+    children = {"source.parquet": obj_bytes, "source-receipt.json": canonical_json_bytes(receipt)}
+    manifest_body = {"manifestContract": SOURCE_MANIFEST_CONTRACT, "datasetVersionId": dataset_version_id,
+                     "logicalSha256": logical, "physicalSha256": physical, "schemaSha256": schema_sha,
+                     "receiptSha256": receipt_sha, "rowCount": table.num_rows, "seasons": seasons,
+                     "children": {n: {"sha256": sha256_bytes(b), "bytes": len(b)} for n, b in sorted(children.items())}}
+    manifest_sha = sha256_bytes(canonical_json_bytes(manifest_body))
+    manifest = {**manifest_body, "manifestSha256": manifest_sha}
+    children["source-publication-manifest.json"] = canonical_json_bytes(manifest)
+
+    _atomic_publish_children(objects_root, final, children, manifest_name="source-publication-manifest.json")
+    return _register_source(source_root, dataset_version_id, logical, receipt_sha, manifest_sha, table.num_rows, seasons)
+
+
+def _atomic_publish_children(objects_root: Path, final: Path, children: Mapping[str, bytes], *, manifest_name: str):
+    """Atomically publish a content-addressed directory of children, reparse-safe + create-once + idempotent-reuse."""
+    objects_root.mkdir(parents=True, exist_ok=True)
+    contained_no_reparse(objects_root, [objects_root])
+    if final.exists():
+        contained_no_reparse(final, [objects_root])
+        _verify_children_bytes(final, children, manifest_name)     # full reuse verification (no partial reuse)
+        return
+    staging = objects_root / f".staging-{uuid.uuid4().hex}"
+    staging.mkdir(parents=True, exist_ok=False)
+    try:
+        for name, b in children.items():
+            (staging / name).write_bytes(b)
+        published = False
+        if not final.exists():
+            try:
+                os.replace(staging, final)
+                published = True
+            except OSError:
+                published = False
+        if not published:
+            contained_no_reparse(final, [objects_root])
+            _verify_children_bytes(final, children, manifest_name)  # concurrent identical publish -> reuse
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def _verify_children_bytes(final: Path, children: Mapping[str, bytes], manifest_name: str):
+    present = {p.name for p in final.iterdir()}
+    if present != set(children):
+        raise SilverPublishError(f"existing object child set mismatch (have {sorted(present)}, need {sorted(children)})")
+    for name, b in children.items():
+        if (final / name).read_bytes() != b:
+            raise SilverPublishError(f"existing object child '{name}' differs from the content-address bytes")
+
+
+def _register_source(source_root, dsid, logical, receipt_sha, manifest_sha, rows, seasons) -> dict[str, Any]:
+    entry = {"datasetVersionId": dsid, "logicalSha256": logical, "receiptSha256": receipt_sha,
+             "manifestSha256": manifest_sha, "rows": rows, "seasons": seasons}
+    _locked_registry_put(_source_registry_path(source_root), _source_lock_path(source_root), Path(source_root),
+                         "MLB_SILVER_SOURCE_REGISTRY_V1", dsid, entry)
+    return entry
+
+
+def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple[VerifiedSourceHandle, list[dict]]:
+    """SERVER-SIDE resolution: read the registered source, re-hash the immutable object/receipt/manifest from stored
+    bytes, cross-check every identity, and issue a non-forgeable handle + the authorized rows. No caller SHA is
+    trusted; every hash is recomputed. Reparse-safe."""
+    reg_path = _source_registry_path(source_root)
+    if not reg_path.is_file():
+        raise SourceAuthorityError("no Silver-source registry present")
+    contained_no_reparse(reg_path, [Path(source_root)])
+    reg = json.loads(reg_path.read_text(encoding="utf-8"))
+    entry = (reg.get("datasets") or {}).get(dataset_version_id)
+    if not entry:
+        raise SourceAuthorityError(f"source dataset {dataset_version_id!r} is not registered")
+    logical = _require_hex64(entry["logicalSha256"], "source logicalSha256")
+    objects_root = _source_objects_root(source_root)
+    final = contained_no_reparse(objects_root / logical, [objects_root])
+    for name in ("source.parquet", "source-receipt.json", "source-publication-manifest.json"):
+        contained_no_reparse(final / name, [objects_root])
+    # manifest self-address + registry cross-check
+    manifest = json.loads((final / "source-publication-manifest.json").read_bytes().decode("utf-8"))
+    if sha256_bytes(canonical_json_bytes({k: v for k, v in manifest.items() if k != "manifestSha256"})) != entry["manifestSha256"]:
+        raise SourceAuthorityError("source manifest does not match its registered content address (tampered)")
+    # receipt self-address + cross-check
+    receipt = json.loads((final / "source-receipt.json").read_bytes().decode("utf-8"))
+    if sha256_bytes(canonical_json_bytes({k: v for k, v in receipt.items() if k != "receiptSha256"})) != receipt.get("receiptSha256") \
+            or receipt["receiptSha256"] != entry["receiptSha256"] or receipt["receiptSha256"] != manifest["receiptSha256"]:
+        raise SourceAuthorityError("source receipt does not verify against its address / manifest / registry")
+    # object bytes rehash (physical) + child sha cross-check from the manifest
+    obj_bytes = (final / "source.parquet").read_bytes()
+    if sha256_bytes(obj_bytes) != receipt["physicalSha256"] or receipt["physicalSha256"] != manifest["physicalSha256"]:
+        raise SourceAuthorityError("source object bytes differ from the receipt/manifest physical sha (tampered)")
+    if sha256_bytes(obj_bytes) != manifest["children"]["source.parquet"]["sha256"]:
+        raise SourceAuthorityError("source object child sha mismatch in the publication manifest (tampered)")
+    table = pq.read_table(pa.BufferReader(obj_bytes))
+    if _schema_sha_of(table) != receipt["schemaSha256"]:
+        raise SourceAuthorityError("source schema sha mismatch (tampered)")
+    rows = table.to_pylist()
+    handle = VerifiedSourceHandle(dataset_version_id=dataset_version_id, object_path=str(final),
+                                  physical_sha256=receipt["physicalSha256"], logical_sha256=logical,
+                                  schema_sha256=receipt["schemaSha256"], receipt_sha256=receipt["receiptSha256"],
+                                  manifest_sha256=manifest["manifestSha256"], seasons=tuple(receipt["seasons"]),
+                                  row_count=table.num_rows, _token=_ISSUE_TOKEN)
+    return handle, rows
+
+
+# =========================================================================== transform-code receipt (binds impl)
+def transform_code_receipt(*, params: Mapping[str, Any]) -> dict[str, Any]:
+    """Content-addressed receipt binding the ACTUAL transform implementation — function source digests, the SHAs of
+    every material transform/serialization file, runtime versions, params, and the contract version. Editing any
+    bound implementation changes ``implementationDigest`` and therefore the transform authority."""
+    impl = sha256_bytes(canonical_json_bytes({
+        "compute_prior_pa": sha256_bytes(inspect.getsource(ST.compute_prior_pa).encode()),
+        "governed_sort_key": sha256_bytes(inspect.getsource(ST.governed_sort_key).encode()),
+        "publish_silver": sha256_bytes(inspect.getsource(publish_silver).encode()),
+        "value_digest": sha256_bytes(inspect.getsource(value_digest).encode()),
+    }))
+    files = {
+        "silver_transform.py": _file_sha(ST.__file__),
+        "silver_publish.py": _file_sha(__file__),
+        "feature_semantics.py": _file_sha(FS.__file__),
+        "gen3_contracts.py": _file_sha(GC.__file__),
+        "consumer.py": _file_sha(_consumer.__file__),
+    }
+    body = {"receiptContract": TRANSFORM_CODE_RECEIPT, "transformId": ST.TRANSFORM_ID, "contractVersion": "1.0.0",
+            "implementationDigest": impl, "fileShas": files,
+            "runtime": {"python": sys.version.split()[0], "pyarrow": pa.__version__},
+            "params": dict(params)}
+    return {**body, "sha256": sha256_bytes(canonical_json_bytes(body))}
+
+
+# =========================================================================== semantic authority (no V1 downgrade)
 def silver_semantic_contracts(*, source_object_id: str, source_receipt_sha: str) -> dict[str, dict[str, Any]]:
-    """Complete point-in-time semantic contracts for BOTH produced features (prior_pa_count is an intermediate
-    semantic feature bound even though the model may use only log1p_prior_pa_count)."""
     common = dict(family_id=SILVER_FAMILY_ID, knowledge_time_class=FS.HISTORICAL_AS_OF_CUTOFF,
                   leakage_classification="SAFE_HISTORICAL_AS_OF",
                   as_of_rule=("aggregate over plate appearances for the SAME batter whose governed chronological key "
@@ -79,158 +341,148 @@ def silver_feature_set_v2(*, dataset_version_id: str, dataset_content_sha: str, 
                                       final_ordered_feature_ids=final, contracts=dict(contracts), name="silver_advanced")
 
 
-# --------------------------------------------------------------------------- value digest (binds VALUES, not names)
+# =========================================================================== value digest (binds VALUES, not names)
 def value_digest(rows: Sequence[Mapping[str, Any]], feature_ids: Sequence[str], *, id_col: str) -> str:
-    """Deterministic digest over (row identity, ordered advanced feature names, canonical serialized values). One
-    changed value invalidates it."""
     payload = {"schemaVersion": "MLB_SILVER_VALUE_DIGEST_V1", "featureIds": list(feature_ids),
                "rows": [[str(r[id_col]), *[_canon_num(r[f]) for f in feature_ids]] for r in rows]}
     return sha256_bytes(canonical_json_bytes(payload))
 
 
 def _canon_num(x: Any) -> str:
-    return repr(float(x))     # stable textual form so the digest is exact and reproducible
+    return repr(float(x))
 
 
-# --------------------------------------------------------------------------- transform + independent value check
-def _recompute_and_check(source_rows: Sequence[Mapping[str, Any]], supplied: Mapping[str, Sequence[float]] | None,
-                         id_col: str) -> list[dict[str, float]]:
-    """Recompute the point-in-time features from the AUTHORIZED source columns (target excluded). If the caller
-    supplied advanced columns, they must EQUAL the recomputation or publication fails closed (Test 10 / old-formula
-    rejection)."""
-    recomputed = ST.compute_prior_pa(source_rows)
-    if supplied is not None:
-        for i, feat in enumerate(_ADV):
-            if feat in supplied:
-                col = list(supplied[feat])
-                if len(col) != len(recomputed):
-                    raise SilverPublishError("supplied advanced column length mismatch")
-                for j, v in enumerate(col):
-                    if not math.isclose(float(v), recomputed[j][feat], rel_tol=0, abs_tol=1e-12):
-                        raise SilverPublishError(
-                            f"supplied '{feat}' value at row {j} ({v}) != production recomputation "
-                            f"({recomputed[j][feat]}); refusing to trust caller-supplied advanced values")
-    return recomputed
-
-
-# --------------------------------------------------------------------------- immutable publication
+# =========================================================================== immutable publication
 def _silver_objects_root(silver_root: Path) -> Path:
     return Path(silver_root) / "objects" / "sha256"
 
 
-def publish_silver(*, silver_root: Path, source_object_id: str, source_receipt_sha: str, source_manifest_sha: str,
-                   source_physical_sha: str, source_logical_sha: str, source_schema_sha: str,
-                   source_rows: Sequence[Mapping[str, Any]], base_feature_ids: Sequence[str],
-                   season_of_row, id_col: str = "plate_appearance_id", generation: str = "GEN3",
-                   supplied_advanced: Mapping[str, Sequence[float]] | None = None,
-                   feature_set_downgrade_v1: bool = False, allow_empty_semantic: bool = False) -> dict[str, Any]:
-    """Transform -> value-verify -> receipt + semantic V2 -> immutable quarantined Silver publication. Returns the
-    registration record. Fails closed on target presence, value mismatch (incl. the old leaky formula), a V1
-    downgrade, or empty semantic children."""
+def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_version_id: str,
+                   base_feature_ids: Sequence[str], season_of_row, id_col: str = "plate_appearance_id",
+                   generation: str = "GEN3", feature_set_downgrade_v1: bool = False,
+                   authorized_seasons: Sequence[int] | None = None) -> dict[str, Any]:
+    """SERVER-RESOLVED-source Silver publication: resolve+verify the governed source (no caller SHAs/rows), transform
+    read-only source rows point-in-time, build the exact child set + transform-code receipt, publish atomically, verify
+    completely, then register (interprocess-locked) as SILVER_NORMALIZED / QUARANTINED / NOT_MODEL_ELIGIBLE."""
     if feature_set_downgrade_v1:
         raise SilverPublishError("V2->V1 feature-set downgrade is forbidden for a non-base Silver object")
-    if any(ST.TARGET_COLUMN in r for r in source_rows[:1]):
-        raise SilverPublishError("source rows must not carry the target column 'outcome'")
 
-    recomputed = _recompute_and_check(source_rows, supplied_advanced, id_col)
-    # assemble the output table: source columns + the two produced features, in stable input order
-    out_rows = []
-    for r, feats in zip(source_rows, recomputed):
-        out_rows.append({**{k: r[k] for k in r}, PRIOR_PA_COUNT: feats[PRIOR_PA_COUNT],
-                         LOG1P_PRIOR_PA_COUNT: feats[LOG1P_PRIOR_PA_COUNT]})
-    contracts = silver_semantic_contracts(source_object_id=source_object_id, source_receipt_sha=source_receipt_sha)
-    for c in contracts.values():
-        FS.validate_feature_semantic_contract(c)                       # leakage validator on the produced features
-    family = silver_family_contract(contracts)
-    full_contracts = {**FS.all_feature_semantic_contracts(), **contracts}
-    fsc = silver_feature_set_v2(dataset_version_id=f"silver:{source_object_id}", dataset_content_sha=source_logical_sha,
-                                base_feature_ids=base_feature_ids, contracts=full_contracts)
-    sem_children = {"featureSemanticContracts": {k: contracts[k] for k in _ADV},
-                    "featureFamilyContract": family, "featureSetContractV2": fsc}
-    if not allow_empty_semantic and (not sem_children["featureSemanticContracts"] or not family or not fsc):
-        raise SilverPublishError("refusing to publish Silver with empty semantic/family/set children")
-
-    vdigest = value_digest(out_rows, _ADV, id_col=id_col)
+    # ---- Repair 2: resolve + verify the source server-side; rows come from the verified object, not the caller.
+    handle, source_rows = resolve_verified_source(source_root, source_dataset_version_id)
+    if not source_rows:
+        raise SilverPublishError("verified source is empty")
     seasons = sorted({int(season_of_row(r)) for r in source_rows})
     if 2025 in seasons or 2026 in seasons:
         raise SilverPublishError("SEAL VIOLATION: sealed season present in a Silver source")
 
-    # build the immutable object bytes (parquet) deterministically
+    # ---- Repair 1: strict typed point-in-time transform on the AUTHORIZED source rows (target/prohibited rejected).
+    recomputed = ST.compute_prior_pa(source_rows, authorized_seasons=authorized_seasons, season_of_row=season_of_row)
+    out_rows = [{**{k: r[k] for k in r}, PRIOR_PA_COUNT: f[PRIOR_PA_COUNT], LOG1P_PRIOR_PA_COUNT: f[LOG1P_PRIOR_PA_COUNT]}
+                for r, f in zip(source_rows, recomputed)]
+
+    # ---- output identities (deterministic)
     table = _rows_to_table(out_rows)
     sink = pa.BufferOutputStream()
     pq.write_table(table.replace_schema_metadata(None).combine_chunks(), sink, compression="none",
                    row_group_size=max(1, table.num_rows), use_dictionary=False, write_statistics=False, store_schema=True)
     obj_bytes = sink.getvalue().to_pybytes()
     physical = sha256_bytes(obj_bytes)
-    schema_sha = sha256_bytes(canonical_json_bytes([{"name": f.name, "type": str(f.type), "nullable": f.nullable} for f in table.schema]))
+    schema_sha = _schema_sha_of(table)
+    vdigest = value_digest(out_rows, _ADV, id_col=id_col)
     logical = sha256_bytes(canonical_json_bytes({"schemaVersion": "MLB_SILVER_OBJECT_V1", "schemaSha256": schema_sha,
                                                  "rows": table.num_rows, "valueDigest": vdigest}))
 
+    # ---- semantic / family / OUTPUT-bound feature-set V2 (binds the output logical identity, not the source)
+    contracts = silver_semantic_contracts(source_object_id=handle.dataset_version_id, source_receipt_sha=handle.receipt_sha256)
+    for c in contracts.values():
+        FS.validate_feature_semantic_contract(c)
+    family = silver_family_contract(contracts)
+    full_contracts = {**FS.all_feature_semantic_contracts(), **contracts}
+    fsc = silver_feature_set_v2(dataset_version_id=f"silver:{handle.dataset_version_id}", dataset_content_sha=logical,
+                                base_feature_ids=base_feature_ids, contracts=full_contracts)
+    if not contracts or not family or not fsc:
+        raise SilverPublishError("refusing to publish Silver with empty semantic/family/set children")
+
+    tcr = transform_code_receipt(params={"transformId": ST.TRANSFORM_ID, "idColumn": id_col, "generation": generation})
+    temporal, population, ktime = GC.temporal_contract(), GC.population_contract(), GC.knowledge_time_contract()
+
     receipt_body = {
         "receiptContract": SILVER_TRANSFORM_RECEIPT, "receiptVersion": "1.0.0", "transformId": ST.TRANSFORM_ID,
-        "generation": generation, "sourceObjectId": source_object_id, "sourceManifestSha256": source_manifest_sha,
-        "sourcePhysicalSha256": source_physical_sha, "sourceLogicalSha256": source_logical_sha, "sourceSchemaSha256": source_schema_sha,
-        "governedChronologicalKey": ST.governed_sort_key(sorted(source_rows[0].keys())),
-        "temporalContractSha256": GC.temporal_contract()["sha256"], "populationContractSha256": GC.population_contract()["sha256"],
-        "knowledgeTimeContractSha256": GC.knowledge_time_contract()["sha256"],
+        "generation": generation, "sourceDatasetVersionId": handle.dataset_version_id,
+        "sourceManifestSha256": handle.manifest_sha256, "sourceReceiptSha256": handle.receipt_sha256,
+        "sourcePhysicalSha256": handle.physical_sha256, "sourceLogicalSha256": handle.logical_sha256,
+        "sourceSchemaSha256": handle.schema_sha256, "governedChronologicalKey": ST.governed_sort_key(),
+        "temporalContractSha256": temporal["sha256"], "populationContractSha256": population["sha256"],
+        "knowledgeTimeContractSha256": ktime["sha256"], "transformCodeReceiptSha256": tcr["sha256"],
         "semanticContractShas": {k: contracts[k]["sha256"] for k in _ADV},
         "featureFamilySha256": family["sha256"], "featureFamilyId": family["id"],
         "featureSetV2Sha256": fsc["sha256"], "featureSetV2Id": fsc["id"],
+        "featureSetBindsOutputLogicalSha256": logical,
         "orderedOutputFeatures": list(fsc["payload"]["exactFinalOrderedFeatureIds"]),
         "producedAdvancedFeatures": list(_ADV), "rowIdentityColumn": id_col, "valueDigestSha256": vdigest,
         "outputPhysicalSha256": physical, "outputLogicalSha256": logical, "outputSchemaSha256": schema_sha,
         "rowCount": table.num_rows, "perSeasonRows": _per_season(source_rows, season_of_row),
-        "codeIdentity": ST.TRANSFORM_ID,
-        # DETERMINISTIC issuance: the receipt/manifest carry NO wall-clock timestamp, so identical content is
-        # content-addressed to the same immutable object and converges idempotently across processes; the receipt
-        # SHA is the deterministic issuance authority.
     }
     receipt_sha = sha256_bytes(canonical_json_bytes(receipt_body))
     receipt = {**receipt_body, "receiptSha256": receipt_sha}
 
+    # ---- exact child set (bytes) ----------------------------------------------------------------------------
+    children: dict[str, bytes] = {
+        "object.parquet": obj_bytes,
+        "source-object-receipt.json": _read_source_child(handle, "source-receipt.json"),
+        "source-publication-manifest.json": _read_source_child(handle, "source-publication-manifest.json"),
+        "temporal-contract.json": canonical_json_bytes(temporal),
+        "population-contract.json": canonical_json_bytes(population),
+        "knowledge-time-contract.json": canonical_json_bytes(ktime),
+        "prior-pa-semantic-contract.json": canonical_json_bytes(contracts[PRIOR_PA_COUNT]),
+        "log1p-prior-pa-semantic-contract.json": canonical_json_bytes(contracts[LOG1P_PRIOR_PA_COUNT]),
+        "feature-family-contract.json": canonical_json_bytes(family),
+        "feature-set-v2-contract.json": canonical_json_bytes(fsc),
+        "transform-code-receipt.json": canonical_json_bytes(tcr),
+        "transformation-receipt.json": canonical_json_bytes(receipt),
+        "value-digest.json": canonical_json_bytes({"valueDigestSha256": vdigest, "featureIds": list(_ADV),
+                                                    "rowIdentityColumn": id_col, "rowCount": table.num_rows}),
+    }
     manifest_body = {
         "manifestContract": "MLB_SILVER_PUBLICATION_MANIFEST_V1", "status": SILVER_STATUS, "quarantine": SILVER_QUARANTINE,
-        "modelEligible": False, "approvedForTraining": False, "transformReceiptSha256": receipt_sha,
-        "outputPhysicalSha256": physical, "outputLogicalSha256": logical, "outputSchemaSha256": schema_sha,
-        "valueDigestSha256": vdigest, "rowCount": table.num_rows, "orderedOutputFeatures": receipt_body["orderedOutputFeatures"],
+        "modelEligible": False, "approvedForTraining": False, "selectable": False,
+        "transformReceiptSha256": receipt_sha, "transformCodeReceiptSha256": tcr["sha256"],
+        "sourceDatasetVersionId": handle.dataset_version_id, "outputPhysicalSha256": physical,
+        "outputLogicalSha256": logical, "outputSchemaSha256": schema_sha, "valueDigestSha256": vdigest,
+        "rowCount": table.num_rows, "seasons": seasons, "orderedOutputFeatures": receipt_body["orderedOutputFeatures"],
+        # `children` here holds every child EXCEPT publication-manifest.json (added after the manifest is built)
+        "children": {n: {"sha256": sha256_bytes(b), "bytes": len(b),
+                         "contract": _child_contract_id(n, receipt, fsc, family, tcr)}
+                     for n, b in sorted(children.items())},
     }
     manifest_sha = sha256_bytes(canonical_json_bytes(manifest_body))
     manifest = {**manifest_body, "manifestSha256": manifest_sha}
+    children["publication-manifest.json"] = canonical_json_bytes(manifest)
 
-    final = _silver_objects_root(silver_root) / manifest_sha
-    if final.exists():                                              # content-addressed create-once
-        existing = final / "manifest.json"
-        if existing.is_file() and existing.read_bytes() == canonical_json_bytes(manifest):
-            return _register(silver_root, source_object_id, manifest_sha, receipt_sha, table.num_rows, seasons)
-        raise SilverPublishError("Silver content-address conflict (divergent bytes)")
-    final.parent.mkdir(parents=True, exist_ok=True)
-    staging = final.parent / f".staging-{uuid.uuid4().hex}"
-    staging.mkdir(parents=True, exist_ok=False)
-    try:
-        (staging / "object.parquet").write_bytes(obj_bytes)
-        (staging / "transform-receipt.json").write_bytes(canonical_json_bytes(receipt))
-        (staging / "feature-semantic-contracts.json").write_bytes(canonical_json_bytes(sem_children["featureSemanticContracts"]))
-        (staging / "feature-family-contract.json").write_bytes(canonical_json_bytes(family))
-        (staging / "feature-set-contract.json").write_bytes(canonical_json_bytes(fsc))
-        (staging / "manifest.json").write_bytes(canonical_json_bytes(manifest))
-        published = False
-        if not final.exists():
-            try:
-                os.replace(staging, final)                             # atomic create-once publish
-                published = True
-            except OSError:
-                # lost the create race to a concurrent publisher (on Windows an os.replace onto a now-existing
-                # non-empty dir raises WinError 5, not FileExistsError) -> fall through to the reuse/conflict check
-                published = False
-        if not published:
-            existing = final / "manifest.json"
-            if not (existing.is_file() and existing.read_bytes() == canonical_json_bytes(manifest)):
-                raise SilverPublishError("Silver content-address conflict (published during staging)")
-            # idempotent: another process published byte-identical content concurrently -> reuse it
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-    return _register(silver_root, source_object_id, manifest_sha, receipt_sha, table.num_rows, seasons)
+    if set(children) != set(REQUIRED_SILVER_CHILDREN):
+        raise SilverPublishError(f"assembled child set != required set (have {sorted(children)})")
+
+    # ---- publish atomically (content-addressed by the publication-manifest sha), reparse-safe + reuse-guarded ---
+    objects_root = _silver_objects_root(silver_root)
+    final = contained_no_reparse(objects_root / manifest_sha, [objects_root])
+    if final.exists():
+        verify_silver(silver_root, manifest_sha)                    # FULL re-verification before any reuse
+        return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons)
+    _atomic_publish_children(objects_root, final, children, manifest_name="publication-manifest.json")
+    verify_silver(silver_root, manifest_sha)                        # verify the just-published object before registering
+    return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons)
+
+
+def _read_source_child(handle: VerifiedSourceHandle, name: str) -> bytes:
+    src = Path(handle.object_path)
+    contained_no_reparse(src / name, [src.parent])
+    return (src / name).read_bytes()
+
+
+def _child_contract_id(name: str, receipt, fsc, family, tcr) -> str | None:
+    return {"transformation-receipt.json": receipt["receiptContract"],
+            "feature-set-v2-contract.json": fsc["id"], "feature-family-contract.json": family["id"],
+            "transform-code-receipt.json": tcr["receiptContract"]}.get(name)
 
 
 def _rows_to_table(rows: Sequence[Mapping[str, Any]]) -> pa.Table:
@@ -238,7 +490,14 @@ def _rows_to_table(rows: Sequence[Mapping[str, Any]]) -> pa.Table:
     fields = []
     for k in rows[0]:
         v0 = rows[0][k]
-        fields.append((k, pa.float64() if isinstance(v0, float) else (pa.int64() if isinstance(v0, int) else pa.string())))
+        if isinstance(v0, bool):
+            fields.append((k, pa.bool_()))
+        elif isinstance(v0, float):
+            fields.append((k, pa.float64()))
+        elif isinstance(v0, int):
+            fields.append((k, pa.int64()))
+        else:
+            fields.append((k, pa.string()))
     return pa.table({k: cols[k] for k, _ in fields}, schema=pa.schema(fields))
 
 
@@ -250,70 +509,156 @@ def _per_season(rows, season_of_row) -> dict[str, int]:
     return out
 
 
-# --------------------------------------------------------------------------- quarantine registry + model barrier
+# =========================================================================== Repair 5 — locked registry
 def _silver_registry_path(silver_root: Path) -> Path:
     return Path(silver_root) / "silver-registry.json"
 
 
+def _silver_lock_path(silver_root: Path) -> Path:
+    return Path(silver_root) / ".silver-registry.lock"
+
+
+def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_version: str, key: str,
+                         entry: Mapping[str, Any]) -> None:
+    """Transactional interprocess-locked registry upsert (Repair 5): lock, re-read, validate, detect conflicting
+    same-key content, merge (never drop unrelated entries), atomic replace, re-read + verify before unlock. Reparse-
+    safe on the registry, its parent, and the lock path."""
+    root = Path(root)
+    reg_path, lock_path = Path(reg_path), Path(lock_path)
+    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    contained_no_reparse(reg_path.parent, [root])
+    contained_no_reparse(lock_path, [root])
+    with interprocess_lock(lock_path, blocking=True, timeout=60.0, stale_after=600.0):
+        contained_no_reparse(reg_path, [root])
+        if reg_path.is_file():
+            reg = json.loads(reg_path.read_text(encoding="utf-8"))     # re-read UNDER the lock
+            if not isinstance(reg.get("datasets"), dict):
+                raise SilverPublishError("existing registry is structurally invalid")
+        else:
+            reg = {"schemaVersion": schema_version, "datasets": {}}
+        existing = reg["datasets"].get(key)
+        if existing is not None and existing != dict(entry):
+            raise SilverPublishError(f"registry conflict: key {key!r} already holds divergent content")
+        reg["datasets"][key] = dict(entry)                            # merge; unrelated entries preserved
+        tmp = reg_path.parent / f".tmp-{uuid.uuid4().hex}"
+        contained_no_reparse(tmp, [root])
+        with open(tmp, "wb") as fh:
+            fh.write(canonical_json_bytes(reg))
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        os.replace(tmp, reg_path)
+        committed = json.loads(reg_path.read_text(encoding="utf-8"))  # verify-after-write UNDER the lock
+        if committed["datasets"].get(key) != dict(entry):
+            raise SilverPublishError("registry commit verification failed")
+
+
 def _register(silver_root: Path, source_object_id: str, manifest_sha: str, receipt_sha: str, rows: int,
               seasons: list[int]) -> dict[str, Any]:
-    import json
-    p = _silver_registry_path(silver_root)
-    reg = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {"schemaVersion": "MLB_SILVER_REGISTRY_V1", "datasets": {}}
     dsid = f"silver:{source_object_id}:sha256:{manifest_sha}"
     entry = {"datasetVersionId": dsid, "status": SILVER_STATUS, "quarantine": SILVER_QUARANTINE, "modelEligible": False,
-             "approvedForTraining": False, "manifestSha256": manifest_sha, "transformReceiptSha256": receipt_sha,
-             "rows": rows, "seasons": seasons, "sourceObjectId": source_object_id}
-    reg["datasets"][dsid] = entry
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.parent / f".tmp-{uuid.uuid4().hex}"; tmp.write_bytes(canonical_json_bytes(reg)); os.replace(tmp, p)
+             "approvedForTraining": False, "selectable": False, "manifestSha256": manifest_sha,
+             "transformReceiptSha256": receipt_sha, "rows": rows, "seasons": seasons, "sourceObjectId": source_object_id}
+    _locked_registry_put(_silver_registry_path(silver_root), _silver_lock_path(silver_root), Path(silver_root),
+                         "MLB_SILVER_REGISTRY_V1", dsid, entry)
     return entry
 
 
 def is_quarantined_silver(silver_root: Path, dataset_version_id: str) -> bool:
-    import json
     p = _silver_registry_path(silver_root)
     if not p.is_file():
-        return False
+        return str(dataset_version_id).startswith("silver:")
     reg = json.loads(p.read_text(encoding="utf-8"))
     e = (reg.get("datasets") or {}).get(dataset_version_id)
-    return bool(e and (not e.get("modelEligible") or e.get("quarantine") == SILVER_QUARANTINE))
+    if e is None:
+        return str(dataset_version_id).startswith("silver:")
+    return bool(not e.get("modelEligible") or e.get("quarantine") == SILVER_QUARANTINE)
 
 
 def assert_model_eligible(silver_root: Path, dataset_version_id: str) -> None:
-    """The model-eligibility barrier: a quarantined Silver dataset may never enter a model-eligible path."""
     if str(dataset_version_id).startswith("silver:") or is_quarantined_silver(silver_root, dataset_version_id):
         raise DatasetNotModelEligibleError(
             f"DATASET_NOT_MODEL_ELIGIBLE: {dataset_version_id} is a QUARANTINED Silver dataset; model training / "
             "binding / activation / comparison is not authorized (SILVER_QUARANTINED)")
 
 
-# --------------------------------------------------------------------------- verification (recompute value digest)
+# =========================================================================== Repair 3 — complete verification
 def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
-    """Reload the published Silver object + receipt, recompute the value digest from the object bytes, and cross-
-    check receipt/manifest identities. Reparse-safe. One changed value invalidates it."""
-    import json
+    """Fully re-verify a published Silver object: containment before iterate/open; EXACT child set (no missing/
+    extra); rehash every child; every JSON child validates its own content address where it carries one; all
+    parent/child identities cross-checked; physical/logical/schema/value digests recomputed; the V2 feature-set
+    binds the OUTPUT logical identity; status is quarantined + model-ineligible. Fail-closed on any deviation."""
     root = _silver_objects_root(silver_root)
     final = contained_no_reparse(root / manifest_sha, [root])
-    for name in ("manifest.json", "transform-receipt.json", "object.parquet"):
-        contained_no_reparse(final / name, [root])                 # reparse rejection before any open
-    manifest = json.loads((final / "manifest.json").read_bytes().decode("utf-8"))
+    # exact child set BEFORE opening anything of substance
+    present = {p.name for p in final.iterdir()}
+    if present != set(REQUIRED_SILVER_CHILDREN):
+        missing = set(REQUIRED_SILVER_CHILDREN) - present
+        extra = present - set(REQUIRED_SILVER_CHILDREN)
+        raise SilverPublishError(f"Silver child set invalid (missing={sorted(missing)}, extra={sorted(extra)})")
+    for name in REQUIRED_SILVER_CHILDREN:
+        contained_no_reparse(final / name, [root])
+
+    def _load(name):
+        return json.loads((final / name).read_bytes().decode("utf-8"))
+
+    manifest = _load("publication-manifest.json")
     if sha256_bytes(canonical_json_bytes({k: v for k, v in manifest.items() if k != "manifestSha256"})) != manifest_sha:
-        raise SilverPublishError("Silver manifest sha does not match its content address (tampered)")
-    receipt = json.loads((final / "transform-receipt.json").read_bytes().decode("utf-8"))
-    body = {k: v for k, v in receipt.items() if k != "receiptSha256"}
-    if sha256_bytes(canonical_json_bytes(body)) != receipt.get("receiptSha256") \
-            or receipt.get("receiptSha256") != manifest.get("transformReceiptSha256"):
-        raise SilverPublishError("Silver transform receipt sha does not verify")
+        raise SilverPublishError("Silver publication manifest sha does not match its content address (tampered)")
+    # rehash every child against the manifest inventory
+    inv = manifest["children"]
+    for name in REQUIRED_SILVER_CHILDREN:
+        if name == "publication-manifest.json":
+            continue
+        b = (final / name).read_bytes()
+        if name not in inv:
+            raise SilverPublishError(f"child '{name}' not inventoried in the publication manifest")
+        if sha256_bytes(b) != inv[name]["sha256"] or len(b) != inv[name]["bytes"]:
+            raise SilverPublishError(f"child '{name}' bytes/sha differ from the manifest inventory (tampered)")
+
+    receipt = _load("transformation-receipt.json")
+    if sha256_bytes(canonical_json_bytes({k: v for k, v in receipt.items() if k != "receiptSha256"})) != receipt.get("receiptSha256") \
+            or receipt["receiptSha256"] != manifest["transformReceiptSha256"]:
+        raise SilverPublishError("Silver transformation receipt sha does not verify")
+    tcr = _load("transform-code-receipt.json")
+    if sha256_bytes(canonical_json_bytes({k: v for k, v in tcr.items() if k != "sha256"})) != tcr.get("sha256") \
+            or tcr["sha256"] != receipt["transformCodeReceiptSha256"] or tcr["sha256"] != manifest["transformCodeReceiptSha256"]:
+        raise SilverPublishError("Silver transform-code receipt sha does not verify")
+    fsc = _load("feature-set-v2-contract.json")
+    if fsc["sha256"] != receipt["featureSetV2Sha256"]:
+        raise SilverPublishError("feature-set V2 sha mismatch vs receipt")
+    if fsc["payload"].get("datasetContentSha256") not in (receipt["outputLogicalSha256"], receipt.get("featureSetBindsOutputLogicalSha256")):
+        raise SilverPublishError("feature-set V2 does not bind the OUTPUT logical identity")
+    family = _load("feature-family-contract.json")
+    if family["sha256"] != receipt["featureFamilySha256"]:
+        raise SilverPublishError("feature-family sha mismatch vs receipt")
+    for feat, child in ((PRIOR_PA_COUNT, "prior-pa-semantic-contract.json"), (LOG1P_PRIOR_PA_COUNT, "log1p-prior-pa-semantic-contract.json")):
+        sc = _load(child)
+        if sc["sha256"] != receipt["semanticContractShas"][feat]:
+            raise SilverPublishError(f"semantic contract sha mismatch for {feat}")
+    # family membership: the family's ordered member contract SHAs must be exactly the two advanced semantic SHAs
+    if list(family["payload"].get("orderedFeatureContractShas", [])) != [receipt["semanticContractShas"][f] for f in _ADV]:
+        raise SilverPublishError("family membership mismatch")
+
     obj_bytes = (final / "object.parquet").read_bytes()
     if sha256_bytes(obj_bytes) != receipt["outputPhysicalSha256"]:
         raise SilverPublishError("Silver object bytes differ from the receipt (tampered)")
     table = pq.read_table(pa.BufferReader(obj_bytes))
-    id_col = receipt["rowIdentityColumn"]
+    if _schema_sha_of(table) != receipt["outputSchemaSha256"]:
+        raise SilverPublishError("Silver object schema differs from the receipt (tampered)")
     rows = table.to_pylist()
-    recomputed_digest = value_digest(rows, receipt["producedAdvancedFeatures"], id_col=id_col)
-    if recomputed_digest != receipt["valueDigestSha256"]:
+    id_col = receipt["rowIdentityColumn"]
+    if value_digest(rows, receipt["producedAdvancedFeatures"], id_col=id_col) != receipt["valueDigestSha256"]:
         raise SilverPublishError("Silver value digest recomputed from the published object does not verify (tampered)")
-    if manifest.get("modelEligible") or manifest.get("approvedForTraining"):
-        raise SilverPublishError("Silver manifest must remain model-ineligible / not-approved-for-training")
-    return {"manifest": manifest, "receipt": receipt, "valueDigestSha256": recomputed_digest, "objectDir": final}
+    recomputed_logical = sha256_bytes(canonical_json_bytes({"schemaVersion": "MLB_SILVER_OBJECT_V1",
+                                                            "schemaSha256": receipt["outputSchemaSha256"],
+                                                            "rows": table.num_rows, "valueDigest": receipt["valueDigestSha256"]}))
+    if recomputed_logical != receipt["outputLogicalSha256"]:
+        raise SilverPublishError("Silver output logical identity recompute mismatch (tampered)")
+    if manifest.get("modelEligible") or manifest.get("approvedForTraining") or manifest.get("selectable"):
+        raise SilverPublishError("Silver manifest must remain quarantined / model-ineligible / not selectable")
+    if manifest.get("status") != SILVER_STATUS or manifest.get("quarantine") != SILVER_QUARANTINE:
+        raise SilverPublishError("Silver manifest must be SILVER_NORMALIZED / QUARANTINED")
+    return {"manifest": manifest, "receipt": receipt, "valueDigestSha256": receipt["valueDigestSha256"], "objectDir": final}

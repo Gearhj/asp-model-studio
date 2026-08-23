@@ -75,8 +75,16 @@ def _table(seasons, per_class=14, seed=1, with_advanced=True):
     if with_advanced:
         # Phase 7D.5A: GENUINE point-in-time features (no target term). prior_pa_count = count of strictly-earlier
         # PAs for the same batter; log1p_prior_pa_count = log1p(that). Computed from identity/order columns only.
-        proj = [{"batter_canonical_player_uuid": r["batter_canonical_player_uuid"], "game_date": r["game_date"],
-                 "game_id": r["game_id"], "plate_appearance_id": r["plate_appearance_id"]} for r in rows]
+        # strict typed chronology (7D.5A.2): unique per-batter at_bat_number + a governed same-day game_sequence,
+        # so the transform's numeric ordering and same-day multi-game guard are satisfied deterministically.
+        _ab: dict[str, int] = {}
+        proj = []
+        for r in rows:
+            b = r["batter_canonical_player_uuid"]
+            _ab[b] = _ab.get(b, 0) + 1
+            proj.append({"batter_canonical_player_uuid": b, "game_date": r["game_date"], "game_id": r["game_id"],
+                         "at_bat_number": _ab[b], "game_sequence": int(str(r["game_id"]).rsplit("-", 1)[-1] or 0) if str(r["game_id"])[-1].isdigit() else 0,
+                         "plate_appearance_id": r["plate_appearance_id"]})
         feats = ST.compute_prior_pa(proj)
         for r, f in zip(rows, feats):
             r["prior_pa_count"] = f[ST.PRIOR_PA_COUNT]

@@ -80,25 +80,55 @@ def test_object_boundary_rejects_intermediate_junction(tmp_path, monkeypatch):
 
 
 def test_silver_verify_rejects_junction(tmp_path):
-    # publish a real Silver object, then make its object dir a junction to elsewhere -> verify rejects before open
-    from tests.sports_cockpit_phase7d5a_silver_test import _source_rows
-    from server.sports_modeling.feature_contract import FEATURE_NAMES
-    rows = [{k: v for k, v in r.items()} for r in _source_rows()]
-    entry = SP.publish_silver(silver_root=tmp_path / "silver", source_object_id="src", source_receipt_sha="s" * 64,
-                              source_manifest_sha="m" * 64, source_physical_sha="p" * 64, source_logical_sha="l" * 64,
-                              source_schema_sha="c" * 64, source_rows=rows, base_feature_ids=list(FEATURE_NAMES),
-                              season_of_row=lambda r: r["season"])
-    SP.verify_silver(tmp_path / "silver", entry["manifestSha256"])          # baseline ok
-    objdir = tmp_path / "silver" / "objects" / "sha256" / entry["manifestSha256"]
-    moved = tmp_path / "silver" / "objects" / "sha256" / "_moved"
+    # publish a real Silver object (server-resolved source), then make its object dir a junction -> verify rejects
+    from tests._silver_fixture import publish_silver_hermetic
+    p = publish_silver_hermetic(tmp_path)
+    SP.verify_silver(p["silver_root"], p["manifest_sha"])                    # baseline ok
+    objdir = p["object_dir"]
+    moved = p["silver_root"] / "objects" / "sha256" / "_moved"
     objdir.rename(moved)
     if not _mk_junction(objdir, moved):
         pytest.skip("reparse-point creation not permitted") if os.name != "nt" else pytest.fail("mklink /J failed on Windows")
     try:
         with pytest.raises((SP.SilverPublishError, ContainmentError)):
-            SP.verify_silver(tmp_path / "silver", entry["manifestSha256"])
+            SP.verify_silver(p["silver_root"], p["manifest_sha"])
     finally:
         _rm_junction(objdir)
+
+
+def test_silver_source_resolution_rejects_junction(tmp_path):
+    # a junction at the immutable SOURCE object dir must be rejected before the source is read (Repair 6)
+    import json
+    from tests._silver_fixture import publish_source, SRC_ID
+    publish_source(tmp_path / "src")
+    reg = json.loads((tmp_path / "src" / "silver-source-registry.json").read_text())
+    logical = reg["datasets"][SRC_ID]["logicalSha256"]
+    objdir = tmp_path / "src" / "objects" / "sha256" / logical
+    moved = tmp_path / "src" / "objects" / "sha256" / "_moved"
+    objdir.rename(moved)
+    if not _mk_junction(objdir, moved):
+        pytest.skip("reparse-point creation not permitted") if os.name != "nt" else pytest.fail("mklink /J failed on Windows")
+    try:
+        with pytest.raises((SP.SourceAuthorityError, ContainmentError)):
+            SP.resolve_verified_source(tmp_path / "src", SRC_ID)
+    finally:
+        _rm_junction(objdir)
+
+
+def test_silver_registry_parent_junction_rejected(tmp_path):
+    # a junction at the Silver registry's parent directory must be rejected before the locked write (Repair 6)
+    from tests._silver_fixture import publish_silver_hermetic
+    p = publish_silver_hermetic(tmp_path)
+    silver_root = p["silver_root"]
+    real = tmp_path / "_real_silver"
+    silver_root.rename(real)
+    if not _mk_junction(silver_root, real):
+        pytest.skip("reparse-point creation not permitted") if os.name != "nt" else pytest.fail("mklink /J failed on Windows")
+    try:
+        with pytest.raises((SP.SilverPublishError, ContainmentError)):
+            SP._register(silver_root, "s", "a" * 64, "b" * 64, 1, [2023])   # locked registry write via a junctioned root
+    finally:
+        _rm_junction(silver_root)
 
 
 def test_contained_no_reparse_rejects_escaping_and_reparse(tmp_path):
