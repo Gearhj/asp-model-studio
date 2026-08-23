@@ -123,4 +123,3 @@ def run_governance(
         text=True,
         timeout=30,
     )
-
