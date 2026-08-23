@@ -508,21 +508,19 @@ def _reject_sealed_target_read(entry: Mapping[str, Any], capability: str) -> Non
 
 
 def _contain_object_path(raw: str) -> Path:
-    """Resolve `raw` and require it to live under a fixed immutable object root, rejecting reparse/symlink
-    ancestors, BEFORE any byte is opened (Gate 6). A malicious registry/sidecar path cannot cause even one
-    outside-root open."""
-    resolved = Path(raw).resolve()
+    """Require `raw` to live under a fixed immutable object root and reject a REPARSE POINT (Windows junction —
+    which is_symlink() misses — or a symlink) in EVERY component from the root down, BEFORE resolve()/open
+    (Gate 6 / Phase 7D.5A G). A malicious registry/sidecar path — including one that traverses a junction — cannot
+    cause even one outside-root open."""
+    from .path_containment import ContainmentError, contained_no_reparse
     roots = _immutable_object_roots()
+    try:
+        contained_no_reparse(raw, roots)                       # lexical containment + reparse rejection (no resolve)
+    except ContainmentError as exc:
+        raise AuthorityError(f"object path escapes the immutable object root or traverses a reparse point: {exc}")
+    resolved = Path(raw).resolve()                             # defence in depth: resolve-based escape check
     if not any(r == resolved or r in resolved.parents for r in roots):
         raise AuthorityError("object path escapes the immutable object root")
-    root_set = {str(r) for r in roots}
-    cur = resolved
-    while True:
-        if cur.is_symlink():
-            raise AuthorityError("symlink/reparse point rejected in the object path")
-        if str(cur) in root_set or cur.parent == cur:
-            break
-        cur = cur.parent
     return resolved
 
 
@@ -1703,6 +1701,9 @@ def _v2_child_bytes(bundle_dir: Path, manifest: Mapping[str, Any], name: str) ->
     """Read one already-verified V2 child by its fixed name (containment re-checked)."""
     if name not in _V2_MANDATORY_CHILDREN:
         raise AuthorityError(f"unknown V2 child {name!r}")
+    from .path_containment import is_reparse_point
+    if is_reparse_point(bundle_dir) or is_reparse_point(bundle_dir / name):   # Phase 7D.5A G — reject junctions
+        raise AuthorityError("reparse point (junction/symlink) rejected in the V2 evidence path")
     cpath = (bundle_dir / name).resolve()
     if cpath.parent != bundle_dir.resolve() or cpath.is_symlink() or not cpath.is_file():
         raise AuthorityError("V2 child path invalid")
