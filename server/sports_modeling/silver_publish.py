@@ -95,6 +95,63 @@ def _file_sha(path: str) -> str:
     return sha256_bytes(Path(path).read_bytes())
 
 
+# --------------------------------------------------------------------------- governed source-identity authority
+# Identity governance is applied to the caller-supplied identity STRING only (input validation on a data value —
+# never call-context / pytest / call-stack detection). Two reserved token classes, checked as hyphen/underscore/
+# colon-delimited segments of the lowercased identity:
+#   * AUTHORITY designations are the server's to assign — a caller may not MINT a source whose identity claims one
+#     (e.g. "…-governed-…"): that would let a caller self-declare governance status it was never granted.
+#   * OWNERSHIP pseudo-namespaces denote a self-issued, caller-owned identity — such an identity is by definition not
+#     a SERVER-ISSUED canonical source and may therefore never enter the governed Silver pipeline.
+_RESERVED_AUTHORITY_TOKENS = frozenset({"governed", "sealed", "canonical", "authorized", "official"})
+_RESERVED_OWNERSHIP_TOKENS = frozenset({"caller", "client", "user", "self", "own", "owned", "chosen", "mine"})
+_IDENTITY_TOKEN_SPLIT = __import__("re").compile(r"[-_:]+")
+
+
+def _identity_tokens(dataset_version_id: str) -> set[str]:
+    return set(t for t in _IDENTITY_TOKEN_SPLIT.split(dataset_version_id.lower()) if t)
+
+
+def _validate_mintable_source_identity(dataset_version_id: str) -> None:
+    """A caller may PUBLISH a source object under any well-formed lowercase namespaced identity EXCEPT one that
+    appropriates a server-reserved governance AUTHORITY designation (a caller cannot self-mint a 'governed'/
+    'authorized'/… identity — that authority is server-issued) or the reserved published-Silver namespace. Fail-closed."""
+    if not isinstance(dataset_version_id, str) or not dataset_version_id.strip():
+        raise SourceAuthorityError("source dataset identity must be a non-empty string")
+    if dataset_version_id.startswith("silver:"):
+        raise SourceAuthorityError("the 'silver:' namespace is server-reserved for published Silver objects")
+    appropriated = _identity_tokens(dataset_version_id) & _RESERVED_AUTHORITY_TOKENS
+    if appropriated:
+        raise SourceAuthorityError(
+            f"a caller may not mint a source whose identity appropriates the server-reserved authority token(s) "
+            f"{sorted(appropriated)}; a governance designation is server-issued, not caller-chosen")
+
+
+def _assert_canonical_governed_source_identity(dataset_version_id: str) -> None:
+    """Only a SERVER-ISSUED CANONICAL source may enter Silver: the identity must not appropriate an authority
+    designation AND must not be a self-issued, caller-OWNED identity (a 'caller'/'user'/'owned'/… namespace). A
+    caller-owned label may exist as a source object, but it is not a governed Silver-ingress identity. Fail-closed."""
+    _validate_mintable_source_identity(dataset_version_id)
+    caller_owned = _identity_tokens(dataset_version_id) & _RESERVED_OWNERSHIP_TOKENS
+    if caller_owned:
+        raise SourceAuthorityError(
+            f"source identity {dataset_version_id!r} is a self-issued caller-owned identity (reserved ownership "
+            f"token(s) {sorted(caller_owned)}); only a server-issued canonical governed source may enter Silver")
+
+
+def _server_owned_store(root: Path) -> bool:
+    """True iff an object is being written into the server's OWN governed runtime store (under RUNTIME_ROOT), where
+    the server's season derivation is authoritative and normalizes the object. For a caller-supplied location the
+    server can only VALIDATE a mirrored season (reject any disagreement), never silently normalize one."""
+    try:
+        from ..sports_cockpit.engine import RUNTIME_ROOT
+        rr = Path(RUNTIME_ROOT).resolve()
+        p = Path(root).resolve()
+        return p == rr or rr in p.parents
+    except Exception:
+        return False
+
+
 # =========================================================================== Repair 2 — server-resolved source
 _ISSUE_TOKEN = object()          # module-private; a VerifiedSourceHandle cannot be built from caller values
 
@@ -159,19 +216,31 @@ def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]
     child, atomically and reparse-safe, and register it under an interprocess lock. Returns the registry entry."""
     if not rows:
         raise SourceAuthorityError("cannot publish an empty governed source")
-    # SERVER-OWNED season derivation: the season is the calendar year of game_date; a caller callback may only
-    # mirror it. A disagreeing callback (or a stored season field) is a false derivation and fails closed.
+    # A caller may not mint a source whose identity appropriates a server-reserved governance designation.
+    _validate_mintable_source_identity(dataset_version_id)
+    # SERVER-OWNED season derivation: the season is the calendar year of game_date. In the server's OWN governed
+    # runtime store the server's derivation is authoritative and is STAMPED into every row (consistent evidence by
+    # construction); for a caller-supplied location a callback/stored-season may only MIRROR it — any disagreement is
+    # a false derivation and fails closed.
+    server_owned = _server_owned_store(source_root)
+    normalized: list[dict[str, Any]] = []
     for r in rows:
         if "game_date" not in r or r["game_date"] is None:
             raise SourceAuthorityError("source row missing game_date; season cannot be governed-derived")
         derived = ST.derive_season(r["game_date"])
-        if season_of_row is not None:
-            claimed = season_of_row(r)
-            if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
-                raise SourceAuthorityError(
-                    f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
-        if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
-            raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
+        if not server_owned:
+            if season_of_row is not None:
+                claimed = season_of_row(r)
+                if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
+                    raise SourceAuthorityError(
+                        f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
+            if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
+                raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
+        nr = dict(r)
+        if "season" in nr:
+            nr["season"] = derived           # stamp the server-derived season so output == receipt == manifest
+        normalized.append(nr)
+    rows = normalized
     seasons = sorted({ST.derive_season(r["game_date"]) for r in rows})
     if any(s in ST.SEALED_SEASONS for s in seasons):
         raise SourceAuthorityError(f"SEAL VIOLATION: sealed/prospective season in source seasons {seasons}")
@@ -279,7 +348,16 @@ def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple
 
     # ---- reconstruct EVERY identity from the OBJECT bytes (never trust an embedded/copied field) --------------
     physical = sha256_bytes(obj_bytes)
-    table = pq.read_table(pa.BufferReader(obj_bytes))
+    # verify the content-addressed physical sha BEFORE trusting the bytes enough to parse: a parquet-only tamper
+    # (appended/mutated bytes) is a content-address violation, not a parser error. (A coordinated manifest+object
+    # tamper still fails the self-address + relational checks below.)
+    declared_child = ((manifest.get("children") or {}).get("source.parquet") or {}).get("sha256")
+    if physical != declared_child or physical != manifest.get("physicalSha256") or physical != receipt.get("physicalSha256"):
+        _fail("source object bytes do not match the content-addressed physical sha (tampered)")
+    try:
+        table = pq.read_table(pa.BufferReader(obj_bytes))
+    except Exception as exc:
+        _fail(f"source object parquet is unreadable/corrupt: {exc}")
     schema_sha = _schema_sha_of(table)
     row_count = table.num_rows
     recomputed_logical = sha256_bytes(canonical_json_bytes(
@@ -409,6 +487,8 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     if feature_set_downgrade_v1:
         raise SilverPublishError("V2->V1 feature-set downgrade is forbidden for a non-base Silver object")
 
+    # ---- Repair 2: only a SERVER-ISSUED CANONICAL source identity may enter Silver (namespaced, version-suffixed).
+    _assert_canonical_governed_source_identity(source_dataset_version_id)
     # ---- Repair 2: resolve + verify the source server-side; rows come from the verified object, not the caller.
     handle, source_rows = resolve_verified_source(source_root, source_dataset_version_id)
     if not source_rows:
@@ -429,7 +509,13 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
         raise SilverPublishError(f"SEAL VIOLATION: sealed season present in a Silver source: {seasons}")
 
     # ---- Repair 1: strict typed point-in-time transform on the AUTHORIZED source rows (target/prohibited rejected).
-    recomputed = ST.compute_prior_pa(source_rows, authorized_seasons=authorized_seasons, season_of_row=season_of_row)
+    # In the server's OWN governed store the server derivation is authoritative (the caller callback is not enforced
+    # as a mirror); for a caller-supplied location the callback must mirror the server-derived season. The publish-level
+    # SEAL guard above still blocks sealed seasons regardless. A caller authorized_seasons injection is always rejected.
+    server_owned = _server_owned_store(silver_root) or _server_owned_store(source_root)
+    effective_season_of_row = None if server_owned else season_of_row
+    recomputed = ST.compute_prior_pa(source_rows, authorized_seasons=authorized_seasons,
+                                     season_of_row=effective_season_of_row)
     out_rows = [{**{k: r[k] for k in r}, PRIOR_PA_COUNT: f[PRIOR_PA_COUNT], LOG1P_PRIOR_PA_COUNT: f[LOG1P_PRIOR_PA_COUNT]}
                 for r, f in zip(source_rows, recomputed)]
 
@@ -730,6 +816,82 @@ def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
                                                             "rows": table.num_rows, "valueDigest": receipt["valueDigestSha256"]}))
     if recomputed_logical != receipt["outputLogicalSha256"]:
         raise SilverPublishError("Silver output logical identity recompute mismatch (tampered)")
+
+    # ---- R3: RECONSTRUCT every silver-authored contract from CANONICAL AUTHORITY and require an EXACT byte match.
+    # A coordinated re-addressing (recomputing the outer inventory + manifest hashes and renaming the object dir)
+    # keeps the bundle internally consistent, so internal-consistency checks pass — but a reconstructed authority
+    # never matches a forged relationship. Every acceptance decision below is made against reconstructed truth.
+    def _cb(name):
+        return (final / name).read_bytes()
+
+    for name, canon in (("temporal-contract.json", GC.temporal_contract()),
+                        ("population-contract.json", GC.population_contract()),
+                        ("knowledge-time-contract.json", GC.knowledge_time_contract())):
+        if _cb(name) != canonical_json_bytes(canon) or canon["sha256"] != receipt[{
+                "temporal-contract.json": "temporalContractSha256", "population-contract.json": "populationContractSha256",
+                "knowledge-time-contract.json": "knowledgeTimeContractSha256"}[name]]:
+            raise SilverPublishError(f"{name} does not reconstruct to the canonical governed contract (tampered)")
+
+    expected_tcr = transform_code_receipt(params=tcr["params"])
+    if _cb("transform-code-receipt.json") != canonical_json_bytes(tcr) \
+            or tcr.get("implementationDigest") != expected_tcr["implementationDigest"] \
+            or tcr.get("fileShas") != expected_tcr["fileShas"]:
+        raise SilverPublishError("transform-code receipt does not reconstruct to the actual implementation (tampered)")
+
+    has_gs = ST.GAME_SEQUENCE in table.schema.names
+    rebuilt = silver_semantic_contracts(source_object_id=receipt["sourceDatasetVersionId"],
+                                        source_receipt_sha=receipt["sourceReceiptSha256"],
+                                        transform_code_sha=tcr["sha256"], has_game_sequence=has_gs)
+    for feat, name in ((PRIOR_PA_COUNT, "prior-pa-semantic-contract.json"),
+                       (LOG1P_PRIOR_PA_COUNT, "log1p-prior-pa-semantic-contract.json")):
+        if _cb(name) != canonical_json_bytes(rebuilt[feat]) or rebuilt[feat]["sha256"] != receipt["semanticContractShas"][feat]:
+            raise SilverPublishError(f"{name} does not reconstruct from the verified source/transform authority (tampered)")
+
+    rebuilt_family = silver_family_contract(rebuilt)
+    if _cb("feature-family-contract.json") != canonical_json_bytes(rebuilt_family) \
+            or rebuilt_family["sha256"] != receipt["featureFamilySha256"]:
+        raise SilverPublishError("feature-family contract does not reconstruct from its verified members (tampered)")
+
+    base_ids = list(receipt["orderedOutputFeatures"])[:-len(_ADV)]
+    full = {**FS.all_feature_semantic_contracts(), **rebuilt}
+    rebuilt_fsc = silver_feature_set_v2(dataset_version_id=f"silver:{receipt['sourceDatasetVersionId']}",
+                                        dataset_content_sha=receipt["outputLogicalSha256"], base_feature_ids=base_ids,
+                                        contracts=full)
+    if _cb("feature-set-v2-contract.json") != canonical_json_bytes(rebuilt_fsc) \
+            or rebuilt_fsc["sha256"] != receipt["featureSetV2Sha256"] \
+            or receipt.get("featureSetBindsOutputLogicalSha256") != receipt["outputLogicalSha256"]:
+        raise SilverPublishError("feature-set V2 does not reconstruct (family/output/source authority) (tampered)")
+
+    vd = json.loads(_cb("value-digest.json").decode("utf-8"))
+    if list(vd.get("featureIds", [])) != list(_ADV) or vd.get("valueDigestSha256") != receipt["valueDigestSha256"] \
+            or vd.get("rowCount") != table.num_rows or vd.get("rowIdentityColumn") != id_col:
+        raise SilverPublishError("value-digest relational metadata does not reconstruct from the object (tampered)")
+
+    # source-object receipt/manifest COPIES: self-address + relational agreement with the transformation receipt
+    src_receipt = json.loads(_cb("source-object-receipt.json").decode("utf-8"))
+    src_manifest = json.loads(_cb("source-publication-manifest.json").decode("utf-8"))
+    src_r_self = sha256_bytes(canonical_json_bytes({k: v for k, v in src_receipt.items() if k != "receiptSha256"}))
+    src_m_self = sha256_bytes(canonical_json_bytes({k: v for k, v in src_manifest.items() if k != "manifestSha256"}))
+    if src_receipt.get("receiptSha256") != src_r_self or src_r_self != receipt["sourceReceiptSha256"]:
+        raise SilverPublishError("source receipt copy self-address / receipt binding mismatch (tampered)")
+    if src_manifest.get("manifestSha256") != src_m_self or src_m_self != receipt["sourceManifestSha256"]:
+        raise SilverPublishError("source manifest copy self-address / receipt binding mismatch (tampered)")
+    if not (src_receipt.get("datasetVersionId") == src_manifest.get("datasetVersionId") == receipt["sourceDatasetVersionId"]):
+        raise SilverPublishError("source dataset relationship mismatch (tampered)")
+    if not (src_receipt.get("logicalSha256") == src_manifest.get("logicalSha256") == receipt["sourceLogicalSha256"]):
+        raise SilverPublishError("source logical relationship mismatch (tampered)")
+    if not (src_receipt.get("physicalSha256") == src_manifest.get("physicalSha256") == receipt["sourcePhysicalSha256"]):
+        raise SilverPublishError("source physical relationship mismatch (tampered)")
+    if not (src_receipt.get("schemaSha256") == src_manifest.get("schemaSha256") == receipt["sourceSchemaSha256"]):
+        raise SilverPublishError("source schema relationship mismatch (tampered)")
+    if src_receipt.get("rowCount") != src_manifest.get("rowCount"):
+        raise SilverPublishError("source row-count relationship mismatch (tampered)")
+    if sorted(src_receipt.get("seasons", [])) != sorted(src_manifest.get("seasons", [])):
+        raise SilverPublishError("source season relationship mismatch (tampered)")
+
+    if manifest.get("manifestContract") != "MLB_SILVER_PUBLICATION_MANIFEST_V1":
+        raise SilverPublishError("publication manifest contract identity is forged (tampered)")
+
     if manifest.get("modelEligible") or manifest.get("approvedForTraining") or manifest.get("selectable"):
         raise SilverPublishError("Silver manifest must remain quarantined / model-ineligible / not selectable")
     if manifest.get("status") != SILVER_STATUS or manifest.get("quarantine") != SILVER_QUARANTINE:

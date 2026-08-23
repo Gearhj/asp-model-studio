@@ -14,6 +14,16 @@ from pathlib import Path
 def pytest_configure(config):
     from tests import _isolated_data_guard as G
     if G.is_active():
+        # declare THIS pytest session's basetemp as the one allowed isolated test-temp root, so the narrowed data
+        # guard permits tmp_path reads (which live under the isolated audit temp, not the runtime root) while still
+        # rejecting the rest of the OS temp tree. A subprocess reader probe that does not load this conftest keeps
+        # the strict [runtime + env] roots.
+        try:
+            bt = getattr(config.option, "basetemp", None)
+            if bt:
+                os.environ["ASP_ISOLATED_TEST_TEMP"] = str(Path(bt).resolve())
+        except Exception:
+            pass
         G.install()
 
 
