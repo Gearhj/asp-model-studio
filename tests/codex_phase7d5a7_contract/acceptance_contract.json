@@ -1,0 +1,554 @@
+{
+  "schemaVersion": "CODEX_PHASE7D5A7_ACCEPTANCE_CONTRACT_V1",
+  "contractVersion": 1,
+  "policyVersion": "PHASE_7D5A7_STAGE_AUTHORITY_POLICY_V1",
+  "contractId": "ASP_MODEL_STUDIO_PHASE_7D5A7_D1_D2_RECONCILIATION",
+  "baseAuthorities": {
+    "main": "924db29511f93909f9d785855bfa056775443690",
+    "originalAcceptanceBaseline": "9835689616aeff17357f096caea90b039eadfe0a",
+    "deltaAcceptanceBaseline": "8ab74422928b8483402d247c3822a0171f766a1b",
+    "reconciliationBase": "8ab74422928b8483402d247c3822a0171f766a1b",
+    "contradictionConfirmed": true,
+    "preExistingCanonicalIssuerState": "ABSENT",
+    "section7Section11Interpretation": "Section 7 is the explicit narrow exception permitting a runner-owned immutable issuer registry to exist as pre-existing Stage-B authority input. Section 11 still protects every D3/D6/D7/D8 test/helper byte, scientific row, mutation, node ID, and expected outcome. The exception never permits display text, path placement, helper identity, or pytest context to grant or revoke authority, and it does not simulate current-production success.",
+    "currentProductionBaseline": {
+      "originalPackage": {
+        "collected": 83,
+        "passed": 79,
+        "failed": 4,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "failedNodeIds": [
+          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_row_and_receipt_season_disagreement",
+          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_rows_cannot_mint_governed_source",
+          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_season_callback_cannot_mint_governed_source",
+          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_silver_requires_server_issued_source_authority"
+        ]
+      },
+      "deltaPackage": {
+        "collected": 33,
+        "passed": 1,
+        "failed": 32,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "expectedFromDeltaManifest": true
+      },
+      "contractPackage": {
+        "collected": 10,
+        "passed": 10,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      }
+    }
+  },
+  "stageDefinitions": {
+    "STAGE_A_PHYSICAL_STAGING": {
+      "productionOperation": "server.sports_modeling.silver_publish.publish_source_object",
+      "purpose": "Serialize supplied rows, reconstruct physical identities and actual row seasons, and create an untrusted staging index.",
+      "permittedOperations": [
+        "serialize supplied rows",
+        "compute physical logical and schema identities",
+        "derive season from canonical row evidence",
+        "persist physical receipt manifest and staging index"
+      ],
+      "authorityCreated": [],
+      "forbidden": [
+        "canonical issuer record",
+        "governed source handle",
+        "training eligibility",
+        "Silver eligibility",
+        "caller callback temporal authority",
+        "identifier vocabulary authority",
+        "path placement authority"
+      ],
+      "requiredDecision": "A well-formed physical object may stage regardless of display wording or safe path placement. A false callback may be rejected or ignored, but any staged evidence must preserve actual seasons and the decision must be path-independent."
+    },
+    "STAGE_B_GOVERNED_ISSUANCE": {
+      "productionOperation": "canonical server issuer plus server.sports_modeling.silver_publish.resolve_verified_source",
+      "purpose": "Convert a staged physical object into a governed source through independently reconstructed immutable authority.",
+      "permittedOperations": [
+        "rehash persisted issuer record",
+        "reconstruct staged object identity",
+        "reconstruct canonical upstream registration",
+        "reconstruct temporal population and knowledge-time contracts",
+        "issue governed source handle after all checks"
+      ],
+      "authorityCreated": [
+        "governed source authority"
+      ],
+      "requiredRejections": [
+        "missing issuer record",
+        "caller-minted issuer record",
+        "forged or divergent issuer relationship",
+        "unauthorized 2019 under the 2021-2024 contract",
+        "callback-based season relabeling",
+        "lexical identity authority",
+        "path-based scientific authority"
+      ]
+    },
+    "STAGE_C_SILVER_PUBLICATION": {
+      "productionOperation": "server.sports_modeling.silver_publish.publish_silver and verify_silver",
+      "purpose": "Transform only a governed Stage-B source into deterministic quarantined Silver evidence.",
+      "requiredAuthority": [
+        "valid content-addressed issuer record",
+        "canonical source reconstruction",
+        "authorized temporal population and knowledge-time contracts"
+      ],
+      "requiredRejections": [
+        "Stage-A-only source",
+        "unauthorized season",
+        "quarantined or model-ineligible bypass",
+        "divergent canonical relationship"
+      ],
+      "authorityCreated": [
+        "quarantined Silver publication evidence"
+      ],
+      "modelEligibilityCreated": false
+    }
+  },
+  "stateTransitionMatrix": [
+    {
+      "input": "valid 2023-2024 rows without issuer",
+      "stageA": "MAY_STAGE_PHYSICAL_ONLY",
+      "stageB": "REJECT_MISSING_ISSUER",
+      "stageC": "REJECT"
+    },
+    {
+      "input": "valid 2023-2024 rows with valid issuer",
+      "stageA": "ALREADY_STAGED",
+      "stageB": "ACCEPT_AFTER_CANONICAL_RECONSTRUCTION",
+      "stageC": "MAY_PUBLISH_QUARANTINED_SILVER"
+    },
+    {
+      "input": "2019 rows under 2021-2024 contract",
+      "stageA": "MAY_STAGE_TRUTHFULLY_AS_2019",
+      "stageB": "REJECT_UNAUTHORIZED_SEASON",
+      "stageC": "REJECT"
+    },
+    {
+      "input": "callback relabels actual 2019 as 2024",
+      "stageA": "IGNORE_AS_AUTHORITY_OR_REJECT_MISMATCH_PATH_INDEPENDENTLY",
+      "stageB": "REJECT_UNAUTHORIZED_SEASON",
+      "stageC": "REJECT"
+    },
+    {
+      "input": "neutral caller display ID without issuer",
+      "stageA": "MAY_STAGE_PHYSICAL_ONLY",
+      "stageB": "REJECT_MISSING_ISSUER",
+      "stageC": "REJECT"
+    },
+    {
+      "input": "renamed valid source with same issuer",
+      "stageA": "PHYSICAL_IDENTITY_PRESERVED",
+      "stageB": "ACCEPT_IF_CANONICAL_RELATIONSHIPS_AGREE",
+      "stageC": "MAY_PUBLISH_QUARANTINED_SILVER"
+    }
+  ],
+  "normalizationPolicy": {
+    "schemaVersion": "CODEX_PHASE7D5A7_NORMALIZATION_POLICY_V1",
+    "canonicalEncoding": "UTF-8 JSON sorted object keys compact separators",
+    "comparisonKeyFields": [
+      "scientificStage",
+      "normalizedOperation",
+      "authoritativePreconditions"
+    ],
+    "nonAuthoritativeFields": [
+      "dataset display ID wording",
+      "filesystem placement including RUNTIME_ROOT",
+      "helper function name",
+      "test filename",
+      "pytest context",
+      "call stack",
+      "game ID",
+      "plate appearance ID",
+      "batter display identity",
+      "cryptographic literal spelling when only an alpha-renamed address"
+    ],
+    "preservedScientificFields": [
+      "row count order columns and types",
+      "feature values and ordered feature identity",
+      "game date stored season and derived season",
+      "callback output vector",
+      "caller-authorized season claim",
+      "issuer record state",
+      "canonical upstream registration state",
+      "temporal population and knowledge-time contracts",
+      "relationship equality and mismatch topology",
+      "mutation class"
+    ],
+    "forbiddenAuthorityDimensions": [
+      "identifier vocabulary",
+      "path placement",
+      "helper or call stack",
+      "pytest ownership"
+    ],
+    "rowNormalization": {
+      "policyId": "CODEX_PHASE7D5A7_ROW_NORMALIZATION_V1",
+      "normalizedRowsSha256": "SHA256 of compact sorted-key UTF-8 JSON for the ordered rows after omitting only plate_appearance_id, game_id, and batter_canonical_player_uuid values",
+      "orderedColumnsSha256": "SHA256 of compact sorted-key UTF-8 JSON for the exact ordered input-column-name array",
+      "preservesRowOrder": true,
+      "preservesColumnOrderBySeparateDigest": true,
+      "preservesAllFeatureValues": true,
+      "preservesGameDateStoredSeasonAndTypes": true
+    },
+    "outcomeCompatibility": {
+      "rule": "Requirements with an identical comparison key are satisfiable only when allowed-result intersection is nonempty and at least one shared result has compatible rejection-stage and postcondition-dimension intersections.",
+      "postconditionCatalogRef": "postconditionCatalog"
+    }
+  },
+  "nodeOwnership": {
+    "originalR1": [
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_caller_authorized_2019",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_false_season_derivation_callback",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_row_and_receipt_season_disagreement",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_post_home_score",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_unapproved_source_column_even_when_not_named_outcome"
+    ],
+    "originalR2": [
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_source_manifest_embedded_sha_mismatch",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[dataset-id]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[logical-sha]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[schema-sha]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[row-count]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[season-set]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[object-directory-address]",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_rows_cannot_mint_governed_source",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_season_callback_cannot_mint_governed_source",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_silver_requires_server_issued_source_authority",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_semantics_bind_actual_transform_receipt",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_semantics_bind_game_sequence_when_used",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_family_lineage_is_derived_from_verified_members",
+      "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_tcr_binds_all_material_temporal_and_generation_parameters"
+    ],
+    "deltaD1": [
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_placement_does_not_disable_season_authority",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identical_source_has_identical_season_decision_inside_and_outside_runtime_root",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_cannot_publish_2019_as_authorized",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_callback_cannot_relabel_2019_as_2024",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_output_receipt_manifest_and_source_seasons_must_all_agree"
+    ],
+    "deltaD2": [
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_neutral_looking_identifier_cannot_mint_source_authority",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identifier_vocabulary_does_not_determine_issuer_authority",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_requires_persisted_server_issuer_record",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_forged_issuer_record_reference_is_rejected",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_issuer_record_body_is_rehashed_and_relationally_verified",
+      "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_authority_survives_renaming_only_when_issuer_record_is_unchanged"
+    ]
+  },
+  "reconciledNodeIds": [
+    "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_row_and_receipt_season_disagreement",
+    "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_rows_cannot_mint_governed_source",
+    "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_season_callback_cannot_mint_governed_source",
+    "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_silver_requires_server_issued_source_authority",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_callback_cannot_relabel_2019_as_2024",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_neutral_looking_identifier_cannot_mint_source_authority",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identifier_vocabulary_does_not_determine_issuer_authority",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_requires_persisted_server_issuer_record",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_forged_issuer_record_reference_is_rejected",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_issuer_record_body_is_rehashed_and_relationally_verified",
+    "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_authority_survives_renaming_only_when_issuer_record_is_unchanged"
+  ],
+  "protectedAuthorities": {
+    "digestAlgorithms": {
+      "fileSha256": "SHA256 of exact file bytes",
+      "findingSha256": "SHA256 of compact sorted-key UTF-8 JSON for the complete finding object",
+      "nodeListSha256": "SHA256 of compact sorted-key UTF-8 JSON for the ordered pytestNodeIds array"
+    },
+    "sharedHelper": {
+      "path": "tests/_silver_fixture.py",
+      "sha256": "7902d914d6dff19f5e48230c0f1cf2f0076fbd15e623b34e4bf83ab54eec7db8"
+    },
+    "transitiveInputs": [
+      {
+        "path": "tests/codex_phase7d5a5_delta_red_gate/conftest.py",
+        "sha256": "17ad5084a31ea0ffc187d3d8fac7bac101c01dd7ecff2879ddb870d7d16c6237"
+      },
+      {
+        "path": "tests/codex_phase7d5a3_red_gate/_helpers.py",
+        "sha256": "4e72e02ffebf25378fc35a34db7ff98d59e59ef199892bd71974bd7f61a2bd86"
+      },
+      {
+        "path": "tests/codex_phase7d5a3_red_gate/conftest.py",
+        "sha256": "85c54c052fc3b440311f3982de127220d71af0558d7f6d150abcf8e7d3aa07e0"
+      },
+      {
+        "path": "tests/conftest.py",
+        "sha256": "ec67f01f380f3a697d5c28ed169a4ece5c3739ce3f9c3a094020620cd08b78c4"
+      },
+      {
+        "path": "tests/_hermetic_gen3.py",
+        "sha256": "ee9f106abb3f91e7afa3d1c2009d3b179cd262df9189791c1bd865f31efc2a70"
+      },
+      {
+        "path": "tests/_isolated_data_guard.py",
+        "sha256": "a6baf122b240a6442d8ee32373aa388eecc7d118a2061d495f071d8047dc4be3"
+      },
+      {
+        "path": "scripts/phase7d5a_skip_governance.py",
+        "sha256": "d9581560110db31e16cb57eb30b929a0aa87303d7d9ae3b8d68c53ff4b332dac"
+      },
+      {
+        "path": "scripts/phase7d5a_gate_policy.json",
+        "sha256": "93f82381942101961434ba8508871f7eb4eb5aaeede2e50b2f21455d89cb7dcb"
+      },
+      {
+        "path": "scripts/run_phase7d5a3_codex_red_gate.ps1",
+        "sha256": "97597a4ee9ea04839601e1f30f4a48a803c022080a13743f3bfa08e112142b8b"
+      },
+      {
+        "path": "scripts/run_phase7d5a5_codex_delta_red_gate.ps1",
+        "sha256": "f6b8700d96306f4205e6e3cb3d277bd5cf7fe102b6f3b4a4f4ac980d32aa4768"
+      }
+    ],
+    "original": {
+      "R3": {
+        "path": "tests/codex_phase7d5a3_red_gate/test_r3_r4.py",
+        "fileSha256": "ef90bd52f81563bf4fb904fb06c4e16ced4451795cc6e1202872c7be47550712",
+        "findingSha256": "2a553b9cef0b35e45f4a4fa3695a6dc68505d8895c0c68c400419c4ddc419a1c",
+        "nodeListSha256": "711936392e03e6b32b77fd97849daa870af4c5dbc1328c6507fe1f76a25492e7",
+        "expectedNodeCount": 15,
+        "expectedBaseline": {
+          "passed": 15,
+          "failed": 0
+        }
+      },
+      "R4": {
+        "path": "tests/codex_phase7d5a3_red_gate/test_r3_r4.py",
+        "fileSha256": "ef90bd52f81563bf4fb904fb06c4e16ced4451795cc6e1202872c7be47550712",
+        "findingSha256": "d7e5fa2f0f0861218a81f413a55c5788b713ec7ae0c891c8a00a8ae0c7affe28",
+        "nodeListSha256": "47939f8199b51e626048497d01964191d939a0a19c745f28f988da20bc996757",
+        "expectedNodeCount": 17,
+        "expectedBaseline": {
+          "passed": 17,
+          "failed": 0
+        }
+      },
+      "R6": {
+        "path": "tests/codex_phase7d5a3_red_gate/test_r6.py",
+        "fileSha256": "1642198332ec5d6396b73d1907092b8a5363f3115ca7fe996c2bbab461696780",
+        "findingSha256": "993bec96406e818951984084a332cdf3c5da4478a192e90a01e0d3e256f6c2c4",
+        "nodeListSha256": "32fb03ad281f0809ecf294552ab89d4d67d20592e4b09e50cb53c180f507162a",
+        "expectedNodeCount": 12,
+        "expectedBaseline": {
+          "passed": 12,
+          "failed": 0
+        }
+      },
+      "R7": {
+        "path": "tests/codex_phase7d5a3_red_gate/test_r7.py",
+        "fileSha256": "e36a8bb51f50739af1489c9a673e940574a93cc66950e56a2602d944955b62de",
+        "findingSha256": "56d60b4d16a000f903147216fa762827f32d7af555c5db1678c6134bbf271026",
+        "nodeListSha256": "fa8488184738cae9bc36f1a1f2b6423ca030c9a0d2eabd534eeb1fad81165a33",
+        "expectedNodeCount": 12,
+        "expectedBaseline": {
+          "passed": 12,
+          "failed": 0
+        }
+      },
+      "R8": {
+        "path": "tests/codex_phase7d5a3_red_gate/test_r8.py",
+        "fileSha256": "6d5771306a0fd580524f61a1218bca16a0bed3a3ef0c393d18ee08acec4bfb06",
+        "findingSha256": "35c710dd97870339c4134a8c1b2e66197e7d657d21aaf626b5b1b22c50f1e0f2",
+        "nodeListSha256": "8c4109d156f5ae0d49790dc427579f9eaed78b42814d13ae2d32a08043fbdbc0",
+        "expectedNodeCount": 8,
+        "expectedBaseline": {
+          "passed": 8,
+          "failed": 0
+        }
+      }
+    },
+    "delta": {
+      "D3": {
+        "path": "tests/codex_phase7d5a5_delta_red_gate/test_d3.py",
+        "fileSha256": "e117a45a9adf8b2623d5c2081cfc6769ad58fecc3349595b597584c6c5d32f85",
+        "findingSha256": "eb06070100a7fe0ad6a1f90fb24e3837f4064491a9cdebbbf1cce8e2a86e7a3b",
+        "nodeListSha256": "c65a37ec270dde792c6f23baf831e8b452698ed6e1a7a005e360a33fee1dd649",
+        "expectedNodeCount": 5,
+        "expectedBaseline": {
+          "passed": 0,
+          "failed": 5
+        }
+      },
+      "D6": {
+        "path": "tests/codex_phase7d5a5_delta_red_gate/test_d6.py",
+        "fileSha256": "5b4359b6d65e4ecb8762d6c3ef454460b431e01fa1ac800b9fc55a9f47de27f9",
+        "findingSha256": "e61dcec7bc061939aeaea2fb2e007740453fbed76142ab2cbdcb3edfe5d4586c",
+        "nodeListSha256": "e41050e69e5d2bce42ebbd8c8cae627c843b03784211cd6885aeccab96121e8f",
+        "expectedNodeCount": 5,
+        "expectedBaseline": {
+          "passed": 1,
+          "failed": 4
+        }
+      },
+      "D7": {
+        "path": "tests/codex_phase7d5a5_delta_red_gate/test_d7.py",
+        "fileSha256": "f5ed5acd07e8218013e63addbfa8a4758b102b07b20c92d4279ced45683c1eba",
+        "findingSha256": "d9c66d820cd12eb3bbaa19e06c1a5f237ee953e746527b7bb62304375da628cb",
+        "nodeListSha256": "23a79443356a7efe4f2413c483dd3ca207f2a52d1776470a7c602b50fea84ce9",
+        "expectedNodeCount": 6,
+        "expectedBaseline": {
+          "passed": 0,
+          "failed": 6
+        }
+      },
+      "D8": {
+        "path": "tests/codex_phase7d5a5_delta_red_gate/test_d8.py",
+        "fileSha256": "58e6f941e07fa613f302e207aaf0bcd16a1d0cb3d23276dc3680a72f53472418",
+        "findingSha256": "4efd0c7601510ffe604af267ee80480e52a74a45cd5e9d1b6f6cd3e2ed255174",
+        "nodeListSha256": "48f3c3c221a65674275a19c7d9e3e48fe75e635480353a29713bd5d59f1a61bb",
+        "expectedNodeCount": 6,
+        "expectedBaseline": {
+          "passed": 0,
+          "failed": 6
+        }
+      }
+    }
+  },
+  "issuerFixture": {
+    "relativePath": "tests/codex_phase7d5a7_contract/canonical_synthetic_issuer_registry.json",
+    "registrySha256": "54dd1b479c58742fe32e8074fbcc28415b23420ff57d6d73ee708898d34d31c1",
+    "environmentVariable": "CODEX_PHASE7D5A7_ISSUER_REGISTRY",
+    "runnerOwned": true,
+    "productionCurrentlyConsumesFixture": false,
+    "lookupRule": "Stage B must begin from a persisted issuerRecordSha256 relationship and reconstruct content/contracts; nonAuthoritativeTraceMetadata and all display aliases are forbidden lookup inputs.",
+    "traceMetadataAuthorityBearing": false,
+    "scientificRule": "Issuer records bind immutable content, canonical upstream registration, and scientific contracts. The authentic 2019 control reaches Stage B and rejects as UNAUTHORIZED_SEASON. D3 bytes remain unchanged under the explicit Section-7 runner-fixture exception."
+  },
+  "builderConstraints": {
+    "productionChangesAllowed": false,
+    "alternateProductionImplementationAllowed": false,
+    "monkeypatchingAuthorityAllowed": false,
+    "lexicalAuthorityAllowed": false,
+    "pathAuthorityAllowed": false,
+    "d3d6d7d8BehaviorChangesAllowed": false,
+    "silverModelEligibilityAllowed": false,
+    "sealed2025Or2026AccessAllowed": false,
+    "requiredCurrentRedFindings": [
+      "D1",
+      "D2"
+    ]
+  },
+  "satisfiabilitySchema": {
+    "relativePath": "tests/codex_phase7d5a7_contract/satisfiability_report_schema.json",
+    "fileSha256": "76c04584e61f7dde6086ac8d1cdc725f1a5585761af6030dec0f7b301cf5314e",
+    "schemaVersion": "CODEX_PHASE7D5A7_SATISFIABILITY_REPORT_V2"
+  },
+  "postconditionCatalog": {
+    "PHYSICAL_OBJECT_PRESENT": {
+      "dimension": "physicalObjectState",
+      "value": "PRESENT"
+    },
+    "PHYSICAL_OBJECT_ABSENT": {
+      "dimension": "physicalObjectState",
+      "value": "ABSENT"
+    },
+    "ACTUAL_SEASON_2019_PRESERVED": {
+      "dimension": "actualSeasonState",
+      "value": "2019"
+    },
+    "ACTUAL_SEASON_2023_PRESERVED": {
+      "dimension": "actualSeasonState",
+      "value": "2023"
+    },
+    "ISSUER_NOT_CREATED_BY_STAGE_A": {
+      "dimension": "issuerCreatedByOperation",
+      "value": "FALSE"
+    },
+    "GOVERNED_HANDLE_PRESENT": {
+      "dimension": "governedHandleState",
+      "value": "PRESENT"
+    },
+    "GOVERNED_HANDLE_ABSENT": {
+      "dimension": "governedHandleState",
+      "value": "ABSENT"
+    },
+    "SILVER_OBJECT_PRESENT_QUARANTINED": {
+      "dimension": "silverObjectState",
+      "value": "PRESENT_QUARANTINED"
+    },
+    "SILVER_OBJECT_ABSENT": {
+      "dimension": "silverObjectState",
+      "value": "ABSENT"
+    },
+    "SILVER_REGISTRY_ENTRY_ABSENT": {
+      "dimension": "silverRegistryEntryState",
+      "value": "ABSENT"
+    },
+    "VERIFICATION_SUCCEEDED": {
+      "dimension": "verificationState",
+      "value": "SUCCEEDED"
+    },
+    "VERIFICATION_NOT_REACHED": {
+      "dimension": "verificationState",
+      "value": "NOT_REACHED"
+    },
+    "PUBLICATION_NOT_REACHED": {
+      "dimension": "publicationState",
+      "value": "NOT_REACHED"
+    },
+    "PATH_DECISION_INDEPENDENT": {
+      "dimension": "pathDecisionDependency",
+      "value": "NONE"
+    },
+    "DISPLAY_NAME_AUTHORITY_NEUTRAL": {
+      "dimension": "displayNameAuthorityDependency",
+      "value": "NONE"
+    },
+    "SEMANTICS_BIND_TRANSFORM_RECEIPT_SHA": {
+      "dimension": "semanticTransformBinding",
+      "value": "VERIFIED_RECEIPT_SHA"
+    },
+    "GAME_SEQUENCE_BOUND_IN_SEMANTICS": {
+      "dimension": "gameSequenceBinding",
+      "value": "BOUND"
+    },
+    "FAMILY_LINEAGE_DERIVED_FROM_MEMBERS": {
+      "dimension": "familyLineageState",
+      "value": "DERIVED_FROM_VERIFIED_MEMBERS"
+    },
+    "TCR_BINDS_TEMPORAL_AND_GENERATION_AUTHORITY": {
+      "dimension": "tcrAuthorityBinding",
+      "value": "COMPLETE"
+    },
+    "SOURCE_RELATIONSHIPS_VERIFIED": {
+      "dimension": "sourceRelationshipDecision",
+      "value": "VERIFIED"
+    },
+    "SOURCE_RELATIONSHIPS_REJECTED": {
+      "dimension": "sourceRelationshipDecision",
+      "value": "REJECTED"
+    },
+    "CALLBACK_NOT_USED_AS_AUTHORITY": {
+      "dimension": "callbackAuthorityDependency",
+      "value": "NONE"
+    },
+    "TEMPORAL_REJECTION_UNAUTHORIZED_2019": {
+      "dimension": "stageBRejectionReason",
+      "value": "UNAUTHORIZED_2019"
+    },
+    "ISSUER_REJECTION_MISSING": {
+      "dimension": "stageBRejectionReason",
+      "value": "MISSING_ISSUER"
+    },
+    "ISSUER_REJECTION_FORGED": {
+      "dimension": "stageBRejectionReason",
+      "value": "FORGED_ISSUER"
+    },
+    "UNAPPROVED_COLUMN_REJECTED": {
+      "dimension": "columnAuthorityDecision",
+      "value": "UNAPPROVED_REJECTED"
+    },
+    "POST_EVENT_COLUMN_REJECTED": {
+      "dimension": "columnAuthorityDecision",
+      "value": "POST_EVENT_REJECTED"
+    }
+  }
+}

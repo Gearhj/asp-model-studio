@@ -1,0 +1,577 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asp-model-studio:phase7d5a7:satisfiability-report:v2",
+  "title": "Phase 7D.5A.7 atomic satisfiability report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportVersion",
+    "contractSha256",
+    "normalizationPolicySha256",
+    "requirementSchemaSha256",
+    "before",
+    "after",
+    "coverage",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "CODEX_PHASE7D5A7_SATISFIABILITY_REPORT_V2"
+    },
+    "reportVersion": {
+      "const": 2
+    },
+    "contractSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "normalizationPolicySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "requirementSchemaSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "before": {
+      "$ref": "#/$defs/requirementSet"
+    },
+    "after": {
+      "$ref": "#/$defs/requirementSet"
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "STAGE_A_PHYSICAL_STAGING",
+        "STAGE_B_GOVERNED_ISSUANCE",
+        "STAGE_C_SILVER_PUBLICATION"
+      ]
+    },
+    "rowEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalizationPolicyId",
+        "normalizedRowsSha256",
+        "orderedColumnsSha256",
+        "rowCount"
+      ],
+      "properties": {
+        "normalizationPolicyId": {
+          "const": "CODEX_PHASE7D5A7_ROW_NORMALIZATION_V1"
+        },
+        "normalizedRowsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "orderedColumnsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "rowCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "normalizedOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationKind",
+        "productionCallable",
+        "rowEvidence",
+        "callbackOutputs",
+        "callerAuthorizedSeasons",
+        "baseFeatureIdsSha256"
+      ],
+      "properties": {
+        "operationKind": {
+          "type": "string",
+          "enum": [
+            "PUBLISH_SOURCE_OBJECT",
+            "RESOLVE_VERIFIED_SOURCE",
+            "PUBLISH_SILVER",
+            "VERIFY_SILVER",
+            "COMPUTE_PRIOR_PA"
+          ]
+        },
+        "productionCallable": {
+          "type": "string",
+          "enum": [
+            "server.sports_modeling.silver_publish.publish_source_object",
+            "server.sports_modeling.silver_publish.resolve_verified_source",
+            "server.sports_modeling.silver_publish.publish_silver",
+            "server.sports_modeling.silver_publish.verify_silver",
+            "server.sports_modeling.silver_transform.compute_prior_pa"
+          ]
+        },
+        "rowEvidence": {
+          "$ref": "#/$defs/rowEvidence"
+        },
+        "callbackOutputs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1
+        },
+        "callerAuthorizedSeasons": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "baseFeatureIdsSha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "authoritativePreconditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stagedObjectState",
+        "issuerRecordState",
+        "canonicalUpstreamRegistrationState",
+        "temporalContract",
+        "populationContract",
+        "knowledgeTimeContract",
+        "sourceRelationshipState"
+      ],
+      "properties": {
+        "stagedObjectState": {
+          "type": "string",
+          "enum": [
+            "ABSENT",
+            "PRESENT_TRUTHFUL",
+            "PRESENT_TAMPERED",
+            "PRESENT_UNAPPROVED_SCHEMA",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "issuerRecordState": {
+          "type": "string",
+          "enum": [
+            "ABSENT",
+            "VALID_PERSISTED_SERVER_ISSUER",
+            "AUTHENTIC_UNAUTHORIZED_TEMPORAL",
+            "FORGED_REFERENCE",
+            "FORGED_BODY",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "canonicalUpstreamRegistrationState": {
+          "type": "string",
+          "enum": [
+            "ABSENT",
+            "VALID",
+            "DIVERGENT",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "temporalContract": {
+          "type": "string",
+          "enum": [
+            "SERVER_2021_2024",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "populationContract": {
+          "type": "string",
+          "enum": [
+            "CANONICAL_PA",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "knowledgeTimeContract": {
+          "type": "string",
+          "enum": [
+            "PRE_TERMINAL_PA",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "sourceRelationshipState": {
+          "type": "string",
+          "enum": [
+            "SELF_CONSISTENT",
+            "ROW_DATE_CALLBACK_DIVERGENT",
+            "MANIFEST_SELF_ADDRESS_DIVERGENT",
+            "RECEIPT_DATASET_ID_DIVERGENT",
+            "RECEIPT_LOGICAL_SHA_DIVERGENT",
+            "MANIFEST_SCHEMA_SHA_DIVERGENT",
+            "MANIFEST_ROW_COUNT_DIVERGENT",
+            "MANIFEST_SEASON_SET_DIVERGENT",
+            "OBJECT_DIRECTORY_ADDRESS_DIVERGENT",
+            "ISSUER_REFERENCE_DIVERGENT",
+            "ISSUER_BODY_DIVERGENT",
+            "POST_EVENT_HOME_SCORE",
+            "UNAPPROVED_POST_EVENT_COLUMN"
+          ]
+        }
+      }
+    },
+    "cosmeticContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayIdClass",
+        "pathClass",
+        "helperClass",
+        "witnessCount"
+      ],
+      "properties": {
+        "displayIdClass": {
+          "type": "string",
+          "enum": [
+            "CANONICAL_SYNTHETIC",
+            "CALLER_CHOSEN",
+            "NEUTRAL",
+            "MULTIPLE_NEUTRAL",
+            "RENAMED_PAIR",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "pathClass": {
+          "type": "string",
+          "enum": [
+            "EXTERNAL_TEMP",
+            "RUNTIME_ROOT",
+            "RUNTIME_AND_EXTERNAL_PARITY",
+            "MULTIPLE_EXTERNAL",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "helperClass": {
+          "type": "string",
+          "enum": [
+            "DIRECT",
+            "PUBLISH_SOURCE_HELPER",
+            "PUBLISH_SILVER_HELPER",
+            "ATTEMPT_SOURCE_STAGE_HELPER",
+            "ATTEMPT_SILVER_HELPER",
+            "PUBLISH_NEUTRAL_SOURCE_HELPER",
+            "REQUIRE_STAGE_B_AND_C_HELPER",
+            "REQUIRE_MISSING_ISSUER_HELPER",
+            "REQUIRE_SILVER_REJECTED_HELPER",
+            "TRANSITIVE_PUBLISH_SILVER",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "witnessCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "postcondition": {
+      "type": "string",
+      "enum": [
+        "PHYSICAL_OBJECT_PRESENT",
+        "PHYSICAL_OBJECT_ABSENT",
+        "ACTUAL_SEASON_2019_PRESERVED",
+        "ACTUAL_SEASON_2023_PRESERVED",
+        "ISSUER_NOT_CREATED_BY_STAGE_A",
+        "GOVERNED_HANDLE_PRESENT",
+        "GOVERNED_HANDLE_ABSENT",
+        "SILVER_OBJECT_PRESENT_QUARANTINED",
+        "SILVER_OBJECT_ABSENT",
+        "SILVER_REGISTRY_ENTRY_ABSENT",
+        "VERIFICATION_SUCCEEDED",
+        "VERIFICATION_NOT_REACHED",
+        "PUBLICATION_NOT_REACHED",
+        "PATH_DECISION_INDEPENDENT",
+        "DISPLAY_NAME_AUTHORITY_NEUTRAL",
+        "SEMANTICS_BIND_TRANSFORM_RECEIPT_SHA",
+        "GAME_SEQUENCE_BOUND_IN_SEMANTICS",
+        "FAMILY_LINEAGE_DERIVED_FROM_MEMBERS",
+        "TCR_BINDS_TEMPORAL_AND_GENERATION_AUTHORITY",
+        "SOURCE_RELATIONSHIPS_VERIFIED",
+        "SOURCE_RELATIONSHIPS_REJECTED",
+        "CALLBACK_NOT_USED_AS_AUTHORITY",
+        "TEMPORAL_REJECTION_UNAUTHORIZED_2019",
+        "ISSUER_REJECTION_MISSING",
+        "ISSUER_REJECTION_FORGED",
+        "UNAPPROVED_COLUMN_REJECTED",
+        "POST_EVENT_COLUMN_REJECTED"
+      ]
+    },
+    "postconditionsByResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "ACCEPT": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/postcondition"
+          },
+          "uniqueItems": true
+        },
+        "REJECT": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/postcondition"
+          },
+          "uniqueItems": true
+        },
+        "NOT_REACHED": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/postcondition"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "resultContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowedResults",
+        "allowedRejectionStages",
+        "postconditionsByResult"
+      ],
+      "properties": {
+        "allowedResults": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "REJECT",
+              "NOT_REACHED"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "allowedRejectionStages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stage"
+          },
+          "uniqueItems": true
+        },
+        "postconditionsByResult": {
+          "$ref": "#/$defs/postconditionsByResult"
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirementId",
+        "nodeId",
+        "suiteOwner",
+        "findingId",
+        "scientificStage",
+        "invocationCondition",
+        "invocationMultiplicity",
+        "normalizedOperation",
+        "authoritativePreconditions",
+        "resultContract",
+        "cosmeticContext"
+      ],
+      "properties": {
+        "requirementId": {
+          "type": "string",
+          "pattern": "^(BEFORE|AFTER)-[A-Z0-9-]+$"
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suiteOwner": {
+          "type": "string",
+          "enum": [
+            "original",
+            "delta"
+          ]
+        },
+        "findingId": {
+          "type": "string",
+          "enum": [
+            "R1_SEASON_AND_COLUMN_AUTHORITY",
+            "R2_SOURCE_AND_TRANSFORM_AUTHORITY",
+            "D1_PATH_INDEPENDENT_SEASON_AUTHORITY",
+            "D2_CRYPTOGRAPHIC_ISSUER_AUTHORITY"
+          ]
+        },
+        "scientificStage": {
+          "$ref": "#/$defs/stage"
+        },
+        "invocationCondition": {
+          "type": "string",
+          "enum": [
+            "ALWAYS",
+            "IF_PRIOR_STAGE_ACCEPTS",
+            "TRANSITIVE_WITHIN_STAGE_C_REQUEST",
+            "ONLY_ON_FORBIDDEN_PRIOR_ACCEPTANCE"
+          ]
+        },
+        "invocationMultiplicity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "normalizedOperation": {
+          "$ref": "#/$defs/normalizedOperation"
+        },
+        "authoritativePreconditions": {
+          "$ref": "#/$defs/authoritativePreconditions"
+        },
+        "resultContract": {
+          "$ref": "#/$defs/resultContract"
+        },
+        "cosmeticContext": {
+          "$ref": "#/$defs/cosmeticContext"
+        }
+      }
+    },
+    "conflictGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conflictId",
+        "requirementIds",
+        "reason"
+      ],
+      "properties": {
+        "conflictId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requirementIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "requirementSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirements",
+        "conflictGroups"
+      ],
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          }
+        },
+        "conflictGroups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conflictGroup"
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredNodeCount",
+        "originalR1Count",
+        "originalR2Count",
+        "deltaD1Count",
+        "deltaD2Count",
+        "requirementCountAfter",
+        "nodeCoverageExact",
+        "atomicStageOperationCoverageExact"
+      ],
+      "properties": {
+        "requiredNodeCount": {
+          "const": 30
+        },
+        "originalR1Count": {
+          "const": 5
+        },
+        "originalR2Count": {
+          "const": 14
+        },
+        "deltaD1Count": {
+          "const": 5
+        },
+        "deltaD2Count": {
+          "const": 6
+        },
+        "requirementCountAfter": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "nodeCoverageExact": {
+          "const": true
+        },
+        "atomicStageOperationCoverageExact": {
+          "const": true
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beforeConflictCount",
+        "afterConflictCount",
+        "remainingCurrentProductionRedFindings"
+      ],
+      "properties": {
+        "beforeConflictCount": {
+          "const": 2
+        },
+        "afterConflictCount": {
+          "const": 0
+        },
+        "remainingCurrentProductionRedFindings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "D1",
+              "D2"
+            ]
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

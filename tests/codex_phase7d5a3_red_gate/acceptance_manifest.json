@@ -20,7 +20,7 @@
   "findings": [
     {
       "findingId": "R1_SEASON_AND_COLUMN_AUTHORITY",
-      "auditFinding": "Silver publication trusts caller-owned season scope, season derivation, and undeclared source columns, permitting historical rows to be relabeled and post-outcome columns to enter the published object.",
+      "auditFinding": "Stage-A source staging and governed Silver publication were conflated: path placement changes false-callback handling, while governed issuance still trusts caller-owned season scope and undeclared source columns.",
       "pytestNodeIds": [
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_caller_authorized_2019",
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_false_season_derivation_callback",
@@ -28,15 +28,15 @@
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_post_home_score",
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_unapproved_source_column_even_when_not_named_outcome"
       ],
-      "currentExpectedFailureBehavior": "At baseline 5ec6c9b production accepts each unsafe caller-controlled season or column condition, so the rejection assertions fail directly.",
-      "requiredCorrectedBehavior": "The server must own the authorized season set and season derivation, reconstruct consistent season evidence across every receipt and output, and reject every source column outside a canonical pre-outcome allowlist.",
+      "currentExpectedFailureBehavior": "Current production gives scientifically identical false-callback inputs different Stage-A outcomes inside and outside RUNTIME_ROOT. When Stage A truthfully preserves 2019 and the runner-owned issuer record is attached, production still does not reject that authenticated source at the Stage-B temporal boundary. The unchanged column-boundary nodes retain their current passing evidence.",
+      "requiredCorrectedBehavior": "Stage A may reject a false callback or preserve actual 2019 physical evidence, but it must create no issuer authority and must behave identically across paths. The explicit valid-2023 runner issuer control must pass Stage B and Stage C; the separately attached 2019 issuer control must reject specifically at Stage B under the 2021-2024 temporal contract rather than as a missing-issuer case, and Stage C must remain unreachable. The server must reconstruct consistent seasons and reject every source column outside the canonical pre-outcome allowlist.",
       "affectedProductionBoundary": "server.sports_modeling.silver_transform and server.sports_modeling.silver_publish ingestion/publication boundary",
       "windowsOnly": false,
       "subprocessRequired": false
     },
     {
       "findingId": "R2_SOURCE_AND_TRANSFORM_AUTHORITY",
-      "auditFinding": "Source identity can be self-minted or relationally inconsistent, while transform, semantic, family, ordering, generation, and source-authority relationships are incomplete or static.",
+      "auditFinding": "Physical source staging can be confused with governed issuance: identifier vocabulary controls Stage-A behavior, issuer-less staged objects receive governed handles, and source/transform/semantic/family relationships remain incomplete or static.",
       "pytestNodeIds": [
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_source_manifest_embedded_sha_mismatch",
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_reconstructs_all_source_relationships[dataset-id]",
@@ -53,8 +53,8 @@
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_family_lineage_is_derived_from_verified_members",
         "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_tcr_binds_all_material_temporal_and_generation_parameters"
       ],
-      "currentExpectedFailureBehavior": "The source resolver, publisher, and emitted contracts accept forged or incomplete authority and produce mismatched lineage fields, causing every red assertion to fail on the production result.",
-      "requiredCorrectedBehavior": "Only a server-issued canonical source may enter Silver, and verification must reconstruct source, transform-code, semantic-member, ordering, generation, authorized-season, and base-feature authority from immutable receipts.",
+      "currentExpectedFailureBehavior": "Current production resolves scientifically valid but deliberately unregistered caller-staged objects without an issuer record and uses ownership-looking vocabulary as a substitute for explicit authority state. Reconciled nodes remain red at the missing-issuer and path-dependent callback boundaries, while the unchanged source and semantic relationship assertions preserve their current evidence.",
+      "requiredCorrectedBehavior": "Neutral labels may identify Stage-A physical objects, but Stage A creates no authority. Label validation may reject reserved syntax, but vocabulary alone must never grant or revoke governed authority. The runner's registered 2023 scientific control may pass Stage B and Stage C only through its persisted, content-addressed server issuer record; the scientifically distinct unregistered control must reject for missing issuer. Verification must reconstruct source, transform-code, semantic-member, ordering, generation, authorized-season, and base-feature authority from immutable receipts.",
       "affectedProductionBoundary": "Silver source resolver, source issuer, transformation receipt, semantic contracts, feature-family lineage, and feature-set publication",
       "windowsOnly": false,
       "subprocessRequired": false
