@@ -15,6 +15,7 @@ Set-StrictMode -Version Latest
 $ExpectedBranch = 'phase7d5a7-codex-acceptance-contract-reconciliation'
 $ReconciliationBase = '8ab74422928b8483402d247c3822a0171f766a1b'
 $ExpectedMain = '924db29511f93909f9d785855bfa056775443690'
+$ContractAuthoringCommit = '5afe69e3ff843f6b543bedb1d6ab2320528c6d00'
 $PreservedReport = 'docs/PHASE_7D3_CODEX_FINAL_SILVER_READINESS_REPORT.md'
 $PreservedReportSha256 = '72c5a70d12a61f04ffdebfb2d3a5a11b17236b29abd0d9d36fd035ddd12593a6'
 $OriginalSuite = 'tests/codex_phase7d5a3_red_gate'
@@ -116,10 +117,10 @@ function Get-MetadataInventory([string]$Root) {
 }
 
 function Assert-GitState {
-    if ((Invoke-GitLines @('branch', '--show-current'))[0].Trim() -ne $ExpectedBranch) {
+    if ((@(Invoke-GitLines @('branch', '--show-current')))[0].Trim() -ne $ExpectedBranch) {
         throw "Expected branch $ExpectedBranch"
     }
-    if ((Invoke-GitLines @('rev-parse', 'main'))[0].Trim() -ne $ExpectedMain) { throw 'main moved' }
+    if ((@(Invoke-GitLines @('rev-parse', 'main')))[0].Trim() -ne $ExpectedMain) { throw 'main moved' }
     & git merge-base --is-ancestor $ReconciliationBase HEAD
     if ($LASTEXITCODE -ne 0) { throw 'HEAD is not a descendant of the reconciliation base' }
     foreach ($marker in @('.git\MERGE_HEAD', '.git\rebase-merge', '.git\rebase-apply', '.git\CHERRY_PICK_HEAD', '.git\BISECT_LOG')) {
@@ -135,16 +136,23 @@ function Assert-GitState {
         }
         if (-not $allowed) { throw "Non-auditor change since reconciliation base: $path" }
     }
-    $authorityCommits = @(Invoke-GitLines @('log', '--diff-filter=A', '--format=%H', '--reverse', '--', $RunnerRel))
-    if ($authorityCommits.Count -eq 0) { throw 'Contract runner has not been committed as an immutable authority' }
-    $authorityCommit = $authorityCommits[0].Trim()
-    & git diff --exit-code $authorityCommit -- `
+    $headParent = (@(Invoke-GitLines @('rev-parse', 'HEAD^')))[0].Trim()
+    if ($headParent -ne $ContractAuthoringCommit) {
+        throw "Expected the final runner-fix commit to descend directly from $ContractAuthoringCommit"
+    }
+    $postAuthoringChanges = @(Invoke-GitLines @('diff', '--name-only', "$ContractAuthoringCommit..HEAD"))
+    if ($postAuthoringChanges.Count -ne 1 -or $postAuthoringChanges[0].Trim().Replace('\', '/') -ne $RunnerRel) {
+        throw 'The final runner-fix commit must change only the Phase 7D.5A.7 runner'
+    }
+    & git diff --exit-code $ContractAuthoringCommit -- `
         'tests/codex_phase7d5a3_red_gate/test_r1_r2.py' `
         'tests/codex_phase7d5a3_red_gate/acceptance_manifest.json' `
         'tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py' `
         'tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json' `
-        $ContractSuite $RunnerRel
-    if ($LASTEXITCODE -ne 0) { throw "Acceptance authority changed after authoring commit $authorityCommit" }
+        $ContractSuite
+    if ($LASTEXITCODE -ne 0) { throw "Acceptance authority changed after authoring commit $ContractAuthoringCommit" }
+    & git diff --exit-code HEAD -- $RunnerRel
+    if ($LASTEXITCODE -ne 0) { throw 'Contract runner differs from the final committed runner-fix authority' }
     $status = @(Invoke-GitLines @('status', '--porcelain=v1', '--untracked-files=all'))
     foreach ($line in $status) {
         if ($line.Length -lt 4) { continue }
@@ -497,8 +505,8 @@ try {
     $results += Invoke-Suite 'contract' $ContractSuite 'contract' $contractExpected @() $auditRoot
     $summary = [ordered]@{
         schemaVersion = 'CODEX_PHASE7D5A7_CONTRACT_GATE_SUMMARY_V1'
-        branch = (Invoke-GitLines @('branch', '--show-current'))[0].Trim()
-        head = (Invoke-GitLines @('rev-parse', 'HEAD'))[0].Trim()
+        branch = (@(Invoke-GitLines @('branch', '--show-current')))[0].Trim()
+        head = (@(Invoke-GitLines @('rev-parse', 'HEAD')))[0].Trim()
         reconciliationBase = $ReconciliationBase
         auditRoot = $auditRoot
         results = $results
