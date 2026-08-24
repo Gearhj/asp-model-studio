@@ -10,21 +10,39 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 
 def pytest_configure(config):
     from tests import _isolated_data_guard as G
     if G.is_active():
-        # declare THIS pytest session's basetemp as the one allowed isolated test-temp root, so the narrowed data
-        # guard permits tmp_path reads (which live under the isolated audit temp, not the runtime root) while still
-        # rejecting the rest of the OS temp tree. A subprocess reader probe that does not load this conftest keeps
-        # the strict [runtime + env] roots.
+        # D7 — generic isolated-session capability bootstrap (production-neutral; no D7 node/fixture knowledge). This
+        # session's basetemp is the canonical session root, and the session establishes one random capability. Data
+        # authority is then granted ONLY to per-test scratch directories this session marks (see the autouse fixture
+        # below); the rest of the OS temp tree — including the bare session root and pytest-of-<user> — is rejected.
         try:
             bt = getattr(config.option, "basetemp", None)
             if bt:
                 os.environ["ASP_ISOLATED_TEST_TEMP"] = str(Path(bt).resolve())
         except Exception:
             pass
+        G.establish_session_capability()
         G.install()
+
+
+@pytest.fixture(autouse=True)
+def _asp_isolated_session_marker(request):
+    """Under the isolated guard, drop the active session's capability marker into this test's own scratch directory
+    so the guard authorizes that exact subtree (and nothing else) for data access. Inert in ordinary runs."""
+    from tests import _isolated_data_guard as G
+    if G._installed["on"]:
+        try:
+            tmp = request.getfixturevalue("tmp_path")
+        except Exception:
+            tmp = None
+        if tmp is not None:
+            G.write_session_marker(tmp)
+    yield
 
 
 def pytest_runtest_setup(item):

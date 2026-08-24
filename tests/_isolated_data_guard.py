@@ -9,7 +9,9 @@ detected season/sealed identity. Zero real-2025 access becomes demonstrable, not
 """
 from __future__ import annotations
 
+import json
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -18,37 +20,112 @@ _violations: list[dict] = []
 _current_nodeid = {"id": "<session>"}
 _installed = {"on": False}
 
+# D7 — EXACT ACTIVE-SESSION DATA AUTHORITY. Temporary-root authority is NOT inferred from a predictable pytest/OS
+# temp pathname; it is a capability EXPLICITLY established by the active isolated session. The session establishes one
+# random capability + one canonical session root (env vars below), and drops a content-bound capability marker into
+# each per-test scratch directory it owns. The guard authorizes a data path ONLY when an ancestor between the path
+# and the canonical session root carries a marker that binds the exact root + the exact capability. A sibling
+# session, a forged/copied root name under another parent, a markerless leaf, or an altered marker/capability all
+# fail — filesystem naming grants nothing.
+SESSION_ROOT_ENV = "ASP_ISOLATED_TEST_TEMP"
+SESSION_CAPABILITY_ENV = "ASP_ISOLATED_SESSION_CAPABILITY"
+SESSION_MARKER_NAME = ".asp-isolated-session-capability.json"
+SESSION_MARKER_SCHEMA = "ASP_ISOLATED_SESSION_CAPABILITY_V1"
+
 
 def is_active() -> bool:
     return os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes")
 
 
 def _allowed_roots() -> list[Path]:
-    # ONLY exact, explicitly-governed roots — NEVER the blanket OS temp tree. The isolated test temp must be
-    # declared (ASP_ISOLATED_TEST_TEMP, set by the gate runner to a dir beneath the isolated runtime root). The
-    # pytest tmp_path tree (``<tempdir>/pytest-of-<user>``) is allowed as a NARROW named subtree — pytest's own
-    # per-run temp, where a spawned governed-file subprocess (which does not inherit --basetemp) writes its scratch
-    # objects — while the rest of the OS temp tree (e.g. an unrelated sealed-2025 sibling) stays rejected.
-    import tempfile
+    # Non-session, always-governed roots ONLY: the isolated runtime root and the Python environment. The OS temp
+    # tree, the ``pytest-of-<user>`` prefix, and even the declared session root are NEVER blanket-authorized here —
+    # data under the session root is authorized separately, and only through an exact capability marker (see
+    # _session_authorized). Kept as a small stubbable function so the R7 reader-interception probes can pin it.
     from server.sports_cockpit.engine import RUNTIME_ROOT
-    roots = [Path(RUNTIME_ROOT).resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
-    test_temp = os.environ.get("ASP_ISOLATED_TEST_TEMP", "").strip()
-    if test_temp:
-        try:
-            roots.append(Path(test_temp).resolve())
-        except OSError:
-            pass
+    return [Path(RUNTIME_ROOT).resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
+
+
+def establish_session_capability() -> str:
+    """Establish (once) the active isolated session's random capability; return it. Idempotent within a process."""
+    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
+    if not cap:
+        cap = secrets.token_hex(32)
+        os.environ[SESSION_CAPABILITY_ENV] = cap
+    return cap
+
+
+def _session_root() -> Path | None:
+    raw = os.environ.get(SESSION_ROOT_ENV, "").strip()
+    if not raw:
+        return None
     try:
-        import getpass
-        user = getpass.getuser()
+        return Path(raw).resolve()
+    except OSError:
+        return None
+
+
+def write_session_marker(session_dir) -> None:
+    """Drop a capability marker into a per-test scratch directory the active session owns. The marker binds the exact
+    canonical session root, the exact capability, and the process identity — never a display/path pattern."""
+    root = _session_root()
+    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
+    if root is None or not cap:
+        return
+    try:
+        d = Path(session_dir).resolve()
+    except OSError:
+        return
+    if not _under(d, root):
+        return
+    marker = {
+        "schemaVersion": SESSION_MARKER_SCHEMA,
+        "canonicalSessionRoot": str(root),
+        "capability": cap,
+        "sessionProcessId": os.getpid(),
+    }
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        (d / SESSION_MARKER_NAME).write_text(json.dumps(marker), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
+    try:
+        if not marker_path.is_file():
+            return False
+        data = json.loads(marker_path.read_bytes().decode("utf-8"))
     except Exception:
-        user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
-    if user:
-        try:
-            roots.append((Path(tempfile.gettempdir()) / f"pytest-of-{user}").resolve())
-        except OSError:
-            pass
-    return [r for r in roots if r]
+        return False
+    if not isinstance(data, dict):
+        return False
+    try:
+        declared_root = Path(str(data.get("canonicalSessionRoot", ""))).resolve()
+    except OSError:
+        return False
+    return (data.get("schemaVersion") == SESSION_MARKER_SCHEMA
+            and declared_root == root
+            and data.get("capability") == cap)
+
+
+def _session_authorized(p: Path) -> bool:
+    """True iff ``p`` lies under the EXACT capability-marked active session root: some ancestor between p and the
+    canonical session root (inclusive) carries a valid marker binding that exact root + the exact capability."""
+    root = _session_root()
+    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
+    if root is None or not cap or not _under(p, root):
+        return False
+    cur = p
+    while True:
+        if _valid_marker(cur / SESSION_MARKER_NAME, root, cap):
+            return True
+        if cur == root:
+            return False
+        parent = cur.parent
+        if parent == cur:
+            return False
+        cur = parent
 
 
 def _real_runtime() -> Path:
@@ -83,6 +160,9 @@ def check_open(path, reader: str):
     ok = any(_under(p, r) for r in allowed)
     # the repository is allowed EXCEPT its real .runtime data tree (which holds the sealed/real objects)
     if not ok and _under(p, repo) and not _under(p, real_rt):
+        ok = True
+    # D7 — otherwise the ONLY temporary authority is the exact capability-marked active session root
+    if not ok and _session_authorized(p):
         ok = True
     if ok and _under(p, real_rt):
         ok = False       # never the real .runtime under isolation
