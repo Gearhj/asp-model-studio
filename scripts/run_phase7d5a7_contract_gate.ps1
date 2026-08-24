@@ -16,6 +16,7 @@ $ExpectedBranch = 'phase7d5a7-codex-acceptance-contract-reconciliation'
 $ReconciliationBase = '8ab74422928b8483402d247c3822a0171f766a1b'
 $ExpectedMain = '924db29511f93909f9d785855bfa056775443690'
 $ContractAuthoringCommit = '5afe69e3ff843f6b543bedb1d6ab2320528c6d00'
+$RunnerPreflightFixCommit = 'd858b7a5222c42b6d8d5a59ac46137b31aaa884e'
 $PreservedReport = 'docs/PHASE_7D3_CODEX_FINAL_SILVER_READINESS_REPORT.md'
 $PreservedReportSha256 = '72c5a70d12a61f04ffdebfb2d3a5a11b17236b29abd0d9d36fd035ddd12593a6'
 $OriginalSuite = 'tests/codex_phase7d5a3_red_gate'
@@ -137,12 +138,20 @@ function Assert-GitState {
         if (-not $allowed) { throw "Non-auditor change since reconciliation base: $path" }
     }
     $headParent = (@(Invoke-GitLines @('rev-parse', 'HEAD^')))[0].Trim()
-    if ($headParent -ne $ContractAuthoringCommit) {
-        throw "Expected the final runner-fix commit to descend directly from $ContractAuthoringCommit"
+    if ($headParent -ne $RunnerPreflightFixCommit) {
+        throw "Expected the evidence-summary runner fix to descend directly from $RunnerPreflightFixCommit"
     }
-    $postAuthoringChanges = @(Invoke-GitLines @('diff', '--name-only', "$ContractAuthoringCommit..HEAD"))
+    $preflightParent = (@(Invoke-GitLines @('rev-parse', "$RunnerPreflightFixCommit^")))[0].Trim()
+    if ($preflightParent -ne $ContractAuthoringCommit) {
+        throw "Runner preflight authority does not descend directly from $ContractAuthoringCommit"
+    }
+    $postAuthoringChanges = @(Invoke-GitLines @('diff', '--name-only', "$ContractAuthoringCommit..$RunnerPreflightFixCommit"))
     if ($postAuthoringChanges.Count -ne 1 -or $postAuthoringChanges[0].Trim().Replace('\', '/') -ne $RunnerRel) {
-        throw 'The final runner-fix commit must change only the Phase 7D.5A.7 runner'
+        throw 'The runner preflight fix must change only the Phase 7D.5A.7 runner'
+    }
+    $summaryFixChanges = @(Invoke-GitLines @('diff', '--name-only', "$RunnerPreflightFixCommit..HEAD"))
+    if ($summaryFixChanges.Count -ne 1 -or $summaryFixChanges[0].Trim().Replace('\', '/') -ne $RunnerRel) {
+        throw 'The evidence-summary fix must change only the Phase 7D.5A.7 runner'
     }
     & git diff --exit-code $ContractAuthoringCommit -- `
         'tests/codex_phase7d5a3_red_gate/test_r1_r2.py' `
@@ -445,12 +454,14 @@ function Invoke-Suite(
     $collectionExternal = Join-Path $collectionRoot 'external-access.json'
     $collectionIsolated = Join-Path $collectionRoot 'isolated-data.json'
     $collectionIssuer = Join-Path $collectionRoot 'issuer-registry.json'
+    $collectionLog = Join-Path $collectionRoot 'pytest-output.txt'
     Set-PhaseEnvironment $collectionRoot $SuiteKind $collectionIssuer $collectionManifest '' $collectionExternal $collectionIsolated
-    & $Python -B -m pytest -q --collect-only -p no:cacheprovider `
+    $collectionOutput = @(& $Python -B -m pytest -q --collect-only -p no:cacheprovider `
         -p tests.codex_phase7d5a7_contract.issuer_plugin `
         -p tests.codex_phase7d5a7_contract.result_plugin `
-        --basetemp (Join-Path $collectionRoot 'pytest-basetemp') $SuiteRel
+        --basetemp (Join-Path $collectionRoot 'pytest-basetemp') $SuiteRel 2>&1)
     $collectionExit = $LASTEXITCODE
+    @($collectionOutput | ForEach-Object { [string]$_ }) | Set-Content -LiteralPath $collectionLog -Encoding utf8
     if ($collectionExit -ne 0) { throw "$Name collection failed with $collectionExit" }
     Assert-ExternalEvidence $collectionExternal $collectionIsolated ($SuiteKind -ne 'contract')
 
@@ -460,13 +471,15 @@ function Invoke-Suite(
     $executionIsolated = Join-Path $executionRoot 'isolated-data.json'
     $junit = Join-Path $executionRoot 'junit.xml'
     $executionIssuer = Join-Path $executionRoot 'issuer-registry.json'
+    $executionLog = Join-Path $executionRoot 'pytest-output.txt'
     Set-PhaseEnvironment $executionRoot $SuiteKind $executionIssuer $executionCollection $executionManifest $executionExternal $executionIsolated
-    & $Python -B -m pytest -vv -ra --tb=short -p no:cacheprovider `
+    $executionOutput = @(& $Python -B -m pytest -vv -ra --tb=short -p no:cacheprovider `
         -p tests.codex_phase7d5a7_contract.issuer_plugin `
         -p tests.codex_phase7d5a7_contract.result_plugin `
         --basetemp (Join-Path $executionRoot 'pytest-basetemp') `
-        --junitxml $junit $SuiteRel
+        --junitxml $junit $SuiteRel 2>&1)
     $executionExit = $LASTEXITCODE
+    @($executionOutput | ForEach-Object { [string]$_ }) | Set-Content -LiteralPath $executionLog -Encoding utf8
     Assert-ExternalEvidence $executionExternal $executionIsolated ($SuiteKind -ne 'contract')
 
     foreach ($issuer in @($collectionIssuer, $executionIssuer)) {
