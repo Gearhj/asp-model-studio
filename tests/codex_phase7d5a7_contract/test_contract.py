@@ -200,8 +200,13 @@ def test_contract_schema_policy_and_stage_boundaries_are_exact() -> None:
         "normalizationPolicy", "nodeOwnership", "reconciledNodeIds",
         "protectedAuthorities", "issuerFixture", "builderConstraints",
         "satisfiabilitySchema", "postconditionCatalog",
+        "immutableAcceptanceInputs", "editableImplementationTargets",
+        "immutableScientificRequirements", "findingToImplementationTargetMap",
+        "protectedTestDigests", "protectedRunnerDigests",
+        "historicalScientificReport", "boundarySatisfiabilitySchema",
     }
-    assert contract["schemaVersion"] == "CODEX_PHASE7D5A7_ACCEPTANCE_CONTRACT_V1"
+    assert contract["schemaVersion"] == "CODEX_PHASE7D5A9_ACCEPTANCE_CONTRACT_V2"
+    assert contract["contractVersion"] == 2
     assert set(contract["stageDefinitions"]) == {
         "STAGE_A_PHYSICAL_STAGING", "STAGE_B_GOVERNED_ISSUANCE",
         "STAGE_C_SILVER_PUBLICATION",
@@ -212,7 +217,19 @@ def test_contract_schema_policy_and_stage_boundaries_are_exact() -> None:
     assert "explicit narrow exception" in interpretation and "Section 11" in interpretation
     assert contract["builderConstraints"]["productionChangesAllowed"] is False
     assert contract["builderConstraints"]["alternateProductionImplementationAllowed"] is False
+    assert contract["builderConstraints"]["d3d6d7d8AcceptanceBehaviorChangesAllowed"] is False
+    assert contract["builderConstraints"]["mappedImplementationChangesAllowed"] is True
     assert contract["satisfiabilitySchema"]["fileSha256"] == _file_sha(REPORT_SCHEMA_PATH)
+    scientific = contract["immutableScientificRequirements"]
+    for key, contract_key in (
+        ("stageDefinitionsSha256", "stageDefinitions"),
+        ("stateTransitionMatrixSha256", "stateTransitionMatrix"),
+        ("normalizationPolicySha256", "normalizationPolicy"),
+        ("nodeOwnershipSha256", "nodeOwnership"),
+        ("reconciledNodeIdsSha256", "reconciledNodeIds"),
+        ("postconditionCatalogSha256", "postconditionCatalog"),
+    ):
+        assert scientific[key] == _canonical_sha(contract[contract_key])
 
 
 def test_state_transition_matrix_is_complete_and_monotonic() -> None:
@@ -333,7 +350,10 @@ def test_satisfiability_report_schema_is_strict_and_atomic_coverage_is_exact() -
     report = _load(REPORT_PATH)
     schema = _load(REPORT_SCHEMA_PATH)
     _validate_json_schema(report, schema, schema)
-    assert report["contractSha256"] == _canonical_sha(contract)
+    historical = contract["historicalScientificReport"]
+    assert report["contractSha256"] == historical["boundContractCanonicalSha256"]
+    assert _file_sha(REPORT_PATH) == historical["reportFileSha256"]
+    assert _file_sha(REPORT_SCHEMA_PATH) == historical["schemaFileSha256"]
     assert report["normalizationPolicySha256"] == _canonical_sha(contract["normalizationPolicy"])
     assert report["requirementSchemaSha256"] == _file_sha(REPORT_SCHEMA_PATH)
 

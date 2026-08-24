@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "CODEX_PHASE7D5A7_ACCEPTANCE_CONTRACT_V1",
-  "contractVersion": 1,
-  "policyVersion": "PHASE_7D5A7_STAGE_AUTHORITY_POLICY_V1",
-  "contractId": "ASP_MODEL_STUDIO_PHASE_7D5A7_D1_D2_RECONCILIATION",
+  "schemaVersion": "CODEX_PHASE7D5A9_ACCEPTANCE_CONTRACT_V2",
+  "contractVersion": 2,
+  "policyVersion": "PHASE_7D5A9_PROTECTED_SET_BOUNDARY_POLICY_V2",
+  "contractId": "ASP_MODEL_STUDIO_PHASE_7D5A9_PROTECTED_SET_RECONCILIATION",
   "baseAuthorities": {
     "main": "924db29511f93909f9d785855bfa056775443690",
     "originalAcceptanceBaseline": "9835689616aeff17357f096caea90b039eadfe0a",
@@ -10,32 +10,50 @@
     "reconciliationBase": "8ab74422928b8483402d247c3822a0171f766a1b",
     "contradictionConfirmed": true,
     "preExistingCanonicalIssuerState": "ABSENT",
-    "section7Section11Interpretation": "Section 7 is the explicit narrow exception permitting a runner-owned immutable issuer registry to exist as pre-existing Stage-B authority input. Section 11 still protects every D3/D6/D7/D8 test/helper byte, scientific row, mutation, node ID, and expected outcome. The exception never permits display text, path placement, helper identity, or pytest context to grant or revoke authority, and it does not simulate current-production success.",
+    "section7Section11Interpretation": "Section 7 remains the explicit narrow exception for runner-owned immutable issuer authority. Section 11 protects acceptance tests, attack fixtures, scientific rows, mutations, node IDs, expected outcomes, and runner invocation semantics; it does not freeze the implementation under those tests. Display text, path placement, helper identity, and pytest context remain non-authoritative.",
     "currentProductionBaseline": {
       "originalPackage": {
         "collected": 83,
-        "passed": 79,
-        "failed": 4,
+        "passed": 83,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "failedNodeIds": []
+      },
+      "deltaPackage": {
+        "collected": 33,
+        "passed": 16,
+        "failed": 17,
         "errors": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "failedNodeIds": [
-          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_rejects_row_and_receipt_season_disagreement",
-          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_rows_cannot_mint_governed_source",
-          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_caller_season_callback_cannot_mint_governed_source",
-          "tests/codex_phase7d5a3_red_gate/test_r1_r2.py::test_silver_requires_server_issued_source_authority"
+          "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_seasons_cannot_redefine_canonical_authority",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_source_dataset_id_cannot_redefine_canonical_authority",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_expected_outer_relationships_do_not_come_from_candidate_bundle",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_canonical_source_is_reloaded_independently_during_verification",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_outer_manifest_and_transformation_receipt_cannot_coordinate_a_new_parent",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_predictable_pytest_user_temp_prefix_does_not_grant_data_authority",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_sibling_pytest_session_root_is_rejected",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_forged_session_directory_name_is_rejected",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_active_session_leaf_requires_capability_marker",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_session_capability_is_bound_to_exact_root",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_arbitrary_parquet_under_allowed_parent_is_rejected_before_io",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_distinct_collection_ids_cannot_share_one_canonical_key",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_canonical_key_collision_is_fatal",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_missing_one_of_two_colliding_nodes_is_fatal",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_collection_to_junit_mapping_is_one_to_one",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_to_collection_mapping_is_one_to_one",
+          "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_duplicate_canonical_result_key_is_fatal"
+        ],
+        "expectedCurrentRedFindingIds": [
+          "D3_OUTER_RELATIONAL_RECONSTRUCTION",
+          "D7_SESSION_BOUND_TEMP_AUTHORITY",
+          "D8_INJECTIVE_COLLECTION_RESULT_PARITY"
         ]
-      },
-      "deltaPackage": {
-        "collected": 33,
-        "passed": 1,
-        "failed": 32,
-        "errors": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "expectedFromDeltaManifest": true
       },
       "contractPackage": {
         "collected": 10,
@@ -46,7 +64,8 @@
         "xfailed": 0,
         "xpassed": 0
       }
-    }
+    },
+    "protectedSetCorrectionBase": "21fa2e621ae12b38ccbf4053fd8b18b4119bc96d"
   },
   "stageDefinitions": {
     "STAGE_A_PHYSICAL_STAGING": {
@@ -280,20 +299,8 @@
         "sha256": "85c54c052fc3b440311f3982de127220d71af0558d7f6d150abcf8e7d3aa07e0"
       },
       {
-        "path": "tests/conftest.py",
-        "sha256": "ec67f01f380f3a697d5c28ed169a4ece5c3739ce3f9c3a094020620cd08b78c4"
-      },
-      {
         "path": "tests/_hermetic_gen3.py",
         "sha256": "ee9f106abb3f91e7afa3d1c2009d3b179cd262df9189791c1bd865f31efc2a70"
-      },
-      {
-        "path": "tests/_isolated_data_guard.py",
-        "sha256": "a6baf122b240a6442d8ee32373aa388eecc7d118a2061d495f071d8047dc4be3"
-      },
-      {
-        "path": "scripts/phase7d5a_skip_governance.py",
-        "sha256": "d9581560110db31e16cb57eb30b929a0aa87303d7d9ae3b8d68c53ff4b332dac"
       },
       {
         "path": "scripts/phase7d5a_gate_policy.json",
@@ -412,6 +419,359 @@
       }
     }
   },
+  "immutableAcceptanceInputs": [
+    {
+      "role": "SHARED_SCIENTIFIC_FIXTURE",
+      "path": "tests/_silver_fixture.py",
+      "sha256": "7902d914d6dff19f5e48230c0f1cf2f0076fbd15e623b34e4bf83ab54eec7db8"
+    },
+    {
+      "role": "IMMUTABLE_ACCEPTANCE_FIXTURE",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/conftest.py",
+      "sha256": "17ad5084a31ea0ffc187d3d8fac7bac101c01dd7ecff2879ddb870d7d16c6237"
+    },
+    {
+      "role": "IMMUTABLE_ACCEPTANCE_FIXTURE",
+      "path": "tests/codex_phase7d5a3_red_gate/_helpers.py",
+      "sha256": "4e72e02ffebf25378fc35a34db7ff98d59e59ef199892bd71974bd7f61a2bd86"
+    },
+    {
+      "role": "IMMUTABLE_ACCEPTANCE_FIXTURE",
+      "path": "tests/codex_phase7d5a3_red_gate/conftest.py",
+      "sha256": "85c54c052fc3b440311f3982de127220d71af0558d7f6d150abcf8e7d3aa07e0"
+    },
+    {
+      "role": "IMMUTABLE_ACCEPTANCE_FIXTURE",
+      "path": "tests/_hermetic_gen3.py",
+      "sha256": "ee9f106abb3f91e7afa3d1c2009d3b179cd262df9189791c1bd865f31efc2a70"
+    },
+    {
+      "role": "IMMUTABLE_GATE_POLICY",
+      "path": "scripts/phase7d5a_gate_policy.json",
+      "sha256": "93f82381942101961434ba8508871f7eb4eb5aaeede2e50b2f21455d89cb7dcb"
+    },
+    {
+      "role": "ORIGINAL_ACCEPTANCE_MANIFEST",
+      "path": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "sha256": "8c64111d36ee5df94eba2f64fc6fa55bf014682471fb01d4314ad5c76d4a60fa"
+    },
+    {
+      "role": "DELTA_ACCEPTANCE_MANIFEST",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json",
+      "sha256": "caf1985576a70baa695f7e0d996c21aa45d023a81499e40aca48525b89d88d9e"
+    },
+    {
+      "role": "RUNNER_OWNED_ISSUER_FIXTURE",
+      "path": "tests/codex_phase7d5a7_contract/canonical_synthetic_issuer_registry.json",
+      "sha256": "cfc54e3819a39b3ecb30133e1278612739047d683bbe6fb6999ee2282cee460c"
+    },
+    {
+      "role": "HISTORICAL_SCIENTIFIC_REPORT",
+      "path": "tests/codex_phase7d5a7_contract/satisfiability_report.json",
+      "sha256": "95c3993cb72660b37f2e1ed5e2892bc8a22688b48eb0deb07c1f4ebf43c2e9fc"
+    },
+    {
+      "role": "HISTORICAL_SCIENTIFIC_REPORT_SCHEMA",
+      "path": "tests/codex_phase7d5a7_contract/satisfiability_report_schema.json",
+      "sha256": "76c04584e61f7dde6086ac8d1cdc725f1a5585761af6030dec0f7b301cf5314e"
+    }
+  ],
+  "editableImplementationTargets": [
+    {
+      "targetId": "D7_ISOLATED_DATA_GUARD",
+      "path": "tests/_isolated_data_guard.py",
+      "findingIds": [
+        "R7_DATA_HERMETIC_GATE",
+        "D7_SESSION_BOUND_TEMP_AUTHORITY"
+      ],
+      "whyImplementation": "Owns tests._isolated_data_guard.check_open and temporary-root authorization; immutable D7 tests invoke this policy decision directly.",
+      "allowedChangeScope": [
+        "Replace predictable-parent and blanket-temp authorization with exact session capability verification.",
+        "Reject forged, sibling, replayed, and unmarked data paths before I/O while preserving all immutable R7 guard guarantees."
+      ],
+      "immutableGoverningNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_builtin_open_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_path_read_bytes_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_joblib_load_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_pyarrow_dataset_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_os_temp_root_is_not_blanket_allowed",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_install_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_manifest_write_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_collection_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_execution_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_and_execution_manifests_are_distinct",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_violation_cannot_be_overwritten_by_execution",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_gate_fails_when_manifest_schema_is_invalid",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_predictable_pytest_user_temp_prefix_does_not_grant_data_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_sibling_pytest_session_root_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_forged_session_directory_name_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_active_session_leaf_requires_capability_marker",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_session_capability_is_bound_to_exact_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_arbitrary_parquet_under_allowed_parent_is_rejected_before_io"
+      ],
+      "prohibitions": [
+        "NO_TEST_SPECIFIC_BRANCHING",
+        "NO_NODE_ID_BRANCHING",
+        "NO_PATH_NAME_AUTHORITY",
+        "NO_EXPECTATION_CHANGES",
+        "NO_WRAPPER_OR_SHADOW_IMPLEMENTATION"
+      ],
+      "previouslyProtectedSha256": "a6baf122b240a6442d8ee32373aa388eecc7d118a2061d495f071d8047dc4be3",
+      "byteIdentityEnforced": false
+    },
+    {
+      "targetId": "D7_PYTEST_CAPABILITY_INSTALLER",
+      "path": "tests/conftest.py",
+      "findingIds": [
+        "R7_DATA_HERMETIC_GATE",
+        "D7_SESSION_BOUND_TEMP_AUTHORITY"
+      ],
+      "whyImplementation": "Owns generic pytest guard installation and is the existing seam that can bind runner basetemp to exact per-session or per-fixture capability state.",
+      "allowedChangeScope": [
+        "Issue and install exact-session temporary-root capability state through generic pytest lifecycle hooks.",
+        "Register only genuinely runner-created temporary roots and fail closed without changing immutable attack fixtures or manifest semantics."
+      ],
+      "immutableGoverningNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_builtin_open_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_path_read_bytes_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_joblib_load_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_blocks_pyarrow_dataset_outside_allowed_roots",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_os_temp_root_is_not_blanket_allowed",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_guard_install_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_manifest_write_failure_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_collection_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_missing_execution_manifest_is_fatal",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_and_execution_manifests_are_distinct",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_collection_violation_cannot_be_overwritten_by_execution",
+        "tests/codex_phase7d5a3_red_gate/test_r7.py::test_gate_fails_when_manifest_schema_is_invalid",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_predictable_pytest_user_temp_prefix_does_not_grant_data_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_sibling_pytest_session_root_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_forged_session_directory_name_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_active_session_leaf_requires_capability_marker",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_session_capability_is_bound_to_exact_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_arbitrary_parquet_under_allowed_parent_is_rejected_before_io"
+      ],
+      "prohibitions": [
+        "NO_TEST_SPECIFIC_BRANCHING",
+        "NO_NODE_ID_BRANCHING",
+        "NO_LEXICAL_CAPABILITY",
+        "NO_EXPECTATION_CHANGES",
+        "NO_ALTERNATE_PLUGIN"
+      ],
+      "previouslyProtectedSha256": "ec67f01f380f3a697d5c28ed169a4ece5c3739ce3f9c3a094020620cd08b78c4",
+      "byteIdentityEnforced": false
+    },
+    {
+      "targetId": "D8_COLLECTION_JUNIT_ANALYZER",
+      "path": "scripts/phase7d5a_skip_governance.py",
+      "findingIds": [
+        "R8_COLLECTION_AND_SKIP_GOVERNANCE",
+        "D8_INJECTIVE_COLLECTION_RESULT_PARITY"
+      ],
+      "whyImplementation": "The immutable D8 tests execute this exact analyzer and its _canon_parity/main implementation; it is the implementation being tested, not acceptance evidence.",
+      "allowedChangeScope": [
+        "Make canonicalization collision-aware or injective before dictionary materialization.",
+        "Enforce exact one-to-one collection-to-JUnit and JUnit-to-collection parity while preserving immutable R8 policy, skip, schema, and selection checks."
+      ],
+      "immutableGoverningNodeIds": [
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_allowed_skip_that_unexpectedly_passes",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_wrong_schema_version_or_selection",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_collected_node_missing_from_junit",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_erased_critical_authority",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_requires_exact_collection_junit_parity",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_requires_exact_allowed_actual_skip_equality",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_changed_skip_reason",
+        "tests/codex_phase7d5a3_red_gate/test_r8.py::test_policy_rejects_changed_skip_category",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_distinct_collection_ids_cannot_share_one_canonical_key",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_canonical_key_collision_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_missing_one_of_two_colliding_nodes_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_collection_to_junit_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_to_collection_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_duplicate_canonical_result_key_is_fatal"
+      ],
+      "prohibitions": [
+        "NO_TEST_SPECIFIC_BRANCHING",
+        "NO_SYNTHETIC_SELECTION_BRANCHING",
+        "NO_POLICY_WEAKENING",
+        "NO_EXPECTATION_CHANGES",
+        "NO_WRAPPER_OR_SHADOW_ANALYZER"
+      ],
+      "previouslyProtectedSha256": "d9581560110db31e16cb57eb30b929a0aa87303d7d9ae3b8d68c53ff4b332dac",
+      "byteIdentityEnforced": false
+    }
+  ],
+  "immutableScientificRequirements": {
+    "stageDefinitionsSha256": "525fab244d8c146cbc24867598fb47864467bf2f306a908cc0c36afcc06a6109",
+    "stateTransitionMatrixSha256": "ec34d8149fa79a98be369f1b7f8b8484ed5eff7589ef2981a3ec4b1068674d14",
+    "normalizationPolicySha256": "7c6b22f0c83f478a7b298272ae8cb60324e608a176765621aeb03c7be7f844da",
+    "nodeOwnershipSha256": "b1f22fe77252a340927b8b23b0492eec1e976c7d4dd29976c3b85d425d70616d",
+    "reconciledNodeIdsSha256": "b7a37f3ea9933889c23a9a97b1806fe26df31be638bab0a5a1d316037d38164b",
+    "postconditionCatalogSha256": "56114033f4edb00308c02694685d63a6ef8137dbe1432e94fed58b60f55fd7c2",
+    "historicalScientificReportFileSha256": "95c3993cb72660b37f2e1ed5e2892bc8a22688b48eb0deb07c1f4ebf43c2e9fc",
+    "historicalScientificReportContractSha256": "77aaae03364363a64bda4d139f17c1757fcdfe651030b1bb36f4f4a4b86245ef"
+  },
+  "findingToImplementationTargetMap": {
+    "R7_DATA_HERMETIC_GATE": [
+      "D7_ISOLATED_DATA_GUARD",
+      "D7_PYTEST_CAPABILITY_INSTALLER"
+    ],
+    "D7_SESSION_BOUND_TEMP_AUTHORITY": [
+      "D7_ISOLATED_DATA_GUARD",
+      "D7_PYTEST_CAPABILITY_INSTALLER"
+    ],
+    "R8_COLLECTION_AND_SKIP_GOVERNANCE": [
+      "D8_COLLECTION_JUNIT_ANALYZER"
+    ],
+    "D8_INJECTIVE_COLLECTION_RESULT_PARITY": [
+      "D8_COLLECTION_JUNIT_ANALYZER"
+    ]
+  },
+  "protectedTestDigests": [
+    {
+      "owner": "original",
+      "shortFindingId": "R3",
+      "findingId": "R3_RELATIONAL_SILVER_VERIFICATION",
+      "manifestPath": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a3_red_gate/test_r3_r4.py",
+      "fileSha256": "ef90bd52f81563bf4fb904fb06c4e16ced4451795cc6e1202872c7be47550712",
+      "findingSha256": "2a553b9cef0b35e45f4a4fa3695a6dc68505d8895c0c68c400419c4ddc419a1c",
+      "nodeListSha256": "711936392e03e6b32b77fd97849daa870af4c5dbc1328c6507fe1f76a25492e7",
+      "expectedNodeCount": 15
+    },
+    {
+      "owner": "original",
+      "shortFindingId": "R4",
+      "findingId": "R4_CANONICAL_QUARANTINE_BOUNDARY",
+      "manifestPath": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a3_red_gate/test_r3_r4.py",
+      "fileSha256": "ef90bd52f81563bf4fb904fb06c4e16ced4451795cc6e1202872c7be47550712",
+      "findingSha256": "d7e5fa2f0f0861218a81f413a55c5788b713ec7ae0c891c8a00a8ae0c7affe28",
+      "nodeListSha256": "47939f8199b51e626048497d01964191d939a0a19c745f28f988da20bc996757",
+      "expectedNodeCount": 17
+    },
+    {
+      "owner": "original",
+      "shortFindingId": "R6",
+      "findingId": "R6_COMPLETE_REPARSE_CONTAINMENT",
+      "manifestPath": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a3_red_gate/test_r6.py",
+      "fileSha256": "1642198332ec5d6396b73d1907092b8a5363f3115ca7fe996c2bbab461696780",
+      "findingSha256": "993bec96406e818951984084a332cdf3c5da4478a192e90a01e0d3e256f6c2c4",
+      "nodeListSha256": "32fb03ad281f0809ecf294552ab89d4d67d20592e4b09e50cb53c180f507162a",
+      "expectedNodeCount": 12
+    },
+    {
+      "owner": "original",
+      "shortFindingId": "R7",
+      "findingId": "R7_DATA_HERMETIC_GATE",
+      "manifestPath": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a3_red_gate/test_r7.py",
+      "fileSha256": "e36a8bb51f50739af1489c9a673e940574a93cc66950e56a2602d944955b62de",
+      "findingSha256": "56d60b4d16a000f903147216fa762827f32d7af555c5db1678c6134bbf271026",
+      "nodeListSha256": "fa8488184738cae9bc36f1a1f2b6423ca030c9a0d2eabd534eeb1fad81165a33",
+      "expectedNodeCount": 12
+    },
+    {
+      "owner": "original",
+      "shortFindingId": "R8",
+      "findingId": "R8_COLLECTION_AND_SKIP_GOVERNANCE",
+      "manifestPath": "tests/codex_phase7d5a3_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a3_red_gate/test_r8.py",
+      "fileSha256": "6d5771306a0fd580524f61a1218bca16a0bed3a3ef0c393d18ee08acec4bfb06",
+      "findingSha256": "35c710dd97870339c4134a8c1b2e66197e7d657d21aaf626b5b1b22c50f1e0f2",
+      "nodeListSha256": "8c4109d156f5ae0d49790dc427579f9eaed78b42814d13ae2d32a08043fbdbc0",
+      "expectedNodeCount": 8
+    },
+    {
+      "owner": "delta",
+      "shortFindingId": "D3",
+      "findingId": "D3_OUTER_RELATIONAL_RECONSTRUCTION",
+      "manifestPath": "tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/test_d3.py",
+      "fileSha256": "e117a45a9adf8b2623d5c2081cfc6769ad58fecc3349595b597584c6c5d32f85",
+      "findingSha256": "eb06070100a7fe0ad6a1f90fb24e3837f4064491a9cdebbbf1cce8e2a86e7a3b",
+      "nodeListSha256": "c65a37ec270dde792c6f23baf831e8b452698ed6e1a7a005e360a33fee1dd649",
+      "expectedNodeCount": 5
+    },
+    {
+      "owner": "delta",
+      "shortFindingId": "D6",
+      "findingId": "D6_PRE_IO_CONTAINMENT_ORDER",
+      "manifestPath": "tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/test_d6.py",
+      "fileSha256": "5b4359b6d65e4ecb8762d6c3ef454460b431e01fa1ac800b9fc55a9f47de27f9",
+      "findingSha256": "e61dcec7bc061939aeaea2fb2e007740453fbed76142ab2cbdcb3edfe5d4586c",
+      "nodeListSha256": "e41050e69e5d2bce42ebbd8c8cae627c843b03784211cd6885aeccab96121e8f",
+      "expectedNodeCount": 5
+    },
+    {
+      "owner": "delta",
+      "shortFindingId": "D7",
+      "findingId": "D7_SESSION_BOUND_TEMP_AUTHORITY",
+      "manifestPath": "tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/test_d7.py",
+      "fileSha256": "f5ed5acd07e8218013e63addbfa8a4758b102b07b20c92d4279ced45683c1eba",
+      "findingSha256": "d9c66d820cd12eb3bbaa19e06c1a5f237ee953e746527b7bb62304375da628cb",
+      "nodeListSha256": "23a79443356a7efe4f2413c483dd3ca207f2a52d1776470a7c602b50fea84ce9",
+      "expectedNodeCount": 6
+    },
+    {
+      "owner": "delta",
+      "shortFindingId": "D8",
+      "findingId": "D8_INJECTIVE_COLLECTION_RESULT_PARITY",
+      "manifestPath": "tests/codex_phase7d5a5_delta_red_gate/acceptance_manifest.json",
+      "path": "tests/codex_phase7d5a5_delta_red_gate/test_d8.py",
+      "fileSha256": "58e6f941e07fa613f302e207aaf0bcd16a1d0cb3d23276dc3680a72f53472418",
+      "findingSha256": "4efd0c7601510ffe604af267ee80480e52a74a45cd5e9d1b6f6cd3e2ed255174",
+      "nodeListSha256": "48f3c3c221a65674275a19c7d9e3e48fe75e635480353a29713bd5d59f1a61bb",
+      "expectedNodeCount": 6
+    }
+  ],
+  "protectedRunnerDigests": [
+    {
+      "path": "scripts/run_phase7d5a3_codex_red_gate.ps1",
+      "sha256": "97597a4ee9ea04839601e1f30f4a48a803c022080a13743f3bfa08e112142b8b",
+      "role": "ORIGINAL_ACCEPTANCE_RUNNER",
+      "immutableSemantics": [
+        "INVOKE_EXACT_ORIGINAL_SUITE",
+        "NO_SKIP_OR_XFAIL",
+        "HERMETIC_EXTERNAL_ROOT"
+      ]
+    },
+    {
+      "path": "scripts/run_phase7d5a5_codex_delta_red_gate.ps1",
+      "sha256": "f6b8700d96306f4205e6e3cb3d277bd5cf7fe102b6f3b4a4f4ac980d32aa4768",
+      "role": "DELTA_ACCEPTANCE_RUNNER",
+      "immutableSemantics": [
+        "INVOKE_EXACT_DELTA_SUITE",
+        "NO_SKIP_OR_XFAIL",
+        "HERMETIC_EXTERNAL_ROOT"
+      ]
+    },
+    {
+      "path": "scripts/run_phase7d5a_isolated_gate.ps1",
+      "sha256": "343960ffa31c89f24dd3cf602a961b8c84ea240e88e423e0234bcab55a2babd2",
+      "role": "FULL_ISOLATED_GATE_RUNNER",
+      "immutableSemantics": [
+        "EXACT_BASETEMP_AND_SESSION_ENV_ALREADY_PROVIDED",
+        "DISTINCT_COLLECTION_AND_EXECUTION_MANIFESTS",
+        "INVOKE_CANONICAL_ANALYZER"
+      ]
+    }
+  ],
+  "historicalScientificReport": {
+    "relativePath": "tests/codex_phase7d5a7_contract/satisfiability_report.json",
+    "schemaRelativePath": "tests/codex_phase7d5a7_contract/satisfiability_report_schema.json",
+    "reportFileSha256": "95c3993cb72660b37f2e1ed5e2892bc8a22688b48eb0deb07c1f4ebf43c2e9fc",
+    "schemaFileSha256": "76c04584e61f7dde6086ac8d1cdc725f1a5585761af6030dec0f7b301cf5314e",
+    "boundContractCanonicalSha256": "77aaae03364363a64bda4d139f17c1757fcdfe651030b1bb36f4f4a4b86245ef",
+    "status": "IMMUTABLE_HISTORICAL_SCIENTIFIC_EVIDENCE"
+  },
+  "boundarySatisfiabilitySchema": {
+    "relativePath": "tests/codex_phase7d5a9_contract/acceptance_boundary_report_schema.json",
+    "fileSha256": "28bee303a8d7ff7399a6875d0c8972f168c8459aeca2740d4746d86e2dc45c43",
+    "schemaVersion": "CODEX_PHASE7D5A9_ACCEPTANCE_BOUNDARY_REPORT_V2"
+  },
   "issuerFixture": {
     "relativePath": "tests/codex_phase7d5a7_contract/canonical_synthetic_issuer_registry.json",
     "registrySha256": "54dd1b479c58742fe32e8074fbcc28415b23420ff57d6d73ee708898d34d31c1",
@@ -428,12 +788,15 @@
     "monkeypatchingAuthorityAllowed": false,
     "lexicalAuthorityAllowed": false,
     "pathAuthorityAllowed": false,
-    "d3d6d7d8BehaviorChangesAllowed": false,
+    "d3d6d7d8AcceptanceBehaviorChangesAllowed": false,
+    "mappedImplementationChangesAllowed": true,
+    "testSpecificBranchingAllowed": false,
     "silverModelEligibilityAllowed": false,
     "sealed2025Or2026AccessAllowed": false,
     "requiredCurrentRedFindings": [
-      "D1",
-      "D2"
+      "D3",
+      "D7",
+      "D8"
     ]
   },
   "satisfiabilitySchema": {
