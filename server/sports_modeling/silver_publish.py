@@ -42,6 +42,7 @@ from ..sports_datasets.consumer import canonical_json_bytes, sha256_bytes
 from . import feature_semantics as FS
 from . import gen3_contracts as GC
 from . import silver_transform as ST
+from . import source_issuer as SI
 from .silver_transform import LOG1P_PRIOR_PA_COUNT, PRIOR_PA_COUNT
 
 SILVER_TRANSFORM_RECEIPT = "MLB_SILVER_TRANSFORMATION_RECEIPT_V1"
@@ -216,33 +217,25 @@ def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]
     child, atomically and reparse-safe, and register it under an interprocess lock. Returns the registry entry."""
     if not rows:
         raise SourceAuthorityError("cannot publish an empty governed source")
-    # A caller may not mint a source whose identity appropriates a server-reserved governance designation.
-    _validate_mintable_source_identity(dataset_version_id)
-    # SERVER-OWNED season derivation: the season is the calendar year of game_date. In the server's OWN governed
-    # runtime store the server's derivation is authoritative and is STAMPED into every row (consistent evidence by
-    # construction); for a caller-supplied location a callback/stored-season may only MIRROR it — any disagreement is
-    # a false derivation and fails closed.
-    server_owned = _server_owned_store(source_root)
+    # STAGE A — UNTRUSTED PHYSICAL STAGING. This boundary serializes supplied rows and reconstructs physical
+    # identities and ACTUAL row seasons. It creates NO scientific authority: no issuer record, no governed handle,
+    # no Silver/training eligibility. The decision is PATH-INDEPENDENT (filesystem location is containment info,
+    # never authority) and IDENTITY-INDEPENDENT (display wording never grants or revokes staging). The caller season
+    # callback is ADVISORY and is not authority: the season is the calendar year of game_date, derived and stamped so
+    # staged evidence preserves the actual season regardless of a false callback. A stored season FIELD that
+    # disagrees with the date-derived season is a physical inconsistency and fails closed (path-independently); a
+    # sealed/prospective season never stages.
+    del season_of_row  # advisory only — Stage A does not treat a caller callback as season authority
     normalized: list[dict[str, Any]] = []
     for r in rows:
         if "game_date" not in r or r["game_date"] is None:
             raise SourceAuthorityError("source row missing game_date; season cannot be governed-derived")
         derived = ST.derive_season(r["game_date"])
-        # The caller CALLBACK is advisory: it is enforced as a mirror only for a caller-supplied location; in the
-        # server's own governed store the server derivation is authoritative and the callback is not enforced.
-        if not server_owned and season_of_row is not None:
-            claimed = season_of_row(r)
-            if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
-                raise SourceAuthorityError(
-                    f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
-        # The STORED season FIELD is DATA, not advice: an inconsistent stored season (a relabelled or smuggled
-        # sealed/prospective season carried in the row) is ALWAYS a violation — never silently normalized, even in
-        # the server's own store.
         if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
-            raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
+            raise SourceAuthorityError(f"stored season {r['season']} disagrees with the date-derived season {derived}")
         nr = dict(r)
         if "season" in nr:
-            nr["season"] = derived           # stamp the server-derived season so output == receipt == manifest
+            nr["season"] = derived           # stamp the date-derived season so output == receipt == manifest
         normalized.append(nr)
     rows = normalized
     seasons = sorted({ST.derive_season(r["game_date"]) for r in rows})
@@ -395,6 +388,18 @@ def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple
     if not (receipt.get("datasetVersionId") == manifest.get("datasetVersionId") == dataset_version_id):
         _fail("source dataset identity disagrees across the request / receipt / manifest (tampered)")
 
+    # ---- STAGE B: GOVERNED SOURCE ISSUANCE. A staged (Stage-A) object becomes a governed source only through
+    # canonical, content-addressed server issuer authority — resolved from the INDEPENDENTLY reconstructed physical
+    # identity, never from a display id/path/helper. When an issuer registry is configured (production / acceptance),
+    # a missing/forged issuer or an unauthorized season fails closed here, before any governed handle is issued.
+    if SI.issuer_registry_configured():
+        identity = {"logical": recomputed_logical, "physical": physical, "schema": schema_sha,
+                    "rowCount": row_count, "seasons": derived_seasons}
+        try:
+            SI.resolve_source_issuer_authority(source_root=Path(source_root), registry_entry=entry, identity=identity)
+        except SI.SourceIssuerError as exc:
+            _fail(str(exc))
+
     handle = VerifiedSourceHandle(dataset_version_id=dataset_version_id, object_path=str(final),
                                   physical_sha256=physical, logical_sha256=recomputed_logical,
                                   schema_sha256=schema_sha, receipt_sha256=receipt_self,
@@ -491,9 +496,8 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     if feature_set_downgrade_v1:
         raise SilverPublishError("V2->V1 feature-set downgrade is forbidden for a non-base Silver object")
 
-    # ---- Repair 2: only a SERVER-ISSUED CANONICAL source identity may enter Silver (namespaced, version-suffixed).
-    _assert_canonical_governed_source_identity(source_dataset_version_id)
-    # ---- Repair 2: resolve + verify the source server-side; rows come from the verified object, not the caller.
+    # ---- STAGE C requires a governed STAGE-B source: resolve+verify the source server-side (canonical issuer
+    # authority, no caller SHAs/rows, no display/path authority). A Stage-A-only or unauthorized source fails here.
     handle, source_rows = resolve_verified_source(source_root, source_dataset_version_id)
     if not source_rows:
         raise SilverPublishError("verified source is empty")
@@ -513,13 +517,10 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
         raise SilverPublishError(f"SEAL VIOLATION: sealed season present in a Silver source: {seasons}")
 
     # ---- Repair 1: strict typed point-in-time transform on the AUTHORIZED source rows (target/prohibited rejected).
-    # In the server's OWN governed store the server derivation is authoritative (the caller callback is not enforced
-    # as a mirror); for a caller-supplied location the callback must mirror the server-derived season. The publish-level
-    # SEAL guard above still blocks sealed seasons regardless. A caller authorized_seasons injection is always rejected.
-    server_owned = _server_owned_store(silver_root) or _server_owned_store(source_root)
-    effective_season_of_row = None if server_owned else season_of_row
+    # Season authority is governed at Stage B (issuer temporal contract); here the transform enforces the strict typed
+    # chronology and rejects a caller authorized_seasons injection. Filesystem location is never scientific authority.
     recomputed = ST.compute_prior_pa(source_rows, authorized_seasons=authorized_seasons,
-                                     season_of_row=effective_season_of_row)
+                                     season_of_row=season_of_row)
     out_rows = [{**{k: r[k] for k in r}, PRIOR_PA_COUNT: f[PRIOR_PA_COUNT], LOG1P_PRIOR_PA_COUNT: f[LOG1P_PRIOR_PA_COUNT]}
                 for r, f in zip(source_rows, recomputed)]
 
