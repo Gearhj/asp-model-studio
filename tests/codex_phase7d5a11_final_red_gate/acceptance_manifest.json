@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "CODEX_PHASE7D5A11_ACCEPTANCE_MANIFEST_V1",
+  "manifestVersion": 1,
+  "suiteId": "ASP_MODEL_STUDIO_PHASE_7D5A11_FINAL_D3_D7_D8_RED_GATE",
+  "baselineHead": "bfeff81a8348580627ed115efbd018392b083b82",
+  "builderConstraints": {
+    "testsImmutableToBuilder": true,
+    "runnerImmutableToBuilder": true,
+    "prohibitedActions": [
+      "editing",
+      "deleting",
+      "renaming",
+      "weakening",
+      "skipping",
+      "xfailing",
+      "bypassing",
+      "shadowing",
+      "intercepting",
+      "changing acceptance inputs"
+    ]
+  },
+  "findings": [
+    {
+      "findingId": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_silver_registry_schema_and_identity_are_verified_before_lookup",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_source_root_redirect_to_byte_identical_clone_is_rejected",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_entry_key_and_manifest_identity_must_agree",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_candidate_derived_duck_typed_expected_source",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_unregistered_object_even_with_genuine_source_handle",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_prepublication_handle_is_typed_scoped_and_single_operation_only"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_silver_registry_schema_and_identity_are_verified_before_lookup",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_source_root_redirect_to_byte_identical_clone_is_rejected",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_entry_key_and_manifest_identity_must_agree",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_candidate_derived_duck_typed_expected_source",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_unregistered_object_even_with_genuine_source_handle",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_prepublication_handle_is_typed_scoped_and_single_operation_only"
+      ],
+      "expectedPassingNodeIds": [],
+      "auditReproduction": "Current public Silver verification trusts an unauthenticated registry body and its sourceRoot, accepts a candidate-derived duck-typed expected source, and permits a genuine source handle to bypass canonical Silver registration without operation-scoped authority.",
+      "expectedBaselineFailure": "All six nodes fail by reaching the actual Silver registry or expected-source verification boundary and observing acceptance of the documented bypass.",
+      "expectedFailureSignature": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:",
+      "expectedFailureSignatures": {
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_silver_registry_schema_and_identity_are_verified_before_lookup": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_silver_registry_schema_and_identity_are_verified_before_lookup:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_source_root_redirect_to_byte_identical_clone_is_rejected": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_registry_source_root_redirect_to_byte_identical_clone_is_rejected:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_registry_entry_key_and_manifest_identity_must_agree": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_registry_entry_key_and_manifest_identity_must_agree:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_candidate_derived_duck_typed_expected_source": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_public_verify_rejects_candidate_derived_duck_typed_expected_source:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_public_verify_rejects_unregistered_object_even_with_genuine_source_handle": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_public_verify_rejects_unregistered_object_even_with_genuine_source_handle:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d3.py::test_prepublication_handle_is_typed_scoped_and_single_operation_only": "D3_REGISTRY_AND_PREPUBLICATION_HANDLE_AUTHORITY:test_prepublication_handle_is_typed_scoped_and_single_operation_only:"
+      },
+      "correctedRequiredBehavior": "Authenticate the registry schema, identity, entry key, manifest relationship, and canonical source-root relationship before lookup; public verification must reject caller-supplied expected authority, while a typed Stage-B handle is private, publication-bound, single-use, and cannot bypass canonical registration.",
+      "affectedImplementationPaths": [
+        "server/sports_modeling/silver_publish.py",
+        "server/sports_modeling/source_issuer.py"
+      ],
+      "risk": "A candidate or mutable registry can supply the authority used to verify itself, allowing an unregistered or redirected Silver object to be accepted.",
+      "subprocessRequired": false,
+      "windowsOnly": false
+    },
+    {
+      "findingId": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_with_wrong_process_id_is_rejected",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_session_start_does_not_retain_untrusted_preexisting_capability",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_unrelated_temp_path_factory_cannot_rebind_active_session_authority",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_copying_valid_marker_bytes_to_sibling_does_not_authorize_sibling",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_child_process_requires_its_own_process_bound_session_issuance",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_from_prior_session_cannot_authorize_new_session"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_with_wrong_process_id_is_rejected",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_session_start_does_not_retain_untrusted_preexisting_capability",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_unrelated_temp_path_factory_cannot_rebind_active_session_authority",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_copying_valid_marker_bytes_to_sibling_does_not_authorize_sibling",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_child_process_requires_its_own_process_bound_session_issuance",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_from_prior_session_cannot_authorize_new_session"
+      ],
+      "expectedPassingNodeIds": [],
+      "auditReproduction": "Current marker verification ignores sessionProcessId, session establishment trusts an inherited capability, the process-global TempPathFactory wrapper can rebind authority, and copied or stale marker bytes authorize unrelated leaves or processes.",
+      "expectedBaselineFailure": "All six nodes fail at the actual isolated-data session-authority implementation after the documented invalid marker, inherited authority, factory, child-process, or replay condition is accepted.",
+      "expectedFailureSignature": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:",
+      "expectedFailureSignatures": {
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_with_wrong_process_id_is_rejected": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_marker_with_wrong_process_id_is_rejected:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_session_start_does_not_retain_untrusted_preexisting_capability": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_session_start_does_not_retain_untrusted_preexisting_capability:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_unrelated_temp_path_factory_cannot_rebind_active_session_authority": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_unrelated_temp_path_factory_cannot_rebind_active_session_authority:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_copying_valid_marker_bytes_to_sibling_does_not_authorize_sibling": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_copying_valid_marker_bytes_to_sibling_does_not_authorize_sibling:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_child_process_requires_its_own_process_bound_session_issuance": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_child_process_requires_its_own_process_bound_session_issuance:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d7.py::test_marker_from_prior_session_cannot_authorize_new_session": "D7_PROCESS_AND_LEAF_BOUND_SESSION_AUTHORITY:test_marker_from_prior_session_cannot_authorize_new_session:"
+      },
+      "correctedRequiredBehavior": "Issue fresh process-bound session authority through the generic lifecycle; bind every marker to the issuing process, session, exact root, and exact issued leaf; reject inherited, copied, stale, sibling, unrelated-factory, and parent-process authority before data I/O.",
+      "affectedImplementationPaths": [
+        "tests/_isolated_data_guard.py",
+        "tests/conftest.py"
+      ],
+      "risk": "Reusable or rebindable marker authority lets an unrelated directory or child process inherit data-access authorization.",
+      "subprocessRequired": true,
+      "windowsOnly": false
+    },
+    {
+      "findingId": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_exact_duplicate_junit_testcases_are_fatal",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parameter_slash_and_dot_alias_is_not_treated_as_same_identity",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_file_and_class_identity_cannot_be_erased_by_canonicalization",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_duplicate_collected_node_identity_is_fatal",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parity_rejects_nonunit_cardinality_before_set_comparison",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_valid_one_to_one_identity_mapping_still_passes"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_exact_duplicate_junit_testcases_are_fatal",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parameter_slash_and_dot_alias_is_not_treated_as_same_identity",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_file_and_class_identity_cannot_be_erased_by_canonicalization",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_duplicate_collected_node_identity_is_fatal",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parity_rejects_nonunit_cardinality_before_set_comparison"
+      ],
+      "expectedPassingNodeIds": [
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_valid_one_to_one_identity_mapping_still_passes"
+      ],
+      "auditReproduction": "Current JUnit parsing overwrites exact duplicate testcase identities, and lossy slash, dot, file, class, and parameter canonicalization can collapse distinct collection/result identities before cardinality is checked.",
+      "expectedBaselineFailure": "The first five nodes fail because the real analyzer returns success for a duplicate or aliased mapping; the exact one-to-one control passes.",
+      "expectedFailureSignature": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:",
+      "expectedFailureSignatures": {
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_exact_duplicate_junit_testcases_are_fatal": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:test_exact_duplicate_junit_testcases_are_fatal:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parameter_slash_and_dot_alias_is_not_treated_as_same_identity": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:test_parameter_slash_and_dot_alias_is_not_treated_as_same_identity:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_file_and_class_identity_cannot_be_erased_by_canonicalization": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:test_file_and_class_identity_cannot_be_erased_by_canonicalization:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_duplicate_collected_node_identity_is_fatal": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:test_duplicate_collected_node_identity_is_fatal:",
+        "tests/codex_phase7d5a11_final_red_gate/test_d8.py::test_parity_rejects_nonunit_cardinality_before_set_comparison": "D8_DUPLICATE_AND_ALIAS_SAFE_RESULT_PARITY:test_parity_rejects_nonunit_cardinality_before_set_comparison:"
+      },
+      "correctedRequiredBehavior": "Preserve exact raw collection and JUnit identities, reject duplicate or aliased keys and every nonunit mapping cardinality before set comparison, and continue accepting a genuine one-to-one mapping.",
+      "affectedImplementationPaths": [
+        "scripts/phase7d5a_skip_governance.py"
+      ],
+      "risk": "A false-green gate can silently erase a missing, duplicate, or aliased test result.",
+      "subprocessRequired": true,
+      "windowsOnly": false
+    }
+  ]
+}
