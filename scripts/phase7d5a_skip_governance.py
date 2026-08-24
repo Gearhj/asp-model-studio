@@ -223,7 +223,7 @@ def main() -> int:
             if pol.get("reason") != reason:
                 fails.append(f"SKIP REASON CHANGED for {n}: policy={pol.get('reason')!r} actual={reason!r}")
             if pol.get("reasonCode") != code:
-                fails.append(f"SKIP REASON-CODE CHANGED for {n}: policy={pol.get('reasonCode')} actual={code}")
+                fails.append(f"SKIP CATEGORY CHANGED (reason-code) for {n}: policy={pol.get('reasonCode')} actual={code}")
             if "category" in pol and pol.get("category") != code:
                 fails.append(f"SKIP CATEGORY (independently governed) CHANGED for {n}: policy={pol.get('category')} actual={code}")
         grouped.setdefault(code or "UNCLASSIFIED", []).append(n)

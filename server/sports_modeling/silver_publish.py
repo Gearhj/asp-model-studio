@@ -228,14 +228,18 @@ def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]
         if "game_date" not in r or r["game_date"] is None:
             raise SourceAuthorityError("source row missing game_date; season cannot be governed-derived")
         derived = ST.derive_season(r["game_date"])
-        if not server_owned:
-            if season_of_row is not None:
-                claimed = season_of_row(r)
-                if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
-                    raise SourceAuthorityError(
-                        f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
-            if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
-                raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
+        # The caller CALLBACK is advisory: it is enforced as a mirror only for a caller-supplied location; in the
+        # server's own governed store the server derivation is authoritative and the callback is not enforced.
+        if not server_owned and season_of_row is not None:
+            claimed = season_of_row(r)
+            if isinstance(claimed, bool) or not isinstance(claimed, int) or claimed != derived:
+                raise SourceAuthorityError(
+                    f"false season derivation: caller season {claimed!r} disagrees with the server-derived {derived}")
+        # The STORED season FIELD is DATA, not advice: an inconsistent stored season (a relabelled or smuggled
+        # sealed/prospective season carried in the row) is ALWAYS a violation — never silently normalized, even in
+        # the server's own store.
+        if isinstance(r.get("season"), int) and not isinstance(r.get("season"), bool) and int(r["season"]) != derived:
+            raise SourceAuthorityError(f"stored season {r['season']} disagrees with the server-derived {derived}")
         nr = dict(r)
         if "season" in nr:
             nr["season"] = derived           # stamp the server-derived season so output == receipt == manifest

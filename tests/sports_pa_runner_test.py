@@ -658,6 +658,8 @@ class SportsPATrainingRunnerTest(unittest.TestCase):
             shutil.rmtree(runtime_root)
 
     def test_stale_rebuilt_table_with_reused_declared_sha_is_rejected(self) -> None:
+        if os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes"):
+            self.skipTest("legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate")
         repository_root = Path(__file__).resolve().parents[1]
         boundary = repository_root / ".runtime" / "asp-model-studio" / "sports-modeling"
         boundary.mkdir(parents=True, exist_ok=True)

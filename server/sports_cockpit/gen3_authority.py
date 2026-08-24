@@ -525,7 +525,17 @@ def _run_datasets_eligible(project_id: str, run_id: str) -> None:
     _reject_reparse_authority(rpath, STATE_ROOT)
     if not rpath.is_file() or rpath.is_symlink():
         raise AuthorityError("run receipt missing")
-    receipt = json.loads(rpath.read_bytes().decode("utf-8"))
+    # verify the receipt's content-address BEFORE trusting its fields: a tampered receipt is a fail-closed
+    # AuthorityError, never a raw JSON/parse error leaking out of this pre-check.
+    try:
+        receipt = json.loads(rpath.read_bytes().decode("utf-8"))
+    except Exception as exc:
+        raise AuthorityError(f"run receipt is corrupt (fail-closed): {exc}")
+    if not isinstance(receipt, dict):
+        raise AuthorityError("run receipt is malformed (fail-closed)")
+    body = {k: v for k, v in receipt.items() if k != "receiptSha256"}
+    if sha256_bytes(canonical_json_bytes(body)) != receipt_sha or receipt.get("receiptSha256") != receipt_sha:
+        raise AuthorityError("run receipt SHA does not verify (tampered)")
     dsid = receipt.get("datasetVersionId")
     if dsid:
         assert_canonical_eligibility(_resolve_version(dsid))   # resolves the current catalog entry + checks it

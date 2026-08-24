@@ -91,6 +91,8 @@ class SportsPhase4DynamicRunnerTest(unittest.TestCase):
         )
 
     def setUp(self) -> None:
+        if os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes"):
+            self.skipTest("legacy runner exercises the shared .runtime governed boundary; not run under the isolated gate")
         self.runtime_root = self.boundary / f"dynamic-runner-test-{uuid.uuid4().hex}"
         self.runtime_root.mkdir(parents=True)
 

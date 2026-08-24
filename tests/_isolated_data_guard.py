@@ -25,13 +25,27 @@ def is_active() -> bool:
 
 def _allowed_roots() -> list[Path]:
     # ONLY exact, explicitly-governed roots — NEVER the blanket OS temp tree. The isolated test temp must be
-    # declared (ASP_ISOLATED_TEST_TEMP, set by the gate runner to a dir beneath the isolated runtime root).
+    # declared (ASP_ISOLATED_TEST_TEMP, set by the gate runner to a dir beneath the isolated runtime root). The
+    # pytest tmp_path tree (``<tempdir>/pytest-of-<user>``) is allowed as a NARROW named subtree — pytest's own
+    # per-run temp, where a spawned governed-file subprocess (which does not inherit --basetemp) writes its scratch
+    # objects — while the rest of the OS temp tree (e.g. an unrelated sealed-2025 sibling) stays rejected.
+    import tempfile
     from server.sports_cockpit.engine import RUNTIME_ROOT
     roots = [Path(RUNTIME_ROOT).resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
     test_temp = os.environ.get("ASP_ISOLATED_TEST_TEMP", "").strip()
     if test_temp:
         try:
             roots.append(Path(test_temp).resolve())
+        except OSError:
+            pass
+    try:
+        import getpass
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+    if user:
+        try:
+            roots.append((Path(tempfile.gettempdir()) / f"pytest-of-{user}").resolve())
         except OSError:
             pass
     return [r for r in roots if r]
