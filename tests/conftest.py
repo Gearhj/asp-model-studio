@@ -28,21 +28,26 @@ def pytest_configure(config):
             pass
         G.establish_session_capability()
         G.install()
-
-
-@pytest.fixture(autouse=True)
-def _asp_isolated_session_marker(request):
-    """Under the isolated guard, drop the active session's capability marker into this test's own scratch directory
-    so the guard authorizes that exact subtree (and nothing else) for data access. Inert in ordinary runs."""
-    from tests import _isolated_data_guard as G
-    if G._installed["on"]:
+        # Mark every pytest-created temp directory (function tmp_path AND module/session tmp_path_factory dirs) with
+        # the active session's capability, so the guard authorizes exactly those session-owned subtrees. Directories
+        # a test hand-constructs under the session root are NOT created here and therefore stay unmarked/rejected.
         try:
-            tmp = request.getfixturevalue("tmp_path")
+            import _pytest.tmpdir as _tmpdir
+
+            _orig_mktemp = _tmpdir.TempPathFactory.mktemp
+
+            def _capability_marked_mktemp(self, basename, numbered=True):
+                created = _orig_mktemp(self, basename, numbered=numbered)
+                try:
+                    G.write_session_marker(created)
+                except Exception:
+                    pass
+                return created
+
+            if getattr(_tmpdir.TempPathFactory.mktemp, "__name__", "") != "_capability_marked_mktemp":
+                _tmpdir.TempPathFactory.mktemp = _capability_marked_mktemp
         except Exception:
-            tmp = None
-        if tmp is not None:
-            G.write_session_marker(tmp)
-    yield
+            pass
 
 
 def pytest_runtest_setup(item):
