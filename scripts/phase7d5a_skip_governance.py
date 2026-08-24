@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -92,6 +93,20 @@ def is_critical(nodeid: str) -> bool:
 
 def _norm_node(nodeid: str) -> str:
     return nodeid.replace("\\", "/").strip()
+
+
+_PY_EXT_RE = re.compile(r"\.py(?=::|$)")
+
+
+def _canon_parity(nodeid: str) -> str:
+    """Namespace-neutral parity key. pytest emits COLLECTED ids in the file-path namespace
+    (``tests/foo_test.py::Cls::m``) but junit ids in the dotted-classname namespace
+    (``tests.foo_test.Cls::m``); both collapse to ``tests.foo_test.Cls.m`` here so collection<->junit parity can be
+    compared exactly across the two namespaces (the red gate's synthetic junit sets a slashed file= attr, which
+    collapses identically). Any parametrization suffix is treated verbatim on both sides."""
+    s = nodeid.replace("\\", "/").strip()
+    s = _PY_EXT_RE.sub("", s)
+    return s.replace("/", ".").replace("::", ".")
 
 
 def parse_collected(path: Path) -> list[str]:
@@ -186,12 +201,15 @@ def main() -> int:
         fails.append(f"EXPECTED NODE MISSING FROM COLLECTION: {m}")
     for x in extra:
         fails.append(f"UNEXPECTED NODE APPEARED IN COLLECTION (needs reviewed policy update): {x}")
-    # (1b) EXACT collection<->junit parity: every collected node must be executed, and vice versa
-    junit_nodes = set(junit)
-    for n in sorted(set(collected) - junit_nodes):
-        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {n}")
-    for n in sorted(junit_nodes - set(collected)):
-        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {n}")
+    # (1b) EXACT collection<->junit parity (namespace-neutral): every collected node must be executed, and vice
+    # versa. collected ids are file-path-namespaced and junit ids are dotted-classname-namespaced, so parity is
+    # compared on the canonical key (see _canon_parity) rather than on the raw, non-comparable strings.
+    col_canon = {_canon_parity(n): n for n in collected}
+    jun_canon = {_canon_parity(n): n for n in junit}
+    for k in sorted(set(col_canon) - set(jun_canon)):
+        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {col_canon[k]}")
+    for k in sorted(set(jun_canon) - set(col_canon)):
+        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {jun_canon[k]}")
     # (1c) EXACT allowed-skip <-> actual-skip equality: an expected skip that unexpectedly passes fails closed
     for n in sorted(set(allowed) - set(skipped)):
         fails.append(f"EXPECTED ALLOWED SKIP DID NOT SKIP (passed or executed): {n}")
