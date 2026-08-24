@@ -634,11 +634,14 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     objects_root = _silver_objects_root(silver_root)
     final = contained_no_reparse(objects_root / manifest_sha, [objects_root])
     if final.exists():
-        verify_silver(silver_root, manifest_sha)                    # FULL re-verification before any reuse
-        return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons)
+        # pre-registry (Stage C internal): verify against the Stage-B governed handle, never the candidate registry
+        verify_silver(silver_root, manifest_sha, _expected_source=handle)
+        return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons,
+                         source_root=Path(source_root))
     _atomic_publish_children(objects_root, final, children, manifest_name="publication-manifest.json")
-    verify_silver(silver_root, manifest_sha)                        # verify the just-published object before registering
-    return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons)
+    verify_silver(silver_root, manifest_sha, _expected_source=handle)   # verify the just-published object pre-registry
+    return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons,
+                     source_root=Path(source_root))
 
 
 def _read_source_child(handle: VerifiedSourceHandle, name: str) -> bytes:
@@ -728,14 +731,38 @@ def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_ver
 
 
 def _register(silver_root: Path, source_object_id: str, manifest_sha: str, receipt_sha: str, rows: int,
-              seasons: list[int]) -> dict[str, Any]:
+              seasons: list[int], source_root: Path | None = None) -> dict[str, Any]:
     dsid = f"silver:{source_object_id}:sha256:{manifest_sha}"
     entry = {"datasetVersionId": dsid, "status": SILVER_STATUS, "quarantine": SILVER_QUARANTINE, "modelEligible": False,
              "approvedForTraining": False, "selectable": False, "manifestSha256": manifest_sha,
              "transformReceiptSha256": receipt_sha, "rows": rows, "seasons": seasons, "sourceObjectId": source_object_id}
+    if source_root is not None:
+        # D3 — the trusted registration records WHERE the canonical Stage-A/B source lives so public verification can
+        # re-resolve it INDEPENDENTLY of the candidate bundle. This is a location, never scientific authority.
+        entry["sourceRoot"] = str(Path(source_root).resolve())
     _locked_registry_put(_silver_registry_path(silver_root), _silver_lock_path(silver_root), Path(silver_root),
                          "MLB_SILVER_REGISTRY_V1", dsid, entry)
     return entry
+
+
+def _lookup_silver_registration(silver_root: Path, manifest_sha: str) -> dict[str, Any] | None:
+    """Return the trusted Silver registry entry whose object address is ``manifest_sha`` (or None). A re-addressed
+    candidate whose object dir was renamed to a fresh sha is NOT registered here, so it has no governed authority."""
+    reg_path = _silver_registry_path(silver_root)
+    try:
+        contained_no_reparse(reg_path, [Path(silver_root)])
+    except Exception:
+        return None
+    if not reg_path.is_file():
+        return None
+    try:
+        reg = json.loads(reg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    for entry in (reg.get("datasets") or {}).values():
+        if isinstance(entry, dict) and entry.get("manifestSha256") == manifest_sha:
+            return entry
+    return None
 
 
 def is_quarantined_silver(silver_root: Path, dataset_version_id: str) -> bool:
@@ -757,11 +784,18 @@ def assert_model_eligible(silver_root: Path, dataset_version_id: str) -> None:
 
 
 # =========================================================================== Repair 3 — complete verification
-def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
+def verify_silver(silver_root: Path, manifest_sha: str, *, _expected_source: "VerifiedSourceHandle | None" = None) -> dict[str, Any]:
     """Fully re-verify a published Silver object: containment before iterate/open; EXACT child set (no missing/
     extra); rehash every child; every JSON child validates its own content address where it carries one; all
     parent/child identities cross-checked; physical/logical/schema/value digests recomputed; the V2 feature-set
-    binds the OUTPUT logical identity; status is quarantined + model-ineligible. Fail-closed on any deviation."""
+    binds the OUTPUT logical identity; status is quarantined + model-ineligible. Fail-closed on any deviation.
+
+    D3 — the CANONICAL source authority is established INDEPENDENTLY of the candidate bundle. A PUBLIC call
+    (``_expected_source`` is None) requires the candidate's object address to be present in the trusted Silver
+    registry and RE-RESOLVES the canonical Stage-A/B source from the registered source location (so a re-addressed
+    candidate, or one whose canonical source registry/issuer has diverged, is rejected). A pre-registry Stage-C call
+    passes the just-issued Stage-B ``_expected_source`` handle. Candidate-declared source fields are never the source
+    of truth — they must EXACTLY equal the reconstructed canonical handle."""
     root = _silver_objects_root(silver_root)
     final = contained_no_reparse(root / manifest_sha, [root])
     # exact child set BEFORE opening anything of substance
@@ -829,6 +863,38 @@ def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
                                                             "rows": table.num_rows, "valueDigest": receipt["valueDigestSha256"]}))
     if recomputed_logical != receipt["outputLogicalSha256"]:
         raise SilverPublishError("Silver output logical identity recompute mismatch (tampered)")
+
+    # ---- D3: establish the CANONICAL source authority INDEPENDENTLY of this candidate bundle, then require every
+    # candidate-declared source relationship to equal it EXACTLY. A re-addressed candidate is not registered; a
+    # candidate whose canonical source registry/issuer has diverged fails to re-resolve; a coordinated new parent
+    # never matches the reconstructed canonical source.
+    if _expected_source is not None:
+        canonical = _expected_source
+    else:
+        reg_entry = _lookup_silver_registration(silver_root, manifest_sha)
+        if reg_entry is None:
+            raise SilverPublishError(
+                "no canonical Silver registration for this candidate object (re-addressed / unregistered)")
+        src_root = reg_entry.get("sourceRoot")
+        if not src_root:
+            raise SilverPublishError("canonical Silver registration lacks a source location for independent reload")
+        try:
+            canonical, _ = resolve_verified_source(Path(src_root), reg_entry.get("sourceObjectId"))
+        except SourceAuthorityError as exc:
+            raise SilverPublishError(f"canonical source re-resolution failed during Silver verification: {exc}")
+    if not (receipt.get("sourceDatasetVersionId") == canonical.dataset_version_id
+            and receipt.get("sourceLogicalSha256") == canonical.logical_sha256
+            and receipt.get("sourcePhysicalSha256") == canonical.physical_sha256
+            and receipt.get("sourceSchemaSha256") == canonical.schema_sha256
+            and receipt.get("sourceReceiptSha256") == canonical.receipt_sha256
+            and receipt.get("sourceManifestSha256") == canonical.manifest_sha256):
+        raise SilverPublishError("candidate Silver source authority diverges from the reconstructed canonical source")
+    if manifest.get("sourceDatasetVersionId") != canonical.dataset_version_id:
+        raise SilverPublishError("candidate publication-manifest source identity diverges from canonical (tampered)")
+    if sorted(int(s) for s in manifest.get("seasons", [])) != sorted(int(s) for s in receipt.get("perSeasonRows", {})):
+        raise SilverPublishError("candidate publication-manifest seasons diverge from the transformation receipt (tampered)")
+    if not (manifest.get("rowCount") == receipt.get("rowCount") == table.num_rows):
+        raise SilverPublishError("candidate publication-manifest row count diverges from the canonical output (tampered)")
 
     # ---- R3: RECONSTRUCT every silver-authored contract from CANONICAL AUTHORITY and require an EXACT byte match.
     # A coordinated re-addressing (recomputing the outer inventory + manifest hashes and renaming the object dir)
