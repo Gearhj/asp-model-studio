@@ -204,12 +204,28 @@ def main() -> int:
     # (1b) EXACT collection<->junit parity (namespace-neutral): every collected node must be executed, and vice
     # versa. collected ids are file-path-namespaced and junit ids are dotted-classname-namespaced, so parity is
     # compared on the canonical key (see _canon_parity) rather than on the raw, non-comparable strings.
-    col_canon = {_canon_parity(n): n for n in collected}
-    jun_canon = {_canon_parity(n): n for n in junit}
-    for k in sorted(set(col_canon) - set(jun_canon)):
-        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {col_canon[k]}")
-    for k in sorted(set(jun_canon) - set(col_canon)):
-        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {jun_canon[k]}")
+    # D8 — the canonical key MUST be INJECTIVE: two distinct raw node ids collapsing to one key would let a plain
+    # dict silently overwrite and hide a missing/duplicate execution result. Build multimaps (never overwrite),
+    # treat any key that maps >1 distinct raw id on EITHER side as a FATAL collision, then compare the one-to-one
+    # keyed sets. Every collected node must map to exactly one execution result and vice versa.
+    col_mm: dict[str, list[str]] = {}
+    for n in collected:
+        col_mm.setdefault(_canon_parity(n), []).append(n)
+    jun_mm: dict[str, list[str]] = {}
+    for n in junit:
+        jun_mm.setdefault(_canon_parity(n), []).append(n)
+    for key, raws in sorted(col_mm.items()):
+        distinct = sorted(set(raws))
+        if len(distinct) > 1:
+            fails.append(f"CANONICAL KEY COLLISION (collection not injective / not one-to-one): {distinct}")
+    for key, raws in sorted(jun_mm.items()):
+        distinct = sorted(set(raws))
+        if len(distinct) > 1:
+            fails.append(f"CANONICAL KEY COLLISION (junit not injective / not one-to-one): {distinct}")
+    for k in sorted(set(col_mm) - set(jun_mm)):
+        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {col_mm[k][0]}")
+    for k in sorted(set(jun_mm) - set(col_mm)):
+        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {jun_mm[k][0]}")
     # (1c) EXACT allowed-skip <-> actual-skip equality: an expected skip that unexpectedly passes fails closed
     for n in sorted(set(allowed) - set(skipped)):
         fails.append(f"EXPECTED ALLOWED SKIP DID NOT SKIP (passed or executed): {n}")
