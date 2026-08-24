@@ -13,43 +13,55 @@ from pathlib import Path
 import pytest
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_configure(config):
     from tests import _isolated_data_guard as G
-    if G.is_active():
-        # D7 — generic isolated-session capability bootstrap (production-neutral; no D7 node/fixture knowledge). This
-        # session's basetemp is the canonical session root, and the session establishes one random capability. Data
-        # authority is then granted ONLY to per-test scratch directories this session marks (see the autouse fixture
-        # below); the rest of the OS temp tree — including the bare session root and pytest-of-<user> — is rejected.
+    if not G.is_active():
+        return
+    # D7 — generic, PROCESS-BOUND isolated-session bootstrap (production-neutral; no D7 node/fixture knowledge). The
+    # canonical session root is the ACTUAL basetemp THIS session's tmp_path_factory uses (so the marker + guard agree,
+    # including a spawned pytest subprocess that inherits no --basetemp and thus a different basetemp). This process
+    # mints its OWN random capability + session nonce (an inherited environment capability is never trusted). Data
+    # authority is granted ONLY to per-test scratch directories this session marks below; the rest of the OS temp tree
+    # — including the bare session root and pytest-of-<user> — is rejected.
+    factory = getattr(config, "_tmp_path_factory", None)
+    basetemp = None
+    if factory is not None:
         try:
-            bt = getattr(config.option, "basetemp", None)
-            if bt:
-                os.environ["ASP_ISOLATED_TEST_TEMP"] = str(Path(bt).resolve())
+            basetemp = Path(factory.getbasetemp()).resolve()
         except Exception:
-            pass
-        G.establish_session_capability()
-        G.install()
-        # Mark every pytest-created temp directory (function tmp_path AND module/session tmp_path_factory dirs) with
-        # the active session's capability, so the guard authorizes exactly those session-owned subtrees. Directories
-        # a test hand-constructs under the session root are NOT created here and therefore stay unmarked/rejected.
+            basetemp = None
+    if basetemp is None:
         try:
-            import _pytest.tmpdir as _tmpdir
+            bt = getattr(getattr(config, "option", None), "basetemp", None)
+            if bt:
+                basetemp = Path(bt).resolve()
+        except Exception:
+            basetemp = None
+    if basetemp is not None:
+        os.environ["ASP_ISOLATED_TEST_TEMP"] = str(basetemp)
+    G.establish_session_capability()
+    G.install()
+    # D7 8.3 — mark every scratch dir the SESSION's OWN factory creates by wrapping THIS factory INSTANCE's mktemp
+    # (never the TempPathFactory class). Both the function-scoped ``tmp_path`` and the module/session-scoped
+    # ``tmp_path_factory`` route through config._tmp_path_factory, so every session-owned scratch dir is marked; an
+    # UNRELATED TempPathFactory constructed elsewhere uses the untouched class method and therefore can neither rebind
+    # the active session root nor mint capability markers. A directory a test hand-constructs under the session root is
+    # not created through this factory and stays unmarked/rejected.
+    if factory is not None and not getattr(factory, "_asp_capability_marking", False):
+        try:
+            _orig_mktemp = factory.mktemp
 
-            _orig_mktemp = _tmpdir.TempPathFactory.mktemp
-
-            def _capability_marked_mktemp(self, basename, numbered=True):
-                created = _orig_mktemp(self, basename, numbered=numbered)
+            def _capability_marked_mktemp(basename, numbered=True):
+                created = _orig_mktemp(basename, numbered=numbered)
                 try:
-                    # bind the canonical session root to THIS factory's actual basetemp (which, in a spawned
-                    # subprocess that inherits no --basetemp, differs from the parent's), so the marker + guard agree
-                    os.environ["ASP_ISOLATED_TEST_TEMP"] = str(Path(self.getbasetemp()).resolve())
-                    G.establish_session_capability()
                     G.write_session_marker(created)
                 except Exception:
                     pass
                 return created
 
-            if getattr(_tmpdir.TempPathFactory.mktemp, "__name__", "") != "_capability_marked_mktemp":
-                _tmpdir.TempPathFactory.mktemp = _capability_marked_mktemp
+            factory.mktemp = _capability_marked_mktemp
+            factory._asp_capability_marking = True
         except Exception:
             pass
 

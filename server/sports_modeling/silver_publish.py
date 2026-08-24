@@ -25,8 +25,10 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import secrets
 import shutil
 import sys
+import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,7 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..sports_cockpit.interprocess_lock import interprocess_lock
-from ..sports_cockpit.path_containment import contained_no_reparse
+from ..sports_cockpit.path_containment import ContainmentError, contained_no_reparse
 from ..sports_datasets import consumer as _consumer
 from ..sports_datasets.consumer import canonical_json_bytes, sha256_bytes
 from . import feature_semantics as FS
@@ -160,7 +162,11 @@ _ISSUE_TOKEN = object()          # module-private; a VerifiedSourceHandle cannot
 @dataclass(frozen=True)
 class VerifiedSourceHandle:
     """A server-issued, verified handle to an immutable governed Silver source. Issued ONLY by
-    ``resolve_verified_source`` after re-hashing the stored object/receipt/manifest; callers cannot construct one."""
+    ``resolve_verified_source`` after re-hashing the stored object/receipt/manifest; callers cannot construct one.
+
+    D3 — each issuance carries a cryptographically-random ``issuance_nonce``; a handle is SINGLE-USE at the Stage-C
+    publication boundary (``_consume_source_handle``), so one Stage-B handle can never authorize a second publication
+    operation or a second publication identity even if the same instance is re-presented."""
     dataset_version_id: str
     object_path: str
     physical_sha256: str
@@ -171,10 +177,83 @@ class VerifiedSourceHandle:
     seasons: tuple[int, ...]
     row_count: int
     _token: Any = field(default=None, repr=False)
+    issuance_nonce: str = field(default="", repr=False)
 
     def __post_init__(self):
         if self._token is not _ISSUE_TOKEN:
             raise SourceAuthorityError("VerifiedSourceHandle may only be issued by server-side verification")
+
+
+# --- D3: single-use Stage-B handle consumption (process-local, lock-protected) ------------------------------------
+_consumed_source_handles: set[str] = set()
+_source_handle_lock = threading.Lock()
+
+
+def _consume_source_handle(handle: "VerifiedSourceHandle") -> None:
+    """Consume a Stage-B ``VerifiedSourceHandle`` for exactly ONE Stage-C publication operation. An exact-type check
+    (never attribute/duck testing) rejects a duck-typed authority; a second consumption of the same issuance nonce
+    fails closed, so one handle can never authorize a second operation/publication identity."""
+    if type(handle) is not VerifiedSourceHandle:
+        raise SilverPublishError("Stage C requires a genuine server-issued VerifiedSourceHandle (duck-typed authority rejected)")
+    nonce = handle.issuance_nonce
+    if not isinstance(nonce, str) or not nonce:
+        raise SilverPublishError("Stage-B source handle lacks a server-issued single-use nonce")
+    with _source_handle_lock:
+        if nonce in _consumed_source_handles:
+            raise SilverPublishError("Stage-B source handle already consumed (single-use); one handle cannot authorize a second operation")
+        _consumed_source_handles.add(nonce)
+
+
+# --- D3 (req 7.5): ONE internal, publication-scoped prepublication verification authority --------------------------
+# A module-private typed grant is the ONLY authority accepted by the internal pre-registration verification path. It
+# is minted by a module-private issuer, carries a random operation nonce, is registered in a process-local
+# issued/consumed table under a lock, is bound at issuance to the exact manifest/object/source relationships, is
+# single-use (consumed on verification), is impossible to duck-type (exact type check), and is unavailable via any
+# public API. It cannot be reused for a second Silver object or after a successful publication or a failure.
+_GRANT_ISSUE_TOKEN = object()
+_issued_grants: dict[str, "_PrepublicationVerificationGrant"] = {}
+_grant_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _PrepublicationVerificationGrant:
+    manifest_sha: str
+    object_dir: str
+    handle: VerifiedSourceHandle
+    nonce: str
+    _token: Any = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self._token is not _GRANT_ISSUE_TOKEN:
+            raise SilverPublishError("a prepublication verification grant may only be issued internally")
+
+
+def _issue_prepublication_grant(manifest_sha: str, object_dir: Path,
+                                handle: VerifiedSourceHandle) -> "_PrepublicationVerificationGrant":
+    if type(handle) is not VerifiedSourceHandle:
+        raise SilverPublishError("prepublication grant requires a genuine server-issued VerifiedSourceHandle")
+    nonce = secrets.token_hex(32)
+    grant = _PrepublicationVerificationGrant(manifest_sha=str(manifest_sha), object_dir=str(object_dir),
+                                             handle=handle, nonce=nonce, _token=_GRANT_ISSUE_TOKEN)
+    with _grant_lock:
+        _issued_grants[nonce] = grant
+    return grant
+
+
+def _consume_prepublication_grant(grant: Any, manifest_sha: str, object_dir: Path) -> VerifiedSourceHandle:
+    """Exact-type-check + single-use consume of the internal prepublication grant, bound to the exact object identity.
+    Any duck-typed object, a grant not issued live, or a grant bound to a different object fails closed."""
+    if type(grant) is not _PrepublicationVerificationGrant:
+        raise SilverPublishError("internal Silver verification requires the typed prepublication grant (duck-typed authority rejected)")
+    with _grant_lock:
+        live = _issued_grants.pop(grant.nonce, None)     # consume-on-verification (single-use)
+    if live is not grant:
+        raise SilverPublishError("prepublication grant is not a live single-use issuance (already consumed / forged)")
+    if grant.manifest_sha != str(manifest_sha) or grant.object_dir != str(object_dir):
+        raise SilverPublishError("prepublication grant is not bound to this publication object identity")
+    if type(grant.handle) is not VerifiedSourceHandle:
+        raise SilverPublishError("prepublication grant does not carry a genuine Stage-B source handle")
+    return grant.handle
 
 
 def _source_objects_root(source_root: Path) -> Path:
@@ -408,7 +487,7 @@ def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple
                                   physical_sha256=physical, logical_sha256=recomputed_logical,
                                   schema_sha256=schema_sha, receipt_sha256=receipt_self,
                                   manifest_sha256=manifest_self, seasons=tuple(derived_seasons),
-                                  row_count=row_count, _token=_ISSUE_TOKEN)
+                                  row_count=row_count, _token=_ISSUE_TOKEN, issuance_nonce=secrets.token_hex(32))
     return handle, rows
 
 
@@ -503,6 +582,9 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     # ---- STAGE C requires a governed STAGE-B source: resolve+verify the source server-side (canonical issuer
     # authority, no caller SHAs/rows, no display/path authority). A Stage-A-only or unauthorized source fails here.
     handle, source_rows = resolve_verified_source(source_root, source_dataset_version_id)
+    # D3 — the resolved authority must be a genuine server-issued handle (exact type, never duck-typed) and is SINGLE-
+    # USE at this boundary: one Stage-B handle can never authorize a second publication operation or identity.
+    _consume_source_handle(handle)
     if not source_rows:
         raise SilverPublishError("verified source is empty")
     # ---- Repair 1: SEMANTIC input allowlist — only the governed chronology + declared base features (+ the
@@ -633,13 +715,12 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     # ---- publish atomically (content-addressed by the publication-manifest sha), reparse-safe + reuse-guarded ---
     objects_root = _silver_objects_root(silver_root)
     final = contained_no_reparse(objects_root / manifest_sha, [objects_root])
-    if final.exists():
-        # pre-registry (Stage C internal): verify against the Stage-B governed handle, never the candidate registry
-        verify_silver(silver_root, manifest_sha, _expected_source=handle)
-        return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons,
-                         source_root=Path(source_root))
-    _atomic_publish_children(objects_root, final, children, manifest_name="publication-manifest.json")
-    verify_silver(silver_root, manifest_sha, _expected_source=handle)   # verify the just-published object pre-registry
+    if not final.exists():
+        _atomic_publish_children(objects_root, final, children, manifest_name="publication-manifest.json")
+    # pre-registry (Stage C internal): verify the just-published object against the Stage-B governed handle through the
+    # typed, single-use, publication-scoped prepublication grant — NEVER the public interface or the candidate registry.
+    grant = _issue_prepublication_grant(manifest_sha, final, handle)
+    _verify_silver_prepublication(silver_root, manifest_sha, grant)
     return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons,
                      source_root=Path(source_root))
 
@@ -715,6 +796,11 @@ def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_ver
         if existing is not None and existing != dict(entry):
             raise SilverPublishError(f"registry conflict: key {key!r} already holds divergent content")
         reg["datasets"][key] = dict(entry)                            # merge; unrelated entries preserved
+        reg["schemaVersion"] = schema_version
+        # D3 — content-address the registry body so a later out-of-band edit of any entry field (e.g. a redirected
+        # sourceRoot, a forged datasetVersionId, a moved entry key, a mutated schemaVersion) is tamper-evident.
+        reg.pop("registrySha256", None)
+        reg["registrySha256"] = sha256_bytes(canonical_json_bytes(reg))
         tmp = reg_path.parent / f".tmp-{uuid.uuid4().hex}"
         contained_no_reparse(tmp, [root])
         with open(tmp, "wb") as fh:
@@ -745,21 +831,52 @@ def _register(silver_root: Path, source_object_id: str, manifest_sha: str, recei
     return entry
 
 
-def _lookup_silver_registration(silver_root: Path, manifest_sha: str) -> dict[str, Any] | None:
-    """Return the trusted Silver registry entry whose object address is ``manifest_sha`` (or None). A re-addressed
-    candidate whose object dir was renamed to a fresh sha is NOT registered here, so it has no governed authority."""
+def _authenticate_silver_registry(silver_root: Path) -> dict[str, Any]:
+    """D3 (7.1/7.3) — AUTHENTICATE the trusted Silver registry BEFORE any entry or source is trusted: containment on
+    the registry path; strict schema; recompute + verify the registry's content-address SELF-IDENTITY; and, for every
+    entry, require the registry KEY to bind the entry identity EXACTLY —
+    ``key == datasetVersionId == silver:{sourceObjectId}:sha256:{manifestSha256}`` — and reject duplicate manifest
+    identities. Returns the authenticated ``datasets`` mapping. Fail-closed on ANY deviation; trusts no field merely
+    because it is present in the JSON."""
     reg_path = _silver_registry_path(silver_root)
-    try:
-        contained_no_reparse(reg_path, [Path(silver_root)])
-    except Exception:
-        return None
+    contained_no_reparse(reg_path, [Path(silver_root)])
     if not reg_path.is_file():
-        return None
+        raise SilverPublishError("no trusted Silver registry present for canonical verification (unregistered candidate)")
     try:
         reg = json.loads(reg_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    for entry in (reg.get("datasets") or {}).values():
+    except Exception as exc:
+        raise SilverPublishError(f"trusted Silver registry is unreadable: {exc}")
+    if not isinstance(reg, dict):
+        raise SilverPublishError("trusted Silver registry is malformed")
+    if reg.get("schemaVersion") != "MLB_SILVER_REGISTRY_V1":
+        raise SilverPublishError(f"trusted Silver registry schema is invalid/forged: {reg.get('schemaVersion')!r}")
+    self_addr = sha256_bytes(canonical_json_bytes({k: v for k, v in reg.items() if k != "registrySha256"}))
+    if reg.get("registrySha256") != self_addr:
+        raise SilverPublishError("trusted Silver registry is not canonically self-addressed (tampered)")
+    datasets = reg.get("datasets")
+    if not isinstance(datasets, dict):
+        raise SilverPublishError("trusted Silver registry datasets are structurally invalid")
+    seen_manifests: set[str] = set()
+    for key, entry in datasets.items():
+        if not isinstance(entry, dict):
+            raise SilverPublishError("trusted Silver registry entry is structurally invalid")
+        dsid, sobj, msha = entry.get("datasetVersionId"), entry.get("sourceObjectId"), entry.get("manifestSha256")
+        if dsid != key:
+            raise SilverPublishError(f"registry key {key!r} does not equal its entry datasetVersionId {dsid!r} (tampered)")
+        if not sobj or not isinstance(msha, str) or not _HEX64.match(msha):
+            raise SilverPublishError("registry entry lacks a bound sourceObjectId / manifest identity (tampered)")
+        if key != f"silver:{sobj}:sha256:{msha}":
+            raise SilverPublishError("registry key does not bind the source object id + manifest identity exactly (tampered)")
+        if msha in seen_manifests:
+            raise SilverPublishError("registry contains duplicate manifest identities (tampered)")
+        seen_manifests.add(msha)
+    return datasets
+
+
+def _authenticated_lookup(datasets: Mapping[str, Any], manifest_sha: str) -> dict[str, Any] | None:
+    """Return the AUTHENTICATED registry entry whose object address is ``manifest_sha`` (or None). A re-addressed
+    candidate whose object dir was renamed to a fresh sha is NOT registered, so it has no governed authority."""
+    for entry in datasets.values():
         if isinstance(entry, dict) and entry.get("manifestSha256") == manifest_sha:
             return entry
     return None
@@ -784,18 +901,47 @@ def assert_model_eligible(silver_root: Path, dataset_version_id: str) -> None:
 
 
 # =========================================================================== Repair 3 — complete verification
-def verify_silver(silver_root: Path, manifest_sha: str, *, _expected_source: "VerifiedSourceHandle | None" = None) -> dict[str, Any]:
-    """Fully re-verify a published Silver object: containment before iterate/open; EXACT child set (no missing/
-    extra); rehash every child; every JSON child validates its own content address where it carries one; all
-    parent/child identities cross-checked; physical/logical/schema/value digests recomputed; the V2 feature-set
-    binds the OUTPUT logical identity; status is quarantined + model-ineligible. Fail-closed on any deviation.
+def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
+    """PUBLIC Silver verification (D3 7.4 — no caller-supplied expected authority). The canonical source authority is
+    established INDEPENDENTLY of the candidate bundle: AUTHENTICATE the trusted Silver registry first (strict schema +
+    content-address self-identity + exact key/manifest binding), require the candidate's object address to be present
+    in that authenticated registry, then RE-RESOLVE the canonical Stage-A/B source from the registered source location
+    (so a re-addressed candidate, a tampered/redirected registry, or one whose canonical source registry/issuer has
+    diverged is rejected). Candidate-declared source fields are never the source of truth — they must EXACTLY equal the
+    reconstructed canonical handle. A caller may NOT inject expected authority: the pre-registration Stage-C path uses a
+    private, typed, single-use grant (``_verify_silver_prepublication``), never this public entry point."""
+    datasets = _authenticate_silver_registry(silver_root)
+    reg_entry = _authenticated_lookup(datasets, manifest_sha)
+    if reg_entry is None:
+        raise SilverPublishError("no canonical Silver registration for this candidate object (re-addressed / unregistered)")
+    src_root = reg_entry.get("sourceRoot")
+    if not src_root:
+        raise SilverPublishError("canonical Silver registration lacks a source location for independent reload")
+    try:
+        src_root_path = contained_no_reparse(Path(src_root), [Path(src_root)])   # containment BEFORE source-root access
+        canonical, _ = resolve_verified_source(src_root_path, reg_entry.get("sourceObjectId"))
+    except (SourceAuthorityError, ContainmentError) as exc:
+        raise SilverPublishError(f"canonical source re-resolution failed during Silver verification: {exc}")
+    return _verify_silver_core(silver_root, manifest_sha, canonical=canonical)
 
-    D3 — the CANONICAL source authority is established INDEPENDENTLY of the candidate bundle. A PUBLIC call
-    (``_expected_source`` is None) requires the candidate's object address to be present in the trusted Silver
-    registry and RE-RESOLVES the canonical Stage-A/B source from the registered source location (so a re-addressed
-    candidate, or one whose canonical source registry/issuer has diverged, is rejected). A pre-registry Stage-C call
-    passes the just-issued Stage-B ``_expected_source`` handle. Candidate-declared source fields are never the source
-    of truth — they must EXACTLY equal the reconstructed canonical handle."""
+
+def _verify_silver_prepublication(silver_root: Path, manifest_sha: str,
+                                  grant: "_PrepublicationVerificationGrant") -> dict[str, Any]:
+    """INTERNAL pre-registration verification (Stage C). The ONLY accepted authority is the typed, single-use,
+    publication-scoped prepublication grant, consumed here and bound to the exact object identity. Unavailable to any
+    public caller; impossible to duck-type."""
+    root = _silver_objects_root(silver_root)
+    final = contained_no_reparse(root / manifest_sha, [root])
+    canonical = _consume_prepublication_grant(grant, manifest_sha, final)
+    return _verify_silver_core(silver_root, manifest_sha, canonical=canonical)
+
+
+def _verify_silver_core(silver_root: Path, manifest_sha: str, *, canonical: "VerifiedSourceHandle") -> dict[str, Any]:
+    """Fully re-verify a published Silver object against an ALREADY-established canonical source authority: containment
+    before iterate/open; EXACT child set (no missing/extra); rehash every child; every JSON child validates its own
+    content address where it carries one; all parent/child identities cross-checked; physical/logical/schema/value
+    digests recomputed; the V2 feature-set binds the OUTPUT logical identity; status is quarantined + model-ineligible;
+    every candidate-declared source relationship must EXACTLY equal ``canonical``. Fail-closed on any deviation."""
     root = _silver_objects_root(silver_root)
     final = contained_no_reparse(root / manifest_sha, [root])
     # exact child set BEFORE opening anything of substance
@@ -864,24 +1010,12 @@ def verify_silver(silver_root: Path, manifest_sha: str, *, _expected_source: "Ve
     if recomputed_logical != receipt["outputLogicalSha256"]:
         raise SilverPublishError("Silver output logical identity recompute mismatch (tampered)")
 
-    # ---- D3: establish the CANONICAL source authority INDEPENDENTLY of this candidate bundle, then require every
-    # candidate-declared source relationship to equal it EXACTLY. A re-addressed candidate is not registered; a
-    # candidate whose canonical source registry/issuer has diverged fails to re-resolve; a coordinated new parent
-    # never matches the reconstructed canonical source.
-    if _expected_source is not None:
-        canonical = _expected_source
-    else:
-        reg_entry = _lookup_silver_registration(silver_root, manifest_sha)
-        if reg_entry is None:
-            raise SilverPublishError(
-                "no canonical Silver registration for this candidate object (re-addressed / unregistered)")
-        src_root = reg_entry.get("sourceRoot")
-        if not src_root:
-            raise SilverPublishError("canonical Silver registration lacks a source location for independent reload")
-        try:
-            canonical, _ = resolve_verified_source(Path(src_root), reg_entry.get("sourceObjectId"))
-        except SourceAuthorityError as exc:
-            raise SilverPublishError(f"canonical source re-resolution failed during Silver verification: {exc}")
+    # ---- D3: the CANONICAL source authority was established INDEPENDENTLY of this candidate bundle (by the public
+    # verifier, from the authenticated registry; or by the internal prepublication grant). Every candidate-declared
+    # source relationship must equal it EXACTLY. A re-addressed candidate is not registered; a candidate whose
+    # canonical source registry/issuer has diverged fails to re-resolve; a coordinated new parent never matches.
+    if type(canonical) is not VerifiedSourceHandle:
+        raise SilverPublishError("internal error: canonical source authority is not a genuine server-issued handle")
     if not (receipt.get("sourceDatasetVersionId") == canonical.dataset_version_id
             and receipt.get("sourceLogicalSha256") == canonical.logical_sha256
             and receipt.get("sourcePhysicalSha256") == canonical.physical_sha256

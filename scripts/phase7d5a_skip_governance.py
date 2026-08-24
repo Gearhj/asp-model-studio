@@ -102,14 +102,70 @@ def _canon_parity(nodeid: str) -> str:
     """Namespace-neutral parity key. pytest emits COLLECTED ids in the file-path namespace
     (``tests/foo_test.py::Cls::m``) but junit ids in the dotted-classname namespace
     (``tests.foo_test.Cls::m``); both collapse to ``tests.foo_test.Cls.m`` here so collection<->junit parity can be
-    compared exactly across the two namespaces (the red gate's synthetic junit sets a slashed file= attr, which
-    collapses identically). Any parametrization suffix is treated verbatim on both sides."""
+    compared exactly across the two namespaces (the real corpus junit carries a dotted classname and no file= attr).
+    This key is intentionally lossy across the two namespaces so a genuine dotted/slashed pair matches; a distinct
+    but colliding identity is caught by the raw-duplicate and PRECISE-identity checks below, never trusted here."""
     s = nodeid.replace("\\", "/").strip()
     s = _PY_EXT_RE.sub("", s)
     return s.replace("/", ".").replace("::", ".")
 
 
+def _split_param(node: str) -> tuple[str, str]:
+    """Separate the trailing ``[...]`` parametrization verbatim so its interior (which may contain ``/``, ``.`` or
+    ``::``) is NEVER transformed or split. Returns ``(head, param)`` where ``param`` includes the brackets or ``''``."""
+    s = node.strip()
+    if s.endswith("]"):
+        lb = s.rfind("[")
+        if lb != -1:
+            return s[:lb], s[lb:]
+    return s, ""
+
+
+def _module_components(file_path: str) -> tuple[str, ...]:
+    """Non-lossy module identity: split ONLY on the path separator (a dotted filename such as ``a.b_test.py`` stays a
+    single component and is never confused with the directory ``a/b_test.py``); drop a single trailing ``.py``."""
+    comps = [c for c in _norm_node(file_path).split("/") if c != ""]
+    if comps and comps[-1].endswith(".py"):
+        comps[-1] = comps[-1][:-3]
+    return tuple(comps)
+
+
+def _collected_identity(nodeid: str) -> tuple:
+    """PRECISE, non-lossy structured identity of a COLLECTED node id (file-path namespace):
+    ``(module_components, class_chain, test_name_with_param)``. The exact repo-relative file path, class path,
+    test name, and complete parametrization id are all preserved distinctly."""
+    head, param = _split_param(_norm_node(nodeid))
+    parts = head.split("::")
+    module = _module_components(parts[0])
+    rest = parts[1:]
+    if rest:
+        klass = tuple(rest[:-1])
+        name = rest[-1] + param
+    else:
+        klass = ()
+        name = param
+    return (module, klass, name)
+
+
+def _junit_identity(file_attr: str, classname: str, name: str) -> tuple:
+    """PRECISE, non-lossy structured identity of a JUnit testcase that carries a ``file`` attribute. The class chain
+    is recovered as the dotted classname suffix beyond the file-derived module path; a classname inconsistent with
+    the file is preserved in full so it can never spuriously match a differently-classed collected node."""
+    module = _module_components(file_attr)
+    module_dotted = ".".join(module)
+    cn = (classname or "").strip()
+    if not cn or cn == module_dotted:
+        klass: tuple = ()
+    elif cn.startswith(module_dotted + "."):
+        klass = tuple(cn[len(module_dotted) + 1:].split("."))
+    else:
+        klass = ("\x00classname", *tuple(cn.split(".")))
+    return (module, klass, _norm_node(name))
+
+
 def parse_collected(path: Path) -> list[str]:
+    """Raw collected node ids in file order, PRESERVING multiplicity (no set/dict dedup): duplicate raw collected
+    identities are a fail-closed defect, so they must survive to the analyzer, not be silently collapsed here."""
     nodes = []
     # utf-8-sig strips a UTF-8 BOM (PowerShell Set-Content -Encoding utf8 writes one); also lstrip any residual BOM
     # per line so the FIRST collected node is never silently dropped by a leading ﻿.
@@ -117,16 +173,20 @@ def parse_collected(path: Path) -> list[str]:
         s = line.strip().lstrip("﻿")
         if "::" in s and (s.startswith("tests/") or s.startswith("tests\\") or s.startswith("tests.")):
             nodes.append(_norm_node(s))
-    return sorted(set(nodes))
+    return nodes
 
 
-def parse_junit(path: Path) -> dict[str, dict]:
+def parse_junit(path: Path) -> list[dict]:
+    """Ordered JUnit testcase records, PRESERVING multiplicity (no dict-assignment dedup): each record keeps the exact
+    raw identity components (file attr, classname, name) so duplicate raw JUnit identities and lossy-alias collisions
+    are detectable before any normalization."""
     root = ET.parse(path).getroot()
-    out = {}
+    out: list[dict] = []
     for tc in root.iter("testcase"):
-        file_attr = tc.get("file", "")
+        file_attr = _norm_node(tc.get("file", ""))
+        classname = tc.get("classname", "")
         name = tc.get("name", "")
-        nodeid = _norm_node(f"{file_attr}::{name}" if file_attr else f"{tc.get('classname','')}::{name}")
+        nodeid = _norm_node(f"{file_attr}::{name}" if file_attr else f"{classname}::{name}")
         status = "passed"
         reason = ""
         if tc.find("skipped") is not None:
@@ -136,7 +196,8 @@ def parse_junit(path: Path) -> dict[str, dict]:
             status = "failed"
         elif tc.find("error") is not None:
             status = "error"
-        out[nodeid] = {"status": status, "reason": reason}
+        out.append({"file": file_attr, "classname": classname, "name": name, "nodeid": nodeid,
+                    "rawIdentity": f"{file_attr}\x1f{classname}\x1f{name}", "status": status, "reason": reason})
     return out
 
 
@@ -157,8 +218,10 @@ def main() -> int:
     if not args.collected.is_file() or not args.junit.is_file():
         print("SKIP-GOV FAIL: collected/junit input missing", file=sys.stderr)
         return 3
-    collected = parse_collected(args.collected)
-    junit = parse_junit(args.junit)
+    collected_raw = parse_collected(args.collected)          # RAW, multiplicity-preserving (D8 9.1)
+    collected = sorted(set(collected_raw))                   # de-duped view for the existing set/digest logic
+    junit_records = parse_junit(args.junit)                  # RAW records, multiplicity-preserving (D8 9.1)
+    junit = {rec["nodeid"]: {"status": rec["status"], "reason": rec["reason"]} for rec in junit_records}
     skipped = {n: v["reason"] for n, v in junit.items() if v["status"] == "skipped"}
 
     if args.write_policy:
@@ -201,6 +264,20 @@ def main() -> int:
         fails.append(f"EXPECTED NODE MISSING FROM COLLECTION: {m}")
     for x in extra:
         fails.append(f"UNEXPECTED NODE APPEARED IN COLLECTION (needs reviewed policy update): {x}")
+    # (1a) RAW multiplicity authority (D8 9.1): count raw identities BEFORE any normalization/dedup. A duplicate raw
+    # collected node id, or a duplicate raw JUnit testcase identity, is a fail-closed cardinality defect — a plain
+    # ``set()``/dict-assignment would silently erase it and mask a missing or double-counted result.
+    seen_c: dict[str, int] = {}
+    for n in collected_raw:
+        seen_c[n] = seen_c.get(n, 0) + 1
+    for n in sorted(k for k, c in seen_c.items() if c > 1):
+        fails.append(f"DUPLICATE COLLECTED NODE IDENTITY (multiplicity/cardinality != 1): {n} (x{seen_c[n]})")
+    seen_j: dict[str, int] = {}
+    for rec in junit_records:
+        seen_j[rec["rawIdentity"]] = seen_j.get(rec["rawIdentity"], 0) + 1
+    for raw in sorted(k for k, c in seen_j.items() if c > 1):
+        who = raw.replace("\x1f", "::")
+        fails.append(f"DUPLICATE JUNIT TESTCASE IDENTITY (multiplicity/cardinality != 1): {who} (x{seen_j[raw]})")
     # (1b) EXACT collection<->junit parity (namespace-neutral): every collected node must be executed, and vice
     # versa. collected ids are file-path-namespaced and junit ids are dotted-classname-namespaced, so parity is
     # compared on the canonical key (see _canon_parity) rather than on the raw, non-comparable strings.
@@ -226,6 +303,33 @@ def main() -> int:
         fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {col_mm[k][0]}")
     for k in sorted(set(jun_mm) - set(col_mm)):
         fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {jun_mm[k][0]}")
+    # (1b-precise) NON-LOSSY IDENTITY parity. When JUnit carries file= attributes (the exact repo-relative slashed
+    # path is known on BOTH sides), reconcile the precise structured identity — module components (split on the path
+    # separator only, so ``a.b_test.py`` never aliases the directory ``a/b_test.py``), class chain, and the verbatim
+    # test name+parametrization (its ``/`` and ``.`` are never rewritten). A collected and a JUnit identity that only
+    # collapse to one lossy key but differ structurally are an alias/mismatch, not one-to-one — fail closed; and each
+    # precise identity must have cardinality exactly one on both sides before any set-equality is trusted.
+    if any(rec["file"] for rec in junit_records):
+        col_struct: dict[tuple, list[str]] = {}
+        for n in collected:
+            col_struct.setdefault(_collected_identity(n), []).append(n)
+        jun_struct: dict[tuple, list[str]] = {}
+        for rec in junit_records:
+            ident = _junit_identity(rec["file"], rec["classname"], rec["name"]) if rec["file"] \
+                else _collected_identity(rec["nodeid"])
+            jun_struct.setdefault(ident, []).append(rec["rawIdentity"])
+        for ident, raws in sorted(col_struct.items(), key=lambda kv: str(kv[0])):
+            if len(set(raws)) > 1:
+                fails.append(f"PRECISE COLLECTED IDENTITY CARDINALITY != 1 (multiplicity / not one-to-one): {sorted(set(raws))}")
+        for ident, raws in sorted(jun_struct.items(), key=lambda kv: str(kv[0])):
+            if len(set(raws)) > 1:
+                who = sorted(r.replace("\x1f", "::") for r in set(raws))
+                fails.append(f"PRECISE JUNIT IDENTITY CARDINALITY != 1 (multiplicity / not one-to-one): {who}")
+        for ident in sorted(set(col_struct) - set(jun_struct), key=str):
+            fails.append(f"PRECISE COLLECTED IDENTITY MISSING FROM JUNIT (alias/mismatch, identity not one-to-one): {col_struct[ident][0]}")
+        for ident in sorted(set(jun_struct) - set(col_struct), key=str):
+            who = jun_struct[ident][0].replace("\x1f", "::")
+            fails.append(f"PRECISE JUNIT IDENTITY NOT IN COLLECTION (alias/mismatch, identity not one-to-one): {who}")
     # (1c) EXACT allowed-skip <-> actual-skip equality: an expected skip that unexpectedly passes fails closed
     for n in sorted(set(allowed) - set(skipped)):
         fails.append(f"EXPECTED ALLOWED SKIP DID NOT SKIP (passed or executed): {n}")

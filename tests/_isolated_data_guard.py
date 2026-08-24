@@ -32,6 +32,11 @@ SESSION_CAPABILITY_ENV = "ASP_ISOLATED_SESSION_CAPABILITY"
 SESSION_MARKER_NAME = ".asp-isolated-session-capability.json"
 SESSION_MARKER_SCHEMA = "ASP_ISOLATED_SESSION_CAPABILITY_V1"
 
+# D7 — PROCESS-BOUND session authority. The active capability + session nonce are minted by THIS process and bound to
+# its PID; a capability inherited from a parent process via the environment is never trusted or retained. A marker is
+# valid only for the exact issuing process, session, root, and issued leaf directory it was minted for.
+_session_state: dict[str, object] = {"pid": None, "capability": "", "nonce": ""}
+
 
 def is_active() -> bool:
     return os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes")
@@ -47,12 +52,19 @@ def _allowed_roots() -> list[Path]:
 
 
 def establish_session_capability() -> str:
-    """Establish (once) the active isolated session's random capability; return it. Idempotent within a process."""
-    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
-    if not cap:
-        cap = secrets.token_hex(32)
-        os.environ[SESSION_CAPABILITY_ENV] = cap
-    return cap
+    """Establish (once per PROCESS) this isolated session's authority and return its capability.
+
+    D7 8.1/8.6 — a capability present in the environment is treated as UNTRUSTED pre-existing state, never retained:
+    each authorized process mints its OWN cryptographically-random capability + session nonce, binds them to its PID,
+    and RE-STAMPS the environment to that process capability (so an inherited/stale value cannot survive). Idempotent
+    within a single process: repeated calls return the same process-minted capability."""
+    pid = os.getpid()
+    if _session_state.get("pid") != pid or not _session_state.get("capability"):
+        _session_state["pid"] = pid
+        _session_state["capability"] = secrets.token_hex(32)
+        _session_state["nonce"] = secrets.token_hex(16)
+    os.environ[SESSION_CAPABILITY_ENV] = str(_session_state["capability"])
+    return str(_session_state["capability"])
 
 
 def _session_root() -> Path | None:
@@ -67,9 +79,12 @@ def _session_root() -> Path | None:
 
 def write_session_marker(session_dir) -> None:
     """Drop a capability marker into a per-test scratch directory the active session owns. The marker binds the exact
-    canonical session root, the exact capability, and the process identity — never a display/path pattern."""
+    canonical session root, the exact capability, the session nonce, the ISSUING PROCESS identity, and the EXACT issued
+    leaf directory — never a display/path pattern. It is written only for a directory that THIS process's session owns
+    (under the canonical session root); copying its bytes elsewhere yields an invalid marker (it claims another leaf)."""
     root = _session_root()
-    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
+    establish_session_capability()          # ensure THIS process's capability/nonce exist and the env is re-stamped
+    cap = str(_session_state["capability"])
     if root is None or not cap:
         return
     try:
@@ -81,7 +96,9 @@ def write_session_marker(session_dir) -> None:
     marker = {
         "schemaVersion": SESSION_MARKER_SCHEMA,
         "canonicalSessionRoot": str(root),
+        "issuedLeaf": str(d),
         "capability": cap,
+        "sessionNonce": str(_session_state["nonce"]),
         "sessionProcessId": os.getpid(),
     }
     try:
@@ -92,6 +109,9 @@ def write_session_marker(session_dir) -> None:
 
 
 def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
+    """A marker authorizes its directory ONLY when it binds the exact schema, canonical session root, capability, the
+    CURRENT process id (D7 8.2 — inherited/child/stale process authority is rejected), and the EXACT leaf directory the
+    marker physically lives in (D7 8.4 — copied marker bytes claim another leaf and are rejected for the sibling)."""
     try:
         if not marker_path.is_file():
             return False
@@ -102,11 +122,15 @@ def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
         return False
     try:
         declared_root = Path(str(data.get("canonicalSessionRoot", ""))).resolve()
+        declared_leaf = Path(str(data.get("issuedLeaf", ""))).resolve()
+        actual_leaf = marker_path.parent.resolve()
     except OSError:
         return False
     return (data.get("schemaVersion") == SESSION_MARKER_SCHEMA
             and declared_root == root
-            and data.get("capability") == cap)
+            and data.get("capability") == cap
+            and data.get("sessionProcessId") == os.getpid()
+            and declared_leaf == actual_leaf)
 
 
 def _session_authorized(p: Path) -> bool:
