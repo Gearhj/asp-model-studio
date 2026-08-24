@@ -273,11 +273,15 @@ def publish_source_object(*, source_root: Path, rows: Sequence[Mapping[str, Any]
 
 
 def _atomic_publish_children(objects_root: Path, final: Path, children: Mapping[str, bytes], *, manifest_name: str):
-    """Atomically publish a content-addressed directory of children, reparse-safe + create-once + idempotent-reuse."""
+    """Atomically publish a content-addressed directory of children, reparse-safe + create-once + idempotent-reuse.
+
+    D6 — CONTAINMENT IS THE FIRST FILESYSTEM-SENSITIVE OPERATION at every boundary: the object root is contained
+    BEFORE its mkdir and the final object BEFORE any exists/iterate/read/write, using the lstat-based reparse check
+    (never exists()/mkdir()/resolve()), so a junctioned root or object is rejected before any filesystem mutation."""
+    contained_no_reparse(objects_root, [objects_root])            # BEFORE mkdir
     objects_root.mkdir(parents=True, exist_ok=True)
-    contained_no_reparse(objects_root, [objects_root])
+    contained_no_reparse(final, [objects_root])                   # BEFORE exists
     if final.exists():
-        contained_no_reparse(final, [objects_root])
         _verify_children_bytes(final, children, manifest_name)     # full reuse verification (no partial reuse)
         return
     staging = objects_root / f".staging-{uuid.uuid4().hex}"
@@ -689,11 +693,15 @@ def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_ver
     safe on the registry, its parent, and the lock path."""
     root = Path(root)
     reg_path, lock_path = Path(reg_path), Path(lock_path)
+    # D6 — containment is the FIRST filesystem-sensitive operation: the registry parent is contained BEFORE its
+    # mkdir; the registry path and the lock path (hence the lock parent) are contained BEFORE any exists/read and
+    # BEFORE the lock file is created. All checks use the lstat-based reparse walk (never exists()/mkdir()/read()).
+    contained_no_reparse(reg_path.parent, [root])                 # BEFORE mkdir
     reg_path.parent.mkdir(parents=True, exist_ok=True)
-    contained_no_reparse(reg_path.parent, [root])
-    contained_no_reparse(lock_path, [root])
+    contained_no_reparse(reg_path, [root])                        # BEFORE exists/read AND before lock creation
+    contained_no_reparse(lock_path, [root])                       # BEFORE lock creation (contains the lock parent)
     with interprocess_lock(lock_path, blocking=True, timeout=60.0, stale_after=600.0):
-        contained_no_reparse(reg_path, [root])
+        contained_no_reparse(reg_path, [root])                   # TOCTOU recheck under the lock
         if reg_path.is_file():
             reg = json.loads(reg_path.read_text(encoding="utf-8"))     # re-read UNDER the lock
             if not isinstance(reg.get("datasets"), dict):
