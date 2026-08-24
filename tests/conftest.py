@@ -39,6 +39,10 @@ def pytest_configure(config):
             def _capability_marked_mktemp(self, basename, numbered=True):
                 created = _orig_mktemp(self, basename, numbered=numbered)
                 try:
+                    # bind the canonical session root to THIS factory's actual basetemp (which, in a spawned
+                    # subprocess that inherits no --basetemp, differs from the parent's), so the marker + guard agree
+                    os.environ["ASP_ISOLATED_TEST_TEMP"] = str(Path(self.getbasetemp()).resolve())
+                    G.establish_session_capability()
                     G.write_session_marker(created)
                 except Exception:
                     pass
