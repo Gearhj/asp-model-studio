@@ -102,12 +102,15 @@ def _canon_parity(nodeid: str) -> str:
     """Namespace-neutral parity key. pytest emits COLLECTED ids in the file-path namespace
     (``tests/foo_test.py::Cls::m``) but junit ids in the dotted-classname namespace
     (``tests.foo_test.Cls::m``); both collapse to ``tests.foo_test.Cls.m`` here so collection<->junit parity can be
-    compared exactly across the two namespaces (the real corpus junit carries a dotted classname and no file= attr).
-    This key is intentionally lossy across the two namespaces so a genuine dotted/slashed pair matches; a distinct
-    but colliding identity is caught by the raw-duplicate and PRECISE-identity checks below, never trusted here."""
-    s = nodeid.replace("\\", "/").strip()
-    s = _PY_EXT_RE.sub("", s)
-    return s.replace("/", ".").replace("::", ".")
+    compared across the two namespaces (the real corpus junit carries a dotted classname and no file= attr).
+
+    D8 (no-file fallback) — the trailing parametrization ``[...]`` is kept BYTE-VERBATIM and is never slash->dot
+    normalized: ``[param/a]`` and ``[param.a]`` are DISTINCT identities and must not collapse to one key even when the
+    junit omits ``file=``. Only the module/class/function segment is namespace-folded; a distinct-but-colliding
+    identity there is still caught by the raw-duplicate and PRECISE-identity checks."""
+    head, param = _split_param(nodeid.replace("\\", "/").strip())
+    head = _PY_EXT_RE.sub("", head)
+    return head.replace("/", ".").replace("::", ".") + param
 
 
 def _split_param(node: str) -> tuple[str, str]:
