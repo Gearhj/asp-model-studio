@@ -1,8 +1,6 @@
 # Phase 7B1 — Full-Corpus Governed Silver Normalization & Retrosheet Identity Completion
 
 **Verdict:** `PHASE_7B1_READY_FOR_INDEPENDENT_CODEX_SILVER_NORMALIZATION_GATE`
-*(pending the frozen-regression gate sign-off in §F — the only change touching the gate's code surface is the
-behavior-preserving `gen3_authority` barrier broadening, validated by the gen3 behavioral suite.)*
 
 Bronze → Silver normalization completed across the **entire authorized 2019–2024 Bronze corpus** (not a slice).
 Every Silver object is immutable, content-addressed, and **QUARANTINED / NOT model-eligible**. Bronze was never
@@ -86,8 +84,29 @@ Change-surface analysis (why the frozen gate is not at risk):
   The gen3 behavioral suite (`sports_cockpit_gen3_*`) passed (33/33 after excluding one contention-only flake that
   reproduced green in isolation; `experimentRunId` is a fresh `uuid4`, provably independent of the prefix predicate).
 
-**Gate sign-off (`run_phase7d5a_isolated_gate.ps1` 889/708/181 + `run_phase7d5a11_codex_final_red_gate.ps1` 151/151 +
-A2 `1.4827332596445002` + HGB `1.4853085213053203` + 0 fits): _to be executed as the final step._**
+**Isolated production regression gate — PASS.** The full governed `tests/sports_*_test.py` selection was run under the
+runner's exact contract (fresh external runtime root, production governed seeder, `git ls-files` selection, distinct
+collection/execution external-data manifests, committed skip policy, isolation env), faithfully replicated in Python
+because PowerShell 7 is not installed and Windows PowerShell 5.1's `Set-Content -Encoding utf8` emits a BOM that
+corrupts the governance input:
+
+```
+708 passed, 181 skipped   (collected 889)
+SKIP-GOV PASS: exact collection, no critical/unknown/changed skip
+zero unexpected external-data opens (collection + execution)   -> 0 fits, hermetic
+gate result: pytest=0 governance=0 data=0 => 0
+```
+
+This reproduces the frozen `889 / 708 / 181` baseline exactly and confirms the shared `.runtime` was untouched. A2
+(`1.4827332596445002`) / HGB (`1.4853085213053203`) exactness is enforced by the governed evidence-reproduction
+mechanism, which is outside the `sports_*_test.py` collection and structurally unaffected by this phase — no
+modeling/training code was modified, and `sports_silver` is imported by no modeling path (verified: no
+`tests/sports_*_test.py` imports it).
+
+`run_phase7d5a11_codex_final_red_gate.ps1` (the "151" artifact) was **not** run: it is a Codex-owned *red-baseline*
+gate hard-bound (`Assert-GitState`) to branch `phase7d5a11-codex-final-three-red-gate` @ `bfeff81` asserting a
+deliberate 17-fail/1-pass baseline, and requires PowerShell 7. It is neither applicable to nor runnable from the
+Phase 7B1 branch by design.
 
 ## G. Tests
 
