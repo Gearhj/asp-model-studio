@@ -45,7 +45,9 @@ def test_two_different_objects_both_survive_in_the_registry(tmp_path):
     sha_a, sha_b = oa.split()[1], ob.split()[1]
     assert sha_a != sha_b
     ds = _registry(tmp_path)["datasets"]
-    have = {e["manifestSha256"] for e in ds.values()}
+    # the mutable index is a minimal locator (datasetVersionId -> registrationSha256); the manifest identity lives in
+    # the datasetVersionId KEY (silver:{sourceObjectId}:sha256:{manifestSha256}), never as an index field
+    have = {k.rsplit(":sha256:", 1)[-1] for k in ds}
     assert sha_a in have and sha_b in have, ("both entries must survive", have)
     # both immutable objects are independently verifiable after contention
     SP.verify_silver(tmp_path / "silver", sha_a)
