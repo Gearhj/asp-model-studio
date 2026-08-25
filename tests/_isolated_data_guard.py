@@ -15,6 +15,7 @@ import json
 import os
 import secrets
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 _DATA_SUFFIXES = {".parquet", ".pq", ".csv", ".feather", ".arrow", ".joblib", ".pkl", ".pickle", ".npy", ".npz"}
@@ -34,10 +35,23 @@ SESSION_CAPABILITY_ENV = "ASP_ISOLATED_SESSION_CAPABILITY"
 SESSION_MARKER_NAME = ".asp-isolated-session-capability.json"
 SESSION_MARKER_SCHEMA = "ASP_ISOLATED_SESSION_CAPABILITY_V1"
 
-# D7 — PROCESS-BOUND session authority. The active capability + session nonce are minted by THIS process and bound to
-# its PID; a capability inherited from a parent process via the environment is never trusted or retained. A marker is
-# valid only for the exact issuing process, session, root, and issued leaf directory it was minted for.
-_session_state: dict[str, object] = {"pid": None, "capability": "", "nonce": ""}
+# D7 — PROCESS-FROZEN session authority. At the first (and only) issuance in a process, the canonical session root, a
+# cryptographically-random capability + session nonce, and the PID are frozen into ONE module-private IMMUTABLE object.
+# After issuance the environment is BOOTSTRAP TRANSPORT ONLY: the root/capability/nonce are never reread from it as
+# authority, an environment mutation has no effect, and a second issuance requesting a DIFFERENT root fails closed.
+@dataclass(frozen=True)
+class _SessionAuthority:
+    root: Path | None
+    capability: str
+    nonce: str
+    pid: int
+
+
+_SESSION: "_SessionAuthority | None" = None
+
+
+class SessionAuthorityError(RuntimeError):
+    """A second, conflicting isolated-session issuance was attempted in one process (fail-closed)."""
 
 
 def is_active() -> bool:
@@ -53,23 +67,7 @@ def _allowed_roots() -> list[Path]:
     return [Path(RUNTIME_ROOT).resolve(), Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()]
 
 
-def establish_session_capability() -> str:
-    """Establish (once per PROCESS) this isolated session's authority and return its capability.
-
-    D7 8.1/8.6 — a capability present in the environment is treated as UNTRUSTED pre-existing state, never retained:
-    each authorized process mints its OWN cryptographically-random capability + session nonce, binds them to its PID,
-    and RE-STAMPS the environment to that process capability (so an inherited/stale value cannot survive). Idempotent
-    within a single process: repeated calls return the same process-minted capability."""
-    pid = os.getpid()
-    if _session_state.get("pid") != pid or not _session_state.get("capability"):
-        _session_state["pid"] = pid
-        _session_state["capability"] = secrets.token_hex(32)
-        _session_state["nonce"] = secrets.token_hex(16)
-    os.environ[SESSION_CAPABILITY_ENV] = str(_session_state["capability"])
-    return str(_session_state["capability"])
-
-
-def _session_root() -> Path | None:
+def _env_requested_root() -> Path | None:
     raw = os.environ.get(SESSION_ROOT_ENV, "").strip()
     if not raw:
         return None
@@ -77,6 +75,40 @@ def _session_root() -> Path | None:
         return Path(raw).resolve()
     except OSError:
         return None
+
+
+def establish_session_capability() -> str:
+    """Issue THIS process's isolated-session authority EXACTLY ONCE, frozen in the module-private immutable ``_SESSION``.
+
+    The environment only BOOTSTRAPS the requested root at first issuance and never carries authority afterward: a
+    capability/nonce present in the environment is never trusted or retained, each authorized process mints its own
+    random capability + session nonce bound to its PID, and the capability is re-stamped into the environment purely as
+    transport. A repeat call in the same process returns the frozen capability; a repeat call requesting a DIFFERENT
+    root fails closed. A different process (fresh module or different PID) issues its own fresh authority."""
+    global _SESSION
+    pid = os.getpid()
+    requested_root = _env_requested_root()
+    if _SESSION is not None and _SESSION.pid == pid:
+        if requested_root is not None and requested_root != _SESSION.root:
+            raise SessionAuthorityError("isolated-session authority already issued for this process with a different root")
+        os.environ[SESSION_CAPABILITY_ENV] = _SESSION.capability     # bootstrap transport only
+        return _SESSION.capability
+    _SESSION = _SessionAuthority(root=requested_root, capability=secrets.token_hex(32),
+                                 nonce=secrets.token_hex(16), pid=pid)
+    os.environ[SESSION_CAPABILITY_ENV] = _SESSION.capability
+    return _SESSION.capability
+
+
+def _active_session() -> "_SessionAuthority | None":
+    """The frozen authority for THIS process (never a parent's inherited object)."""
+    if _SESSION is not None and _SESSION.pid == os.getpid():
+        return _SESSION
+    return None
+
+
+def _session_root() -> Path | None:
+    session = _active_session()
+    return session.root if session is not None else None
 
 
 def _marker_digest(schema: str, root: str, leaf: str, nonce: str, pid: int, cap: str) -> str:
@@ -93,12 +125,11 @@ def write_session_marker(session_dir) -> None:
     leaf directory, and a keyed integrity digest — never a display/path pattern. It is written only for a directory that
     THIS process's session owns (under the canonical session root); copying its bytes elsewhere yields an invalid marker
     (it claims another leaf), and forging one elsewhere fails without the process-local secret."""
-    root = _session_root()
-    establish_session_capability()          # ensure THIS process's capability/nonce exist and the env is re-stamped
-    cap = str(_session_state["capability"])
-    nonce = str(_session_state["nonce"])
-    if root is None or not cap or not nonce:
+    establish_session_capability()          # ensure THIS process's frozen authority exists
+    session = _active_session()
+    if session is None or session.root is None or not session.capability or not session.nonce:
         return
+    root, cap, nonce = session.root, session.capability, session.nonce
     try:
         d = Path(session_dir).resolve()
     except OSError:
@@ -129,10 +160,10 @@ def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
     authority is rejected), the process-local capability, the process-local session nonce (explicitly validated), and a
     keyed integrity digest recomputed from the process-local secret. The caller-supplied ``cap`` must also equal the
     process-local capability."""
-    auth_cap = str(_session_state.get("capability") or "")
-    auth_nonce = str(_session_state.get("nonce") or "")
-    if not auth_cap or not auth_nonce or _session_state.get("pid") != os.getpid():
+    session = _active_session()
+    if session is None or not session.capability or not session.nonce:
         return False       # this process established no authority of its own -> nothing is authorized
+    auth_cap, auth_nonce = session.capability, session.nonce
     if str(cap) != auth_cap:
         return False
     try:
@@ -163,9 +194,11 @@ def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
 def _session_authorized(p: Path) -> bool:
     """True iff ``p`` lies under the EXACT capability-marked active session root: some ancestor between p and the
     canonical session root (inclusive) carries a valid marker binding that exact root + the exact capability."""
-    root = _session_root()
-    cap = os.environ.get(SESSION_CAPABILITY_ENV, "").strip()
-    if root is None or not cap or not _under(p, root):
+    session = _active_session()
+    if session is None or session.root is None or not session.capability:
+        return False
+    root, cap = session.root, session.capability
+    if not _under(p, root):
         return False
     cur = p
     while True:

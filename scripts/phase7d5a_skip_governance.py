@@ -133,6 +133,27 @@ def _module_components(file_path: str) -> tuple[str, ...]:
     return tuple(comps)
 
 
+def _collected_dotted_key(nodeid: str) -> tuple:
+    """Candidate key used ONLY to reconcile a no-``file=`` JUnit record (which carries just a dotted classname + name)
+    against the EXACT collected-node inventory: ``(dotted_classname, test_name_with_param)``. The module is rendered
+    from the path components joined by ``.`` and the class chain appended by ``.`` — this renders CANDIDATES for the
+    dotted namespace; it is NOT treated as authority. The parametrization suffix is kept BYTE-VERBATIM (its ``/`` ``\\``
+    ``.`` ``:`` ``-`` are never rewritten). Two collected nodes rendering to one key (e.g. a dotted filename and a
+    directory path) collide with cardinality > 1 and are rejected, never silently inferred equal."""
+    head, param = _split_param(_norm_node(nodeid))
+    parts = head.split("::")
+    module = _module_components(parts[0])
+    rest = parts[1:]
+    if rest:
+        klass = tuple(rest[:-1])
+        name = rest[-1] + param
+    else:
+        klass = ()
+        name = param
+    dotted_classname = ".".join([*module, *klass])
+    return (dotted_classname, name)
+
+
 def _collected_identity(nodeid: str) -> tuple:
     """PRECISE, non-lossy structured identity of a COLLECTED node id (file-path namespace):
     ``(module_components, class_chain, test_name_with_param)``. The exact repo-relative file path, class path,
@@ -302,17 +323,12 @@ def main() -> int:
         distinct = sorted(set(raws))
         if len(distinct) > 1:
             fails.append(f"CANONICAL KEY COLLISION (junit not injective / not one-to-one): {distinct}")
-    for k in sorted(set(col_mm) - set(jun_mm)):
-        fails.append(f"COLLECTED NODE MISSING FROM JUNIT (never executed): {col_mm[k][0]}")
-    for k in sorted(set(jun_mm) - set(col_mm)):
-        fails.append(f"JUNIT NODE NOT IN COLLECTION (unexpected execution): {jun_mm[k][0]}")
-    # (1b-precise) NON-LOSSY IDENTITY parity. When JUnit carries file= attributes (the exact repo-relative slashed
-    # path is known on BOTH sides), reconcile the precise structured identity — module components (split on the path
-    # separator only, so ``a.b_test.py`` never aliases the directory ``a/b_test.py``), class chain, and the verbatim
-    # test name+parametrization (its ``/`` and ``.`` are never rewritten). A collected and a JUnit identity that only
-    # collapse to one lossy key but differ structurally are an alias/mismatch, not one-to-one — fail closed; and each
-    # precise identity must have cardinality exactly one on both sides before any set-equality is trusted.
+    # (1b-cross) EXACT collection<->junit cross-parity by identity — NO lossy slash->dot key is trusted as authority.
     if any(rec["file"] for rec in junit_records):
+        # JUnit carries file= : the exact repo-relative slashed path is known on BOTH sides, so reconcile the PRECISE
+        # structured identity — module components (split on the path separator only, so ``a.b_test.py`` never aliases
+        # the directory ``a/b_test.py``), class chain, and the verbatim test name+parametrization. Cardinality must be
+        # exactly one on both sides before any set-equality is trusted.
         col_struct: dict[tuple, list[str]] = {}
         for n in collected:
             col_struct.setdefault(_collected_identity(n), []).append(n)
@@ -333,6 +349,31 @@ def main() -> int:
         for ident in sorted(set(jun_struct) - set(col_struct), key=str):
             who = jun_struct[ident][0].replace("\x1f", "::")
             fails.append(f"PRECISE JUNIT IDENTITY NOT IN COLLECTION (alias/mismatch, identity not one-to-one): {who}")
+    else:
+        # JUnit has NO file= (real dotted-classname corpus): reconcile each JUnit record's EXACT raw
+        # (classname, name-with-param) against the EXACT collected-node inventory. A collected node is a CANDIDATE when
+        # its dotted-classname rendering equals the JUnit classname AND its name+parametrization matches byte-for-byte.
+        # Require exactly one candidate per side: zero is missing/unexpected; more than one is an ambiguous collision
+        # (a dotted filename is NEVER inferred to equal a directory path). Slash->dot is only a candidate generator,
+        # never authority; the parametrization suffix is compared byte-for-byte.
+        col_by_key: dict[tuple, list[str]] = {}
+        for n in collected:
+            col_by_key.setdefault(_collected_dotted_key(n), []).append(n)
+        jun_by_key: dict[tuple, list[str]] = {}
+        for rec in junit_records:
+            jun_by_key.setdefault((rec["classname"], rec["name"]), []).append(rec["rawIdentity"])
+        for key, raws in sorted(col_by_key.items(), key=lambda kv: str(kv[0])):
+            if len(set(raws)) > 1:
+                fails.append(f"COLLECTED IDENTITY CARDINALITY != 1 (ambiguous dotted classname / not one-to-one): {sorted(set(raws))}")
+        for key, raws in sorted(jun_by_key.items(), key=lambda kv: str(kv[0])):
+            if len(set(raws)) > 1:
+                who = sorted(r.replace("\x1f", "::") for r in set(raws))
+                fails.append(f"JUNIT IDENTITY CARDINALITY != 1 (not one-to-one): {who}")
+        for key in sorted(set(col_by_key) - set(jun_by_key), key=str):
+            fails.append(f"COLLECTED NODE MISSING FROM JUNIT (no candidate execution result): {col_by_key[key][0]}")
+        for key in sorted(set(jun_by_key) - set(col_by_key), key=str):
+            who = jun_by_key[key][0].replace("\x1f", "::")
+            fails.append(f"JUNIT NODE NOT IN COLLECTION (no candidate collected node): {who}")
     # (1c) EXACT allowed-skip <-> actual-skip equality: an expected skip that unexpectedly passes fails closed
     for n in sorted(set(allowed) - set(skipped)):
         fails.append(f"EXPECTED ALLOWED SKIP DID NOT SKIP (passed or executed): {n}")
