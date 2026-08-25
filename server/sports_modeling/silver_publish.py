@@ -54,6 +54,7 @@ SILVER_FAMILY_ID = "silver_prior_pa_reliability"
 TRANSFORM_CODE_RECEIPT = "MLB_SILVER_TRANSFORM_CODE_RECEIPT_V1"
 SOURCE_RECEIPT_CONTRACT = "MLB_SILVER_SOURCE_RECEIPT_V1"
 SOURCE_MANIFEST_CONTRACT = "MLB_SILVER_SOURCE_PUBLICATION_MANIFEST_V1"
+SILVER_REGISTRATION_CONTRACT = "MLB_SILVER_REGISTRATION_RECORD_V1"
 _ADV = (PRIOR_PA_COUNT, LOG1P_PRIOR_PA_COUNT)
 _HEX64 = __import__("re").compile(r"^[0-9a-f]{64}$")
 
@@ -178,6 +179,7 @@ class VerifiedSourceHandle:
     row_count: int
     _token: Any = field(default=None, repr=False)
     issuance_nonce: str = field(default="", repr=False)
+    issuer_record_sha256: str = field(default="")
 
     def __post_init__(self):
         if self._token is not _ISSUE_TOKEN:
@@ -475,19 +477,25 @@ def resolve_verified_source(source_root: Path, dataset_version_id: str) -> tuple
     # canonical, content-addressed server issuer authority — resolved from the INDEPENDENTLY reconstructed physical
     # identity, never from a display id/path/helper. When an issuer registry is configured (production / acceptance),
     # a missing/forged issuer or an unauthorized season fails closed here, before any governed handle is issued.
+    issuer_record_sha = ""
     if SI.issuer_registry_configured():
         identity = {"logical": recomputed_logical, "physical": physical, "schema": schema_sha,
                     "rowCount": row_count, "seasons": derived_seasons}
         try:
-            SI.resolve_source_issuer_authority(source_root=Path(source_root), registry_entry=entry, identity=identity)
+            issued = SI.resolve_source_issuer_authority(source_root=Path(source_root), registry_entry=entry, identity=identity)
         except SI.SourceIssuerError as exc:
             _fail(str(exc))
+        # D3 — bind the CANONICAL issuer-record content address into the handle so the immutable Silver registration
+        # can record the governed Stage-B authority that admitted this source.
+        if isinstance(issued, dict):
+            issuer_record_sha = str((issued.get("record") or {}).get("issuerRecordSha256") or "")
 
     handle = VerifiedSourceHandle(dataset_version_id=dataset_version_id, object_path=str(final),
                                   physical_sha256=physical, logical_sha256=recomputed_logical,
                                   schema_sha256=schema_sha, receipt_sha256=receipt_self,
                                   manifest_sha256=manifest_self, seasons=tuple(derived_seasons),
-                                  row_count=row_count, _token=_ISSUE_TOKEN, issuance_nonce=secrets.token_hex(32))
+                                  row_count=row_count, _token=_ISSUE_TOKEN, issuance_nonce=secrets.token_hex(32),
+                                  issuer_record_sha256=issuer_record_sha)
     return handle, rows
 
 
@@ -721,8 +729,7 @@ def publish_silver(*, silver_root: Path, source_root: Path, source_dataset_versi
     # typed, single-use, publication-scoped prepublication grant — NEVER the public interface or the candidate registry.
     grant = _issue_prepublication_grant(manifest_sha, final, handle)
     _verify_silver_prepublication(silver_root, manifest_sha, grant)
-    return _register(silver_root, handle.dataset_version_id, manifest_sha, receipt_sha, table.num_rows, seasons,
-                     source_root=Path(source_root))
+    return _register(silver_root, handle, manifest_sha, receipt_sha, table.num_rows, seasons, Path(source_root))
 
 
 def _read_source_child(handle: VerifiedSourceHandle, name: str) -> bytes:
@@ -797,10 +804,10 @@ def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_ver
             raise SilverPublishError(f"registry conflict: key {key!r} already holds divergent content")
         reg["datasets"][key] = dict(entry)                            # merge; unrelated entries preserved
         reg["schemaVersion"] = schema_version
-        # D3 — content-address the registry body so a later out-of-band edit of any entry field (e.g. a redirected
-        # sourceRoot, a forged datasetVersionId, a moved entry key, a mutated schemaVersion) is tamper-evident.
+        # D3 — the aggregate index is NOT scientific authority: it merely locates an immutable, content-addressed
+        # registration record (see _register / _load_registration_record). A self-checksum stored inside this same
+        # mutable document would only prove internal consistency, so none is written or trusted here.
         reg.pop("registrySha256", None)
-        reg["registrySha256"] = sha256_bytes(canonical_json_bytes(reg))
         tmp = reg_path.parent / f".tmp-{uuid.uuid4().hex}"
         contained_no_reparse(tmp, [root])
         with open(tmp, "wb") as fh:
@@ -816,28 +823,111 @@ def _locked_registry_put(reg_path: Path, lock_path: Path, root: Path, schema_ver
             raise SilverPublishError("registry commit verification failed")
 
 
-def _register(silver_root: Path, source_object_id: str, manifest_sha: str, receipt_sha: str, rows: int,
+def _silver_registrations_root(silver_root: Path) -> Path:
+    return Path(silver_root) / "silver-registrations" / "objects" / "sha256"
+
+
+def _write_registration_record(silver_root: Path, registration_sha: str, record_bytes: bytes) -> None:
+    """Publish the immutable, content-addressed registration record create-once + reparse-safe. Its filesystem address
+    IS its content SHA, so it cannot be edited in place: a concurrent identical create converges idempotently; a
+    divergent create at the same address (impossible for a content address) fails closed."""
+    root = _silver_registrations_root(silver_root)
+    contained_no_reparse(root, [Path(silver_root)])
+    root.mkdir(parents=True, exist_ok=True)
+    final = contained_no_reparse(root / f"{registration_sha}.json", [root])
+    if final.exists():
+        if final.read_bytes() != record_bytes:
+            raise SilverPublishError("existing registration record differs from its content address (tampered)")
+        return
+    tmp = root / f".tmp-{uuid.uuid4().hex}.json"
+    contained_no_reparse(tmp, [root])
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(record_bytes)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        try:
+            os.replace(tmp, final)
+        except OSError:
+            contained_no_reparse(final, [root])
+            if not (final.exists() and final.read_bytes() == record_bytes):
+                raise
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _load_registration_record(silver_root: Path, registration_sha: str) -> dict[str, Any]:
+    """Load + fully verify the immutable registration record: containment; contract; and its content-address
+    SELF-IDENTITY recomputed from stored bytes must equal both its embedded sha AND its filesystem address."""
+    _require_hex64(registration_sha, "registrationSha256")
+    root = _silver_registrations_root(silver_root)
+    path = contained_no_reparse(root / f"{registration_sha}.json", [root])
+    if not path.is_file():
+        raise SilverPublishError("immutable Silver registration record is missing (unregistered / tampered index)")
+    try:
+        record = json.loads(path.read_bytes().decode("utf-8"))
+    except Exception as exc:
+        raise SilverPublishError(f"immutable Silver registration record is unreadable: {exc}")
+    if not isinstance(record, dict) or record.get("recordContract") != SILVER_REGISTRATION_CONTRACT:
+        raise SilverPublishError("registration record contract identity is forged")
+    recomputed = sha256_bytes(canonical_json_bytes({k: v for k, v in record.items() if k != "registrationSha256"}))
+    if record.get("registrationSha256") != recomputed or recomputed != registration_sha:
+        raise SilverPublishError("registration record is not content-addressed at its own address (tampered)")
+    return record
+
+
+def _register(silver_root: Path, handle: "VerifiedSourceHandle", manifest_sha: str, receipt_sha: str, rows: int,
               seasons: list[int], source_root: Path | None = None) -> dict[str, Any]:
-    dsid = f"silver:{source_object_id}:sha256:{manifest_sha}"
+    """D3 — publish an IMMUTABLE, content-addressed registration record (the scientific authority) that binds the
+    Silver identity, the canonical Stage-A/B source identities, the governed issuer-record address, and the CANONICAL
+    source-root location; then upsert the mutable aggregate index entry that merely LOCATES that record by its content
+    SHA. Public verification trusts the immutable record, never the mutable index (see verify_silver)."""
+    # D6 — containment is the FIRST filesystem-sensitive operation: a junctioned Silver root is rejected before the
+    # record body is built, any handle field is read, or any write occurs.
+    contained_no_reparse(_silver_registrations_root(silver_root), [Path(silver_root)])
+    contained_no_reparse(_silver_registry_path(silver_root), [Path(silver_root)])
+    if source_root is None:
+        raise SilverPublishError("registration requires a canonical source location")
+    dsid = f"silver:{handle.dataset_version_id}:sha256:{manifest_sha}"
+    canonical_source_root = str(Path(source_root).resolve())
+    record_body = {
+        "recordContract": SILVER_REGISTRATION_CONTRACT, "recordVersion": "1.0.0",
+        "datasetVersionId": dsid, "publicationManifestSha256": manifest_sha, "transformReceiptSha256": receipt_sha,
+        "sourceObjectId": handle.dataset_version_id, "sourceLogicalSha256": handle.logical_sha256,
+        "sourcePhysicalSha256": handle.physical_sha256, "sourceSchemaSha256": handle.schema_sha256,
+        "sourceReceiptSha256": handle.receipt_sha256, "sourceManifestSha256": handle.manifest_sha256,
+        "issuerRecordSha256": handle.issuer_record_sha256, "canonicalSourceRoot": canonical_source_root,
+        "status": SILVER_STATUS, "quarantine": SILVER_QUARANTINE, "modelEligible": False,
+        "approvedForTraining": False, "selectable": False, "rows": rows, "seasons": seasons,
+    }
+    registration_sha = sha256_bytes(canonical_json_bytes(record_body))
+    record = {**record_body, "registrationSha256": registration_sha}
+    _write_registration_record(silver_root, registration_sha, canonical_json_bytes(record))
+
     entry = {"datasetVersionId": dsid, "status": SILVER_STATUS, "quarantine": SILVER_QUARANTINE, "modelEligible": False,
              "approvedForTraining": False, "selectable": False, "manifestSha256": manifest_sha,
-             "transformReceiptSha256": receipt_sha, "rows": rows, "seasons": seasons, "sourceObjectId": source_object_id}
-    if source_root is not None:
-        # D3 — the trusted registration records WHERE the canonical Stage-A/B source lives so public verification can
-        # re-resolve it INDEPENDENTLY of the candidate bundle. This is a location, never scientific authority.
-        entry["sourceRoot"] = str(Path(source_root).resolve())
+             "transformReceiptSha256": receipt_sha, "rows": rows, "seasons": seasons,
+             "sourceObjectId": handle.dataset_version_id, "sourceRoot": canonical_source_root,
+             "registrationSha256": registration_sha}
     _locked_registry_put(_silver_registry_path(silver_root), _silver_lock_path(silver_root), Path(silver_root),
                          "MLB_SILVER_REGISTRY_V1", dsid, entry)
     return entry
 
 
 def _authenticate_silver_registry(silver_root: Path) -> dict[str, Any]:
-    """D3 (7.1/7.3) — AUTHENTICATE the trusted Silver registry BEFORE any entry or source is trusted: containment on
-    the registry path; strict schema; recompute + verify the registry's content-address SELF-IDENTITY; and, for every
-    entry, require the registry KEY to bind the entry identity EXACTLY —
-    ``key == datasetVersionId == silver:{sourceObjectId}:sha256:{manifestSha256}`` — and reject duplicate manifest
-    identities. Returns the authenticated ``datasets`` mapping. Fail-closed on ANY deviation; trusts no field merely
-    because it is present in the JSON."""
+    """D3 (7.1/7.3) — STRUCTURALLY authenticate the mutable aggregate index BEFORE any entry or source is trusted:
+    containment; strict schema; and, for every entry, require the registry KEY to bind the entry identity EXACTLY —
+    ``key == datasetVersionId == silver:{sourceObjectId}:sha256:{manifestSha256}`` — carry a hex registration-record
+    reference, and never duplicate a manifest identity. No self-checksum inside this mutable document is trusted as
+    authority; the scientific authority is the immutable content-addressed registration record (see verify_silver).
+    Returns the authenticated ``datasets`` mapping. Fail-closed on ANY deviation."""
     reg_path = _silver_registry_path(silver_root)
     contained_no_reparse(reg_path, [Path(silver_root)])
     if not reg_path.is_file():
@@ -850,9 +940,6 @@ def _authenticate_silver_registry(silver_root: Path) -> dict[str, Any]:
         raise SilverPublishError("trusted Silver registry is malformed")
     if reg.get("schemaVersion") != "MLB_SILVER_REGISTRY_V1":
         raise SilverPublishError(f"trusted Silver registry schema is invalid/forged: {reg.get('schemaVersion')!r}")
-    self_addr = sha256_bytes(canonical_json_bytes({k: v for k, v in reg.items() if k != "registrySha256"}))
-    if reg.get("registrySha256") != self_addr:
-        raise SilverPublishError("trusted Silver registry is not canonically self-addressed (tampered)")
     datasets = reg.get("datasets")
     if not isinstance(datasets, dict):
         raise SilverPublishError("trusted Silver registry datasets are structurally invalid")
@@ -867,6 +954,8 @@ def _authenticate_silver_registry(silver_root: Path) -> dict[str, Any]:
             raise SilverPublishError("registry entry lacks a bound sourceObjectId / manifest identity (tampered)")
         if key != f"silver:{sobj}:sha256:{msha}":
             raise SilverPublishError("registry key does not bind the source object id + manifest identity exactly (tampered)")
+        if not isinstance(entry.get("registrationSha256"), str) or not _HEX64.match(entry.get("registrationSha256", "")):
+            raise SilverPublishError("registry entry lacks an immutable registration-record reference (tampered)")
         if msha in seen_manifests:
             raise SilverPublishError("registry contains duplicate manifest identities (tampered)")
         seen_manifests.add(msha)
@@ -902,26 +991,53 @@ def assert_model_eligible(silver_root: Path, dataset_version_id: str) -> None:
 
 # =========================================================================== Repair 3 — complete verification
 def verify_silver(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
-    """PUBLIC Silver verification (D3 7.4 — no caller-supplied expected authority). The canonical source authority is
-    established INDEPENDENTLY of the candidate bundle: AUTHENTICATE the trusted Silver registry first (strict schema +
-    content-address self-identity + exact key/manifest binding), require the candidate's object address to be present
-    in that authenticated registry, then RE-RESOLVE the canonical Stage-A/B source from the registered source location
-    (so a re-addressed candidate, a tampered/redirected registry, or one whose canonical source registry/issuer has
-    diverged is rejected). Candidate-declared source fields are never the source of truth — they must EXACTLY equal the
-    reconstructed canonical handle. A caller may NOT inject expected authority: the pre-registration Stage-C path uses a
-    private, typed, single-use grant (``_verify_silver_prepublication``), never this public entry point."""
+    """PUBLIC Silver verification (D3 7.4 — no caller-supplied expected authority). The scientific authority is the
+    IMMUTABLE, content-addressed registration record, NOT the mutable aggregate index:
+
+      1. structurally authenticate the mutable aggregate and locate the candidate's entry (re-addressed / unregistered
+         candidates have no entry and are rejected);
+      2. load the IMMUTABLE registration record the entry references by content SHA, verifying its self-address — the
+         mutable index only LOCATES it and may not redefine any scientific field;
+      3. require the mutable index's operational copies (manifest, source object id, canonical source root, …) to
+         EXACTLY equal the immutable record — a redirected ``sourceRoot`` diverges and is rejected (a byte-identical
+         clone at another unregistered path can never be substituted for the record's canonical source location);
+      4. RE-RESOLVE the canonical Stage-A/B source from the RECORD's canonical source root (containment first) and
+         require the record's bound source identities to equal the independently reconstructed handle.
+
+    Candidate-declared fields are never trusted. A caller may NOT inject expected authority: the pre-registration
+    Stage-C path uses a private, typed, single-use grant (``_verify_silver_prepublication``), never this entry point."""
     datasets = _authenticate_silver_registry(silver_root)
     reg_entry = _authenticated_lookup(datasets, manifest_sha)
     if reg_entry is None:
         raise SilverPublishError("no canonical Silver registration for this candidate object (re-addressed / unregistered)")
-    src_root = reg_entry.get("sourceRoot")
-    if not src_root:
-        raise SilverPublishError("canonical Silver registration lacks a source location for independent reload")
+    record = _load_registration_record(silver_root, reg_entry["registrationSha256"])
+    # the immutable record must actually be the registration for THIS request identity
+    if record.get("publicationManifestSha256") != manifest_sha \
+            or record.get("datasetVersionId") != reg_entry.get("datasetVersionId") \
+            or record.get("sourceObjectId") != reg_entry.get("sourceObjectId"):
+        raise SilverPublishError("registration record identity does not match the requested Silver object (tampered index)")
+    # the mutable index may LOCATE the record but not REDEFINE its scientific fields
+    if reg_entry.get("manifestSha256") != record.get("publicationManifestSha256") \
+            or reg_entry.get("transformReceiptSha256") != record.get("transformReceiptSha256") \
+            or reg_entry.get("sourceRoot") != record.get("canonicalSourceRoot"):
+        raise SilverPublishError("mutable index diverges from the immutable registration record (redirected/tampered)")
+    canonical_source_root = record.get("canonicalSourceRoot")
+    if not canonical_source_root:
+        raise SilverPublishError("registration record lacks a canonical source location")
     try:
-        src_root_path = contained_no_reparse(Path(src_root), [Path(src_root)])   # containment BEFORE source-root access
-        canonical, _ = resolve_verified_source(src_root_path, reg_entry.get("sourceObjectId"))
+        # resolve INDEPENDENTLY from the RECORD's canonical source root (never an arbitrary index-supplied path)
+        src_root_path = contained_no_reparse(Path(canonical_source_root), [Path(canonical_source_root)])
+        canonical, _ = resolve_verified_source(src_root_path, record.get("sourceObjectId"))
     except (SourceAuthorityError, ContainmentError) as exc:
         raise SilverPublishError(f"canonical source re-resolution failed during Silver verification: {exc}")
+    # the record's bound source identities (+ governed issuer) must equal the independently reconstructed handle
+    if not (record.get("sourceLogicalSha256") == canonical.logical_sha256
+            and record.get("sourcePhysicalSha256") == canonical.physical_sha256
+            and record.get("sourceSchemaSha256") == canonical.schema_sha256
+            and record.get("sourceReceiptSha256") == canonical.receipt_sha256
+            and record.get("sourceManifestSha256") == canonical.manifest_sha256
+            and record.get("issuerRecordSha256", "") == canonical.issuer_record_sha256):
+        raise SilverPublishError("registration record source authority diverges from the reconstructed canonical source")
     return _verify_silver_core(silver_root, manifest_sha, canonical=canonical)
 
 
