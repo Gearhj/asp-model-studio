@@ -18,15 +18,22 @@ def pytest_configure(config):
     from tests import _isolated_data_guard as G
     if not G.is_active():
         return
-    # Full-gate recovery — the PRODUCTION isolated gate must not inherit ACCEPTANCE-only audit variables that would
-    # perturb it: an acceptance Stage-B issuer registry (which would reject the gate's own ungoverned synthetic
-    # sources, e.g. the Silver-concurrency workers) or an externally forced / disabled model-exchange root (which would
-    # make the REAL_MODEL_EXCHANGE_GOLDEN_CORPUS suites attempt a nonexistent corpus). The Codex acceptance packages
-    # set a CODEX_PHASE7D5A*_AUDIT_ROOT and legitimately use those variables; the production gate sets none, so ONLY the
-    # gate removes them here (the governed skip policy is unchanged — those suites are governed skips under isolation).
-    _codex_ctx = any(k.startswith("CODEX_PHASE7D5A") and k.endswith("_AUDIT_ROOT") for k in os.environ)
-    if not _codex_ctx:
-        for _n in ("ASP_SOURCE_ISSUER_REGISTRY", "CODEX_PHASE7D5A7_ISSUER_REGISTRY", "ASP_MODEL_EXCHANGE_ROOT"):
+    # The SELF-CONTAINED governed-synthetic-seed gate is the only isolated context that carries the committed
+    # ``.governed-synthetic-seed`` marker in its runtime root (it publishes its OWN governed synthetic sources through
+    # the production seeder). Such a context is self-authoritative and must not honor an INHERITED external production
+    # capability that it never provisioned — a bound Stage-B issuer registry (which would reject its own ungoverned
+    # synthetic sources) or a bound external model-exchange corpus root (which, if forced to a disabled/empty location,
+    # would make the golden-corpus suites attempt a nonexistent corpus). This decision is a GENERIC capability fact —
+    # the presence of a governed synthetic seed — and depends on no auditor name, phase number, or variable-name
+    # pattern. Any other isolated context (one that brings its own valid generic issuer/corpus configuration) keeps it.
+    def _governed_synthetic_seed_present() -> bool:
+        try:
+            from server.sports_cockpit.engine import RUNTIME_ROOT
+            return (Path(RUNTIME_ROOT) / ".governed-synthetic-seed").is_file()
+        except Exception:
+            return False
+    if _governed_synthetic_seed_present():
+        for _n in ("ASP_SOURCE_ISSUER_REGISTRY", "ASP_MODEL_EXCHANGE_ROOT"):
             os.environ.pop(_n, None)
     # D7 — generic, PROCESS-BOUND isolated-session bootstrap (production-neutral; no D7 node/fixture knowledge). The
     # canonical session root is the ACTUAL basetemp THIS session's tmp_path_factory uses (so the marker + guard agree,
