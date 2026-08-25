@@ -6,8 +6,20 @@ the SAME isolated temp roots as the parent. Each command prints a single synchro
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
+
+
+def _hold_until_release(release_path: str, max_seconds: float = 120.0) -> None:
+    """Hold (keep the enclosing lock) DETERMINISTICALLY until the parent creates the RELEASE sentinel file. The sentinel
+    — not any sleep duration — is the release signal; ``max_seconds`` is only a self-limiting safety fallback so a dead
+    parent can never wedge the holder forever."""
+    deadline = time.monotonic() + max_seconds
+    while time.monotonic() < deadline:
+        if os.path.exists(release_path):
+            return
+        time.sleep(0.01)
 
 
 def main() -> int:
@@ -22,20 +34,20 @@ def main() -> int:
         except LockBusy:
             print("BUSY", flush=True)
 
-    elif cmd == "holdlock":
+    elif cmd == "holdlock":                              # acquire, signal ACQUIRED, hold until the RELEASE sentinel
         try:
             with interprocess_lock(sys.argv[2], blocking=False):
                 print("ACQUIRED", flush=True)
-                time.sleep(float(sys.argv[3]))
+                _hold_until_release(sys.argv[3])
         except LockBusy:
             print("BUSY", flush=True)
 
-    elif cmd == "holdexec":                              # hold the per-project heavy-work exec lock
+    elif cmd == "holdexec":                              # hold the per-project heavy-work exec lock until RELEASE
         proj = sys.argv[2]
         try:
             with interprocess_lock(str(A._project_exec_lock_path(proj)), blocking=False):
                 print("ACQUIRED", flush=True)
-                time.sleep(float(sys.argv[3]))
+                _hold_until_release(sys.argv[3])
         except LockBusy:
             print("BUSY", flush=True)
 

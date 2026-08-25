@@ -54,14 +54,18 @@ def _run(args, env, timeout=90):
 
 # ---------------- 1/5. a held lock excludes a second process ----------------
 def test_held_lock_excludes_a_second_process(tmp_path):
+    # DETERMINISTIC protocol: the holder acquires and blocks on a RELEASE sentinel (no timing race). The contender is
+    # attempted while the holder is provably still holding; only after that does the parent signal RELEASE.
     env = _env(tmp_path)
     lock = str(tmp_path / "exclusive.lock")
-    holder = _popen(["holdlock", lock, "6"], env)
+    release = tmp_path / "release.signal"
+    holder = _popen(["holdlock", lock, str(release)], env)
     try:
         assert _wait_token(holder, "ACQUIRED"), "holder never acquired"
-        busy = _run(["trylock", lock], env)          # a second PROCESS is excluded
+        busy = _run(["trylock", lock], env)          # a second PROCESS is excluded while the holder blocks on RELEASE
         assert busy.stdout.strip() == "BUSY", busy.stdout + busy.stderr
     finally:
+        release.write_text("go", encoding="utf-8")   # deterministically release the holder
         holder.wait(timeout=20)
     free = _run(["trylock", lock], env)              # released after the holder exits
     assert free.stdout.strip() == "ACQUIRED"
@@ -71,7 +75,7 @@ def test_held_lock_excludes_a_second_process(tmp_path):
 def test_lock_reclaimed_after_owner_process_dies(tmp_path):
     env = _env(tmp_path)
     lock = str(tmp_path / "reclaim.lock")
-    holder = _popen(["holdlock", lock, "60"], env)
+    holder = _popen(["holdlock", lock, str(tmp_path / "never.signal")], env)  # holds (blocked on RELEASE) until killed
     assert _wait_token(holder, "ACQUIRED"), "holder never acquired"
     holder.kill(); holder.wait(timeout=20)           # owner dies while holding the lock
     time.sleep(0.3)
@@ -119,12 +123,14 @@ def test_project_exec_lock_serializes_runs_across_processes(tmp_path, monkeypatc
     h = build_hermetic_gen3(tmp_path, monkeypatch)
     env = _env(tmp_path)
     proj = "ip-exec"
-    holder = _popen(["holdexec", proj, "8"], env)                # hold the project's heavy-work exec lock
+    release = tmp_path / "exec-release.signal"
+    holder = _popen(["holdexec", proj, str(release)], env)       # hold the project's exec lock, blocked on RELEASE
     try:
         assert _wait_token(holder, "ACQUIRED"), "holder never acquired the exec lock"
         contender = _run(["execute", proj, h["researchId"]], env)   # a governed run in ANOTHER process is refused
         assert contender.stdout.strip() == "BUSY", contender.stdout + contender.stderr
     finally:
+        release.write_text("go", encoding="utf-8")               # deterministically release the holder
         holder.wait(timeout=30)
     # after contention: a governed run completes and its immutable object stays verifiable; no partial/staging dir
     b = A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=h["researchId"])
