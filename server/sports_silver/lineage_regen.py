@@ -178,3 +178,113 @@ def regenerate(silver_root: Path) -> dict[str, Any]:
                                    "identical": before["inventoryDigest"] == after["inventoryDigest"]},
             "statcastSourceAccounting": S["statcastAccounting"], "gameReconciliation": recon,
             "regeneratedObjects": regenerated}
+
+
+_PARTITIONED = {"fact_retrosheet_event", "fact_lineup_participation", "fact_umpire_game", "fact_team_game",
+                "fact_player_game", "fact_statcast_pitch", "fact_statcast_plate_appearance"}
+
+
+def _registry_versions(silver_root: Path) -> dict[str, list[dict[str, Any]]]:
+    import collections
+    reg = json.loads((silver_root / "silver-table-registry.json").read_text(encoding="utf-8"))
+    by_table: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for dsid, e in reg["datasets"].items():
+        sha = dsid.rsplit(":sha256:", 1)[-1]
+        name = dsid.split(":")[1]
+        pm = silver_root / "partitioned" / sha / "manifest.json"
+        if pm.is_file():
+            body = json.loads(pm.read_bytes().decode("utf-8"))
+            rec = {"dsid": dsid, "manifestSha": sha, "regSha": e["registrationSha256"], "partitioned": True,
+                   "hasSI": "governedSourceInputs" in body, "hasVD": "valueDigestSha256" in body,
+                   "fieldOrder": body.get("fieldOrder"), "governedSourceInputs": body.get("governedSourceInputs")}
+        else:
+            rc = json.loads((silver_root / "objects" / "sha256" / sha / "transformation-receipt.json").read_bytes().decode("utf-8"))
+            rec = {"dsid": dsid, "manifestSha": sha, "regSha": e["registrationSha256"], "partitioned": False,
+                   "hasSI": "governedSourceInputs" in rc, "hasVD": True}
+        by_table[name].append(rec)
+    return by_table
+
+
+def finalize_authority(silver_root: Path) -> dict[str, Any]:
+    """Fix 1 (current/history registry authority) + Fix 2 (declared partitioned value digests). Metadata-only, against
+    existing verified outputs. For each of the 7 partitioned objects: compute the partitioned value digest of the current
+    (corrected) object AND of the original object from their existing normalized children, PROVE them equal (values
+    unchanged), then re-register the object with the digest bound (new current identity, prior versions -> history). Then
+    record currentness in the existing registry index. Returns the required final evidence."""
+    silver_root = Path(silver_root)
+    m = BA.verify_bronze_manifest()
+    before = BA.inventory(m, BA.DEFAULT_BRONZE_ROOT)
+    versions = _registry_versions(silver_root)
+    if set(versions) != set(_CONTRACT_FN):
+        raise RuntimeError(f"expected 13 logical objects, got {sorted(versions)}")
+
+    logical: dict[str, Any] = {}
+    digest_proofs: list[dict[str, Any]] = []
+    for name in sorted(_CONTRACT_FN):
+        vs = versions[name]
+        original = [v for v in vs if not v["hasSI"]]
+        contract = _CONTRACT_FN[name](list(YEARS))
+        nk = contract.get("naturalKey") or []
+        if len(original) != 1:
+            raise RuntimeError(f"{name}: expected exactly one original registration, got {len(original)}")
+        if name in _PARTITIONED:
+            corrected = [v for v in vs if v["hasSI"] and not v["hasVD"]]
+            withvd = [v for v in vs if v["hasSI"] and v["hasVD"]]
+            if len(corrected) != 1:
+                raise RuntimeError(f"{name}: expected exactly one corrected (no-value-digest) registration")
+            corr = corrected[0]
+            fo = corr["fieldOrder"]
+            vd_new = SP.partitioned_value_digest(silver_root, corr["manifestSha"], field_order=fo, natural_key=nk)
+            vd_old = SP.partitioned_value_digest(silver_root, original[0]["manifestSha"], field_order=fo, natural_key=nk)
+            if not (isinstance(vd_new, str) and len(vd_new) == 64 and vd_new == vd_old):
+                raise RuntimeError(f"{name}: value digests do not match (values differ!) old={vd_old} new={vd_new}")
+            out = SP.regenerate_partitioned_silver_table(silver_root=silver_root, old_manifest_sha=corr["manifestSha"],
+                contract=contract, code_modules=_CODE, source_inputs=corr["governedSourceInputs"],
+                child_source_id_fn=None, value_digest=vd_new)
+            current_reg, current_dsid = out["registrationSha256"], out["datasetVersionId"]
+            historical = [original[0]["regSha"], corr["regSha"]]
+            digest_proofs.append({"table": name, "valueDigestSha256": vd_new, "originalValueDigestSha256": vd_old,
+                                  "match": vd_new == vd_old, "nonNull": bool(vd_new)})
+        else:
+            corrected = [v for v in vs if v["hasSI"]]
+            if len(corrected) != 1:
+                raise RuntimeError(f"{name}: expected exactly one corrected registration")
+            current_reg, current_dsid = corrected[0]["regSha"], corrected[0]["dsid"]
+            historical = [original[0]["regSha"]]
+        logical[name] = {"currentRegistrationSha256": current_reg, "currentDatasetVersionId": current_dsid,
+                         "historicalRegistrationSha256s": historical}
+
+    SP.write_logical_index(silver_root, logical)
+
+    # independent verification of all 13 CURRENT objects
+    idx = SP.logical_index(silver_root)
+    verified = []
+    for name in sorted(_CONTRACT_FN):
+        cur_dsid = idx[name]["currentDatasetVersionId"]
+        cur_sha = cur_dsid.rsplit(":sha256:", 1)[-1]
+        if name in _PARTITIONED:
+            v = SP.verify_partitioned_silver_table(silver_root, cur_sha)
+            vd = v.get("valueDigestSha256")
+            if not (isinstance(vd, str) and len(vd) == 64):
+                raise RuntimeError(f"{name}: current partitioned object has no non-null value digest")
+        else:
+            v = SP.verify_silver_table(silver_root, cur_sha)
+            vd = v.get("valueDigestSha256")
+        verified.append({"table": name, "currentManifestSha256": cur_sha, "rowCount": v["rowCount"],
+                         "valueDigestSha256": vd, "quarantine": v["quarantine"]})
+
+    after = BA.inventory(m, BA.DEFAULT_BRONZE_ROOT)
+    # authority invariants
+    all_reg_shas = [w["regSha"] for vs in versions.values() for w in vs]
+    current_shas = {idx[n]["currentRegistrationSha256"] for n in idx}
+    hist_shas = [h for n in idx for h in idx[n]["historicalRegistrationSha256s"]]
+    return {"schemaVersion": "PHASE_7B1_AUTHORITY_FINALIZE_V1",
+            "bronzeImmutability": {"beforeDigest": before["inventoryDigest"], "afterDigest": after["inventoryDigest"],
+                                   "identical": before["inventoryDigest"] == after["inventoryDigest"]},
+            "logicalObjectCount": len(idx),
+            "exactlyOneCurrentPerObject": all(len({idx[n]["currentRegistrationSha256"]}) == 1 for n in idx),
+            "noCurrentIsHistorical": all(idx[n]["currentRegistrationSha256"] not in idx[n]["historicalRegistrationSha256s"] for n in idx),
+            "currentCount": len(current_shas), "historicalCount": len(hist_shas),
+            "partitionedValueDigestProofs": digest_proofs,
+            "sevenPartitionedNonNull": sum(1 for p in digest_proofs if p["nonNull"] and p["match"]),
+            "verifiedCurrentObjects": verified}

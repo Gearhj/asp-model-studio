@@ -1,0 +1,150 @@
+{
+  "schemaVersion": "PHASE_7B1_AUTHORITY_INDEX_V1",
+  "note": "Current/historical registration authority + declared partitioned value digests. Registry lives at silver root (silver-table-registry.json logicalObjects); this is the committed metadata summary.",
+  "registrationCounts": {
+    "logicalObjects": 13,
+    "totalRegistrations": 33,
+    "current": 13,
+    "historical": 20
+  },
+  "bronzeImmutable": true,
+  "logicalObjects": {
+    "bridge_game_identity": {
+      "currentRegistrationSha256": "7fc9abdaba5b6cf880712727f68a6af20c6c9fc6ae927c046ac2ddf28456aa60",
+      "currentDatasetVersionId": "silver-table:bridge_game_identity:sha256:69e6e71d47fabca688c93ef351189e1de1a61cbd95995bf2612eddba5dfd4882",
+      "historicalRegistrationSha256s": [
+        "429eb14d607df9109b83717289239507ab339bdccb626955f065e775ba72bf6c"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "bridge_player_identity": {
+      "currentRegistrationSha256": "037b17e09342d86af645156c585f48aa4f493bd8761df92654d497ccd7db04f9",
+      "currentDatasetVersionId": "silver-table:bridge_player_identity:sha256:99737a03c3d7dfe3a9ac22a7491d0f6d91614c4cad47f7c46775e8341114a58c",
+      "historicalRegistrationSha256s": [
+        "37e6da561807404a1d1e503844355346f8a7d25403276f1c382d644d5ff32fd9"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "dim_game": {
+      "currentRegistrationSha256": "63dc253ac7270c1a8a85b4509fd7097b4adbb9c18875fe1408075bff2f723ada",
+      "currentDatasetVersionId": "silver-table:dim_game:sha256:1afa766640c202742f270184b81a26056080c79a2a726279e1cb961b7e78e456",
+      "historicalRegistrationSha256s": [
+        "645d18c1bc618072b3c97f4c5fdb672a8bcec0748cbc096393b52e6ab24b7301"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "dim_park": {
+      "currentRegistrationSha256": "097524c3ba793a4ae41227463946ef5c594f2308573ecdd2c23d92b73e5a3f14",
+      "currentDatasetVersionId": "silver-table:dim_park:sha256:07ffe792ea08e6ffd6a92c872cc3ab805cf87aed06fc8714e9dd1dcfbab64ccb",
+      "historicalRegistrationSha256s": [
+        "3ef8462283255ca9a52351a9119ada3c1a4b936679b19189fad21997a69d5a08"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "dim_player": {
+      "currentRegistrationSha256": "ea7d1808b76eaec5506f30c1797cbdec10bc2ad8f9a39cc72f29643f23366227",
+      "currentDatasetVersionId": "silver-table:dim_player:sha256:ab06c88e7d4fa6e78b397c8a4dfbbc2c8a21a51c03f50fd78ee49de232fb0aaf",
+      "historicalRegistrationSha256s": [
+        "30d472e08cd5d42dda5fd8aa552adbdc5d52b0bd0adc863dfa8bce2b737173b1"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "dim_team": {
+      "currentRegistrationSha256": "3e0570cb7669699ddcc333a8ee09146836f0bbee77601a386e1e843975dcbfa1",
+      "currentDatasetVersionId": "silver-table:dim_team:sha256:2a758bdc3f9949bd5c89cc9eb3e2552741e84ce93558cc0f746d4a6db2a928cf",
+      "historicalRegistrationSha256s": [
+        "7228075f741415bda7e3c3741fb358c910b41000236aaabb1b9e06466288fd85"
+      ],
+      "partitionedValueDigestSha256": null,
+      "originalValueDigestSha256": null,
+      "valueDigestMatchesOriginal": null
+    },
+    "fact_lineup_participation": {
+      "currentRegistrationSha256": "9c099daf03aae7b3e85d815b74e10ddbaba4b77286b30f0e012d1513cec2ab73",
+      "currentDatasetVersionId": "silver-table:fact_lineup_participation:sha256:65a013c18bf8db0f1efe12217230f173d13068c6c232aff287fbf202b9325187",
+      "historicalRegistrationSha256s": [
+        "dd335cf3101feb59093b23d4d9fb616a7ace854a26ff6330fc6e898f45a2690d",
+        "e2e0f5100e29a80db098f9321683307aa8ed9d3d4ec8e8e1aec5abc0179f68cb"
+      ],
+      "partitionedValueDigestSha256": "f30a5ce9a19b2dfcf7bec22226111f81395bac5676eb12cda8a355ee319299c3",
+      "originalValueDigestSha256": "f30a5ce9a19b2dfcf7bec22226111f81395bac5676eb12cda8a355ee319299c3",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_player_game": {
+      "currentRegistrationSha256": "783747d093e310f87337b1bba5e5a7df7fda27dc3897dd7539b054f405ed1527",
+      "currentDatasetVersionId": "silver-table:fact_player_game:sha256:ad704e7dcf0a5d5f4190c4c36fcce3f9b98efb573ec2364791e5407475c7c858",
+      "historicalRegistrationSha256s": [
+        "32c9c0a0fe6ebc13ea70a4bcaec87421648f81ad44837ecab3401a7bb2eddee2",
+        "38237857682f6e86a143d76d89da6ae0cdfc02ccbc2dc4915002ec06fa7a240c"
+      ],
+      "partitionedValueDigestSha256": "812192943185346065e69b7e8549764fe343a0313afc81b429fd447b551d2d90",
+      "originalValueDigestSha256": "812192943185346065e69b7e8549764fe343a0313afc81b429fd447b551d2d90",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_retrosheet_event": {
+      "currentRegistrationSha256": "b692ce1e4ccc3d13507109a71c156c59373b24c77457d8eecda4331f86d497f6",
+      "currentDatasetVersionId": "silver-table:fact_retrosheet_event:sha256:a8e4e9c824082a2d2ad24d241c8068288d08c84a12deaa8957a33b22bbcb5dc6",
+      "historicalRegistrationSha256s": [
+        "9e26e9b952d66dac6db34ac31520e78b17cf83761024442d476efb7563e5c4df",
+        "27d9d7a6bd3178f1d1f13fc2e1d069949e1580fbc0189c9dd0e3f33edd03bdf7"
+      ],
+      "partitionedValueDigestSha256": "0ceebfab82d576d017f1c0b7ef5b385d689f70ce25178a372ae272c9ec7bbd43",
+      "originalValueDigestSha256": "0ceebfab82d576d017f1c0b7ef5b385d689f70ce25178a372ae272c9ec7bbd43",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_statcast_pitch": {
+      "currentRegistrationSha256": "c5add22c847c40e138fb083f417dd6dc999c25d94f0f10e65bca7a74f7b88ccb",
+      "currentDatasetVersionId": "silver-table:fact_statcast_pitch:sha256:352b2df31e98655acefa9ff27de30c42f80030e16e5abe8f23f83819049d1281",
+      "historicalRegistrationSha256s": [
+        "6f311009a875ed4853d9aa8c72bf97ad72786c18e01f20e9b17fe9ad2957b871",
+        "c5273ce39bb732c14c6b48386fb5293713f9ed4c4e1aa8ff4323fddb0c9f0945"
+      ],
+      "partitionedValueDigestSha256": "f992bc94ba43f8e9c854dc067c520abbc17ef2f73f8b95791ea474b80cfa1ac0",
+      "originalValueDigestSha256": "f992bc94ba43f8e9c854dc067c520abbc17ef2f73f8b95791ea474b80cfa1ac0",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_statcast_plate_appearance": {
+      "currentRegistrationSha256": "5679e2e914a55526cce88968b8eb6b256cab4f620b36d266be5dc68b0493b094",
+      "currentDatasetVersionId": "silver-table:fact_statcast_plate_appearance:sha256:6a56e1af6a10cc6ef7cb3a82ac45cf1a33d31f7dbf495b3256c0adefd95e6b17",
+      "historicalRegistrationSha256s": [
+        "b8588e1b45b69b72f0fc62f22c69e79693c95ed528f1d35be3934e6d07cd4a48",
+        "d8935e6e9ad30485d036d5492fe4555fae8246cfd3672827e5330547ac9d4801"
+      ],
+      "partitionedValueDigestSha256": "cb4a407e7f6c9a672eb9b3c42d66297b377cf16b372cc2d5360e68deae7ad3b6",
+      "originalValueDigestSha256": "cb4a407e7f6c9a672eb9b3c42d66297b377cf16b372cc2d5360e68deae7ad3b6",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_team_game": {
+      "currentRegistrationSha256": "97a8cb7d3964c509de7dcc506c9ff7a4fe866f5854dbd8c08c4c76022ffad990",
+      "currentDatasetVersionId": "silver-table:fact_team_game:sha256:acfb279779e7ddd5ee64081faf358e69155c6d947bfa5ba8458e8f8e2d0fa8bd",
+      "historicalRegistrationSha256s": [
+        "6244f5dc92b27bfb9237d9e20ff866b7ff2918743dff2446c4121322aff459bf",
+        "a8aac2fdc6503186911777464ce74ff088345ca4767a24a64d47598222f2f1a1"
+      ],
+      "partitionedValueDigestSha256": "1a39f0bc444abd50ea97a614edbba807807750fd57b74880aa8c5b625b8a44c9",
+      "originalValueDigestSha256": "1a39f0bc444abd50ea97a614edbba807807750fd57b74880aa8c5b625b8a44c9",
+      "valueDigestMatchesOriginal": true
+    },
+    "fact_umpire_game": {
+      "currentRegistrationSha256": "aa6f7497ce73a2be1e54165c189b1618907697fb3587147185b5b3dfcd325c30",
+      "currentDatasetVersionId": "silver-table:fact_umpire_game:sha256:5d30f8ce1052441de5c9e3f82286efb77fe2cf8f8d532aa939b3bcba982a19b3",
+      "historicalRegistrationSha256s": [
+        "fcb7a608d457683ab39360dd4d9420cccdbdd1e8231cf364d2491e31b27c49c3",
+        "b81e5fe8e8195eb763bc8f4e174f63d95dd016ff4196a1912c4d85fea8bd5466"
+      ],
+      "partitionedValueDigestSha256": "096146cc5a67b768f84436de17e798b04f610efeac47edb2c69b8a667d590b1e",
+      "originalValueDigestSha256": "096146cc5a67b768f84436de17e798b04f610efeac47edb2c69b8a667d590b1e",
+      "valueDigestMatchesOriginal": true
+    }
+  }
+}

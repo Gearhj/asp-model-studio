@@ -324,8 +324,14 @@ def verify_partitioned_silver_table(silver_root: Path, manifest_sha: str) -> dic
     present = {p.stem for p in children_dir.glob("*.parquet")}
     if listed != present:
         raise SilverTablePublishError(f"partitioned child set mismatch (missing={sorted(listed-present)}, extra={sorted(present-listed)})")
+    declared_vd = manifest.get("valueDigestSha256")
+    if declared_vd is not None and not _HEX64.match(str(declared_vd)):
+        raise SilverTablePublishError("partitioned valueDigestSha256 present but not a 64-hex non-null digest")
+    fo = list(manifest["fieldOrder"])
+    nk = list(manifest.get("naturalKey") or fo)
     total = 0
     prev = None
+    child_digests: list[str] = []
     for c in manifest["children"]:
         if prev is not None and (c["partitionKey"], c["childSha256"]) < prev:
             raise SilverTablePublishError("partitioned children are not in canonical order (reordered/tampered)")
@@ -334,12 +340,21 @@ def verify_partitioned_silver_table(silver_root: Path, manifest_sha: str) -> dic
         if sha256_bytes(b) != c["childSha256"] or len(b) != c["bytes"]:
             raise SilverTablePublishError(f"partitioned child {c['childSha256'][:12]} differs from manifest (tampered)")
         total += c["rowCount"]
+        if declared_vd is not None:                          # independently recompute the value digest (reuse bytes)
+            tbl = pq.read_table(pa.BufferReader(b))
+            rows = [{k: tbl.column(k)[i].as_py() for k in fo} for i in range(tbl.num_rows)]
+            child_digests.append(_value_digest(rows, fo, nk))
     if total != manifest["totalRowCount"]:
         raise SilverTablePublishError("partitioned total row count != sum of children (tampered)")
+    if declared_vd is not None:
+        recomputed = sha256_bytes(canonical_json_bytes([PARTITIONED_VALUE_DIGEST_TAG, fo, sorted(child_digests)]))
+        if recomputed != declared_vd:
+            raise SilverTablePublishError("recomputed partitioned value digest != declared (tampered)")
     if manifest.get("modelEligible") or manifest.get("quarantine") != "QUARANTINED":
         raise SilverTablePublishError("partitioned object must remain QUARANTINED / not model-eligible")
     return {"tableName": manifest["tableName"], "manifestSha256": manifest_sha, "rowCount": total,
-            "childCount": len(manifest["children"]), "seasons": manifest["seasons"], "quarantine": manifest["quarantine"]}
+            "childCount": len(manifest["children"]), "seasons": manifest["seasons"], "quarantine": manifest["quarantine"],
+            "valueDigestSha256": declared_vd}
 
 
 # --------------------------------------------------------------------------- lineage regeneration (metadata only)
@@ -358,9 +373,74 @@ def read_silver_table(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
             "valueDigestSha256": receipt["valueDigestSha256"], "outputPhysicalSha256": receipt["outputPhysicalSha256"]}
 
 
+PARTITIONED_VALUE_DIGEST_TAG = "MLB_SILVER_PARTITIONED_VALUE_DIGEST_V1"
+
+
+def partitioned_value_digest(silver_root: Path, manifest_sha: str, *, field_order, natural_key) -> str:
+    """Deterministic, order-invariant, NON-NULL value digest for a partitioned object, derived from the EXISTING
+    verified normalized child partitions (never Bronze). Reuses the single-table ``_value_digest`` convention per child
+    (which itself coerces None->'' in its sort key, so no None==None comparison ever occurs), then binds the SORTED set
+    of per-child digests under a partitioned tag. Two partitioned objects with identical child bytes yield the identical
+    digest — the basis for proving old and new normalized values are equal. Memory-bounded: one child at a time."""
+    import json
+    silver_root = Path(silver_root)
+    final = contained_no_reparse(_partitioned_root(silver_root) / manifest_sha, [_partitioned_root(silver_root)])
+    manifest = json.loads((final / "manifest.json").read_bytes().decode("utf-8"))
+    fo = list(field_order)
+    nk = list(natural_key) or fo
+    child_digests: list[str] = []
+    for c in sorted(manifest["children"], key=lambda x: (x["partitionKey"], x["childSha256"])):
+        b = (final / "children" / f"{c['childSha256']}.parquet").read_bytes()
+        table = pq.read_table(pa.BufferReader(b))
+        rows = [{k: table.column(k)[i].as_py() for k in fo} for i in range(table.num_rows)]
+        child_digests.append(_value_digest(rows, fo, nk))
+    return sha256_bytes(canonical_json_bytes([PARTITIONED_VALUE_DIGEST_TAG, fo, sorted(child_digests)]))
+
+
+SILVER_TABLE_REGISTRY_LOGICAL = "MLB_SILVER_LOGICAL_OBJECT_INDEX_V1"
+
+
+def write_logical_index(silver_root: Path, logical_objects: Mapping[str, Any]) -> None:
+    """Record CURRENTNESS in the EXISTING registry/index (never a second registry, never inside an immutable
+    registration record): a ``logicalObjects`` section mapping each logical table -> {currentRegistrationSha256,
+    currentDatasetVersionId, historicalRegistrationSha256s}. Interprocess-locked; preserves the content-addressed
+    ``datasets`` lookup untouched. A registration listed as current for one object must not be historical for it, and no
+    object may have two current registrations."""
+    import json
+    reg_path, lock_path = _registry_path(silver_root), _lock_path(silver_root)
+    contained_no_reparse(reg_path, [Path(silver_root)])
+    contained_no_reparse(lock_path, [Path(silver_root)])
+    lo: dict[str, Any] = {}
+    for name, entry in logical_objects.items():
+        cur = str(entry["currentRegistrationSha256"])
+        hist = [str(h) for h in entry.get("historicalRegistrationSha256s", [])]
+        if not _HEX64.match(cur) or any(not _HEX64.match(h) for h in hist):
+            raise SilverTablePublishError(f"{name}: registration shas must be 64-hex")
+        if cur in hist:
+            raise SilverTablePublishError(f"{name}: current registration also listed as historical")
+        if len(set(hist)) != len(hist):
+            raise SilverTablePublishError(f"{name}: duplicate historical registration")
+        lo[name] = {"indexContract": SILVER_TABLE_REGISTRY_LOGICAL,
+                    "currentRegistrationSha256": cur, "currentDatasetVersionId": str(entry["currentDatasetVersionId"]),
+                    "historicalRegistrationSha256s": hist}
+    with interprocess_lock(lock_path, blocking=True, timeout=60.0, stale_after=600.0):
+        reg = json.loads(reg_path.read_text(encoding="utf-8"))
+        reg["logicalObjects"] = dict(sorted(lo.items()))
+        tmp = reg_path.parent / f".tmp-{uuid.uuid4().hex}"
+        tmp.write_bytes(canonical_json_bytes(reg))
+        os.replace(tmp, reg_path)
+
+
+def logical_index(silver_root: Path) -> dict[str, Any]:
+    """Read the logical current/history index from the existing registry (empty if none recorded yet)."""
+    import json
+    reg = json.loads(_registry_path(Path(silver_root)).read_text(encoding="utf-8"))
+    return reg.get("logicalObjects", {})
+
+
 def regenerate_partitioned_silver_table(*, silver_root: Path, old_manifest_sha: str, contract: Mapping[str, Any],
                                         code_modules, source_inputs: Mapping[str, Any],
-                                        child_source_id_fn=None) -> dict[str, Any]:
+                                        child_source_id_fn=None, value_digest: str | None = None) -> dict[str, Any]:
     """Publish a NEW immutable PARTITIONED object that reuses the EXISTING verified child bytes unchanged but carries
     corrected lineage (exact ``governedSourceInputs`` + optionally corrected per-child ``sourcePartitionId`` via
     ``child_source_id_fn(partitionKey, oldSourceId)->newSourceId``). Child bytes / shas / row counts / seasons are never
@@ -396,6 +476,11 @@ def regenerate_partitioned_silver_table(*, silver_root: Path, old_manifest_sha: 
         "sourcePartitionIds": sorted({c["sourcePartitionId"] for c in children}),
         "governedSourceInputs": dict(source_inputs), "children": children,
     }
+    if value_digest is not None:
+        if not _HEX64.match(str(value_digest)):
+            raise SilverTablePublishError("partitioned value digest must be a 64-hex non-null digest")
+        manifest_body["valueDigestSha256"] = value_digest
+        manifest_body["naturalKey"] = list(contract.get("naturalKey") or field_order)   # basis for independent recompute
     manifest_bytes = canonical_json_bytes(manifest_body)
     manifest_sha = sha256_bytes(manifest_bytes)
     final = contained_no_reparse(proot / manifest_sha, [proot])
@@ -422,6 +507,8 @@ def regenerate_partitioned_silver_table(*, silver_root: Path, old_manifest_sha: 
                 "tableName": name, "publicationManifestSha256": manifest_sha, "tableContractSha256": contract_sha,
                 "bronzeManifestSha256": BA.EXPECTED_BRONZE_MANIFEST_SHA256, "rowCount": total_rows, "seasons": seasons,
                 "childCount": len(children), "partitioned": True, **CT.QUARANTINE_STATE}
+    if value_digest is not None:
+        reg_body["valueDigestSha256"] = value_digest
     reg_bytes = canonical_json_bytes(reg_body)
     registration_sha = sha256_bytes(reg_bytes)
     _write_addressed(_registrations_root(silver_root), registration_sha, reg_bytes, silver_root)
@@ -429,7 +516,7 @@ def regenerate_partitioned_silver_table(*, silver_root: Path, old_manifest_sha: 
     verify_partitioned_silver_table(silver_root, manifest_sha)
     return {"datasetVersionId": dsid, "tableName": name, "manifestSha256": manifest_sha,
             "registrationSha256": registration_sha, "rowCount": total_rows, "childCount": len(children),
-            "seasons": seasons, **CT.QUARANTINE_STATE}
+            "valueDigestSha256": value_digest, "seasons": seasons, **CT.QUARANTINE_STATE}
 
 
 def _atomic_publish_children(objects_root: Path, final: Path, children: Mapping[str, bytes]) -> None:

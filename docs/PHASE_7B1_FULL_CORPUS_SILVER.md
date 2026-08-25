@@ -65,6 +65,18 @@ These corrections were regenerated as metadata against the existing verified nor
 never reprocessed, no immutable object was edited in place (each correction is a new content address), and every
 regenerated object's value digest is byte-identical to its original (row values unchanged).
 
+### Current/historical registration authority + partitioned value digests
+Currentness lives in the **existing** registry index (`silver-table-registry.json` → `logicalObjects`), never inside an
+immutable registration record and never in a second registry. Each of the **13 logical objects** has **exactly one
+`currentRegistrationSha256`** plus a `historicalRegistrationSha256s` list of every superseded registration —
+**13 current + 20 historical = 33 registrations**, current∩historical = ∅. Each partitioned object also declares a
+real, deterministic, non-null `valueDigestSha256` computed from its existing normalized child partitions (the
+single-table `_value_digest` convention per child — which coerces `None`→`""`, so no `None==None` comparison —
+combined under `MLB_SILVER_PARTITIONED_VALUE_DIGEST_V1`); `verify_partitioned_silver_table` independently recomputes it.
+For all **7/7** partitioned objects the digest of the current object equals the digest recomputed from the original
+object's children, proving the normalized values are unchanged. Committed summary:
+[phase7b1_authority.json](phase7b1_authority.json).
+
 ## C. Published Silver objects (13, all QUARANTINED, independently re-verified)
 
 dim_player 518,743 · bridge_player_identity 200,340 · dim_team 30 · dim_game 13,296 · bridge_game_identity 13,296 ·
