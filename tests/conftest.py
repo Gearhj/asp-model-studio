@@ -18,6 +18,16 @@ def pytest_configure(config):
     from tests import _isolated_data_guard as G
     if not G.is_active():
         return
+    # Full-gate recovery — the PRODUCTION isolated gate must not inherit ACCEPTANCE-only audit variables that would
+    # perturb it: an acceptance Stage-B issuer registry (which would reject the gate's own ungoverned synthetic
+    # sources, e.g. the Silver-concurrency workers) or an externally forced / disabled model-exchange root (which would
+    # make the REAL_MODEL_EXCHANGE_GOLDEN_CORPUS suites attempt a nonexistent corpus). The Codex acceptance packages
+    # set a CODEX_PHASE7D5A*_AUDIT_ROOT and legitimately use those variables; the production gate sets none, so ONLY the
+    # gate removes them here (the governed skip policy is unchanged — those suites are governed skips under isolation).
+    _codex_ctx = any(k.startswith("CODEX_PHASE7D5A") and k.endswith("_AUDIT_ROOT") for k in os.environ)
+    if not _codex_ctx:
+        for _n in ("ASP_SOURCE_ISSUER_REGISTRY", "CODEX_PHASE7D5A7_ISSUER_REGISTRY", "ASP_MODEL_EXCHANGE_ROOT"):
+            os.environ.pop(_n, None)
     # D7 — generic, PROCESS-BOUND isolated-session bootstrap (production-neutral; no D7 node/fixture knowledge). The
     # canonical session root is the ACTUAL basetemp THIS session's tmp_path_factory uses (so the marker + guard agree,
     # including a spawned pytest subprocess that inherits no --basetemp and thus a different basetemp). This process

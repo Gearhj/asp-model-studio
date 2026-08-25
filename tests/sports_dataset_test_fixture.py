@@ -17,6 +17,25 @@ _PACKAGE_ROOT: Path | None = None
 _CACHE_PATH: Path | None = None
 
 
+def golden_corpus_available() -> bool:
+    """True iff a USABLE golden model-exchange corpus is actually present. ``ASP_MODEL_EXCHANGE_ROOT`` being merely SET
+    is not enough: an isolated / disabled exchange root (e.g. an empty ``model-exchange-disabled`` dir inherited by the
+    isolated gate) resolves to no golden package, so these suites must SKIP cleanly rather than error on a strict
+    resolve of a nonexistent package. This is a side-effect-free availability probe used by the class skip decorators;
+    the exact skip reason is unchanged, so the governed skip policy is preserved."""
+    exchange = os.getenv("ASP_MODEL_EXCHANGE_ROOT", "").strip()
+    if not exchange:
+        return False
+    try:
+        package_root = approved_package_root(Path(exchange))
+    except Exception:
+        return False
+    try:
+        return package_root.is_dir() and any(package_root.iterdir())
+    except OSError:
+        return False
+
+
 def golden_package() -> tuple[ValidatedPackage, Path, Path]:
     global _VALIDATED, _PACKAGE_ROOT, _CACHE_PATH
     with _LOCK:

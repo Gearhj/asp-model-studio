@@ -24,7 +24,7 @@ from server.sports_datasets.consumer import (
     semantic_manifest_sha,
     validate_package_relative_uri,
 )
-from tests.sports_dataset_test_fixture import golden_package
+from tests.sports_dataset_test_fixture import golden_corpus_available, golden_package
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -106,7 +106,7 @@ class StrictJsonAndPathTests(unittest.TestCase):
         self.assertFalse(cache_path.exists())
 
 
-@unittest.skipUnless(os.getenv("ASP_MODEL_EXCHANGE_ROOT"), "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests")
+@unittest.skipUnless(golden_corpus_available(), "ASP_MODEL_EXCHANGE_ROOT is required for golden exchange tests")
 class GoldenManifestConsumerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
