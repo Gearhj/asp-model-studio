@@ -125,10 +125,16 @@ def _lock_path(silver_root: Path) -> Path:
 # --------------------------------------------------------------------------- publish
 def publish_silver_table(*, silver_root: Path, contract: Mapping[str, Any], rows: Sequence[Mapping[str, Any]],
                          bronze_manifest: Mapping[str, Any], source_partition_ids: Sequence[str],
-                         code_modules: Sequence[Any], field_order: Sequence[str]) -> dict[str, Any]:
+                         code_modules: Sequence[Any], field_order: Sequence[str],
+                         source_inputs: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Publish ONE normalized Silver table as an immutable, content-addressed, QUARANTINED object with full lineage,
     then register it (interprocess-locked) through an immutable complete-byte-addressed registration record. Idempotent:
-    re-publishing identical content converges to the same object address and reuses the object."""
+    re-publishing identical content converges to the same object address and reuses the object.
+
+    ``source_inputs`` (optional) is the EXACT governed Bronze source enumeration — ``{"bronzeManifestSha256", "sources":
+    [{partitionId, source, relativePath, fileSha256, status, rowCount}, ...], "accounting": {...}}`` — bound into the
+    transformation receipt (and therefore into the object's content address) so the object identifies its precise
+    governed inputs by id + hash rather than any aggregate label. When given, ``sourcePartitionIds`` is derived from it."""
     silver_root = Path(silver_root)
     contained_no_reparse(_silver_tables_root(silver_root), [silver_root])       # D6 containment first
     contained_no_reparse(_registrations_root(silver_root), [silver_root])
@@ -137,6 +143,8 @@ def publish_silver_table(*, silver_root: Path, contract: Mapping[str, Any], rows
     if any(s in (2025, 2026) for s in seasons):
         raise SilverTablePublishError(f"SEAL VIOLATION: {name} declares a sealed season {seasons}")
     natural_key = list(contract.get("naturalKey", []))
+    if source_inputs is not None:
+        source_partition_ids = sorted(str(s["partitionId"]) for s in source_inputs.get("sources", []))
 
     table = _rows_to_table(rows, field_order)
     obj_bytes = _object_bytes(table)
@@ -157,6 +165,8 @@ def publish_silver_table(*, silver_root: Path, contract: Mapping[str, Any], rows
         "rowCount": table.num_rows, "seasons": seasons, "fieldOrder": list(field_order),
         **CT.QUARANTINE_STATE,
     }
+    if source_inputs is not None:
+        receipt_body["governedSourceInputs"] = dict(source_inputs)
     receipt_bytes = canonical_json_bytes(receipt_body)
     receipt_sha = sha256_bytes(receipt_bytes)
 
@@ -330,6 +340,96 @@ def verify_partitioned_silver_table(silver_root: Path, manifest_sha: str) -> dic
         raise SilverTablePublishError("partitioned object must remain QUARANTINED / not model-eligible")
     return {"tableName": manifest["tableName"], "manifestSha256": manifest_sha, "rowCount": total,
             "childCount": len(manifest["children"]), "seasons": manifest["seasons"], "quarantine": manifest["quarantine"]}
+
+
+# --------------------------------------------------------------------------- lineage regeneration (metadata only)
+def read_silver_table(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
+    """Read an EXISTING verified single-table Silver object back into (rows, fieldOrder, contract) so its immutable
+    lineage can be regenerated WITHOUT reprocessing Bronze. Read-only."""
+    import json
+    silver_root = Path(silver_root)
+    final = contained_no_reparse(_silver_tables_root(silver_root) / manifest_sha, [_silver_tables_root(silver_root)])
+    receipt = json.loads((final / "transformation-receipt.json").read_bytes().decode("utf-8"))
+    contract = json.loads((final / "table-contract.json").read_bytes().decode("utf-8"))
+    field_order = list(receipt["fieldOrder"])
+    table = pq.read_table(pa.BufferReader((final / "object.parquet").read_bytes()))
+    rows = [{k: table.column(k)[i].as_py() for k in field_order} for i in range(table.num_rows)]
+    return {"rows": rows, "fieldOrder": field_order, "contract": contract,
+            "valueDigestSha256": receipt["valueDigestSha256"], "outputPhysicalSha256": receipt["outputPhysicalSha256"]}
+
+
+def regenerate_partitioned_silver_table(*, silver_root: Path, old_manifest_sha: str, contract: Mapping[str, Any],
+                                        code_modules, source_inputs: Mapping[str, Any],
+                                        child_source_id_fn=None) -> dict[str, Any]:
+    """Publish a NEW immutable PARTITIONED object that reuses the EXISTING verified child bytes unchanged but carries
+    corrected lineage (exact ``governedSourceInputs`` + optionally corrected per-child ``sourcePartitionId`` via
+    ``child_source_id_fn(partitionKey, oldSourceId)->newSourceId``). Child bytes / shas / row counts / seasons are never
+    touched, so the normalized values are provably identical; only the manifest (and hence the content address) changes.
+    Never edits an object in place — a new manifest SHA is a new object."""
+    import json, shutil
+    silver_root = Path(silver_root)
+    name = contract["tableName"]
+    seasons = sorted(int(s) for s in contract.get("seasons", []))
+    if any(s in (2025, 2026) for s in seasons):
+        raise SilverTablePublishError(f"SEAL VIOLATION: {name} declares a sealed season {seasons}")
+    proot = _partitioned_root(silver_root)
+    old_dir = contained_no_reparse(proot / old_manifest_sha, [proot])
+    old_manifest = json.loads((old_dir / "manifest.json").read_bytes().decode("utf-8"))
+    field_order = list(old_manifest["fieldOrder"])
+    contract_bytes = canonical_json_bytes(dict(contract))
+    contract_sha = sha256_bytes(contract_bytes)
+    code = _normalization_code_digest(code_modules)
+
+    children = []
+    for c in old_manifest["children"]:
+        new_src = child_source_id_fn(c["partitionKey"], c["sourcePartitionId"]) if child_source_id_fn else c["sourcePartitionId"]
+        children.append({"partitionKey": c["partitionKey"], "childSha256": c["childSha256"], "bytes": c["bytes"],
+                         "rowCount": c["rowCount"], "seasons": c["seasons"], "sourcePartitionId": new_src})
+    children.sort(key=lambda c: (c["partitionKey"], c["childSha256"]))
+    total_rows = sum(int(c["rowCount"]) for c in children)
+    manifest_body = {
+        "manifestContract": SILVER_PARTITIONED_MANIFEST, "tableName": name, "schemaVersion": contract["schemaVersion"],
+        **CT.QUARANTINE_STATE, "tableContractSha256": contract_sha,
+        "bronzeManifestSha256": BA.EXPECTED_BRONZE_MANIFEST_SHA256, "identityBridgeVersion": IDENTITY_BRIDGE_VERSION,
+        "normalizationCode": code, "fieldOrder": field_order, "seasons": seasons,
+        "totalRowCount": total_rows, "childCount": len(children),
+        "sourcePartitionIds": sorted({c["sourcePartitionId"] for c in children}),
+        "governedSourceInputs": dict(source_inputs), "children": children,
+    }
+    manifest_bytes = canonical_json_bytes(manifest_body)
+    manifest_sha = sha256_bytes(manifest_bytes)
+    final = contained_no_reparse(proot / manifest_sha, [proot])
+    if not final.exists():
+        staging = proot / f".staging-{uuid.uuid4().hex}"
+        (staging / "children").mkdir(parents=True, exist_ok=True)
+        for c in children:                                  # reuse the EXISTING verified child bytes (no reprocessing)
+            src = old_dir / "children" / f"{c['childSha256']}.parquet"
+            b = src.read_bytes()
+            if sha256_bytes(b) != c["childSha256"]:
+                raise SilverTablePublishError(f"source child {c['childSha256'][:12]} no longer matches its address")
+            (staging / "children" / f"{c['childSha256']}.parquet").write_bytes(b)
+        (staging / "manifest.json").write_bytes(manifest_bytes)
+        try:
+            os.replace(staging, final)
+        except OSError:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            if not final.exists():
+                raise SilverTablePublishError("regenerated partitioned publish could not atomically promote")
+
+    dsid = f"silver-table:{name}:sha256:{manifest_sha}"
+    reg_body = {"recordContract": SILVER_TABLE_REGISTRATION, "recordVersion": "1.0.0", "datasetVersionId": dsid,
+                "tableName": name, "publicationManifestSha256": manifest_sha, "tableContractSha256": contract_sha,
+                "bronzeManifestSha256": BA.EXPECTED_BRONZE_MANIFEST_SHA256, "rowCount": total_rows, "seasons": seasons,
+                "childCount": len(children), "partitioned": True, **CT.QUARANTINE_STATE}
+    reg_bytes = canonical_json_bytes(reg_body)
+    registration_sha = sha256_bytes(reg_bytes)
+    _write_addressed(_registrations_root(silver_root), registration_sha, reg_bytes, silver_root)
+    _locked_put(silver_root, dsid, {"registrationSha256": registration_sha})
+    verify_partitioned_silver_table(silver_root, manifest_sha)
+    return {"datasetVersionId": dsid, "tableName": name, "manifestSha256": manifest_sha,
+            "registrationSha256": registration_sha, "rowCount": total_rows, "childCount": len(children),
+            "seasons": seasons, **CT.QUARANTINE_STATE}
 
 
 def _atomic_publish_children(objects_root: Path, final: Path, children: Mapping[str, bytes]) -> None:

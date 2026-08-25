@@ -1,0 +1,494 @@
+{
+  "schemaVersion": "PHASE_7B1_GAME_RECONCILIATION_V2",
+  "note": "Corrected Phase 7B1 reconciliation. Statcast-only games split truthfully by Retrosheet evidence; all fail-closed.",
+  "bronzeManifestSha256": "fe3d5fb7949861949591a601f5b30c03a5f3eef9c4e80b889995026569b20e4a",
+  "bronzeImmutable": true,
+  "statcastPartitionAccounting": {
+    "statcastTotalPartitions": 2196,
+    "rowContributingPartitions": 1120,
+    "completeEmptyPartitions": 1076,
+    "reconciles": true
+  },
+  "gameReconciliation": {
+    "dimGameStatusCounts": {
+      "STATCAST_ONLY": 281,
+      "MATCHED_EXACT": 12993,
+      "AMBIGUOUS": 22
+    },
+    "statcastOnlyTotal": 281,
+    "statcastOnlyPostseason": 251,
+    "statcastOnlyRegularSeason": 30,
+    "statcastOnlyReasonTally": {
+      "RETROSHEET_SOURCE_ABSENT": 251,
+      "SOURCE_CONFLICT": 30
+    },
+    "regularSeasonStatcastOnly": [
+      {
+        "mlbamGamePk": "630916",
+        "gameDate": "2020-07-29",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "TOR",
+        "awayTeam": "WSH",
+        "mappedRetroHome": "TOR",
+        "mappedRetroAway": "WAS",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "630917",
+        "gameDate": "2020-07-30",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "TOR",
+        "awayTeam": "WSH",
+        "mappedRetroHome": "TOR",
+        "mappedRetroAway": "WAS",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "631220",
+        "gameDate": "2020-08-05",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "NYY",
+        "awayTeam": "PHI",
+        "mappedRetroHome": "NYA",
+        "mappedRetroAway": "PHI",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631339",
+        "gameDate": "2020-08-05",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "MIA",
+        "awayTeam": "BAL",
+        "mappedRetroHome": "MIA",
+        "mappedRetroAway": "BAL",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631340",
+        "gameDate": "2020-08-06",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "MIA",
+        "awayTeam": "BAL",
+        "mappedRetroHome": "MIA",
+        "mappedRetroAway": "BAL",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "630996",
+        "gameDate": "2020-08-17",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "STL",
+        "awayTeam": "CHC",
+        "mappedRetroHome": "SLN",
+        "mappedRetroAway": "CHN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "630997",
+        "gameDate": "2020-08-19",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "STL",
+        "awayTeam": "CHC",
+        "mappedRetroHome": "SLN",
+        "mappedRetroAway": "CHN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631341",
+        "gameDate": "2020-08-22",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "MIA",
+        "awayTeam": "WSH",
+        "mappedRetroHome": "MIA",
+        "mappedRetroAway": "WAS",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631323",
+        "gameDate": "2020-08-25",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "MIA",
+        "awayTeam": "NYM",
+        "mappedRetroHome": "MIA",
+        "mappedRetroAway": "NYN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631230",
+        "gameDate": "2020-08-28",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "NYM",
+        "awayTeam": "NYY",
+        "mappedRetroHome": "NYN",
+        "mappedRetroAway": "NYA",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631229",
+        "gameDate": "2020-08-30",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "NYM",
+        "awayTeam": "NYY",
+        "mappedRetroHome": "NYN",
+        "mappedRetroAway": "NYA",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631602",
+        "gameDate": "2020-09-04",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "CIN",
+        "awayTeam": "PIT",
+        "mappedRetroHome": "CIN",
+        "mappedRetroAway": "PIT",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "630865",
+        "gameDate": "2020-09-04",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "TOR",
+        "awayTeam": "BOS",
+        "mappedRetroHome": "TOR",
+        "mappedRetroAway": "BOS",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631456",
+        "gameDate": "2020-09-04",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "DET",
+        "awayTeam": "MIN",
+        "mappedRetroHome": "DET",
+        "mappedRetroAway": "MIN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631440",
+        "gameDate": "2020-09-05",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "HOU",
+        "awayTeam": "LAA",
+        "mappedRetroHome": "HOU",
+        "mappedRetroAway": "ANA",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "630998",
+        "gameDate": "2020-09-05",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "STL",
+        "awayTeam": "CHC",
+        "mappedRetroHome": "SLN",
+        "mappedRetroAway": "CHN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631429",
+        "gameDate": "2020-09-08",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "HOU",
+        "awayTeam": "ATH",
+        "mappedRetroHome": "HOU",
+        "mappedRetroAway": "OAK",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631032",
+        "gameDate": "2020-09-16",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "SF",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "SFN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "631034",
+        "gameDate": "2020-09-17",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "SF",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "SFN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "630953",
+        "gameDate": "2020-09-17",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "TB",
+        "awayTeam": "BAL",
+        "mappedRetroHome": "TBA",
+        "mappedRetroAway": "BAL",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "630907",
+        "gameDate": "2020-09-18",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "TOR",
+        "awayTeam": "PHI",
+        "mappedRetroHome": "TOR",
+        "mappedRetroAway": "PHI",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631040",
+        "gameDate": "2020-09-18",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "SD",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "SDN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "630987",
+        "gameDate": "2020-09-18",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "STL",
+        "awayTeam": "PIT",
+        "mappedRetroHome": "SLN",
+        "mappedRetroAway": "PIT",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631036",
+        "gameDate": "2020-09-19",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "SD",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "SDN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "631037",
+        "gameDate": "2020-09-20",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "SD",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "SDN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 1
+      },
+      {
+        "mlbamGamePk": "631292",
+        "gameDate": "2020-09-25",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "MIL",
+        "awayTeam": "STL",
+        "mappedRetroHome": "MIL",
+        "mappedRetroAway": "SLN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631059",
+        "gameDate": "2020-09-25",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SD",
+        "awayTeam": "SF",
+        "mappedRetroHome": "SDN",
+        "mappedRetroAway": "SFN",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "631055",
+        "gameDate": "2020-09-26",
+        "season": "2020",
+        "gameType": "R",
+        "homeTeam": "SEA",
+        "awayTeam": "ATH",
+        "mappedRetroHome": "SEA",
+        "mappedRetroAway": "OAK",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "632208",
+        "gameDate": "2021-08-10",
+        "season": "2021",
+        "gameType": "R",
+        "homeTeam": "TOR",
+        "awayTeam": "LAA",
+        "mappedRetroHome": "TOR",
+        "mappedRetroAway": "ANA",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      },
+      {
+        "mlbamGamePk": "662412",
+        "gameDate": "2022-05-10",
+        "season": "2022",
+        "gameType": "R",
+        "homeTeam": "ATH",
+        "awayTeam": "DET",
+        "mappedRetroHome": "OAK",
+        "mappedRetroAway": "DET",
+        "sourceReason": "SOURCE_CONFLICT",
+        "retroGameSameDateReversed": 2
+      }
+    ]
+  },
+  "objectLineage": [
+    {
+      "table": "bridge_game_identity",
+      "newManifestSha256": "69e6e71d47fabca688c93ef351189e1de1a61cbd95995bf2612eddba5dfd4882",
+      "governedSourceCount": 2202,
+      "rowCount": 13296,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "bridge_player_identity",
+      "newManifestSha256": "99737a03c3d7dfe3a9ac22a7491d0f6d91614c4cad47f7c46775e8341114a58c",
+      "governedSourceCount": 16,
+      "rowCount": 200340,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "dim_game",
+      "newManifestSha256": "1afa766640c202742f270184b81a26056080c79a2a726279e1cb961b7e78e456",
+      "governedSourceCount": 2202,
+      "rowCount": 13296,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "dim_park",
+      "newManifestSha256": "07ffe792ea08e6ffd6a92c872cc3ab805cf87aed06fc8714e9dd1dcfbab64ccb",
+      "governedSourceCount": 6,
+      "rowCount": 42,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "dim_player",
+      "newManifestSha256": "ab06c88e7d4fa6e78b397c8a4dfbbc2c8a21a51c03f50fd78ee49de232fb0aaf",
+      "governedSourceCount": 16,
+      "rowCount": 518743,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "dim_team",
+      "newManifestSha256": "2a758bdc3f9949bd5c89cc9eb3e2552741e84ce93558cc0f746d4a6db2a928cf",
+      "governedSourceCount": 2202,
+      "rowCount": 30,
+      "childCount": null,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_lineup_participation",
+      "newManifestSha256": "64131c1fc5dc2162c3f4cda36bb2742d8e6d9fb28db2137348298cb2fdd86a2f",
+      "governedSourceCount": 6,
+      "rowCount": 405825,
+      "childCount": 6,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_player_game",
+      "newManifestSha256": "1f75f15e26874456ea8e801eb1d5653951d90cf30d06fc500fdf014a31e711b9",
+      "governedSourceCount": 6,
+      "rowCount": 254932,
+      "childCount": 6,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_retrosheet_event",
+      "newManifestSha256": "3dd5c3c15a7240910450a0bf7fb68d64a0be0683f4e3b98da8d8a0fd172ca35a",
+      "governedSourceCount": 6,
+      "rowCount": 1195784,
+      "childCount": 6,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_statcast_pitch",
+      "newManifestSha256": "277beb8a17e18e82a8072ee97424d3c874cd9384f5d773ea0bef90902c155caa",
+      "governedSourceCount": 2196,
+      "rowCount": 3929155,
+      "childCount": 1120,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_statcast_plate_appearance",
+      "newManifestSha256": "82509a89811d80933c4f2fe2c4a85480079b5c7c347150a19e742fa3fcad0a89",
+      "governedSourceCount": 2196,
+      "rowCount": 1004460,
+      "childCount": 1120,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_team_game",
+      "newManifestSha256": "99f45f101c504a1294800196ff1b24b3f54c6ca9f2f9019979db99f2ba7dcb72",
+      "governedSourceCount": 6,
+      "rowCount": 25986,
+      "childCount": 6,
+      "valueDigestPreserved": true
+    },
+    {
+      "table": "fact_umpire_game",
+      "newManifestSha256": "645de94ed04541fdaec80053121a21b8e8b2d1ac5b81972255c7ee1a67a936c9",
+      "governedSourceCount": 6,
+      "rowCount": 73100,
+      "childCount": 6,
+      "valueDigestPreserved": true
+    }
+  ]
+}

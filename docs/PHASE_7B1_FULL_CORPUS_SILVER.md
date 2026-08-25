@@ -39,11 +39,31 @@ accepted Phase 7D.5A immutable-publication authority:
 - **Retrosheet facts:** 1,195,784 events / 405,825 lineup / 73,100 umpire / 25,986 team-game / 254,932 player-game
   (every fact bound to a canonical game; unresolved batter = 0).
 
-### Source-coverage boundary (honest, not a tooling gap)
-The landed Retrosheet Bronze is **regular-season 2019–2024** (13,045 games; event zips contain only regular-season
-`.EVA/.EVN`). The 281 `STATCAST_ONLY` games are **postseason** (types D/L/W/F) with no Retrosheet counterpart in the
-landed corpus — their Statcast pitch/PA facts are fully normalized; only the retro cross-reference is source-bounded.
-The 22 `AMBIGUOUS` are 2020 COVID-season doubleheader/reschedule cardinality mismatches, correctly left unmatched.
+### Statcast-only games — truthful, evidence-based split (corrected)
+The 281 `STATCAST_ONLY` games are **not** all postseason. They divide exactly, by Retrosheet evidence, into:
+
+- **251 postseason** (types D/F/L/W) → `RETROSHEET_SOURCE_ABSENT`: the landed Retrosheet Bronze is **regular-season
+  only** (13,045 games; event zips contain only the 30 regular-season `.EVA/.EVN` files), so no Retrosheet game exists
+  on those postseason dates. Their Statcast pitch/PA facts are fully normalized; only the retro cross-reference is
+  source-absent.
+- **30 regular-season** (28 in 2020, 1 in 2021, 1 in 2022) → `SOURCE_CONFLICT`: for each, a Retrosheet game **does
+  exist on the same date with the same two teams**, but with **home/away reversed** (2020 relocated "home" games —
+  Toronto barred from Canada, wildfire-smoke moves, etc.). Statcast and Retrosheet disagree on the home/away fact, so
+  the bridge correctly does **not** force a match.
+
+Both reasons are fail-closed (never fabricated). The 22 `AMBIGUOUS` are 2020 COVID-season doubleheader/reschedule
+cardinality mismatches, likewise left unmatched. Per-game classification of the 30 regular games is in
+[phase7b1_reconciliation.json](phase7b1_reconciliation.json) (`PHASE_7B1_GAME_RECONCILIATION_V2`).
+
+### Exact governed source lineage (corrected — no aggregate labels)
+Every one of the 13 Silver objects binds its **exact** governed Bronze inputs by partition/archive/shard id + SHA
+(never a `statcast`/`retrosheet`/`chadwick-schedule`/year-only label): Chadwick objects → the 16 shard ids;
+Retrosheet-event facts → the 6 `retrosheet/events/{y}eve` archive ids; `fact_team_game` → the 6
+`retrosheet/game-logs/gl{y}` archive ids; Statcast facts → all **2,196** partition ids. Each Statcast-sourced object
+also carries the full partition accounting **2,196 = 1,120 row-contributing + 1,076 `COMPLETE_EMPTY` (rowCount 0)**.
+These corrections were regenerated as metadata against the existing verified normalized outputs — the 3.9M pitches were
+never reprocessed, no immutable object was edited in place (each correction is a new content address), and every
+regenerated object's value digest is byte-identical to its original (row values unchanged).
 
 ## C. Published Silver objects (13, all QUARANTINED, independently re-verified)
 

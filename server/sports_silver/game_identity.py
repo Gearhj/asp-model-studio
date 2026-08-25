@@ -19,9 +19,58 @@ RETROSHEET_ONLY = "RETROSHEET_ONLY"
 AMBIGUOUS = "AMBIGUOUS"
 SOURCE_CONFLICT = "SOURCE_CONFLICT"
 
+# Evidence-based reasons for why a Statcast game has no 1:1 Retrosheet counterpart (all fail-closed — never force-matched)
+RETROSHEET_SOURCE_ABSENT = "RETROSHEET_SOURCE_ABSENT"   # the Retrosheet source has no game for this date/matchup at all
+UNRESOLVED_SOURCE_GAP = "UNRESOLVED_SOURCE_GAP"         # the teams meet in Retrosheet but this game is not resolvable
+
 
 def _normdate(v) -> str:
     return "".join(ch for ch in str(v) if ch.isdigit())
+
+
+def classify_statcast_only(statcast_only_games, retro_games, team_map) -> dict[str, Any]:
+    """Assign each STATCAST_ONLY game an EXACT, evidence-based reason from the landed Retrosheet source (no guessing,
+    no forced match):
+      * SOURCE_CONFLICT          — a Retrosheet game exists for the SAME date + teams but with home/away REVERSED
+                                   (the sources disagree on the home/away fact; e.g. 2020 relocated 'home' games);
+      * RETROSHEET_SOURCE_ABSENT — the Retrosheet source has no game on that date (postseason not in the landed
+                                   regular-season corpus) or never records those two teams meeting that season;
+      * UNRESOLVED_SOURCE_GAP    — the teams meet in Retrosheet that season but this specific game is not resolvable.
+    ``team_map`` maps Statcast code -> Retrosheet code. Returns per-game reasons + a tally. Pure/deterministic."""
+    from collections import Counter
+    retro_games = list(retro_games)
+    ordered = Counter()      # (date, retroHome, retroVis)
+    on_date = Counter()      # date -> count
+    pair_season = Counter()  # (season, frozenset(teams))
+    for r in retro_games:
+        d = _normdate(r.get("gameDate"))
+        ordered[(d, r.get("retroHomeTeam"), r.get("retroVisTeam"))] += 1
+        on_date[d] += 1
+        pair_season[(d[:4], frozenset((r.get("retroHomeTeam"), r.get("retroVisTeam"))))] += 1
+
+    per_game: list[dict[str, Any]] = []
+    tally: Counter = Counter()
+    for g in statcast_only_games:
+        d = _normdate(g.get("gameDate"))
+        H = team_map.get(g.get("homeTeam"))
+        A = team_map.get(g.get("awayTeam"))
+        if H is None or A is None:
+            reason = UNRESOLVED_SOURCE_GAP
+        elif ordered[(d, A, H)] > 0:
+            reason = SOURCE_CONFLICT                    # same date+teams, home/away reversed in Retrosheet
+        elif on_date[d] == 0 or pair_season[(d[:4], frozenset((H, A)))] == 0:
+            reason = RETROSHEET_SOURCE_ABSENT           # Retrosheet source does not cover this date/matchup
+        else:
+            reason = UNRESOLVED_SOURCE_GAP
+        tally[reason] += 1
+        per_game.append({"mlbamGamePk": g.get("mlbamGamePk"), "gameDate": g.get("gameDate"),
+                         "season": g.get("season"), "gameType": g.get("gameType"),
+                         "homeTeam": g.get("homeTeam"), "awayTeam": g.get("awayTeam"),
+                         "mappedRetroHome": H, "mappedRetroAway": A, "sourceReason": reason,
+                         "retroGameSameDateReversed": int(ordered[(d, A, H)]) if H and A else 0})
+    return {"perGame": per_game, "tally": dict(tally),
+            "postseasonCount": sum(1 for g in statcast_only_games if g.get("gameType") not in (None, "R")),
+            "regularSeasonCount": sum(1 for g in statcast_only_games if g.get("gameType") == "R")}
 
 
 @dataclass
