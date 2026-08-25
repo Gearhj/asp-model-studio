@@ -101,9 +101,11 @@ def dim_team_contract(seasons: list[int]) -> dict[str, Any]:
     return table_contract(
         name="dim_team", schema_version="1.0.0", natural_key=["canonicalTeamId"],
         canonical_id_fields=["canonicalTeamId"], required=["canonicalTeamId", "teamAbbrev"],
-        nullable=["aliases"], source_systems=["statcast"], seasons=seasons,
-        row_semantics="one canonical team (2019-2024 window)", temporal_semantics="identity; no event time",
-        field_classes={"canonicalTeamId": IDENTITY, "teamAbbrev": IDENTITY, "aliases": SOURCE_LINEAGE})
+        nullable=["aliases", "retroTeamCode", "nickname", "city"], source_systems=["statcast", "retrosheet"], seasons=seasons,
+        row_semantics="one canonical team (2019-2024 window) keyed by the Statcast abbrev, carrying the derived "
+                      "Retrosheet code + nickname/city evidence", temporal_semantics="identity; no event time",
+        field_classes={"canonicalTeamId": IDENTITY, "teamAbbrev": IDENTITY, "retroTeamCode": IDENTITY,
+                       "aliases": SOURCE_LINEAGE, "nickname": SOURCE_LINEAGE, "city": SOURCE_LINEAGE})
 
 
 def fact_statcast_pitch_contract(seasons: list[int]) -> dict[str, Any]:
@@ -127,6 +129,102 @@ def fact_statcast_pitch_contract(seasons: list[int]) -> dict[str, Any]:
         temporal_semantics="events/description/des are EVENT_RESULT and MUST NOT be used as pre-event predictors",
         field_classes=fc,
         limitations=["Statcast historical CSV has no true publication/knowledge timestamps; knowledge time unavailable"])
+
+
+def bridge_game_identity_contract(seasons: list[int]) -> dict[str, Any]:
+    return table_contract(
+        name="bridge_game_identity", schema_version="1.0.0",
+        natural_key=["canonicalGameId"], canonical_id_fields=["canonicalGameId"],
+        required=["canonicalGameId", "mlbamGamePk", "gameDate", "homeTeam", "awayTeam", "resolutionStatus", "resolutionMethod"],
+        nullable=["retrosheetGameId"], source_systems=["statcast", "retrosheet"], seasons=seasons,
+        row_semantics="one canonical game -> (statcast game_pk, retrosheet game id) with reconciliation state",
+        temporal_semantics="identity; gameDate is EVENT_CONTEXT; no outcome used as identity",
+        field_classes={"canonicalGameId": IDENTITY, "mlbamGamePk": IDENTITY, "retrosheetGameId": IDENTITY,
+                       "gameDate": EVENT_CONTEXT, "homeTeam": EVENT_CONTEXT, "awayTeam": EVENT_CONTEXT,
+                       "resolutionStatus": SOURCE_LINEAGE, "resolutionMethod": SOURCE_LINEAGE})
+
+
+def dim_park_contract(seasons: list[int]) -> dict[str, Any]:
+    return table_contract(
+        name="dim_park", schema_version="1.0.0", natural_key=["retroParkId"], canonical_id_fields=["canonicalParkId"],
+        required=["canonicalParkId", "retroParkId"], nullable=["seasons"], source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one canonical park from Retrosheet game site ids",
+        temporal_semantics="identity; no event time",
+        field_classes={"canonicalParkId": IDENTITY, "retroParkId": IDENTITY, "seasons": SOURCE_LINEAGE})
+
+
+def fact_retrosheet_event_contract(seasons: list[int]) -> dict[str, Any]:
+    ident = ["canonicalGameId", "retroGameId", "eventSequence", "retroBatterId", "batterCanonicalPlayerId"]
+    ctx = ["season", "inning", "half", "count"]
+    result = ["eventText"]
+    lineage = ["pitches", "sourceArchive", "sourceMember", "sourceLine"]
+    fc = {f: IDENTITY for f in ident}; fc.update({f: EVENT_CONTEXT for f in ctx})
+    fc.update({f: EVENT_RESULT for f in result}); fc.update({f: SOURCE_LINEAGE for f in lineage})
+    return table_contract(
+        name="fact_retrosheet_event", schema_version="1.0.0",
+        natural_key=["retroGameId", "eventSequence"], canonical_id_fields=["canonicalGameId"],
+        required=ident + ctx + lineage, nullable=result, source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one Retrosheet play/event in source sequence order, bound to canonical game/batter",
+        temporal_semantics="eventText is EVENT_RESULT; sequence is source order (not a fabricated identity)",
+        field_classes=fc, limitations=["batterCanonicalPlayerId null when the retro id is unresolved/ambiguous"])
+
+
+def fact_lineup_participation_contract(seasons: list[int]) -> dict[str, Any]:
+    ident = ["canonicalGameId", "retroGameId", "retroPlayerId", "playerCanonicalPlayerId", "recordType"]
+    ctx = ["season", "homeAway", "battingOrder", "fieldPosition"]
+    lineage = ["playerName", "sourceArchive", "sourceMember", "sourceLine"]
+    fc = {f: IDENTITY for f in ident}; fc.update({f: EVENT_CONTEXT for f in ctx}); fc.update({f: SOURCE_LINEAGE for f in lineage})
+    return table_contract(
+        name="fact_lineup_participation", schema_version="1.0.0",
+        natural_key=["retroGameId", "retroPlayerId", "recordType", "battingOrder", "fieldPosition"],
+        canonical_id_fields=["canonicalGameId", "playerCanonicalPlayerId"],
+        required=ident + ctx + lineage, nullable=[], source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one starting-lineup or substitution participation record bound to canonical game/player",
+        temporal_semantics="participation identity; no outcome", field_classes=fc,
+        limitations=["playerCanonicalPlayerId null when the retro id is unresolved/ambiguous"])
+
+
+def fact_umpire_game_contract(seasons: list[int]) -> dict[str, Any]:
+    ident = ["canonicalGameId", "retroGameId", "umpirePosition", "retroUmpireId", "umpireCanonicalPlayerId"]
+    ctx = ["season"]
+    lineage = ["sourceArchive", "sourceMember"]
+    fc = {f: IDENTITY for f in ident}; fc.update({f: EVENT_CONTEXT for f in ctx}); fc.update({f: SOURCE_LINEAGE for f in lineage})
+    return table_contract(
+        name="fact_umpire_game", schema_version="1.0.0",
+        natural_key=["retroGameId", "umpirePosition"], canonical_id_fields=["canonicalGameId"],
+        required=ident + ctx + lineage, nullable=[], source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one umpire assignment per (game, position)", temporal_semantics="assignment identity",
+        field_classes=fc, limitations=["umpireCanonicalPlayerId null when the retro umpire id is not in the register"])
+
+
+def fact_team_game_contract(seasons: list[int]) -> dict[str, Any]:
+    ident = ["canonicalGameId", "retroGameId", "canonicalTeamId", "retroTeamCode", "homeAway"]
+    ctx = ["season", "gameDate", "gameNumber", "retroOpponentCode", "parkId"]
+    result = ["runsScored", "runsAllowed"]
+    lineage = ["retroManagerId", "sourceArchive", "sourceMember", "sourceLine"]
+    fc = {f: IDENTITY for f in ident}; fc.update({f: EVENT_CONTEXT for f in ctx})
+    fc.update({f: POST_EVENT_RESULT for f in result}); fc.update({f: SOURCE_LINEAGE for f in lineage})
+    return table_contract(
+        name="fact_team_game", schema_version="1.0.0",
+        natural_key=["retroGameId", "homeAway"], canonical_id_fields=["canonicalGameId", "canonicalTeamId"],
+        required=ident + ctx + lineage, nullable=result, source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one team's participation + historical outcome in a game (Retrosheet game-log)",
+        temporal_semantics="runsScored/runsAllowed are POST_EVENT_RESULT historical facts, NOT pregame predictors",
+        field_classes=fc)
+
+
+def fact_player_game_contract(seasons: list[int]) -> dict[str, Any]:
+    ident = ["canonicalGameId", "canonicalPlayerId", "canonicalTeamId", "retroGameId"]
+    ctx = ["season", "homeAway", "startedGame", "battingOrder", "fieldPosition"]
+    lineage = ["retroPlayerId", "sourceArchive", "sourceMember"]
+    fc = {f: IDENTITY for f in ident}; fc.update({f: EVENT_CONTEXT for f in ctx}); fc.update({f: SOURCE_LINEAGE for f in lineage})
+    return table_contract(
+        name="fact_player_game", schema_version="1.0.0",
+        natural_key=["retroGameId", "canonicalPlayerId"], canonical_id_fields=["canonicalGameId", "canonicalPlayerId"],
+        required=ident + ctx + lineage, nullable=[], source_systems=["retrosheet"], seasons=seasons,
+        row_semantics="one player's participation in a game (start/role) from Retrosheet lineups",
+        temporal_semantics="participation identity; not a pregame feature", field_classes=fc,
+        limitations=["only players with a resolved canonical identity are included; unresolved go to the reject artifact"])
 
 
 def fact_statcast_plate_appearance_contract(seasons: list[int]) -> dict[str, Any]:

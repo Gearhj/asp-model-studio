@@ -199,6 +199,139 @@ def publish_silver_table(*, silver_root: Path, contract: Mapping[str, Any], rows
             "rowCount": table.num_rows, "seasons": seasons, **CT.QUARANTINE_STATE}
 
 
+SILVER_PARTITIONED_MANIFEST = "MLB_SILVER_PARTITIONED_TABLE_MANIFEST_V1"
+
+
+def _partitioned_root(silver_root: Path) -> Path:
+    return Path(silver_root) / "partitioned"
+
+
+def publish_partitioned_silver_table(*, silver_root: Path, contract: Mapping[str, Any], partitions_iter,
+                                     bronze_manifest: Mapping[str, Any], code_modules, field_order) -> dict[str, Any]:
+    """Publish a large table as an immutable PARTITIONED object: each ``(partition_key, source_partition_id, rows)``
+    from ``partitions_iter`` is serialized to an immutable content-addressed child; a table-level manifest then binds the
+    ORDERED child inventory (child sha, bytes, rows, seasons, source partition) + total row count + full lineage, and is
+    itself content-addressed with an immutable registration record. Bounded memory (one partition at a time); no partial
+    child set is ever registered COMPLETE. Rebuilding identical Bronze yields the identical table manifest (idempotent)."""
+    silver_root = Path(silver_root)
+    name = contract["tableName"]
+    seasons = sorted(int(s) for s in contract.get("seasons", []))
+    if any(s in (2025, 2026) for s in seasons):
+        raise SilverTablePublishError(f"SEAL VIOLATION: {name} declares a sealed season {seasons}")
+    contract_bytes = canonical_json_bytes(dict(contract))
+    contract_sha = sha256_bytes(contract_bytes)
+    code = _normalization_code_digest(code_modules)
+    proot = _partitioned_root(silver_root)
+    contained_no_reparse(proot, [silver_root])
+    staging = proot / f".staging-{uuid.uuid4().hex}"
+    staging.mkdir(parents=True, exist_ok=True)
+    children: list[dict[str, Any]] = []
+    total_rows = 0
+    source_partition_ids: set[str] = set()
+    try:
+        for partition_key, source_partition_id, rows in partitions_iter:
+            table = _rows_to_table(rows, field_order)
+            child_bytes = _object_bytes(table)
+            child_sha = sha256_bytes(child_bytes)
+            (staging / f"{child_sha}.parquet").write_bytes(child_bytes)
+            child_seasons = sorted({str(r.get("season")) for r in rows if r.get("season") is not None})
+            children.append({"partitionKey": partition_key, "childSha256": child_sha, "bytes": len(child_bytes),
+                             "rowCount": table.num_rows, "seasons": child_seasons,
+                             "sourcePartitionId": source_partition_id})
+            total_rows += table.num_rows
+            source_partition_ids.add(source_partition_id)
+        children.sort(key=lambda c: (c["partitionKey"], c["childSha256"]))
+        manifest_body = {
+            "manifestContract": SILVER_PARTITIONED_MANIFEST, "tableName": name, "schemaVersion": contract["schemaVersion"],
+            **CT.QUARANTINE_STATE, "tableContractSha256": contract_sha,
+            "bronzeManifestSha256": BA.EXPECTED_BRONZE_MANIFEST_SHA256, "identityBridgeVersion": IDENTITY_BRIDGE_VERSION,
+            "normalizationCode": code, "fieldOrder": list(field_order), "seasons": seasons,
+            "totalRowCount": total_rows, "childCount": len(children),
+            "sourcePartitionIds": sorted(source_partition_ids), "children": children,
+        }
+        manifest_bytes = canonical_json_bytes(manifest_body)
+        manifest_sha = sha256_bytes(manifest_bytes)
+        final = contained_no_reparse(proot / manifest_sha, [proot])
+        if not final.exists():
+            (staging / "manifest.json").write_bytes(manifest_bytes)
+            (staging / "children").mkdir(exist_ok=True)
+            for c in children:
+                src = staging / f"{c['childSha256']}.parquet"
+                if src.exists():
+                    src.rename(staging / "children" / f"{c['childSha256']}.parquet")
+            # only-now atomically promote the COMPLETE object
+            try:
+                os.replace(staging, final)
+                staging_promoted = True
+            except OSError:
+                staging_promoted = False
+            if not staging_promoted and not final.exists():
+                raise SilverTablePublishError("partitioned publish could not atomically promote the complete object")
+    finally:
+        if staging.exists():
+            import shutil
+            shutil.rmtree(staging, ignore_errors=True)
+
+    dsid = f"silver-table:{name}:sha256:{manifest_sha}"
+    reg_body = {"recordContract": SILVER_TABLE_REGISTRATION, "recordVersion": "1.0.0", "datasetVersionId": dsid,
+                "tableName": name, "publicationManifestSha256": manifest_sha, "tableContractSha256": contract_sha,
+                "bronzeManifestSha256": BA.EXPECTED_BRONZE_MANIFEST_SHA256, "rowCount": total_rows, "seasons": seasons,
+                "childCount": len(children), "partitioned": True, **CT.QUARANTINE_STATE}
+    reg_bytes = canonical_json_bytes(reg_body)
+    registration_sha = sha256_bytes(reg_bytes)
+    _write_addressed(_registrations_root(silver_root), registration_sha, reg_bytes, silver_root)
+    _locked_put(silver_root, dsid, {"registrationSha256": registration_sha})
+    verify_partitioned_silver_table(silver_root, manifest_sha)
+    return {"datasetVersionId": dsid, "tableName": name, "manifestSha256": manifest_sha,
+            "registrationSha256": registration_sha, "rowCount": total_rows, "childCount": len(children),
+            "seasons": seasons, **CT.QUARANTINE_STATE}
+
+
+def verify_partitioned_silver_table(silver_root: Path, manifest_sha: str) -> dict[str, Any]:
+    """Independent verification of a partitioned table: manifest self-address; every ordered child present + hashes to
+    its listed sha + byte size; total row count == sum of children; NO extra child files; registration bound;
+    QUARANTINED. Rejects missing / extra / substituted / tampered children and total-count disagreement."""
+    import json
+    silver_root = Path(silver_root)
+    reg = json.loads(_registry_path(silver_root).read_text(encoding="utf-8"))
+    matches = [(k, e) for k, e in (reg.get("datasets") or {}).items()
+               if isinstance(e, dict) and set(e.keys()) == {"registrationSha256"}
+               and k.rsplit(":sha256:", 1)[-1] == manifest_sha]
+    if len(matches) != 1:
+        raise SilverTablePublishError("no unique registration for partitioned object")
+    record = _load_registration(silver_root, matches[0][1]["registrationSha256"])
+    if record.get("publicationManifestSha256") != manifest_sha or not record.get("partitioned"):
+        raise SilverTablePublishError("registration mismatch for partitioned object")
+    final = contained_no_reparse(_partitioned_root(silver_root) / manifest_sha, [_partitioned_root(silver_root)])
+    mbytes = (final / "manifest.json").read_bytes()
+    if sha256_bytes(mbytes) != manifest_sha:
+        raise SilverTablePublishError("partitioned manifest sha != content address (tampered)")
+    manifest = json.loads(mbytes.decode("utf-8"))
+    if manifest.get("bronzeManifestSha256") != BA.EXPECTED_BRONZE_MANIFEST_SHA256:
+        raise SilverTablePublishError("partitioned table not bound to governed Bronze manifest")
+    children_dir = final / "children"
+    listed = {c["childSha256"] for c in manifest["children"]}
+    present = {p.stem for p in children_dir.glob("*.parquet")}
+    if listed != present:
+        raise SilverTablePublishError(f"partitioned child set mismatch (missing={sorted(listed-present)}, extra={sorted(present-listed)})")
+    total = 0
+    prev = None
+    for c in manifest["children"]:
+        if prev is not None and (c["partitionKey"], c["childSha256"]) < prev:
+            raise SilverTablePublishError("partitioned children are not in canonical order (reordered/tampered)")
+        prev = (c["partitionKey"], c["childSha256"])
+        b = (children_dir / f"{c['childSha256']}.parquet").read_bytes()
+        if sha256_bytes(b) != c["childSha256"] or len(b) != c["bytes"]:
+            raise SilverTablePublishError(f"partitioned child {c['childSha256'][:12]} differs from manifest (tampered)")
+        total += c["rowCount"]
+    if total != manifest["totalRowCount"]:
+        raise SilverTablePublishError("partitioned total row count != sum of children (tampered)")
+    if manifest.get("modelEligible") or manifest.get("quarantine") != "QUARANTINED":
+        raise SilverTablePublishError("partitioned object must remain QUARANTINED / not model-eligible")
+    return {"tableName": manifest["tableName"], "manifestSha256": manifest_sha, "rowCount": total,
+            "childCount": len(manifest["children"]), "seasons": manifest["seasons"], "quarantine": manifest["quarantine"]}
+
+
 def _atomic_publish_children(objects_root: Path, final: Path, children: Mapping[str, bytes]) -> None:
     objects_root.mkdir(parents=True, exist_ok=True)
     if final.exists():

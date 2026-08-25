@@ -432,10 +432,22 @@ def catalog() -> list[dict[str, Any]]:
     return [_with_object_path(d) for d in reg["datasets"] if not d.get("archived")]
 
 
+# Quarantined-Silver dataset-id prefixes barred from EVERY ordinary model path (selection/binding/run-authority/
+# execution/activation). "silver:" is the accepted-authority Silver prefix; "silver-table:" is the Phase 7B1 immutable
+# Silver-table publication prefix minted by server.sports_silver.silver_publication (whose own
+# assert_not_model_eligible enforces the same barrier at publish/consumer time). Both are QUARANTINED / NOT
+# model-eligible; this is the single-source prefix decision so the two authorities cannot drift.
+_QUARANTINED_SILVER_PREFIXES = ("silver:", "silver-table:")
+
+
+def _is_quarantined_silver_id(dataset_version_id: Any) -> bool:
+    return isinstance(dataset_version_id, str) and dataset_version_id.startswith(_QUARANTINED_SILVER_PREFIXES)
+
+
 def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     if not isinstance(dataset_version_id, str) or not _ID_RE.match(dataset_version_id):
         raise AuthorityError("invalid dataset version id")
-    if dataset_version_id.startswith("silver:"):
+    if _is_quarantined_silver_id(dataset_version_id):
         raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
     for entry in catalog():
         if entry["datasetVersionId"] == dataset_version_id:
@@ -453,7 +465,7 @@ def _entry_flags(entry: Mapping[str, Any]) -> dict[str, bool]:
     dsid = str(entry.get("datasetVersionId", ""))
     status = str(entry.get("status", "")).upper()
     return {
-        "silver": dsid.startswith("silver:"),
+        "silver": _is_quarantined_silver_id(dsid),
         "selectable": bool(entry.get("selectable")),
         "quarantined": (entry.get("quarantine") in (True, "QUARANTINED")) or status in _QUARANTINE_STATUSES,
         "sealed": str(entry.get("generation", "")).endswith("_SEALED") or status == "SEALED_OOT_RESTRICTED",
@@ -488,7 +500,7 @@ def assert_canonical_eligibility(entry_or_id: Any) -> None:
     quarantined / sealed / archived / non-selectable / not-model-eligible / not-approved dataset. A caller-supplied
     ``selectable``/``modelEligible`` cannot override status, because status→quarantine is evaluated independently."""
     if isinstance(entry_or_id, str):
-        if entry_or_id.startswith("silver:"):
+        if _is_quarantined_silver_id(entry_or_id):
             raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
         return
     entry = entry_or_id
