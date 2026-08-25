@@ -9,6 +9,8 @@ detected season/sealed identity. Zero real-2025 access becomes demonstrable, not
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -77,15 +79,25 @@ def _session_root() -> Path | None:
         return None
 
 
+def _marker_digest(schema: str, root: str, leaf: str, nonce: str, pid: int, cap: str) -> str:
+    """Keyed integrity digest binding a marker to the PROCESS-LOCAL secret. Keyed by the process-local capability over
+    the exact (schema, root, issued leaf, session nonce, pid); an attacker who mutates only the environment cannot
+    reproduce it, because the authoritative capability + nonce live in process-private memory, not the environment."""
+    msg = json.dumps([schema, root, leaf, nonce, int(pid)], separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return hmac.new(cap.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
 def write_session_marker(session_dir) -> None:
     """Drop a capability marker into a per-test scratch directory the active session owns. The marker binds the exact
-    canonical session root, the exact capability, the session nonce, the ISSUING PROCESS identity, and the EXACT issued
-    leaf directory — never a display/path pattern. It is written only for a directory that THIS process's session owns
-    (under the canonical session root); copying its bytes elsewhere yields an invalid marker (it claims another leaf)."""
+    canonical session root, the PROCESS-LOCAL capability + session nonce, the ISSUING PROCESS identity, the EXACT issued
+    leaf directory, and a keyed integrity digest — never a display/path pattern. It is written only for a directory that
+    THIS process's session owns (under the canonical session root); copying its bytes elsewhere yields an invalid marker
+    (it claims another leaf), and forging one elsewhere fails without the process-local secret."""
     root = _session_root()
     establish_session_capability()          # ensure THIS process's capability/nonce exist and the env is re-stamped
     cap = str(_session_state["capability"])
-    if root is None or not cap:
+    nonce = str(_session_state["nonce"])
+    if root is None or not cap or not nonce:
         return
     try:
         d = Path(session_dir).resolve()
@@ -98,9 +110,10 @@ def write_session_marker(session_dir) -> None:
         "canonicalSessionRoot": str(root),
         "issuedLeaf": str(d),
         "capability": cap,
-        "sessionNonce": str(_session_state["nonce"]),
+        "sessionNonce": nonce,
         "sessionProcessId": os.getpid(),
     }
+    marker["markerDigest"] = _marker_digest(SESSION_MARKER_SCHEMA, str(root), str(d), nonce, os.getpid(), cap)
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / SESSION_MARKER_NAME).write_text(json.dumps(marker), encoding="utf-8")
@@ -109,9 +122,19 @@ def write_session_marker(session_dir) -> None:
 
 
 def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
-    """A marker authorizes its directory ONLY when it binds the exact schema, canonical session root, capability, the
-    CURRENT process id (D7 8.2 — inherited/child/stale process authority is rejected), and the EXACT leaf directory the
-    marker physically lives in (D7 8.4 — copied marker bytes claim another leaf and are rejected for the sibling)."""
+    """A marker authorizes its directory ONLY against THIS process's own authority. The authoritative capability and
+    session nonce are read from PROCESS-LOCAL memory (never the mutable environment), so a later environment mutation
+    cannot mint authority. The marker must bind the exact schema, canonical session root, EXACT issued leaf directory
+    (D7 8.4 — a copied marker claims another leaf), the CURRENT process id (D7 8.2 — inherited/child/stale process
+    authority is rejected), the process-local capability, the process-local session nonce (explicitly validated), and a
+    keyed integrity digest recomputed from the process-local secret. The caller-supplied ``cap`` must also equal the
+    process-local capability."""
+    auth_cap = str(_session_state.get("capability") or "")
+    auth_nonce = str(_session_state.get("nonce") or "")
+    if not auth_cap or not auth_nonce or _session_state.get("pid") != os.getpid():
+        return False       # this process established no authority of its own -> nothing is authorized
+    if str(cap) != auth_cap:
+        return False
     try:
         if not marker_path.is_file():
             return False
@@ -126,11 +149,15 @@ def _valid_marker(marker_path: Path, root: Path, cap: str) -> bool:
         actual_leaf = marker_path.parent.resolve()
     except OSError:
         return False
-    return (data.get("schemaVersion") == SESSION_MARKER_SCHEMA
+    if not (data.get("schemaVersion") == SESSION_MARKER_SCHEMA
             and declared_root == root
-            and data.get("capability") == cap
+            and declared_leaf == actual_leaf
             and data.get("sessionProcessId") == os.getpid()
-            and declared_leaf == actual_leaf)
+            and data.get("capability") == auth_cap
+            and data.get("sessionNonce") == auth_nonce):
+        return False
+    expected = _marker_digest(SESSION_MARKER_SCHEMA, str(declared_root), str(declared_leaf), auth_nonce, os.getpid(), auth_cap)
+    return hmac.compare_digest(str(data.get("markerDigest", "")), expected)
 
 
 def _session_authorized(p: Path) -> bool:
