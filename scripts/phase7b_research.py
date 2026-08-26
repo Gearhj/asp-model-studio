@@ -18,6 +18,7 @@ Usage:
     python -m scripts.phase7b_research --build-gold-v1
     python -m scripts.phase7b_research --run-gold-v1
     python -m scripts.phase7b_research --gold-v1-all
+    python -m scripts.phase7b_research --binary-hierarchical
 """
 from __future__ import annotations
 
@@ -62,6 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     actions.add_argument("--build-gold-v1", action="store_true", help="build the immutable Gold V1 table")
     actions.add_argument("--run-gold-v1", action="store_true", help="run the fixed suite on an existing Gold V1 table")
     actions.add_argument("--gold-v1-all", action="store_true", help="build Gold V1, then run the fixed suite")
+    actions.add_argument(
+        "--binary-hierarchical",
+        action="store_true",
+        help="run the fixed BATTER_RETIRED binary/hierarchical experiment on existing Gold V1",
+    )
     ap.add_argument(
         "--silver-root", type=Path,
         default=Path(r"C:\Users\james\asp-data-staging\mlb-silver-v1"),
@@ -74,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--no-xgboost", action="store_true", help="skip the optional installed XGBoost candidate")
     args = ap.parse_args(argv)
+    if args.binary_hierarchical and args.no_xgboost:
+        ap.error("--no-xgboost applies to --run-gold-v1/--gold-v1-all, not the fixed persisted binary source")
     if args.inspect:
         payload = _research_summary(args.generation)
     else:
@@ -91,6 +99,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.run_gold_v1 or args.gold_v1_all:
             payload["experiment"] = run_gold_experiment(
                 gold_root=args.gold_root, include_xgboost=not args.no_xgboost
+            )
+        if args.binary_hierarchical:
+            from server.sports_gold.binary_hierarchical import (
+                run_binary_hierarchical_experiment,
+            )
+
+            payload["binaryHierarchical"] = run_binary_hierarchical_experiment(
+                gold_root=args.gold_root,
+                progress=lambda message: print(f"[binary-hierarchical] {message}", file=sys.stderr),
             )
     if not args.inspect:
         payload = _json_safe(payload)
