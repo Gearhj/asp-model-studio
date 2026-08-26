@@ -5,20 +5,26 @@ The ONLY approved route for the next (Silver) research phase for one trusted loc
   - resolve the canonical V3 registry (fail-closed; NO sidecar fallback);
   - obtain a fully VERIFIED research object handle (no bare path, no first-glob selection);
   - inspect registered research metadata;
-  - later invoke Silver/Gold builders through explicit research-only interfaces;
+  - invoke the Phase 7B2 Gold V1 builder and fixed research experiment through
+    explicit research-only interfaces;
   - invoke the canonical 2024-only feature-family ablation.
 
 It REFUSES, structurally: sealed / archived / combined objects, sidecar fallback, and any 2025/2026 access
-(a sealed generation cannot even be named). It does NOT normalize Bronze or create features in this phase.
+(a sealed generation cannot even be named). Gold V1 reads only verified current Silver and the physically
+separated Gen3 2021--2024 research object; it never normalizes Bronze or changes Silver quarantine.
 
 Usage:
     python -m scripts.phase7b_research --inspect --generation GEN3
+    python -m scripts.phase7b_research --build-gold-v1
+    python -m scripts.phase7b_research --run-gold-v1
+    python -m scripts.phase7b_research --gold-v1-all
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from pathlib import Path
 
 # Only research generations are namable — sealed generations (GEN2_SEALED/GEN3_SEALED) are not an option.
 _RESEARCH_GENERATIONS = ("GEN2", "GEN3")
@@ -51,11 +57,44 @@ def _research_summary(generation: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Phase 7B approved research entry point (research-only)")
     ap.add_argument("--generation", choices=list(_RESEARCH_GENERATIONS), default="GEN3")
-    ap.add_argument("--inspect", action="store_true", help="print the verified research object summary")
+    actions = ap.add_mutually_exclusive_group(required=True)
+    actions.add_argument("--inspect", action="store_true", help="print the verified research object summary")
+    actions.add_argument("--build-gold-v1", action="store_true", help="build the immutable Gold V1 table")
+    actions.add_argument("--run-gold-v1", action="store_true", help="run the fixed suite on an existing Gold V1 table")
+    actions.add_argument("--gold-v1-all", action="store_true", help="build Gold V1, then run the fixed suite")
+    ap.add_argument(
+        "--silver-root", type=Path,
+        default=Path(r"C:\Users\james\asp-data-staging\mlb-silver-v1"),
+        help="existing Phase 7B1 Silver root",
+    )
+    ap.add_argument(
+        "--gold-root", type=Path,
+        default=Path(r"C:\Users\james\asp-data-staging\mlb-gold-v1"),
+        help="external Gold V1 artifact root (never committed)",
+    )
+    ap.add_argument("--no-xgboost", action="store_true", help="skip the optional installed XGBoost candidate")
     args = ap.parse_args(argv)
+    if args.inspect:
+        payload = _research_summary(args.generation)
+    else:
+        if args.generation != "GEN3":
+            ap.error("Gold V1 is bound to the verified GEN3 2021--2024 target/base object")
+        from server.sports_gold.pipeline import _json_safe, build_gold_v1, run_gold_experiment
+
+        payload: dict = {"entryPoint": "PHASE_7B2_GOLD_V1_RESEARCH_V1"}
+        if args.build_gold_v1 or args.gold_v1_all:
+            built = build_gold_v1(silver_root=args.silver_root, gold_root=args.gold_root)
+            payload["build"] = {
+                "status": built["status"], "dataset": built["dataset"],
+                "connection": built["connection"], "quality": built["quality"],
+            }
+        if args.run_gold_v1 or args.gold_v1_all:
+            payload["experiment"] = run_gold_experiment(
+                gold_root=args.gold_root, include_xgboost=not args.no_xgboost
+            )
     if not args.inspect:
-        ap.error("this phase supports only --inspect (no Bronze normalization / feature creation)")
-    json.dump(_research_summary(args.generation), sys.stdout, indent=2, sort_keys=True)
+        payload = _json_safe(payload)
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0
 

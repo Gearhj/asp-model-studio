@@ -1,0 +1,960 @@
+{
+  "advancedFeatures": {
+    "batter_last100_contact_rate": {
+      "calculation": "classified contact pitches / classified swing pitches, using the frozen CONTACT_PITCH_RESULTS and SWING_PITCH_RESULTS vocabularies",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when the window contains zero classifiable swings; batter_last100_whiff_missing=1",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchResultType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_insufficient": {
+      "calculation": "1.0 when batter_last100_pa_count < 100, otherwise 0.0",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "never null; an empty history is explicitly insufficient",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_pa_count": {
+      "calculation": "min(100, batter_prior_pa_count)",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "0.0 when no eligible prior PA exists",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_strikeout_rate": {
+      "calculation": "count(paEvent in {strikeout, strikeout_double_play}) divided by batter_last100_pa_count",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when batter_last100_pa_count is zero; never filled from a later date",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "paEvent"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_walk_hbp_rate": {
+      "calculation": "count(paEvent in {walk, intent_walk, hit_by_pitch}) divided by batter_last100_pa_count",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when batter_last100_pa_count is zero; never filled from a later date",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "paEvent"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_whiff_missing": {
+      "calculation": "1.0 when the last-100-PA window contains zero classifiable swings, otherwise 0.0",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "never null; it is the missingness indicator for both contact and whiff rates",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchResultType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_last100_whiff_rate": {
+      "calculation": "classified whiff pitches / classified swing pitches, using the frozen WHIFF_PITCH_RESULTS and SWING_PITCH_RESULTS vocabularies",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when the window contains zero classifiable swings; batter_last100_whiff_missing=1",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchResultType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(100, prior PA count) resolved PAs for the same canonical batter"
+    },
+    "batter_prior_pa_count": {
+      "calculation": "count distinct canonicalPaId for the target batter after applying the strict prior-day cutoff",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "batter_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "0.0 when no eligible prior PA exists; this is an observed empty history, not an imputed rate",
+      "source": {
+        "fields": [
+          "batterCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "all resolved PAs for the same canonical batter on completed prior dates"
+    },
+    "matchup_batter_bats_left": {
+      "calculation": "1.0 when normalized target-PA stand == 'L', otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "0.0 for missing/unknown stand; matchup_batter_hand_missing=1 disambiguates",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "stand"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "matchup_batter_bats_switch": {
+      "calculation": "1.0 only when normalized target-PA stand explicitly equals 'S', otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "0.0 for missing/unknown stand; no switch status is inferred from names or future appearances",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "stand"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "matchup_batter_hand_missing": {
+      "calculation": "1.0 when normalized target-PA stand is not one of {L, R, S}, otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "never null; it is the batter-hand missingness indicator",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "stand"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "matchup_pitcher_hand_missing": {
+      "calculation": "1.0 when normalized target-PA pThrows is not one of {L, R}, otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "never null; it is the pitcher-hand missingness indicator",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "pThrows"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "matchup_pitcher_throws_left": {
+      "calculation": "1.0 when normalized target-PA pThrows == 'L', otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "0.0 for missing/unknown pThrows; matchup_pitcher_hand_missing=1 disambiguates",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "pThrows"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "matchup_platoon_advantage": {
+      "calculation": "when both hands are known: 1.0 for an explicit switch batter or for opposite-side batter/pitcher hands, otherwise 0.0",
+      "cutoff": "target-PA handedness is resolved before the target plate appearance begins; no pitch result or target outcome is used",
+      "dtype": "float64",
+      "family": "target_pa_handedness_matchup",
+      "knowledgeTimeClass": "TARGET_PRE_PA_CONTEXT",
+      "missing": "0.0 when either hand is missing; matchup_batter_hand_missing and matchup_pitcher_hand_missing disambiguate",
+      "source": {
+        "fields": [
+          "canonicalPaId",
+          "stand",
+          "pThrows"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "target PA pre-event context only"
+    },
+    "pitcher_last250_avg_fastball_velocity": {
+      "calculation": "arithmetic mean of finite releaseSpeed for pitches whose pitchType is in FASTBALL_PITCH_TYPES",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when no eligible fastball has finite releaseSpeed; pitcher_last250_velocity_missing=1",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchType",
+          "releaseSpeed"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_bf_count": {
+      "calculation": "min(250, pitcher_prior_bf_count)",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "0.0 when no eligible prior BF exists",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_breaking_usage": {
+      "calculation": "count(pitchType in BREAKING_PITCH_TYPES) divided by all pitch rows in the BF window",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when the BF window contains zero pitch rows; unsupported/missing types remain in the denominator",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_fastball_usage": {
+      "calculation": "count(pitchType in FASTBALL_PITCH_TYPES) divided by all pitch rows in the BF window",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when the BF window contains zero pitch rows; unsupported/missing types remain in the denominator",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_insufficient": {
+      "calculation": "1.0 when pitcher_last250_bf_count < 250, otherwise 0.0",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "never null; an empty history is explicitly insufficient",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_offspeed_usage": {
+      "calculation": "count(pitchType in OFFSPEED_PITCH_TYPES) divided by all pitch rows in the BF window",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when the BF window contains zero pitch rows; unsupported/missing types remain in the denominator",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_strikeout_rate": {
+      "calculation": "count(paEvent in {strikeout, strikeout_double_play}) divided by pitcher_last250_bf_count",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when pitcher_last250_bf_count is zero; never filled from a later date",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "paEvent"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_velocity_missing": {
+      "calculation": "1.0 when no eligible fastball has finite releaseSpeed, otherwise 0.0",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "never null; it is the missingness indicator for average fastball velocity",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchType",
+          "releaseSpeed"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_walk_rate": {
+      "calculation": "count(paEvent in {walk, intent_walk}) divided by pitcher_last250_bf_count",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null when pitcher_last250_bf_count is zero; hit-by-pitch is not counted as a walk",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "paEvent"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_whiff_missing": {
+      "calculation": "1.0 when the BF window contains zero classifiable swings, otherwise 0.0",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "never null; it is the missingness indicator for pitcher_last250_whiff_rate",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchResultType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_last250_whiff_rate": {
+      "calculation": "classified whiff pitches / classified swing pitches, using the frozen WHIFF_PITCH_RESULTS and SWING_PITCH_RESULTS vocabularies",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "null for zero classifiable swings; pitcher_last250_whiff_missing=1",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate",
+          "pitchResultType"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance",
+          "fact_statcast_pitch"
+        ]
+      },
+      "window": "last min(250, prior BF count) resolved batters faced by the same canonical pitcher"
+    },
+    "pitcher_prior_bf_count": {
+      "calculation": "count distinct canonicalPaId for the target pitcher after applying the strict prior-day cutoff",
+      "cutoff": "source.gameDate < target.game_date; the source calendar day must be complete; the target PA, every other PA on the target date (including doubleheaders), and every future PA are excluded",
+      "dtype": "float64",
+      "family": "pitcher_completed_day_history",
+      "knowledgeTimeClass": "HISTORICAL_COMPLETED_DAY",
+      "missing": "0.0 when no eligible prior BF exists; this is an observed empty history",
+      "source": {
+        "fields": [
+          "pitcherCanonicalPlayerId",
+          "canonicalPaId",
+          "gameDate"
+        ],
+        "tables": [
+          "fact_statcast_plate_appearance"
+        ]
+      },
+      "window": "all resolved batters faced by the same canonical pitcher on completed prior dates"
+    }
+  },
+  "baseFeatures": {
+    "batter_avg": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_avg"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_bb_hbp_per_pa": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_bb_hbp_per_pa"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_hr_per_pa": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_hr_per_pa"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_log1p_pa": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_log1p_pa"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_obp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_obp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_prior_missing": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_prior_missing"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_slg": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_slg"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "batter_so_per_pa": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "batter_so_per_pa"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "context_base_mask_before": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "context_base_mask_before"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "context_batting_score_diff_before": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "context_batting_score_diff_before"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "context_inning": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "context_inning"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "context_outs_before": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "context_outs_before"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "context_top_bottom": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "context_top_bottom"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_bb_per_bfp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_bb_per_bfp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_era9": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_era9"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_gs_per_g": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_gs_per_g"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_hbp_per_bfp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_hbp_per_bfp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_hr_per_bfp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_hr_per_bfp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_log1p_bfp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_log1p_bfp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_prior_missing": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_prior_missing"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_so_per_bfp": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_so_per_bfp"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    },
+    "pitcher_whip": {
+      "calculation": "copied unchanged from the verified governed Gen3 PA research view",
+      "cutoff": "existing governed pre-PA point-in-time semantics",
+      "dtype": "governed Gen3 dtype",
+      "family": "governed_base",
+      "knowledgeTimeClass": "GOVERNED_PRE_PA_BASE",
+      "missing": "preserved from Gen3; fold-only preprocessing is learned on development rows",
+      "source": {
+        "fields": [
+          "pitcher_whip"
+        ],
+        "tables": [
+          "governedGen3Target"
+        ]
+      },
+      "window": "existing governed base-feature contract"
+    }
+  },
+  "featureOrder": [
+    "context_inning",
+    "context_top_bottom",
+    "context_outs_before",
+    "context_base_mask_before",
+    "context_batting_score_diff_before",
+    "batter_log1p_pa",
+    "batter_avg",
+    "batter_obp",
+    "batter_slg",
+    "batter_so_per_pa",
+    "batter_bb_hbp_per_pa",
+    "batter_hr_per_pa",
+    "batter_prior_missing",
+    "pitcher_log1p_bfp",
+    "pitcher_era9",
+    "pitcher_whip",
+    "pitcher_so_per_bfp",
+    "pitcher_bb_per_bfp",
+    "pitcher_hr_per_bfp",
+    "pitcher_hbp_per_bfp",
+    "pitcher_gs_per_g",
+    "pitcher_prior_missing",
+    "batter_prior_pa_count",
+    "batter_last100_pa_count",
+    "batter_last100_strikeout_rate",
+    "batter_last100_walk_hbp_rate",
+    "batter_last100_contact_rate",
+    "batter_last100_whiff_rate",
+    "batter_last100_insufficient",
+    "batter_last100_whiff_missing",
+    "pitcher_prior_bf_count",
+    "pitcher_last250_bf_count",
+    "pitcher_last250_strikeout_rate",
+    "pitcher_last250_walk_rate",
+    "pitcher_last250_whiff_rate",
+    "pitcher_last250_avg_fastball_velocity",
+    "pitcher_last250_fastball_usage",
+    "pitcher_last250_breaking_usage",
+    "pitcher_last250_offspeed_usage",
+    "pitcher_last250_insufficient",
+    "pitcher_last250_whiff_missing",
+    "pitcher_last250_velocity_missing",
+    "matchup_batter_bats_left",
+    "matchup_batter_bats_switch",
+    "matchup_batter_hand_missing",
+    "matchup_pitcher_throws_left",
+    "matchup_pitcher_hand_missing",
+    "matchup_platoon_advantage"
+  ],
+  "limitations": [
+    {
+      "features": [
+        "exit_velocity",
+        "hard_hit_rate",
+        "barrel_rate"
+      ],
+      "futureRequirement": "a new immutable Silver schema/object version with exact source lineage, followed by a new Gold contract",
+      "guardrail": "Gold V1 must not infer, zero-fill, approximate, or relabel bbType as exit velocity, hard-hit, or barrel evidence",
+      "reason": "Phase 7B1 Silver V1 does not retain launch_speed, launch_angle, launch_speed_angle, or another governed barrel indicator",
+      "status": "UNSUPPORTED_BY_CURRENT_SILVER_V1"
+    }
+  ],
+  "schemaVersion": "MLB_GOLD_V1_FEATURE_SPECIFICATION_V1",
+  "externalEvidenceSha256": "c7485761ed02618270743cb96401e9c1e12ba72cf8a3a63ee314e383bb348235"
+}

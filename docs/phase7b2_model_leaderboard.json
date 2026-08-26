@@ -1,0 +1,592 @@
+{
+  "schemaVersion": "PHASE_7B2_MODEL_LEADERBOARD_SUMMARY_V1",
+  "experimentSha256": "de7966fba2e6dfd1cde466eadb2b8cd6d737695fd75d89d5fce0938e8060538f",
+  "goldDatasetVersionId": "gold-table:gold_mlb_pa_v1:sha256:56162deb2473e173685012775fcedecca7f88ba59dffacbb04e49c918371a3f0",
+  "goldLogicalContentSha256": "56162deb2473e173685012775fcedecca7f88ba59dffacbb04e49c918371a3f0",
+  "developmentSeasons": [
+    2021,
+    2022,
+    2023
+  ],
+  "validationSeason": 2024,
+  "developmentRows": 536102,
+  "validationRows": 180711,
+  "classOrder": [
+    "STRIKEOUT",
+    "WALK_HBP_CI",
+    "HOME_RUN",
+    "SINGLE",
+    "DOUBLE",
+    "TRIPLE",
+    "BIP_OUT",
+    "OTHER_REACH"
+  ],
+  "acceptedReferenceLogLoss": 1.4827332596445002,
+  "primaryResult": {
+    "modelId": "gold_logistic",
+    "logLoss": 1.4778808498644482,
+    "absoluteImprovement": 0.0048524097800519694,
+    "percentageImprovement": 0.3272611407675162,
+    "answer": "YES"
+  },
+  "models": [
+    {
+      "rank": 1,
+      "modelId": "gold_logistic",
+      "label": "Gold logistic",
+      "status": "SUCCESS",
+      "modelFamily": "multinomial_logistic",
+      "featureSet": "full",
+      "featureCount": 48,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 183.13831740012392,
+      "scoreTimeSeconds": 0.4126940998248756,
+      "logLoss": 1.4778808498644482,
+      "brierScore": 0.7040277515790683,
+      "topLabelEce": 0.001438315874177647,
+      "top1Accuracy": 0.4534035006170073,
+      "macroF1": 0.09332003157919234,
+      "improvementVsNullLogLoss": 0.022126816883449862,
+      "improvementVsNullLogLossPercent": 1.4751135860140008,
+      "improvementVsAcceptedLogLoss": 0.0048524097800519694,
+      "improvementVsAcceptedLogLossPercent": 0.3272611407675162,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "C": 0.05,
+        "classWeight": null,
+        "estimator": "sklearn.linear_model.LogisticRegression",
+        "fitIntercept": true,
+        "maxIter": 2000,
+        "penalty": "l2",
+        "randomState": null,
+        "solver": "lbfgs",
+        "tolerance": 1e-7
+      },
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "rank": 2,
+      "modelId": "gold_ensemble",
+      "label": "Gold unweighted probability ensemble",
+      "status": "SUCCESS",
+      "modelFamily": "unweighted_probability_average",
+      "featureSet": "full",
+      "featureCount": 48,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 0,
+      "scoreTimeSeconds": 0.051317399833351374,
+      "logLoss": 1.4779544518091083,
+      "brierScore": 0.7036986090480917,
+      "topLabelEce": 0.006579158912545163,
+      "top1Accuracy": 0.45380192683345233,
+      "macroF1": 0.08665558815142652,
+      "improvementVsNullLogLoss": 0.022053214938789756,
+      "improvementVsNullLogLossPercent": 1.4702068147826457,
+      "improvementVsAcceptedLogLoss": 0.004778807835391863,
+      "improvementVsAcceptedLogLossPercent": 0.3222972037828051,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "excludedMemberIds": [
+          "gold_xgboost"
+        ],
+        "memberIds": [
+          "gold_logistic",
+          "gold_hgb",
+          "gold_extra_trees"
+        ],
+        "method": "SIMPLE_UNWEIGHTED_PROBABILITY_AVERAGE",
+        "selectionOrTuning": false
+      },
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "rank": 3,
+      "modelId": "ablation_base_pitcher_logistic",
+      "label": "Ablation logistic: base + pitcher",
+      "status": "SUCCESS",
+      "modelFamily": "multinomial_logistic",
+      "featureSet": "base+pitcher",
+      "featureCount": 34,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 189.1409519999288,
+      "scoreTimeSeconds": 0.3407405000180006,
+      "logLoss": 1.4803905170806546,
+      "brierScore": 0.705140677785472,
+      "topLabelEce": 0.002388424648007112,
+      "top1Accuracy": 0.45281139498979034,
+      "macroF1": 0.08880085897106783,
+      "improvementVsNullLogLoss": 0.019617149667243483,
+      "improvementVsNullLogLossPercent": 1.3078032934174648,
+      "improvementVsAcceptedLogLoss": 0.00234274256384559,
+      "improvementVsAcceptedLogLossPercent": 0.15800161955005215,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "C": 0.05,
+        "classWeight": null,
+        "estimator": "sklearn.linear_model.LogisticRegression",
+        "fitIntercept": true,
+        "maxIter": 2000,
+        "penalty": "l2",
+        "randomState": null,
+        "solver": "lbfgs",
+        "tolerance": 1e-7
+      },
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "rank": 4,
+      "modelId": "ablation_base_batter_logistic",
+      "label": "Ablation logistic: base + batter",
+      "status": "SUCCESS",
+      "modelFamily": "multinomial_logistic",
+      "featureSet": "base+batter",
+      "featureCount": 30,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 162.92039049975574,
+      "scoreTimeSeconds": 0.3160329000093043,
+      "logLoss": 1.4808850441108863,
+      "brierScore": 0.7051447651407096,
+      "topLabelEce": 0.0022258367180264514,
+      "top1Accuracy": 0.4528445971744941,
+      "macroF1": 0.09045073235175372,
+      "improvementVsNullLogLoss": 0.01912262263701181,
+      "improvementVsNullLogLossPercent": 1.2748349932417842,
+      "improvementVsAcceptedLogLoss": 0.0018482155336139172,
+      "improvementVsAcceptedLogLossPercent": 0.12464922612291336,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "C": 0.05,
+        "classWeight": null,
+        "estimator": "sklearn.linear_model.LogisticRegression",
+        "fitIntercept": true,
+        "maxIter": 2000,
+        "penalty": "l2",
+        "randomState": null,
+        "solver": "lbfgs",
+        "tolerance": 1e-7
+      },
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "rank": 5,
+      "modelId": "gold_extra_trees",
+      "label": "Gold Extra Trees",
+      "status": "SUCCESS",
+      "modelFamily": "extra_trees",
+      "featureSet": "full",
+      "featureCount": 48,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 284.1046179002151,
+      "scoreTimeSeconds": 5.5416635000146925,
+      "logLoss": 1.4820494065565262,
+      "brierScore": 0.7054753533055066,
+      "topLabelEce": 0.008530926011246017,
+      "top1Accuracy": 0.4527449906203828,
+      "macroF1": 0.07820209303168701,
+      "improvementVsNullLogLoss": 0.017958260191371922,
+      "improvementVsNullLogLossPercent": 1.197211226947023,
+      "improvementVsAcceptedLogLoss": 0.000683853087974029,
+      "improvementVsAcceptedLogLossPercent": 0.04612111339149359,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "estimator": "sklearn.ensemble.ExtraTreesClassifier",
+        "maxDepth": 14,
+        "maxFeatures": "sqrt",
+        "minSamplesLeaf": 50,
+        "nEstimators": 200,
+        "nJobs": 1,
+        "randomState": 20260819
+      },
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "rank": 6,
+      "modelId": "base_logistic",
+      "label": "Base logistic",
+      "status": "SUCCESS",
+      "modelFamily": "multinomial_logistic",
+      "featureSet": "base",
+      "featureCount": 22,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 134.6106296000071,
+      "scoreTimeSeconds": 0.25458050007000566,
+      "logLoss": 1.4826901221878819,
+      "brierScore": 0.7061079942040106,
+      "topLabelEce": 0.003196593576219006,
+      "top1Accuracy": 0.45240743507589465,
+      "macroF1": 0.086455864928205,
+      "improvementVsNullLogLoss": 0.017317544560016218,
+      "improvementVsNullLogLossPercent": 1.1544970698424255,
+      "improvementVsAcceptedLogLoss": 0.00004313745661832513,
+      "improvementVsAcceptedLogLossPercent": 0.002909320090969549,
+      "beatsNull": true,
+      "beatsAcceptedReference": true,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "C": 0.05,
+        "classWeight": null,
+        "estimator": "sklearn.linear_model.LogisticRegression",
+        "fitIntercept": true,
+        "maxIter": 2000,
+        "penalty": "l2",
+        "randomState": null,
+        "solver": "lbfgs",
+        "tolerance": 1e-7
+      },
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "rank": 7,
+      "modelId": "gold_hgb",
+      "label": "Gold histogram gradient boosting",
+      "status": "SUCCESS",
+      "modelFamily": "hist_gradient_boosting",
+      "featureSet": "full",
+      "featureCount": 48,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 121.92973719956353,
+      "scoreTimeSeconds": 14.58092310000211,
+      "logLoss": 1.491692010291781,
+      "brierScore": 0.7073981710477766,
+      "topLabelEce": 0.01006763946190353,
+      "top1Accuracy": 0.45147224020673893,
+      "macroF1": 0.09765949170737732,
+      "improvementVsNullLogLoss": 0.008315656456117093,
+      "improvementVsNullLogLossPercent": 0.5543742635759928,
+      "improvementVsAcceptedLogLoss": -0.0089587506472808,
+      "improvementVsAcceptedLogLossPercent": -0.604205145396735,
+      "beatsNull": true,
+      "beatsAcceptedReference": false,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "earlyStopping": false,
+        "estimator": "sklearn.ensemble.HistGradientBoostingClassifier",
+        "learningRate": 0.1,
+        "maxDepth": null,
+        "maxIter": 200,
+        "randomState": 20260819
+      },
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "rank": 8,
+      "modelId": "null",
+      "label": "Development-fold global class frequency",
+      "status": "SUCCESS",
+      "modelFamily": "global_frequency",
+      "featureSet": "null",
+      "featureCount": 0,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 0.46125909965485334,
+      "scoreTimeSeconds": 0.02427319996058941,
+      "logLoss": 1.500007666747898,
+      "brierScore": 0.7125111667964451,
+      "topLabelEce": 0.006053442362354389,
+      "top1Accuracy": 0.4526177155790184,
+      "macroF1": 0.07789690823758876,
+      "improvementVsNullLogLoss": 0,
+      "improvementVsNullLogLossPercent": 0,
+      "improvementVsAcceptedLogLoss": -0.017274407103397893,
+      "improvementVsAcceptedLogLossPercent": -1.1650380802504963,
+      "beatsNull": false,
+      "beatsAcceptedReference": false,
+      "probabilityValid": true,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "estimator": "server.sports_modeling.training.GlobalFrequencyModel",
+        "smoothing": null
+      },
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "rank": null,
+      "modelId": "gold_xgboost",
+      "label": "Gold XGBoost",
+      "status": "FAILED",
+      "modelFamily": "xgboost",
+      "featureSet": "full",
+      "featureCount": 48,
+      "developmentRows": 536102,
+      "validationRows": 180711,
+      "fitTimeSeconds": 407.3030194998719,
+      "scoreTimeSeconds": 17.448706700000912,
+      "logLoss": null,
+      "brierScore": null,
+      "topLabelEce": null,
+      "top1Accuracy": null,
+      "macroF1": null,
+      "improvementVsNullLogLoss": null,
+      "improvementVsNullLogLossPercent": null,
+      "improvementVsAcceptedLogLoss": null,
+      "improvementVsAcceptedLogLossPercent": null,
+      "beatsNull": null,
+      "beatsAcceptedReference": null,
+      "probabilityValid": false,
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "failedClasses": [],
+      "effectiveConfig": {
+        "colsampleBytree": 0.8,
+        "estimator": "xgboost.XGBClassifier",
+        "evalMetric": "mlogloss",
+        "learningRate": 0.1,
+        "maxDepth": 6,
+        "nEstimators": 300,
+        "nJobs": 1,
+        "numClass": 8,
+        "objective": "multi:softprob",
+        "randomState": 20260819,
+        "subsample": 0.8,
+        "treeMethod": "hist"
+      },
+      "warnings": [],
+      "errors": [
+        {
+          "message": "every probability row must sum to one within tolerance",
+          "type": "ValueError"
+        }
+      ]
+    }
+  ],
+  "featureFamilyComparisons": {
+    "base": {
+      "modelId": "base_logistic",
+      "status": "SUCCESS",
+      "featureCount": 22,
+      "logLoss": 1.4826901221878819,
+      "brierScore": 0.7061079942040106,
+      "topLabelEce": 0.003196593576219006,
+      "top1Accuracy": 0.45240743507589465,
+      "macroF1": 0.086455864928205,
+      "improvementVsBaseLogLoss": 0,
+      "probabilityValid": true,
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    "base+batter": {
+      "modelId": "ablation_base_batter_logistic",
+      "status": "SUCCESS",
+      "featureCount": 30,
+      "logLoss": 1.4808850441108863,
+      "brierScore": 0.7051447651407096,
+      "topLabelEce": 0.0022258367180264514,
+      "top1Accuracy": 0.4528445971744941,
+      "macroF1": 0.09045073235175372,
+      "improvementVsBaseLogLoss": 0.001805078076995592,
+      "probabilityValid": true,
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    "base+pitcher": {
+      "modelId": "ablation_base_pitcher_logistic",
+      "status": "SUCCESS",
+      "featureCount": 34,
+      "logLoss": 1.4803905170806546,
+      "brierScore": 0.705140677785472,
+      "topLabelEce": 0.002388424648007112,
+      "top1Accuracy": 0.45281139498979034,
+      "macroF1": 0.08880085897106783,
+      "improvementVsBaseLogLoss": 0.002299605107227265,
+      "probabilityValid": true,
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    },
+    "full": {
+      "modelId": "gold_logistic",
+      "status": "SUCCESS",
+      "featureCount": 48,
+      "logLoss": 1.4778808498644482,
+      "brierScore": 0.7040277515790683,
+      "topLabelEce": 0.001438315874177647,
+      "top1Accuracy": 0.4534035006170073,
+      "macroF1": 0.09332003157919234,
+      "improvementVsBaseLogLoss": 0.004809272323433644,
+      "probabilityValid": true,
+      "warnings": [
+        {
+          "category": "DeprecationWarning",
+          "message": "scipy.optimize: The `disp` and `iprint` options of the L-BFGS-B solver are deprecated and will be removed in SciPy 1.18.0."
+        }
+      ],
+      "errors": []
+    }
+  },
+  "failures": {
+    "gold_xgboost": {
+      "errors": [
+        {
+          "message": "every probability row must sum to one within tolerance",
+          "type": "ValueError"
+        }
+      ],
+      "failedClasses": [],
+      "missingClasses": {
+        "development": [],
+        "estimator": [],
+        "validation": []
+      },
+      "status": "FAILED",
+      "warnings": []
+    }
+  },
+  "modelArtifacts": {
+    "ablation_base_batter_logistic": {
+      "bytes": 4414,
+      "file": "ablation_base_batter_logistic.joblib",
+      "sha256": "68c0c7db9cd83346c2d75c74eec15d56c8896f5530ad4bdb20596f206a26db98"
+    },
+    "ablation_base_pitcher_logistic": {
+      "bytes": 4859,
+      "file": "ablation_base_pitcher_logistic.joblib",
+      "sha256": "1dc290d7e2c7f896e1bc7b47c2056d418803ed74e197f43247583addddc8fff9"
+    },
+    "base_logistic": {
+      "bytes": 3663,
+      "file": "base_logistic.joblib",
+      "sha256": "2cf9faaabaf54b329e2da253457fa4a3046a1f4a7fcb8ad72c7c4a43474d2a71"
+    },
+    "gold_ensemble": {
+      "bytes": 37875035,
+      "file": "gold_ensemble.joblib",
+      "sha256": "8c67b141d6d1125a53798d5f25b0bb3c7445073187b17eb1ae910e5c9c26aff4"
+    },
+    "gold_extra_trees": {
+      "bytes": 35149849,
+      "file": "gold_extra_trees.joblib",
+      "sha256": "12d935d22d1a84dba9a1d1effbe79a5b9ddf119e39ec0e8598109a3856b2cb24"
+    },
+    "gold_hgb": {
+      "bytes": 2713896,
+      "file": "gold_hgb.joblib",
+      "sha256": "1ad3d5207cfb77448cfc0bd5b0121a6d22dd10e77a268d2f9c7f8eb71133ca10"
+    },
+    "gold_logistic": {
+      "bytes": 5965,
+      "file": "gold_logistic.joblib",
+      "sha256": "1ea82a4a724ccd00913d69fa6e94c8a990c258793465b8da7b064350a44a9f92"
+    },
+    "null": {
+      "bytes": 454,
+      "file": "null.joblib",
+      "sha256": "7cdb1db8ae567220c54b98cce7c5f3dc58f51f107556fe0cf0f62f30cc610c57"
+    }
+  },
+  "externalEvidence": {
+    "fullLeaderboardSha256": "16155af2889104535ed975d196525e2103795510ca106ab432a9e75aad665ea3",
+    "experimentManifestSha256": "5cc8d8c8008fb3168025c34e3b75df53411478bc2e42fdebb7db4a2ae20f9a99"
+  },
+  "status": "RESEARCH_ONLY_COMPLETE",
+  "promotionPerformed": false,
+  "championChanged": false
+}
