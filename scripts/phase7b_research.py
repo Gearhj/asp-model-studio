@@ -20,6 +20,7 @@ Usage:
     python -m scripts.phase7b_research --gold-v1-all
     python -m scripts.phase7b_research --binary-hierarchical
     python -m scripts.phase7b_research --hierarchical-robustness
+    python -m scripts.phase7b_research --recent-state-ensemble
 """
 from __future__ import annotations
 
@@ -74,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run the development-selected Phase 7B3 hierarchical robustness study",
     )
+    actions.add_argument(
+        "--recent-state-ensemble",
+        action="store_true",
+        help="run the fixed Phase 7B4 recent-state, matchup, and ensemble study",
+    )
     ap.add_argument(
         "--silver-root", type=Path,
         default=Path(r"C:\Users\james\asp-data-staging\mlb-silver-v1"),
@@ -86,7 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--no-xgboost", action="store_true", help="skip the optional installed XGBoost candidate")
     args = ap.parse_args(argv)
-    if (args.binary_hierarchical or args.hierarchical_robustness) and args.no_xgboost:
+    if (
+        args.binary_hierarchical
+        or args.hierarchical_robustness
+        or args.recent_state_ensemble
+    ) and args.no_xgboost:
         ap.error(
             "--no-xgboost applies to --run-gold-v1/--gold-v1-all, not the fixed persisted hierarchy sources"
         )
@@ -126,6 +136,16 @@ def main(argv: list[str] | None = None) -> int:
             payload["hierarchicalRobustness"] = run_hierarchical_robustness_study(
                 gold_root=args.gold_root,
                 progress=lambda message: print(f"[hierarchical-robustness] {message}", file=sys.stderr),
+            )
+        if args.recent_state_ensemble:
+            from server.sports_gold.recent_state_study import (
+                run_recent_state_matchup_ensemble_study,
+            )
+
+            payload["entryPoint"] = "PHASE_7B4_RECENT_STATE_MATCHUP_ENSEMBLE_RESEARCH_V1"
+            payload["recentStateEnsemble"] = run_recent_state_matchup_ensemble_study(
+                gold_root=args.gold_root,
+                progress=lambda message: print(f"[recent-state-ensemble] {message}", file=sys.stderr),
             )
     if not args.inspect:
         payload = _json_safe(payload)
