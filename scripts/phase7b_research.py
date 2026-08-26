@@ -19,6 +19,7 @@ Usage:
     python -m scripts.phase7b_research --run-gold-v1
     python -m scripts.phase7b_research --gold-v1-all
     python -m scripts.phase7b_research --binary-hierarchical
+    python -m scripts.phase7b_research --hierarchical-robustness
 """
 from __future__ import annotations
 
@@ -68,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run the fixed BATTER_RETIRED binary/hierarchical experiment on existing Gold V1",
     )
+    actions.add_argument(
+        "--hierarchical-robustness",
+        action="store_true",
+        help="run the development-selected Phase 7B3 hierarchical robustness study",
+    )
     ap.add_argument(
         "--silver-root", type=Path,
         default=Path(r"C:\Users\james\asp-data-staging\mlb-silver-v1"),
@@ -80,8 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--no-xgboost", action="store_true", help="skip the optional installed XGBoost candidate")
     args = ap.parse_args(argv)
-    if args.binary_hierarchical and args.no_xgboost:
-        ap.error("--no-xgboost applies to --run-gold-v1/--gold-v1-all, not the fixed persisted binary source")
+    if (args.binary_hierarchical or args.hierarchical_robustness) and args.no_xgboost:
+        ap.error(
+            "--no-xgboost applies to --run-gold-v1/--gold-v1-all, not the fixed persisted hierarchy sources"
+        )
     if args.inspect:
         payload = _research_summary(args.generation)
     else:
@@ -108,6 +116,16 @@ def main(argv: list[str] | None = None) -> int:
             payload["binaryHierarchical"] = run_binary_hierarchical_experiment(
                 gold_root=args.gold_root,
                 progress=lambda message: print(f"[binary-hierarchical] {message}", file=sys.stderr),
+            )
+        if args.hierarchical_robustness:
+            from server.sports_gold.hierarchical_robustness import (
+                run_hierarchical_robustness_study,
+            )
+
+            payload["entryPoint"] = "PHASE_7B3_HIERARCHICAL_ROBUSTNESS_RESEARCH_V1"
+            payload["hierarchicalRobustness"] = run_hierarchical_robustness_study(
+                gold_root=args.gold_root,
+                progress=lambda message: print(f"[hierarchical-robustness] {message}", file=sys.stderr),
             )
     if not args.inspect:
         payload = _json_safe(payload)
