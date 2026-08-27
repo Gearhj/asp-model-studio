@@ -391,6 +391,21 @@ def test_state_engine_is_date_atomic_and_residuals_require_chronological_ledger(
         engine.score_day(day_one, bad_day_one_ledger)
 
     day_one_ledger = ledger.subset(day_one["plate_appearance_id"].tolist())
+    snapshot = day_one.copy()
+    snapshot["plate_appearance_id"] = ["pregame-away-1", "pregame-home-1"]
+    snapshot_direct = State.ChronologicalDirectLedger.aligned(
+        snapshot,
+        direct[target_positions[:2]],
+        ["2022-01-31", "2022-01-31"],
+    )
+    history_before_snapshot = (engine.history_end_day, engine.history_rows)
+    pregame = engine.score_snapshot(snapshot, snapshot_direct)
+    assert pregame.row_ids == ("pregame-away-1", "pregame-home-1")
+    assert not engine.has_pending_day
+    assert (engine.history_end_day, engine.history_rows) == history_before_snapshot
+    for matrix in pregame.probability_matrices.values():
+        validate_probability_matrix(matrix, class_order=PA_CLASS_ORDER)
+
     first = engine.score_day(day_one, day_one_ledger)
     repeated = engine.score_day(day_one, day_one_ledger)
     assert repeated is first

@@ -1208,6 +1208,32 @@ class WalkForwardStateEngine:
         )
         return bundle
 
+    def score_snapshot(
+        self,
+        day_frame: pd.DataFrame,
+        direct_ledger: ChronologicalDirectLedger,
+    ) -> WalkForwardDayBundle:
+        """Score an arbitrary same-day pregame inventory without advancing history.
+
+        This is the counterfactual scoring seam used by the game-simulation layer.  It
+        applies the exact same D-1 state and reliability calculations as ``score_day``
+        but deliberately discards the pending-day token, so multiple announced-lineup
+        inventories can be scored against one frozen pregame snapshot.  Outcomes are
+        neither required nor inspected.  The caller must still use ``score_day`` plus
+        ``advance_day`` on the complete observed date before scoring a later date.
+        """
+
+        if self._pending is not None:
+            raise WalkForwardStateError(
+                "score_snapshot requires no unresolved pending score date"
+            )
+        try:
+            return self.score_day(day_frame, direct_ledger)
+        finally:
+            # ``score_day`` mutates only this pending token.  Histories, archetypes,
+            # cluster counts, known row IDs, and the history cutoff remain untouched.
+            self._pending = None
+
     def advance_day(self, day_frame: pd.DataFrame) -> None:
         """Atomically append the complete previously scored date."""
 
