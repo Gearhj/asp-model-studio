@@ -10,6 +10,7 @@ population, a model, or a fitted artifact.
 """
 
 import copy
+import json
 import os
 import re
 import uuid
@@ -40,7 +41,7 @@ CURRENT_STATCAST_CANONICALIZATION_VERSION = "SPORTS_CANONICAL_JSON_V1"
 CURRENT_STATCAST_FAMILY = "plate_appearance"
 CURRENT_STATCAST_MODELING_STATUS = "EVIDENCE_REGISTERED_NO_FIT"
 CURRENT_STATCAST_EARLIEST_AUTHORIZED_DATE = date(2023, 3, 30)
-CURRENT_STATCAST_LATEST_AUTHORIZED_DATE = date(2026, 8, 27)
+CURRENT_STATCAST_LATEST_AUTHORIZED_DATE = date(2026, 12, 31)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MANIFEST_KEYS = {
@@ -335,6 +336,8 @@ def build_current_statcast_warehouse_manifest(
     current_silver_root: Path | None = None,
     additional_rights: Sequence[Mapping[str, Any]] = (),
     limitations: Sequence[Mapping[str, Any]] = (),
+    sync_health: Mapping[str, Any] | None = None,
+    gold_publication: Mapping[str, Any] | None = None,
 ) -> ValidatedCurrentStatcastPackage:
     """Build the addressed warehouse record from verified current Silver PA receipts.
 
@@ -414,8 +417,29 @@ def build_current_statcast_warehouse_manifest(
             pa_object.get("rowCount"),
             label=f"current Silver partitions[{index}].objects.plate_appearance.rowCount",
         )
-        if row_count == 0:
-            continue
+        is_complete_empty = row_count == 0
+        if is_complete_empty:
+            if (
+                receipt.get("sourceStatus") != "COMPLETE_EMPTY"
+                or _integer(
+                    receipt.get("sourceRowCount"),
+                    label=f"current Silver partitions[{index}].sourceRowCount",
+                )
+                != 0
+                or set(objects) != {"plate_appearance", "pitch", "reject"}
+                or any(
+                    _integer(
+                        _mapping(raw_object, label=f"current Silver partitions[{index}].objects.{family}").get("rowCount"),
+                        label=f"current Silver partitions[{index}].objects.{family}.rowCount",
+                    )
+                    != 0
+                    for family, raw_object in objects.items()
+                )
+            ):
+                raise ManifestValidationError(
+                    "CURRENT_STATCAST_EMPTY_PARTITION_INVALID",
+                    "A zero-row PA object must be backed by an exact COMPLETE_EMPTY Silver receipt",
+                )
         relative_path = _text(
             pa_object.get("relativePath"),
             label=f"current Silver partitions[{index}].objects.plate_appearance.relativePath",
@@ -512,6 +536,7 @@ def build_current_statcast_warehouse_manifest(
                 "temporalClassification": [
                     "POINT_IN_TIME_DATE_EXCLUSIVE",
                     "CURRENT_SEASON",
+                    *(["COMPLETE_EMPTY_DATE"] if is_complete_empty else []),
                 ],
             }
         )
@@ -608,6 +633,12 @@ def build_current_statcast_warehouse_manifest(
             "targetEventMap": copy.deepcopy(publication.get("targetEventMap") or {}),
             "temporalContract": copy.deepcopy(publication.get("temporalContract") or {}),
             "trainingApproval": "NOT_APPROVED",
+            **({"syncHealth": copy.deepcopy(dict(sync_health))} if sync_health is not None else {}),
+            **(
+                {"goldPublication": copy.deepcopy(dict(gold_publication))}
+                if gold_publication is not None
+                else {}
+            ),
         },
         "partitions": partitions,
         "publishedAt": f"{date_coverage['latestDate']}T23:59:59Z",
@@ -726,7 +757,6 @@ def validate_current_statcast_manifest(
         )
     temporal_contract = _mapping(metadata["temporalContract"], label="metadata.temporalContract")
     required_temporal = {
-        "intendedCombinedEligibleEvidence": ["2023-03-30", "2026-08-27"],
         "intendedCombinedDevelopmentSelection": ["2023-03-30", "2026-08-13"],
         "intendedCombinedFinalOot": ["2026-08-14", "2026-08-27"],
     }
@@ -736,6 +766,18 @@ def validate_current_statcast_manifest(
                 "CURRENT_STATCAST_TEMPORAL_CONTRACT_INVALID",
                 f"metadata.temporalContract.{key} differs from the authorized design",
             )
+    eligible_evidence = temporal_contract.get("intendedCombinedEligibleEvidence")
+    if (
+        not isinstance(eligible_evidence, list)
+        or len(eligible_evidence) != 2
+        or eligible_evidence[0] != "2023-03-30"
+        or _date(eligible_evidence[1], label="intendedCombinedEligibleEvidence.end")
+        > CURRENT_STATCAST_LATEST_AUTHORIZED_DATE
+    ):
+        raise ManifestValidationError(
+            "CURRENT_STATCAST_TEMPORAL_CONTRACT_INVALID",
+            "Eligible evidence must begin at 2023-03-30 and stay within the authorized 2026 season",
+        )
     cutoff_rule = _text(
         temporal_contract.get("featureCutoffRule"),
         label="metadata.temporalContract.featureCutoffRule",
@@ -758,7 +800,7 @@ def validate_current_statcast_manifest(
     ):
         raise ManifestValidationError(
             "CURRENT_STATCAST_DATE_COVERAGE_INVALID",
-            "Manifest date coverage exceeds the authorized 2023-03-30 through 2026-08-27 window",
+            "Manifest date coverage exceeds the authorized 2023-03-30 through 2026-12-31 window",
         )
     declared_rows = _integer(coverage["rowCount"], label="dateCoverage.rowCount")
     declared_partition_count = _integer(coverage["partitionCount"], label="dateCoverage.partitionCount", minimum=1)
@@ -768,7 +810,7 @@ def validate_current_statcast_manifest(
     right_ids = {record["rightsControlId"] for record in rights}
     partitions: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
-    seen_paths: set[str] = set()
+    seen_paths: dict[str, int] = {}
     for index, raw in enumerate(_list(manifest["partitions"], label="partitions", nonempty=True)):
         partition = _mapping(raw, label=f"partitions[{index}]")
         _exact_keys(partition, _PARTITION_KEYS, label=f"partitions[{index}]")
@@ -799,12 +841,12 @@ def validate_current_statcast_manifest(
             )
         ):
             raise ManifestValidationError("CURRENT_STATCAST_DATE_COVERAGE_INVALID", "Partition date range differs from its season/month")
-        row_count = _integer(partition["rowCount"], label=f"partitions[{index}].rowCount", minimum=1)
+        row_count = _integer(partition["rowCount"], label=f"partitions[{index}].rowCount")
         byte_count = _integer(partition["byteCount"], label=f"partitions[{index}].byteCount", minimum=1)
         path, relative_path = _relative_file(raw_package_root, partition["relativePath"], label=f"partitions[{index}].relativePath")
-        if relative_path in seen_paths:
+        if relative_path in seen_paths and (row_count != 0 or seen_paths[relative_path] != 0):
             raise ManifestValidationError("CURRENT_STATCAST_PARTITION_DUPLICATE", "Duplicate partition relative path")
-        seen_paths.add(relative_path)
+        seen_paths[relative_path] = row_count
         if path.suffix.casefold() != ".parquet":
             raise ManifestValidationError("CURRENT_STATCAST_PARTITION_FORMAT_REJECTED", "Only Parquet plate-appearance partitions may be registered")
         if path.stat().st_size != byte_count:
@@ -828,16 +870,43 @@ def validate_current_statcast_manifest(
                 "Partition gameDate values are incomplete",
                 logical_uri=relative_path,
             )
-        observed_dates = [
-            _date(str(value), label=f"{relative_path}.gameDate")
-            for value in game_dates
-        ]
-        if min(observed_dates) != minimum or max(observed_dates) != maximum:
-            raise ManifestValidationError(
-                "CURRENT_STATCAST_DATE_COVERAGE_INVALID",
-                "Partition declared date range differs from its exact gameDate values",
-                logical_uri=relative_path,
+        temporal_values = _list(
+            partition["temporalClassification"],
+            label=f"partitions[{index}].temporalClassification",
+        )
+        empty_marker = "COMPLETE_EMPTY_DATE" in temporal_values
+        if row_count == 0:
+            expected_empty_id = (
+                f"current-statcast-pa:{minimum.isoformat()}:sha256:{partition['fileSha256']}"
             )
+            if (
+                not empty_marker
+                or minimum != maximum
+                or partition_id != expected_empty_id
+                or game_dates
+            ):
+                raise ManifestValidationError(
+                    "CURRENT_STATCAST_EMPTY_PARTITION_INVALID",
+                    "A zero-row partition must be an exact marked current-date Silver PA object",
+                    logical_uri=relative_path,
+                )
+        else:
+            if empty_marker:
+                raise ManifestValidationError(
+                    "CURRENT_STATCAST_EMPTY_PARTITION_INVALID",
+                    "A non-empty partition may not claim COMPLETE_EMPTY_DATE",
+                    logical_uri=relative_path,
+                )
+            observed_dates = [
+                _date(str(value), label=f"{relative_path}.gameDate")
+                for value in game_dates
+            ]
+            if min(observed_dates) != minimum or max(observed_dates) != maximum:
+                raise ManifestValidationError(
+                    "CURRENT_STATCAST_DATE_COVERAGE_INVALID",
+                    "Partition declared date range differs from its exact gameDate values",
+                    logical_uri=relative_path,
+                )
         physical_schema = _list(partition["physicalSchema"], label=f"partitions[{index}].physicalSchema", nonempty=True)
         expected_schema = parquet_physical_schema(path)
         if physical_schema != expected_schema:
@@ -864,6 +933,20 @@ def validate_current_statcast_manifest(
             values = _list(partition[list_key], label=f"partitions[{index}].{list_key}")
             if any(not isinstance(item, str) or not item.strip() for item in values):
                 raise ManifestValidationError("CURRENT_STATCAST_MANIFEST_SCHEMA_INVALID", f"partitions[{index}].{list_key} contains invalid text")
+        expected_empty_lineage = {
+            f"statcast/regular/year={season}/{minimum.isoformat()}",
+            "current-statcast-bronze-manifest",
+            "mlb-stats-api-schedule-final-authority",
+            "governed-player-identity-registration",
+        }
+        if row_count == 0 and {
+            item["sourceId"] for item in normalized_lineage
+        } != expected_empty_lineage:
+            raise ManifestValidationError(
+                "CURRENT_STATCAST_EMPTY_PARTITION_INVALID",
+                "A COMPLETE_EMPTY partition must retain the exact four governed source authorities",
+                logical_uri=relative_path,
+            )
         partitions.append({**copy.deepcopy(dict(partition)), "relativePath": relative_path, "sourceLineage": normalized_lineage})
 
     if len(partitions) != declared_partition_count:
@@ -971,31 +1054,78 @@ class CurrentStatcastDatasetRegistry:
             f"{CURRENT_STATCAST_DATASET_ID}/sha256/{manifest_sha}"
         )
 
-        with self.database.transaction() as connection:
+        # Exact re-registration is a true no-op.  In particular, do not delete
+        # and rebuild child metadata for an already verified immutable version.
+        with self.database.connection() as connection:
             existing = connection.execute(
                 "SELECT * FROM sports_dataset_registrations WHERE manifest_sha = ?",
                 (manifest_sha,),
             ).fetchone()
-            disposition = "REUSED" if existing is not None else "CREATED"
-            if existing is not None and (
+        if existing is not None:
+            if (
                 existing["registration_id"] != registration_id
                 or existing["dataset_id"] != CURRENT_STATCAST_DATASET_ID
                 or existing["logical_package_root"] != logical_root
             ):
-                raise ManifestValidationError("CURRENT_STATCAST_REGISTRATION_CONFLICT", "Existing manifest registration has a different immutable identity")
+                raise ManifestValidationError(
+                    "CURRENT_STATCAST_REGISTRATION_CONFLICT",
+                    "Existing manifest registration has a different immutable identity",
+                )
+            from .registry import SportsDatasetRegistry
 
-            # Registration makes the new evidence available without changing the
-            # operator's existing active FD1 selection or its exact child lineage.
-            # James can select this independently named dataset in the workflow.
-            if existing is None:
+            reused = SportsDatasetRegistry(self.database).get(registration_id)
+            if reused is None:
+                raise RuntimeError("Current Statcast registration disappeared during exact reuse")
+            reused["registration_disposition"] = "REUSED"
+            return reused
+
+        with self.database.transaction() as connection:
+            prior_rows = connection.execute(
+                """
+                SELECT registration_id, active, metadata_json
+                FROM sports_dataset_registrations
+                WHERE dataset_id = ? AND validation_status = 'VALID'
+                ORDER BY registered_at DESC, registration_id
+                """,
+                (CURRENT_STATCAST_DATASET_ID,),
+            ).fetchall()
+            prior_active = any(bool(row["active"]) for row in prior_rows)
+            historical_ids: list[str] = []
+            for row in prior_rows:
+                prior_id = str(row["registration_id"])
+                historical_ids.append(prior_id)
+                try:
+                    prior_metadata = json.loads(str(row["metadata_json"] or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    prior_metadata = {}
+                prior_metadata.update(
+                    {
+                        "authorityState": "HISTORICAL",
+                        "supersededByRegistrationId": registration_id,
+                    }
+                )
                 connection.execute(
+                    "UPDATE sports_dataset_registrations SET active = 0, metadata_json = ? WHERE registration_id = ?",
+                    (json_dumps(prior_metadata, {}), prior_id),
+                )
+
+            metadata.update(
+                {
+                    "authorityState": "CURRENT",
+                    "historicalRegistrationIds": historical_ids,
+                    "supersedesRegistrationId": historical_ids[0] if historical_ids else None,
+                    "syncHealth": (manifest.get("metadata") or {}).get("syncHealth"),
+                    "goldPublication": (manifest.get("metadata") or {}).get("goldPublication"),
+                }
+            )
+            connection.execute(
                     """
                     INSERT INTO sports_dataset_registrations (
                       registration_id, dataset_id, dataset_version_id, manifest_id, manifest_sha,
                       package_id, sport, league, evidence_cutoff, published_at, logical_package_root,
                       validation_status, registered_at, last_validated_at, registered_by, rights_status,
                       limitation_count, active, totals_json, seasons_json, evidence_coverage_json, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'Baseball', 'MLB', ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'Baseball', 'MLB', ?, ?, ?, 'VALID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         registration_id,
@@ -1012,36 +1142,11 @@ class CurrentStatcastDatasetRegistry:
                         user_id,
                         "GOVERNED_LOCAL_RESEARCH_ONLY",
                         len(manifest["limitations"]),
+                        int(prior_active),
                         json_dumps(totals, {}),
                         json_dumps(seasons, []),
                         json_dumps(evidence_coverage, []),
                         json_dumps(metadata, {}),
-                    ),
-                )
-            else:
-                connection.execute(
-                    """
-                    UPDATE sports_dataset_registrations
-                    SET dataset_version_id = ?, manifest_id = ?, package_id = ?, evidence_cutoff = ?,
-                        published_at = ?, validation_status = 'VALID', last_validated_at = ?, rights_status = ?,
-                        limitation_count = ?, totals_json = ?, seasons_json = ?,
-                        evidence_coverage_json = ?, metadata_json = ?
-                    WHERE registration_id = ?
-                    """,
-                    (
-                        manifest["datasetVersionId"],
-                        manifest["manifestId"],
-                        f"current-statcast-pa-sha256-{manifest_sha}",
-                        coverage["latestDate"],
-                        manifest["publishedAt"],
-                        validated.validated_at,
-                        "GOVERNED_LOCAL_RESEARCH_ONLY",
-                        len(manifest["limitations"]),
-                        json_dumps(totals, {}),
-                        json_dumps(seasons, []),
-                        json_dumps(evidence_coverage, []),
-                        json_dumps(metadata, {}),
-                        registration_id,
                     ),
                 )
 
@@ -1078,6 +1183,10 @@ class CurrentStatcastDatasetRegistry:
                     f"{registration_id}:"
                     f"{sha256_bytes(canonical_json_bytes(partition['partitionId']))[:20]}"
                 )
+                registry_logical_uri = (
+                    f"{logical_root}/{partition['relativePath']}"
+                    f"#registration={registration_id}&partition={registry_partition_id.rsplit(':', 1)[-1]}"
+                )
                 connection.execute(
                     """
                     INSERT INTO sports_dataset_partitions (
@@ -1093,7 +1202,7 @@ class CurrentStatcastDatasetRegistry:
                         registration_id,
                         partition["season"],
                         partition["month"],
-                        f"{logical_root}/{partition['relativePath']}",
+                        registry_logical_uri,
                         partition["rowCount"],
                         partition["byteCount"],
                         partition["minimumDate"],
@@ -1164,7 +1273,7 @@ class CurrentStatcastDatasetRegistry:
         result = SportsDatasetRegistry(self.database).get(registration_id)
         if result is None:
             raise RuntimeError("Current Statcast dataset registration was not persisted")
-        result["registration_disposition"] = disposition
+        result["registration_disposition"] = "CREATED"
         return result
 
 

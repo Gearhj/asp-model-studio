@@ -15,6 +15,7 @@ import os
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -434,17 +435,102 @@ def _read_csv(path: Path, source: Mapping[str, Any]) -> pa.Table:
     return table
 
 
-def _current_expected_by_date(schedule: Mapping[str, Any]) -> tuple[dict[str, set[int]], dict[int, int]]:
+def _current_expected_by_date(
+    schedule: Mapping[str, Any], *, through_date: str = EVIDENCE_END,
+) -> tuple[dict[str, set[int]], dict[int, int]]:
     by_date: dict[str, set[int]] = defaultdict(set)
     by_season: Counter[int] = Counter()
     for game in schedule.get("completedGames", []):
         season = int(game["season"])
-        if season not in CURRENT_SEASONS:
+        game_date = str(game["gameDate"])
+        if season not in CURRENT_SEASONS or game_date > through_date:
             continue
         game_pk = int(game["gamePk"])
-        by_date[str(game["gameDate"])].add(game_pk)
+        by_date[game_date].add(game_pk)
         by_season[season] += 1
     return by_date, dict(by_season)
+
+
+def _prior_receipts_by_date(
+    output_root: Path, *, manifest_sha256: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve and independently verify the prior daily receipt inventory.
+
+    A growing Bronze or schedule authority necessarily receives a new global
+    manifest SHA.  That aggregate change does not alter an already-normalized
+    daily partition.  The incremental publisher therefore carries forward the
+    prior immutable receipt only after its complete object inventory verifies;
+    new/revised dates are still normalized through the ordinary production path.
+    """
+
+    root = Path(output_root).resolve()
+    if manifest_sha256 is None:
+        locator_path = root / "current.json"
+        if not locator_path.is_file():
+            return {}
+        locator = _load_json(locator_path)
+        manifest_sha256 = str(locator.get("manifestSha256") or "")
+    if not manifest_sha256:
+        return {}
+    verified = verify_current_silver(root, manifest_sha256)
+    manifest = _load_json(Path(str(verified["manifestPath"])))
+    receipts: dict[str, dict[str, Any]] = {}
+    for raw in manifest.get("partitions", []):
+        if not isinstance(raw, Mapping):
+            raise CurrentStatcastPipelineError("prior current Silver receipt is not an object")
+        day = str(raw.get("partitionDate") or "")
+        if not day or day in receipts:
+            raise CurrentStatcastPipelineError(
+                f"prior current Silver receipt date is missing or duplicated: {day!r}"
+            )
+        receipts[day] = dict(raw)
+    return receipts
+
+
+def _receipt_matches_daily_semantics(
+    output_root: Path,
+    receipt: Mapping[str, Any],
+    *,
+    source: Mapping[str, Any],
+    day: str,
+    identity: Mapping[str, Any],
+    final_game_pks: Iterable[int],
+) -> bool:
+    """Return whether a verified prior receipt still represents this exact day.
+
+    The global Bronze and schedule manifest SHAs, plus retrieval time, are
+    intentionally not compared: they can change when a later date is appended.
+    Exact source bytes, final-game membership, identity authority, normalizer
+    contract, and output schemas are the stable normalization semantics.
+    """
+
+    if not _verify_receipt(Path(output_root), receipt):
+        return False
+    request = receipt.get("request")
+    if not isinstance(request, Mapping):
+        return False
+    expected_schemas = {
+        "plate_appearance": _schema_fingerprint(PA_SCHEMA),
+        "pitch": _schema_fingerprint(PITCH_SCHEMA),
+        "reject": _schema_fingerprint(REJECT_SCHEMA),
+    }
+    try:
+        return (
+            receipt.get("partitionDate") == day
+            and int(receipt.get("season")) == int(day[:4])
+            and request.get("contract") == "MLB_CURRENT_STATCAST_PARTITION_REQUEST_V2"
+            and request.get("normalizerContract") == NORMALIZER_CONTRACT
+            and request.get("outputSchemaFingerprints") == expected_schemas
+            and request.get("sourcePartitionId") == source.get("partitionId")
+            and request.get("sourcePartitionSha256") == source.get("fileSha256")
+            and request.get("identityRegistrationSha256") == identity.get("registrationSha256")
+            and sorted(int(value) for value in request.get("finalGamePks", []))
+            == sorted(int(value) for value in final_game_pks)
+            and receipt.get("sourceStatus") == source.get("status")
+            and int(receipt.get("sourceRowCount") or 0) == int(source.get("rowCount") or 0)
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _game_pk(value: Any) -> int | None:
@@ -468,8 +554,25 @@ def build_current_silver(
     current_bronze_root: Path,
     existing_silver_root: Path,
     output_root: Path,
+    through_date: str = EVIDENCE_END,
+    publish_current: bool = True,
+    prior_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Build and publish the complete eligible 2023--2026 current PA evidence."""
+    """Build and verify eligible current PA evidence through ``through_date``.
+
+    Existing callers retain the original behavior: the frozen evidence end is
+    used and the verified publication becomes current.  Incremental callers can
+    stage a candidate with ``publish_current=False`` and advance authority only
+    after downstream Gold and warehouse verification succeeds.
+    """
+
+    try:
+        parsed_through = date.fromisoformat(str(through_date))
+    except (TypeError, ValueError) as exc:
+        raise CurrentStatcastPipelineError(
+            f"through_date is not a canonical ISO date: {through_date!r}"
+        ) from exc
+    through_date = parsed_through.isoformat()
 
     legacy, legacy_sha = _read_bronze_manifest(
         Path(legacy_bronze_root), pinned_sha=LEGACY_BRONZE_MANIFEST_SHA256
@@ -477,7 +580,9 @@ def build_current_silver(
     current, current_sha = _read_bronze_manifest(Path(current_bronze_root))
     schedule, schedule_sha = _read_schedule_authority(Path(current_bronze_root))
     resolved_mlbam, identity = _load_player_identity(Path(existing_silver_root))
-    expected_by_date, expected_by_season = _current_expected_by_date(schedule)
+    expected_by_date, expected_by_season = _current_expected_by_date(
+        schedule, through_date=through_date,
+    )
     if set(expected_by_season) != set(CURRENT_SEASONS):
         raise CurrentStatcastPipelineError(
             f"schedule authority lacks both current seasons: {sorted(expected_by_season)}"
@@ -487,7 +592,7 @@ def build_current_silver(
     # historical inputs.  Only the additive 2025--2026 Bronze partitions are
     # normalized here, so no valid historical Silver object is rebuilt.
     sources: list[tuple[Path, dict[str, Any], str, str]] = []
-    for record in _partition_source_records(current, start="2025-01-01", end=EVIDENCE_END):
+    for record in _partition_source_records(current, start="2025-01-01", end=through_date):
         sources.append((Path(current_bronze_root), record, current_sha, "MLB_STATS_API"))
     if not sources:
         raise CurrentStatcastPipelineError("no governed Statcast partitions were selected")
@@ -507,6 +612,12 @@ def build_current_silver(
     totals_by_season: dict[int, Counter[str]] = defaultdict(Counter)
     identity_counts_by_season: dict[int, Counter[str]] = defaultdict(Counter)
     source_natural_key_duplicates: Counter[int] = Counter()
+    prior_receipts = _prior_receipts_by_date(
+        output,
+        manifest_sha256=prior_manifest_sha256,
+    )
+    normalized_dates: list[str] = []
+    reused_dates: list[str] = []
 
     for source_root, source, source_manifest_sha, final_basis in sources:
         day = str((source.get("query") or {}).get("date") or "")
@@ -515,6 +626,19 @@ def build_current_silver(
         if not source_path.is_file() or _sha_file(source_path) != source.get("fileSha256"):
             raise CurrentStatcastPipelineError(f"source partition SHA mismatch: {source.get('partitionId')}")
         final_games = expected_by_date.get(day, set())
+        prior_receipt = prior_receipts.get(day)
+        if prior_receipt is not None and _receipt_matches_daily_semantics(
+            output,
+            prior_receipt,
+            source=source,
+            day=day,
+            identity=identity,
+            final_game_pks=final_games,
+        ):
+            receipt = prior_receipt
+            reused_dates.append(day)
+        else:
+            receipt = None
         request = _receipt_request(
             source,
             source_manifest_sha=source_manifest_sha,
@@ -524,11 +648,11 @@ def build_current_silver(
         )
         request_sha = sha256_bytes(canonical_json_bytes(request))
         receipt_path = output / "partition-receipts" / "sha256" / f"{request_sha}.json"
-        receipt: dict[str, Any] | None = None
-        if receipt_path.is_file():
+        if receipt is None and receipt_path.is_file():
             candidate = _load_json(receipt_path)
             if candidate.get("request") == request and _verify_receipt(output, candidate):
                 receipt = candidate
+                reused_dates.append(day)
         if receipt is None:
             table = _read_csv(source_path, source)
             partition_raw_game_pks: set[int] = set()
@@ -592,6 +716,7 @@ def build_current_silver(
                 "counts": normalized.counts,
             }
             _write_json_atomic(receipt_path, receipt)
+            normalized_dates.append(day)
 
         for raw_game_pk in receipt.get("rawGamePks", []):
             parsed_game_pk = _game_pk(raw_game_pk)
@@ -685,9 +810,9 @@ def build_current_silver(
         "targetClassOrder": list(PA_CLASS_ORDER),
         "targetEventMap": dict(sorted(EVENT_TO_OUTCOME.items())),
         "normalizerContract": NORMALIZER_CONTRACT,
-        "dateCoverage": {"earliestDate": "2025-03-18", "latestDate": EVIDENCE_END},
+        "dateCoverage": {"earliestDate": "2025-03-18", "latestDate": through_date},
         "temporalContract": {
-            "intendedCombinedEligibleEvidence": [ELIGIBLE_START, EVIDENCE_END],
+            "intendedCombinedEligibleEvidence": [ELIGIBLE_START, through_date],
             "intendedCombinedDevelopmentSelection": [ELIGIBLE_START, DEVELOPMENT_END],
             "intendedCombinedFinalOot": [FINAL_OOT_START, EVIDENCE_END],
             "featureCutoffRule": "source.gameDate < target.gameDate; same-date history excluded",
@@ -725,13 +850,26 @@ def build_current_silver(
     manifest_path = publication / "manifest.json"
     if manifest_path.exists() and manifest_path.read_bytes() != body:
         raise CurrentStatcastPipelineError("content-addressed current Silver manifest differs")
-    manifest_path.write_bytes(body)
-    _write_json_atomic(output / "current.json", {
-        "datasetId": CURRENT_DATASET_ID,
+    if not manifest_path.exists():
+        temp = manifest_path.with_name(f".{manifest_path.name}.tmp-{uuid.uuid4().hex}")
+        temp.write_bytes(body)
+        os.replace(temp, manifest_path)
+    verification = verify_current_silver(output, manifest_sha)
+    if publish_current:
+        _write_json_atomic(output / "current.json", {
+            "datasetId": CURRENT_DATASET_ID,
+            "manifestSha256": manifest_sha,
+            "manifestRelativePath": manifest_path.relative_to(output).as_posix(),
+        })
+    return {
+        **manifest,
         "manifestSha256": manifest_sha,
-        "manifestRelativePath": manifest_path.relative_to(output).as_posix(),
-    })
-    return {**manifest, "manifestSha256": manifest_sha, "manifestPath": str(manifest_path)}
+        "manifestPath": str(manifest_path),
+        "normalizedDates": normalized_dates,
+        "reusedDates": reused_dates,
+        "verified": bool(verification.get("verified")),
+        "publishedCurrent": bool(publish_current),
+    }
 
 
 def verify_current_silver(output_root: Path, manifest_sha256: str | None = None) -> dict[str, Any]:

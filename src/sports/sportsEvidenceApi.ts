@@ -678,6 +678,27 @@ export type ActiveSportsDataset = {
   };
   modelingStatus?: string;
   modelFitOccurred?: boolean;
+  currentStatcastSync?: {
+    status?: string;
+    attemptedAtUtc?: string;
+    lastSuccessfulAtUtc?: string;
+    latestMlbFinalDate?: string;
+    requestedThroughDate?: string;
+    sourcePitches?: number;
+    sourcePitchRows?: number;
+    acceptedPitches?: number;
+    acceptedPitchRows?: number;
+    acceptedPlateAppearances?: number;
+    rejectedPlateAppearances?: number;
+    rejectReasons?: Record<string, number>;
+    latestFullyCompletedDate?: string;
+    silverPartitionCount?: number;
+    completeEmptyPartitionCount?: number;
+    revisedPartitionCount?: number;
+    goldRows?: number;
+    resultingCoverage?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
   populations: SportsPopulation[];
   folds: SportsTemporalFold[];
   evidenceCoverage: SportsEvidenceCoverage[] | Record<string, string | boolean | number>;

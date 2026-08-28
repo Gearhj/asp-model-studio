@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..persistence.db import Database, json_dumps, now_iso
+from ..persistence.db import Database, json_dumps, json_loads, now_iso
 from .constants import (
     EXPECTED_PROHIBITED_USES,
     EXPECTED_TOTALS,
@@ -28,6 +30,17 @@ IDENTITY_BRIDGE_BLOCKER = {
     ),
     "blocks": ["MLB_PA_FEATURE_VIEW_V1", "plate_appearance_modeling"],
 }
+
+_CURRENT_STATCAST_DATASET_ID = "asp.mlb.statcast.current-pa.v1"
+
+
+def _historical_current_statcast(registration: Mapping[str, Any]) -> bool:
+    metadata = registration.get("metadata_json") or {}
+    return (
+        registration.get("dataset_id") == _CURRENT_STATCAST_DATASET_ID
+        and isinstance(metadata, Mapping)
+        and metadata.get("authorityState") == "HISTORICAL"
+    )
 
 
 def _schema_union(family: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -1072,7 +1085,8 @@ class SportsDatasetRegistry:
             row = connection.execute(
                 "SELECT * FROM sports_dataset_registrations WHERE active = 1 AND validation_status = 'VALID' ORDER BY registered_at DESC LIMIT 1"
             ).fetchone()
-        return self._decode_row(row)
+        decoded = self._decode_row(row)
+        return None if decoded is not None and _historical_current_statcast(decoded) else decoded
 
     def list_valid(self) -> list[dict[str, Any]]:
         """Return every validated registration available for explicit selection."""
@@ -1085,7 +1099,8 @@ class SportsDatasetRegistry:
                 ORDER BY active DESC, registered_at DESC, registration_id
                 """
             ).fetchall()
-        return [self._decode_row(row) or {} for row in rows]
+        decoded = [self._decode_row(row) or {} for row in rows]
+        return [row for row in decoded if not _historical_current_statcast(row)]
 
     def activate(self, registration_id: str) -> dict[str, Any] | None:
         """Select one already-validated registration without changing its evidence."""
@@ -1099,6 +1114,13 @@ class SportsDatasetRegistry:
                 (registration_id,),
             ).fetchone()
             if row is None:
+                return None
+            metadata = json_loads(row["metadata_json"], {})
+            if (
+                row["dataset_id"] == _CURRENT_STATCAST_DATASET_ID
+                and isinstance(metadata, Mapping)
+                and metadata.get("authorityState") == "HISTORICAL"
+            ):
                 return None
             connection.execute("UPDATE sports_dataset_registrations SET active = 0 WHERE active = 1")
             connection.execute(
@@ -1322,6 +1344,51 @@ class SportsDatasetRegistry:
         ]
         public_limitations.extend({**item, "source": "CONSUMER_AUDIT"} for item in metadata.get("modelingBlockers", []))
         seasons = registration.get("seasons_json") or []
+        manifest_metadata = metadata.get("manifestMetadata") or {}
+        current_sync = manifest_metadata.get("syncHealth")
+        if registration.get("dataset_id") == _CURRENT_STATCAST_DATASET_ID:
+            sync_root = self.database.path.parent.parent / "current-statcast-sync"
+            try:
+                attempt = json.loads((sync_root / "latest-attempt.json").read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                attempt = None
+            try:
+                success = json.loads((sync_root / "latest-success.json").read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                success = None
+            if isinstance(attempt, Mapping):
+                operational_keys = (
+                    "status",
+                    "attemptedAtUtc",
+                    "requestedThroughDate",
+                    "priorRegisteredThroughDate",
+                    "latestMlbFinalDate",
+                    "datesInspected",
+                    "datesAdded",
+                    "datesUnchanged",
+                    "datesCorrected",
+                    "completeEmptyDates",
+                    "failedDates",
+                    "failedStage",
+                    "errorType",
+                    "error",
+                )
+                operational = {
+                    key: attempt[key] for key in operational_keys if key in attempt
+                }
+                current_sync = {
+                    **(dict(current_sync) if isinstance(current_sync, Mapping) else {}),
+                    **(
+                        {"resultingCoverage": success.get("resultingCoverage")}
+                        if isinstance(success, Mapping)
+                        and isinstance(success.get("resultingCoverage"), Mapping)
+                        else {}
+                    ),
+                    **operational,
+                    "lastSuccessfulAtUtc": (
+                        success.get("attemptedAtUtc") if isinstance(success, Mapping) else None
+                    ),
+                }
         result = {
             "registrationId": registration_id,
             "datasetId": registration["dataset_id"],
@@ -1398,6 +1465,7 @@ class SportsDatasetRegistry:
             "temporalContract": (metadata.get("manifestMetadata") or {}).get("temporalContract"),
             "modelingStatus": metadata.get("modelingStatus"),
             "modelFitOccurred": metadata.get("modelFitOccurred"),
+            "currentStatcastSync": current_sync,
         }
         if identity_bridge is not None:
             result["identityBridge"] = identity_bridge

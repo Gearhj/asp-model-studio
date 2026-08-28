@@ -7,7 +7,13 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
-from . import CURRENT_STATCAST_MAX_DATE, CURRENT_STATCAST_MIN_DATE, MAX_YEAR, MIN_YEAR
+from . import (
+    CURRENT_STATCAST_MAX_DATE,
+    CURRENT_STATCAST_MIN_DATE,
+    MAX_YEAR,
+    MIN_YEAR,
+    NIGHTLY_CURRENT_STATCAST_MAX_DATE,
+)
 
 
 class BronzeBoundaryError(RuntimeError):
@@ -71,6 +77,26 @@ def assert_current_statcast_date_allowed(date_str: str) -> str:
         raise BronzeBoundaryError(
             f"current Statcast date {date_str} is outside the authorized window "
             f"[{CURRENT_STATCAST_MIN_DATE}, {CURRENT_STATCAST_MAX_DATE}]"
+        )
+    return date_str
+
+
+def assert_nightly_current_statcast_date_allowed(date_str: str) -> str:
+    """Validate the 2026 nightly continuation without relaxing legacy paths."""
+
+    m = _DATE_RE.match(str(date_str or ""))
+    if not m:
+        raise BronzeBoundaryError(f"malformed date {date_str!r}; expected YYYY-MM-DD")
+    try:
+        parsed = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError as exc:
+        raise BronzeBoundaryError(f"malformed calendar date {date_str!r}: {exc}") from exc
+    lower = date.fromisoformat(CURRENT_STATCAST_MIN_DATE)
+    upper = date.fromisoformat(NIGHTLY_CURRENT_STATCAST_MAX_DATE)
+    if parsed < lower or parsed > upper:
+        raise BronzeBoundaryError(
+            f"nightly current Statcast date {date_str} is outside the authorized window "
+            f"[{CURRENT_STATCAST_MIN_DATE}, {NIGHTLY_CURRENT_STATCAST_MAX_DATE}]"
         )
     return date_str
 

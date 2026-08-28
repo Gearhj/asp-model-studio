@@ -134,6 +134,21 @@ function SeasonCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
 
 function CurrentEvidenceBoundary({ dataset }: { dataset: ActiveSportsDataset }) {
   if (dataset.datasetId !== "asp.mlb.statcast.current-pa.v1" || !dataset.dateCoverage) return null;
+  const sync = dataset.currentStatcastSync;
+  const resulting = (sync?.resultingCoverage && typeof sync.resultingCoverage === "object" ? sync.resultingCoverage : {}) as Record<string, unknown>;
+  const numeric = (value: unknown) => typeof value === "number" ? value : undefined;
+  const sourcePitches = sync?.sourcePitches ?? sync?.sourcePitchRows ?? numeric(resulting.sourcePitchRows);
+  const acceptedPitches = sync?.acceptedPitches ?? sync?.acceptedPitchRows ?? numeric(resulting.acceptedPitchRows);
+  const goldRows = sync?.goldRows ?? numeric(resulting.goldRows);
+  const rejected = sync?.rejectedPlateAppearances ?? numeric(resulting.rejectedPlateAppearances);
+  const silverPartitions = numeric(sync?.silverPartitionCount) ?? numeric(resulting.partitionCount);
+  const completeEmptyPartitions = numeric(sync?.completeEmptyPartitionCount) ?? numeric(resulting.completeEmptyPartitionCount) ?? 0;
+  const completePartitions = silverPartitions === undefined ? undefined : Math.max(0, silverPartitions - completeEmptyPartitions);
+  const revisedPartitions = sync?.revisedPartitionCount ?? (Array.isArray(sync?.datesCorrected) ? sync.datesCorrected.length : 0);
+  const rejectReasons = Object.entries(sync?.rejectReasons ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reason, count]) => `${reason}: ${number(count)}`)
+    .join(", ") || "None";
   return <Card title="Current Statcast evidence boundary" description="Exact accepted plate-appearance coverage; no season endpoint is inferred from mutable current state.">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Detail label="Earliest accepted date" value={dataset.dateCoverage.earliestDate} />
@@ -141,6 +156,18 @@ function CurrentEvidenceBoundary({ dataset }: { dataset: ActiveSportsDataset }) 
       <Detail label="Accepted plate appearances" value={number(dataset.dateCoverage.rowCount)} />
       <Detail label="Content-addressed partitions" value={number(dataset.dateCoverage.partitionCount)} />
     </div>
+    {sync ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Detail label="Nightly sync status" value={safeText(sync.status)} />
+      <Detail label="Latest fully completed date" value={safeText(sync.latestMlbFinalDate ?? sync.latestFullyCompletedDate ?? sync.requestedThroughDate)} />
+      <Detail label="Source / accepted pitches" value={`${number(sourcePitches)} / ${number(acceptedPitches)}`} />
+      <Detail label="Gold rows" value={number(goldRows)} />
+      <Detail label="Rejected plate appearances" value={number(rejected)} />
+      <Detail label="Reject reasons" value={rejectReasons} />
+      <Detail label="Silver partitions (complete / empty / revised)" value={`${number(completePartitions)} / ${number(completeEmptyPartitions)} / ${number(revisedPartitions)}`} />
+      <Detail label="Last attempted" value={safeText(sync.attemptedAtUtc)} />
+      <Detail label="Last successful" value={safeText(sync.lastSuccessfulAtUtc)} />
+      <Detail label="Model fits" value="0" />
+    </div> : null}
     {dataset.temporalContract ? <div className="mt-4 grid gap-3 lg:grid-cols-3">
       <Detail label="Eligible evidence" value={dataset.temporalContract.intendedCombinedEligibleEvidence.join(" through ")} />
       <Detail label="Development / model selection" value={dataset.temporalContract.intendedCombinedDevelopmentSelection.join(" through ")} />

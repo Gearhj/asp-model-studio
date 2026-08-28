@@ -14,3 +14,8 @@ MAX_YEAR = 2024  # hard ceiling — 2025 is sealed, 2026 is untouched
 # Explicit current-season authorization. This does not relax any legacy year planner or its tests.
 CURRENT_STATCAST_MIN_DATE = "2025-03-01"
 CURRENT_STATCAST_MAX_DATE = "2026-08-27"
+
+# The immutable one-time extension above remains frozen.  The nightly command
+# has a separately named, current-season-only ceiling and still cannot reach a
+# future season or the legacy 2019--2024 planner.
+NIGHTLY_CURRENT_STATCAST_MAX_DATE = "2026-12-31"

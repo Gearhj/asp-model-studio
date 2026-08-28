@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import shutil
 import unittest
 import uuid
@@ -135,6 +136,7 @@ class CurrentStatcastDatasetRegistryTest(unittest.TestCase):
             "schemaVersion": CURRENT_STATCAST_MANIFEST_VERSION,
             "sport": "Baseball",
         }
+        self.payload = payload
         self.manifest_path = write_content_addressed_current_statcast_manifest(self.scratch, payload)
         self.database = Database(self.scratch / "registry.db")
         self.database.initialize()
@@ -160,6 +162,92 @@ class CurrentStatcastDatasetRegistryTest(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM sports_research_projects").fetchone()[0], 0)
             family = connection.execute("SELECT family FROM sports_dataset_partitions").fetchone()[0]
         self.assertEqual(family, "plate_appearance")
+
+    def test_complete_empty_current_dates_advance_immutable_registration_without_rows(self) -> None:
+        registry = CurrentStatcastDatasetRegistry(self.database)
+        prior = registry.register(self._validated(), user_id="test-admin")
+        empty_path = self.package_root / "children" / "pa-2026-08-28-empty.parquet"
+        pq.write_table(pq.read_table(self.parquet_path).slice(0, 0), empty_path)
+        empty_sha = sha256_file(
+            empty_path, logical_uri="children/pa-2026-08-28-empty.parquet"
+        )
+        empty_schema = parquet_physical_schema(empty_path)
+        empty_partition = {
+            "byteCount": empty_path.stat().st_size,
+            "family": "plate_appearance",
+            "fileSha256": empty_sha,
+            "maximumDate": "2026-08-28",
+            "minimumDate": "2026-08-28",
+            "month": 8,
+            "partitionId": f"current-statcast-pa:2026-08-28:sha256:{empty_sha}",
+            "physicalSchema": empty_schema,
+            "physicalSchemaFingerprint": sha256_bytes(canonical_json_bytes(empty_schema)),
+            "relativePath": "children/pa-2026-08-28-empty.parquet",
+            "rowCount": 0,
+            "schemaId": "CURRENT_STATCAST_PA_SCHEMA_V1",
+            "season": 2026,
+            "sourceLineage": [
+                {"sha256": "7" * 64, "sourceId": "statcast/regular/year=2026/2026-08-28"},
+                {"sha256": "8" * 64, "sourceId": "current-statcast-bronze-manifest"},
+                {"sha256": "9" * 64, "sourceId": "mlb-stats-api-schedule-final-authority"},
+                {"sha256": "a" * 64, "sourceId": "governed-player-identity-registration"},
+            ],
+            "sourceRightsIds": ["MLB_STATCAST"],
+            "targetEligibility": ["EVIDENCE_ONLY"],
+            "temporalClassification": [
+                "POINT_IN_TIME_DATE_EXCLUSIVE",
+                "CURRENT_SEASON",
+                "COMPLETE_EMPTY_DATE",
+            ],
+        }
+        second_empty_partition = copy.deepcopy(empty_partition)
+        second_empty_partition.update(
+            {
+                "maximumDate": "2026-08-29",
+                "minimumDate": "2026-08-29",
+                "partitionId": f"current-statcast-pa:2026-08-29:sha256:{empty_sha}",
+            }
+        )
+        second_empty_partition["sourceLineage"][0]["sourceId"] = (
+            "statcast/regular/year=2026/2026-08-29"
+        )
+        payload = copy.deepcopy(self.payload)
+        payload["partitions"].extend([empty_partition, second_empty_partition])
+        payload["dateCoverage"] = {
+            "earliestDate": "2026-08-27",
+            "latestDate": "2026-08-29",
+            "partitionCount": 3,
+            "rowCount": 2,
+        }
+        authority = current_statcast_partition_authority_sha(payload["partitions"])
+        payload["datasetVersionId"] = (
+            f"{CURRENT_STATCAST_DATASET_ID}:partition-authority-sha256:{authority}"
+        )
+        payload["manifestId"] = (
+            "current-statcast-pa-dataset-manifest:"
+            f"partition-authority-sha256:{authority}"
+        )
+        payload["metadata"]["temporalContract"]["intendedCombinedEligibleEvidence"] = [
+            "2023-03-30",
+            "2026-08-29",
+        ]
+        next_path = write_content_addressed_current_statcast_manifest(self.scratch, payload)
+        current = registry.register(
+            validate_current_statcast_manifest(next_path, package_root=self.package_root),
+            user_id="test-admin",
+        )
+
+        self.assertNotEqual(current["registration_id"], prior["registration_id"])
+        self.assertEqual(current["evidence_cutoff"], "2026-08-29")
+        self.assertEqual(current["totals_json"]["rows"], 2)
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                "SELECT registration_id, row_count FROM sports_dataset_partitions "
+                "WHERE registration_id = ? ORDER BY row_count",
+                (current["registration_id"],),
+            ).fetchall()
+        self.assertEqual([int(row["row_count"]) for row in rows], [0, 0, 2])
+        self.assertIsNotNone(SportsDatasetRegistry(self.database).get(prior["registration_id"]))
 
     def test_public_projection_is_exact_and_does_not_leak_fd1_bridge(self) -> None:
         registration = CurrentStatcastDatasetRegistry(self.database).register(

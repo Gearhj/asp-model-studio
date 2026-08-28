@@ -20,6 +20,21 @@ test("current Statcast Data Warehouse surface shows exact dates and no fit claim
   assert.ok(surface.includes("Latest accepted date"));
   assert.ok(surface.includes("No model was fit, scored, calibrated, selected, or promoted"));
   assert.ok(surface.includes("EVIDENCE_REGISTERED_NO_FIT"));
+  assert.ok(api.includes("currentStatcastSync?:"));
+  for (const label of [
+    "Nightly sync status",
+    "Latest fully completed date",
+    "Source / accepted pitches",
+    "Gold rows",
+    "Rejected plate appearances",
+    "Reject reasons",
+    "Silver partitions (complete / empty / revised)",
+    "Last attempted",
+    "Last successful",
+    "Model fits",
+  ]) {
+    assert.ok(surface.includes(label), `nightly health must show ${label}`);
+  }
   assert.ok(api.includes("getSportsDatasetCatalog"));
   assert.ok(api.includes("activateSportsDataset"));
   assert.ok(surface.includes("Registered dataset catalog"));

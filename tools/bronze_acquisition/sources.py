@@ -7,7 +7,12 @@ from datetime import date, timedelta
 from dataclasses import dataclass, field
 
 from . import MAX_YEAR, MIN_YEAR
-from .safety import assert_current_statcast_date_allowed, assert_year_allowed, assert_date_allowed
+from .safety import (
+    assert_current_statcast_date_allowed,
+    assert_date_allowed,
+    assert_nightly_current_statcast_date_allowed,
+    assert_year_allowed,
+)
 
 # The Baseball Savant CSV search endpoint SILENTLY TRUNCATES at this row cap. Any chunk must stay under it;
 # per-day queries (~9k pitches max) are safe, and the acquirer flags any chunk that reaches the cap.
@@ -101,6 +106,45 @@ def current_statcast_partitions(start_date: str, end_date: str, *, scope: str = 
             filename=f"statcast_{scope}_{d}.csv",
             natural_keys=["game_pk", "at_bat_number", "pitch_number"], date_col="game_date",
             year=cursor.year, query={"gameType": code, "date": d, "boundedCurrentExtension": True}))
+        cursor += timedelta(days=1)
+    return parts
+
+
+def nightly_current_statcast_partitions(
+    start_date: str,
+    end_date: str,
+    *,
+    scope: str = "regular",
+) -> list[Partition]:
+    """Nightly 2026 continuation using the same daily planner and URL shape."""
+
+    assert_nightly_current_statcast_date_allowed(start_date)
+    assert_nightly_current_statcast_date_allowed(end_date)
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if end < start:
+        raise ValueError("nightly current Statcast end date precedes start date")
+    if scope not in _GAMETYPE:
+        raise ValueError(f"unsupported Statcast game scope {scope!r}")
+    code = _GAMETYPE[scope]
+    parts: list[Partition] = []
+    cursor = start
+    while cursor <= end:
+        day = cursor.isoformat()
+        parts.append(
+            Partition(
+                partition_id=f"statcast/{scope}/year={cursor.year}/{day}",
+                source="statcast",
+                scope=scope,
+                url=_statcast_url(code, day, day),
+                rel_dir=f"statcast/{scope}/year={cursor.year}/month={cursor.month:02d}",
+                filename=f"statcast_{scope}_{day}.csv",
+                natural_keys=["game_pk", "at_bat_number", "pitch_number"],
+                date_col="game_date",
+                year=cursor.year,
+                query={"gameType": code, "date": day, "boundedNightlyCurrentSync": True},
+            )
+        )
         cursor += timedelta(days=1)
     return parts
 

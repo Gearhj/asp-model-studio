@@ -77,8 +77,11 @@ def _current_paths(silver_root: Path, manifest: Mapping[str, Any], family: str) 
     return tuple(paths)
 
 
-def _load_current_manifest(silver_root: Path) -> tuple[dict[str, Any], str]:
-    verified = verify_current_silver(silver_root)
+def _load_current_manifest(
+    silver_root: Path,
+    manifest_sha256: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    verified = verify_current_silver(silver_root, manifest_sha256)
     manifest = _load_json(Path(verified["manifestPath"]))
     return manifest, str(verified["manifestSha256"])
 
@@ -268,6 +271,29 @@ def _write_object(root: Path, data: bytes) -> tuple[str, Path]:
     return sha, path
 
 
+def _load_gold_publication(
+    root: Path,
+    manifest_sha256: str | None = None,
+) -> tuple[dict[str, Any], pd.DataFrame]:
+    root = Path(root).resolve()
+    if manifest_sha256 is None:
+        locator = _load_json(root / "current.json")
+        manifest_sha256 = str(locator.get("manifestSha256") or "")
+    path = root / "publications" / "sha256" / str(manifest_sha256) / "manifest.json"
+    if not path.is_file() or _sha_file(path) != manifest_sha256:
+        raise CurrentStatcastPipelineError("prior current Gold manifest is not content-addressed")
+    manifest = _load_json(path)
+    tables: list[pa.Table] = []
+    for partition in manifest.get("partitions", []):
+        object_path = root / str(partition.get("relativePath") or "")
+        if not object_path.is_file() or _sha_file(object_path) != partition.get("sha256"):
+            raise CurrentStatcastPipelineError("prior current Gold partition SHA differs")
+        tables.append(pq.read_table(object_path))
+    if not tables:
+        raise CurrentStatcastPipelineError("prior current Gold publication has no partitions")
+    return manifest, pa.concat_tables(tables, promote_options="none").to_pandas()
+
+
 def build_current_gold(
     *,
     current_silver_root: Path,
@@ -275,16 +301,39 @@ def build_current_gold(
     existing_gold_root: Path,
     exchange_root: Path,
     output_root: Path,
+    current_silver_manifest_sha256: str | None = None,
+    evidence_end: str = EVIDENCE_END,
+    recompute_dates: Sequence[str] | None = None,
+    prior_manifest_sha256: str | None = None,
+    publish_current: bool = True,
 ) -> dict[str, Any]:
     """Build the combined 2023--2026 Gold-48 evidence, with zero model fits."""
 
-    current_manifest, current_manifest_sha = _load_current_manifest(Path(current_silver_root))
+    try:
+        pd.Timestamp(evidence_end)
+    except (TypeError, ValueError) as exc:
+        raise CurrentStatcastPipelineError(f"invalid current Gold evidence end: {evidence_end!r}") from exc
+    current_manifest, current_manifest_sha = _load_current_manifest(
+        Path(current_silver_root), current_silver_manifest_sha256
+    )
     current_pa_paths = _current_paths(Path(current_silver_root), current_manifest, "plate_appearance")
     current_pitch_paths = _current_paths(Path(current_silver_root), current_manifest, "pitch")
     if not current_pa_paths or not current_pitch_paths:
         raise CurrentStatcastPipelineError("current Silver contains no accepted PA/pitch facts")
     current_pa_table = ds.dataset([str(path) for path in current_pa_paths], format="parquet").to_table()
-    current_pa = current_pa_table.to_pandas()
+    all_current_pa = current_pa_table.to_pandas()
+    current_pa = all_current_pa
+    prior_current_gold: pd.DataFrame | None = None
+    normalized_recompute_dates = sorted({str(value) for value in (recompute_dates or ())})
+    recompute_start: str | None = normalized_recompute_dates[0] if normalized_recompute_dates else None
+    if recompute_start is not None:
+        _, prior_current_gold = _load_gold_publication(
+            Path(output_root), prior_manifest_sha256
+        )
+        current_pa = all_current_pa[
+            (all_current_pa["gameDate"].astype(str) >= recompute_start)
+            & (all_current_pa["gameDate"].astype(str) <= evidence_end)
+        ].copy()
 
     old_pa_handle = resolve_current_silver(Path(existing_silver_root), "fact_statcast_plate_appearance")
     old_pitch_handle = resolve_current_silver(Path(existing_silver_root), "fact_statcast_pitch")
@@ -318,16 +367,35 @@ def build_current_gold(
         canonical_to_chadwick=canonical_to_chadwick,
         player_prior_table=player_priors,
     )
-    advanced = build_advanced_features(history, base)
-    new_gold = assemble_gold_frame(base, advanced)
+    if base.empty:
+        if prior_current_gold is None:
+            raise CurrentStatcastPipelineError("current Gold target is empty without a prior publication")
+        new_gold = prior_current_gold.iloc[0:0].copy()
+    else:
+        advanced = build_advanced_features(history, base)
+        new_gold = assemble_gold_frame(base, advanced)
 
     old_verified = verify_gold(Path(existing_gold_root))
     old_table = pq.read_table(old_verified["path"])
     old_gold = old_table.to_pandas()
     old_gold = old_gold[old_gold["season"].isin([2023, 2024])].copy()
-    combined = pd.concat([old_gold, new_gold], ignore_index=True, sort=False)
+    frames = [old_gold]
+    if prior_current_gold is not None and recompute_start is not None:
+        preserved = prior_current_gold[
+            prior_current_gold["season"].isin([2025, 2026])
+            & (prior_current_gold["game_date"].astype(str) < recompute_start)
+        ].copy()
+        frames.append(preserved)
+    frames.append(new_gold)
+    combined = pd.concat(frames, ignore_index=True, sort=False)
     combined["datasetRole"] = combined["game_date"].map(
-        lambda value: "FINAL_OOT" if FINAL_OOT_START <= str(value) <= EVIDENCE_END else "DEVELOPMENT_SELECTION"
+        lambda value: (
+            "FINAL_OOT"
+            if FINAL_OOT_START <= str(value) <= EVIDENCE_END
+            else "POST_FROZEN_OOT_EVIDENCE"
+            if str(value) > EVIDENCE_END
+            else "DEVELOPMENT_SELECTION"
+        )
     )
     combined = combined.sort_values(
         ["season", "game_date", "game_id", "plate_appearance_id"], kind="mergesort"
@@ -388,11 +456,12 @@ def build_current_gold(
         "featureCount": 48,
         "featureNames": list(GOLD_FEATURES),
         "featureAvailability": feature_availability,
-        "dateCoverage": {"earliestDate": ELIGIBLE_START, "latestDate": EVIDENCE_END},
+        "dateCoverage": {"earliestDate": ELIGIBLE_START, "latestDate": evidence_end},
         "temporalContract": {
             "eligibleEvidence": [ELIGIBLE_START, EVIDENCE_END],
             "developmentSelection": [ELIGIBLE_START, DEVELOPMENT_END],
             "finalOot": [FINAL_OOT_START, EVIDENCE_END],
+            "operationalEvidenceThrough": evidence_end,
             "historyCutoff": "source.gameDate < target.gameDate; same-date games excluded",
         },
         "sourceAuthorities": {
@@ -412,6 +481,7 @@ def build_current_gold(
         "rowCount": len(combined),
         "rowsBySeason": {str(int(key)): int(value) for key, value in combined.groupby("season").size().items()},
         "quality": quality,
+        "recomputedTargetDates": normalized_recompute_dates,
         "limitations": [
             "2026 rolling histories include regular-season Statcast only; 2025 postseason was not authorized for acquisition.",
             "This is evidence publication only. No model was fitted, scored, calibrated, selected, or promoted.",
@@ -424,18 +494,25 @@ def build_current_gold(
     if path.exists() and path.read_bytes() != body:
         raise CurrentStatcastPipelineError("current Gold content-addressed manifest differs")
     path.write_bytes(body)
-    _write_json_atomic(output / "current.json", {
-        "datasetId": CURRENT_GOLD_DATASET_ID,
-        "manifestSha256": manifest_sha,
-        "manifestRelativePath": path.relative_to(output).as_posix(),
-    })
+    if publish_current:
+        _write_json_atomic(output / "current.json", {
+            "datasetId": CURRENT_GOLD_DATASET_ID,
+            "manifestSha256": manifest_sha,
+            "manifestRelativePath": path.relative_to(output).as_posix(),
+        })
     return {**manifest, "manifestSha256": manifest_sha, "manifestPath": str(path)}
 
 
-def verify_current_gold(output_root: Path) -> dict[str, Any]:
+def verify_current_gold(
+    output_root: Path,
+    manifest_sha256: str | None = None,
+) -> dict[str, Any]:
     root = Path(output_root).resolve()
-    locator = _load_json(root / "current.json")
-    manifest_sha = str(locator.get("manifestSha256") or "")
+    if manifest_sha256 is None:
+        locator = _load_json(root / "current.json")
+        manifest_sha = str(locator.get("manifestSha256") or "")
+    else:
+        manifest_sha = str(manifest_sha256)
     path = root / "publications" / "sha256" / manifest_sha / "manifest.json"
     if not path.is_file() or _sha_file(path) != manifest_sha:
         raise CurrentStatcastPipelineError("current Gold manifest is not content-addressed")
@@ -453,7 +530,12 @@ def verify_current_gold(output_root: Path) -> dict[str, Any]:
             raise CurrentStatcastPipelineError("current Gold partition row count differs")
         rows += table.num_rows
         dates.extend([str(partition["minimumDate"]), str(partition["maximumDate"])])
-    if rows != int(manifest["rowCount"]) or min(dates) != ELIGIBLE_START or max(dates) != EVIDENCE_END:
+    declared_coverage = manifest.get("dateCoverage") or {}
+    if (
+        rows != int(manifest["rowCount"])
+        or min(dates) != ELIGIBLE_START
+        or max(dates) > str(declared_coverage.get("latestDate") or "")
+    ):
         raise CurrentStatcastPipelineError("current Gold coverage does not reconcile")
     return {
         "datasetId": manifest["datasetId"],

@@ -16,10 +16,15 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from . import CURRENT_STATCAST_MAX_DATE
+from . import CURRENT_STATCAST_MAX_DATE, NIGHTLY_CURRENT_STATCAST_MAX_DATE
 from .download import http_download, sha256_file
 from .manifest import canonical_json_bytes, sha256_bytes
-from .safety import BronzeBoundaryError, assert_current_statcast_date_allowed, contained_path
+from .safety import (
+    BronzeBoundaryError,
+    assert_current_statcast_date_allowed,
+    assert_nightly_current_statcast_date_allowed,
+    contained_path,
+)
 
 
 SCHEDULE_AUTHORITY_CONTRACT = "MLB_CURRENT_STATCAST_SCHEDULE_AUTHORITY_V1"
@@ -49,6 +54,19 @@ def schedule_url(start_date: str, end_date: str) -> str:
             "startDate": start,
             "endDate": end,
         }
+    )
+    return f"{SCHEDULE_ENDPOINT}?{query}"
+
+
+def nightly_schedule_url(start_date: str, end_date: str) -> str:
+    """Return the same bounded schedule request for the nightly 2026 window."""
+
+    start = assert_nightly_current_statcast_date_allowed(start_date)
+    end = assert_nightly_current_statcast_date_allowed(end_date)
+    if start > end:
+        raise BronzeBoundaryError(f"schedule start date {start} is after end date {end}")
+    query = urlencode(
+        {"sportId": "1", "gameTypes": "R", "startDate": start, "endDate": end}
     )
     return f"{SCHEDULE_ENDPOINT}?{query}"
 
@@ -90,9 +108,10 @@ def _validate_provider_date(value: str, *, field: str) -> str:
 
 
 def _exclusion_reason(
-    *, official_date: str, start_date: str, end_date: str, detailed_state: str
+    *, official_date: str, start_date: str, end_date: str, detailed_state: str,
+    maximum_date: str = CURRENT_STATCAST_MAX_DATE,
 ) -> str | None:
-    if official_date > CURRENT_STATCAST_MAX_DATE:
+    if official_date > maximum_date:
         return "OFFICIAL_DATE_AFTER_AUTHORIZED_CUTOFF"
     if official_date > end_date:
         return "OFFICIAL_DATE_AFTER_REQUEST_WINDOW"
@@ -151,7 +170,13 @@ def _merge_schedule_observations(
     return selected
 
 
-def parse_schedule_payload(raw: bytes, *, start_date: str, end_date: str) -> dict[str, Any]:
+def parse_schedule_payload(
+    raw: bytes,
+    *,
+    start_date: str,
+    end_date: str,
+    nightly: bool = False,
+) -> dict[str, Any]:
     """Parse one raw Stats API response into completed and excluded game inventories.
 
     Only ``Final`` and ``Completed Early`` are admitted to ``completedGames``. Every
@@ -159,8 +184,13 @@ def parse_schedule_payload(raw: bytes, *, start_date: str, end_date: str) -> dic
     current-season schedule authority.
     """
 
-    start = assert_current_statcast_date_allowed(start_date)
-    end = assert_current_statcast_date_allowed(end_date)
+    validator = (
+        assert_nightly_current_statcast_date_allowed
+        if nightly
+        else assert_current_statcast_date_allowed
+    )
+    start = validator(start_date)
+    end = validator(end_date)
     if start > end:
         raise BronzeBoundaryError(f"schedule start date {start} is after end date {end}")
     try:
@@ -175,7 +205,7 @@ def parse_schedule_payload(raw: bytes, *, start_date: str, end_date: str) -> dic
         if not isinstance(date_entry, dict) or not isinstance(date_entry.get("games", []), list):
             raise ScheduleAuthorityError("schedule date entry has no games array")
         entry_date = str(date_entry.get("date") or "")
-        assert_current_statcast_date_allowed(entry_date)
+        validator(entry_date)
         if entry_date < start or entry_date > end:
             raise ScheduleAuthorityError(
                 f"schedule entry date {entry_date} is outside request [{start}, {end}]"
@@ -240,6 +270,7 @@ def parse_schedule_payload(raw: bytes, *, start_date: str, end_date: str) -> dic
             start_date=start,
             end_date=end,
             detailed_state=record["detailedState"],
+            maximum_date=(NIGHTLY_CURRENT_STATCAST_MAX_DATE if nightly else CURRENT_STATCAST_MAX_DATE),
         )
         authoritative_record = {**record, "authorityExclusionReason": reason}
         (excluded if reason else completed).append(authoritative_record)
@@ -308,8 +339,7 @@ def _season_counts(completed: list[dict[str, Any]], excluded: list[dict[str, Any
 
 
 def _build_manifest(root: Path, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
-    completed_by_pk: dict[int, dict[str, Any]] = {}
-    excluded_by_pk: dict[int, dict[str, Any]] = {}
+    records_by_pk: dict[int, dict[str, Any]] = {}
     for snapshot in sorted(snapshots, key=lambda item: item["snapshotId"]):
         raw_path = contained_path(root, *Path(snapshot["rawRelativePath"]).parts)
         if not raw_path.is_file():
@@ -321,24 +351,42 @@ def _build_manifest(root: Path, snapshots: list[dict[str, Any]]) -> dict[str, An
                 f"expected {snapshot.get('rawSha256')}, got {actual_sha}"
             )
         parsed = parse_schedule_payload(
-            raw_path.read_bytes(), start_date=snapshot["startDate"], end_date=snapshot["endDate"]
+            raw_path.read_bytes(),
+            start_date=snapshot["startDate"],
+            end_date=snapshot["endDate"],
+            nightly=bool(snapshot.get("nightlyCurrentSync")),
         )
-        for destination, records in (
-            (completed_by_pk, parsed["completedGames"]),
-            (excluded_by_pk, parsed["excludedGames"]),
-        ):
-            for record in records:
-                prior = destination.get(record["gamePk"])
-                if prior is not None and prior != record:
-                    raise ScheduleAuthorityError(
-                        f"conflicting game identity across snapshots for gamePk {record['gamePk']}"
-                    )
-                destination[record["gamePk"]] = record
-    collision = set(completed_by_pk).intersection(excluded_by_pk)
-    if collision:
-        raise ScheduleAuthorityError(f"gamePks appear as both completed and excluded: {sorted(collision)}")
-    completed = sorted(completed_by_pk.values(), key=lambda record: (record["gameDate"], record["gamePk"]))
-    excluded = sorted(excluded_by_pk.values(), key=lambda record: (record["gameDate"], record["gamePk"]))
+        for record in parsed["completedGames"] + parsed["excludedGames"]:
+            candidate = dict(record)
+            candidate.pop("authorityExclusionReason", None)
+            prior = records_by_pk.get(candidate["gamePk"])
+            records_by_pk[candidate["gamePk"]] = (
+                _merge_schedule_observations(prior, candidate, game_pk=candidate["gamePk"])
+                if prior is not None
+                else candidate
+            )
+    completed: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    maximum_date = (
+        NIGHTLY_CURRENT_STATCAST_MAX_DATE
+        if any(bool(item.get("nightlyCurrentSync")) for item in snapshots)
+        else CURRENT_STATCAST_MAX_DATE
+    )
+    covered_ranges = [_snapshot_range(item) for item in snapshots]
+    for record in records_by_pk.values():
+        official_date = str(record["gameDate"])
+        if official_date > maximum_date:
+            reason = "OFFICIAL_DATE_AFTER_AUTHORIZED_CUTOFF"
+        elif not any(start <= official_date <= end for start, end in covered_ranges):
+            reason = "OFFICIAL_DATE_AFTER_REQUEST_WINDOW"
+        elif record["detailedState"] not in COMPLETED_DETAILED_STATES:
+            reason = "STATUS_NOT_COMPLETED"
+        else:
+            reason = None
+        authoritative = {**record, "authorityExclusionReason": reason}
+        (excluded if reason else completed).append(authoritative)
+    completed.sort(key=lambda record: (record["gameDate"], record["gamePk"]))
+    excluded.sort(key=lambda record: (record["gameDate"], record["gamePk"]))
     return {
         "manifestContract": SCHEDULE_AUTHORITY_CONTRACT,
         "manifestVersion": 1,
@@ -362,6 +410,7 @@ def acquire_schedule_authority(
     start_date: str,
     end_date: str,
     downloader: Downloader = http_download,
+    nightly: bool = False,
 ) -> dict[str, Any]:
     """Acquire or resume one immutable schedule snapshot and rebuild its authority.
 
@@ -371,8 +420,14 @@ def acquire_schedule_authority(
     """
 
     root = Path(staging_root)
-    start = assert_current_statcast_date_allowed(start_date)
-    end = assert_current_statcast_date_allowed(end_date)
+    validator = (
+        assert_nightly_current_statcast_date_allowed
+        if nightly
+        else assert_current_statcast_date_allowed
+    )
+    url_builder = nightly_schedule_url if nightly else schedule_url
+    start = validator(start_date)
+    end = validator(end_date)
     if start > end:
         raise BronzeBoundaryError(f"schedule start date {start} is after end date {end}")
     manifest_path = contained_path(root, "manifests", "mlb-stats-api-schedule-authority.json")
@@ -403,7 +458,7 @@ def acquire_schedule_authority(
         if existing is not None:
             raise ScheduleAuthorityError(f"recorded authoritative raw schedule is missing: {raw_relative}")
         receipt = downloader(
-            schedule_url(start, end),
+            url_builder(start, end),
             raw_path,
             expect_not_html=True,
             verify_fn=_verify_json,
@@ -415,13 +470,16 @@ def acquire_schedule_authority(
         if receipt_sha is not None and receipt_sha != raw_sha:
             raise ScheduleAuthorityError("schedule downloader receipt SHA does not match persisted raw bytes")
 
-    parsed = parse_schedule_payload(raw_path.read_bytes(), start_date=start, end_date=end)
+    parsed = parse_schedule_payload(
+        raw_path.read_bytes(), start_date=start, end_date=end, nightly=nightly
+    )
     snapshot = {
         "snapshotContract": SCHEDULE_SNAPSHOT_CONTRACT,
         "snapshotId": snapshot_id,
         "startDate": start,
         "endDate": end,
-        "requestUrl": schedule_url(start, end),
+        "requestUrl": url_builder(start, end),
+        "nightlyCurrentSync": bool(nightly),
         "rawRelativePath": raw_relative,
         "rawByteCount": raw_path.stat().st_size,
         "rawSha256": raw_sha,
