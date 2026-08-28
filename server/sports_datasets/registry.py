@@ -1074,6 +1074,39 @@ class SportsDatasetRegistry:
             ).fetchone()
         return self._decode_row(row)
 
+    def list_valid(self) -> list[dict[str, Any]]:
+        """Return every validated registration available for explicit selection."""
+
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM sports_dataset_registrations
+                WHERE validation_status = 'VALID'
+                ORDER BY active DESC, registered_at DESC, registration_id
+                """
+            ).fetchall()
+        return [self._decode_row(row) or {} for row in rows]
+
+    def activate(self, registration_id: str) -> dict[str, Any] | None:
+        """Select one already-validated registration without changing its evidence."""
+
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM sports_dataset_registrations
+                WHERE registration_id = ? AND validation_status = 'VALID'
+                """,
+                (registration_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            connection.execute("UPDATE sports_dataset_registrations SET active = 0 WHERE active = 1")
+            connection.execute(
+                "UPDATE sports_dataset_registrations SET active = 1 WHERE registration_id = ?",
+                (registration_id,),
+            )
+        return self.get(registration_id)
+
     def list_partitions(self, registration_id: str, *, family: str | None = None, seasons: Sequence[int] = ()) -> list[dict[str, Any]]:
         clauses = ["registration_id = ?"]
         parameters: list[Any] = [registration_id]
@@ -1133,15 +1166,31 @@ class SportsDatasetRegistry:
                 (registration_id,),
             ).fetchone())
         metadata = registration.get("metadata_json") or {}
+        is_current_statcast = metadata.get("datasetKind") == "CURRENT_STATCAST_PLATE_APPEARANCE"
+        include_active_children = bool(registration.get("active")) and not is_current_statcast
         identity_bridge = None
         pa_baseline = None
         phase4 = None
         try:
             # Kept as a lazy import so the parent dataset adapter remains usable
             # independently of optional companion-contract registrations.
-            from ..sports_identity_bridges.registry import SportsIdentityBridgeRegistry
+            if not include_active_children:
+                candidate_bridge = None
+            else:
+                from ..sports_identity_bridges.registry import SportsIdentityBridgeRegistry
 
-            identity_bridge = SportsIdentityBridgeRegistry(self.database).public_active()
+                candidate_bridge = SportsIdentityBridgeRegistry(self.database).public_active()
+            # Companion evidence is never project-latest authority.  In
+            # particular, the frozen FD1 identity bridge must not leak onto the
+            # independently named current-Statcast PA registration.
+            if (
+                isinstance(candidate_bridge, Mapping)
+                and candidate_bridge.get("parentRegistrationId") == registration_id
+                and candidate_bridge.get("parentManifestSha") == registration.get("manifest_sha")
+                and candidate_bridge.get("parentPartitionAuthoritySha")
+                    == metadata.get("partitionAuthoritySha")
+            ):
+                identity_bridge = candidate_bridge
         except sqlite3.OperationalError:
             # An absent additive bridge migration or registration is an honest
             # no-evidence state, not a reason to hide the parent dataset.
@@ -1150,9 +1199,12 @@ class SportsDatasetRegistry:
             # Research-model evidence is additive and sports-specific. Keep it
             # nested in the already-governed active dataset response instead of
             # introducing a second browser fetch or a production registry claim.
-            from ..sports_modeling.registry import SportsPAResearchRegistry
+            if not include_active_children:
+                active_research = None
+            else:
+                from ..sports_modeling.registry import SportsPAResearchRegistry
 
-            active_research = SportsPAResearchRegistry(self.database).public_active()
+                active_research = SportsPAResearchRegistry(self.database).public_active()
             candidate_baseline = (
                 active_research.get("paBaseline")
                 if isinstance(active_research, Mapping)
@@ -1185,9 +1237,12 @@ class SportsDatasetRegistry:
             # Phase 4 is an additive child study. It is visible only when its
             # exact dataset, project, and immutable Phase 3 parent all match the
             # independently projected authorities above.
-            from ..sports_phase4.registry import SportsPhase4Registry
+            if not include_active_children:
+                active_phase4 = None
+            else:
+                from ..sports_phase4.registry import SportsPhase4Registry
 
-            active_phase4 = SportsPhase4Registry(self.database).public_active()
+                active_phase4 = SportsPhase4Registry(self.database).public_active()
             candidate_phase4 = (
                 active_phase4.get("phase4")
                 if isinstance(active_phase4, Mapping)
@@ -1256,8 +1311,13 @@ class SportsDatasetRegistry:
             if "no such table: sports_phase4_studies" not in str(exc).casefold():
                 raise
             phase4 = None
+        limitation_source = (
+            "CURRENT_STATCAST_MANIFEST"
+            if metadata.get("datasetKind") == "CURRENT_STATCAST_PLATE_APPEARANCE"
+            else "EXCHANGE_MANIFEST"
+        )
         public_limitations = [
-            {"limitationId": item["limitation_id"], "scope": item["scope"], "description": item["description"], "source": "EXCHANGE_MANIFEST"}
+            {"limitationId": item["limitation_id"], "scope": item["scope"], "description": item["description"], "source": limitation_source}
             for item in limitations
         ]
         public_limitations.extend({**item, "source": "CONSUMER_AUDIT"} for item in metadata.get("modelingBlockers", []))
@@ -1286,11 +1346,13 @@ class SportsDatasetRegistry:
             "seasonCoverage": [
                 {
                     "season": item["season"],
-                    "games": item["games"],
-                    "plateAppearances": item["plate_appearances"],
-                    "transitions": item["transitions"],
-                    "starterTargets": item["starter_targets"],
-                    "bullpenAppearances": item["bullpen_appearances"],
+                    "games": item.get("games"),
+                    "plateAppearances": item.get("plate_appearances"),
+                    "transitions": item.get("transitions"),
+                    "starterTargets": item.get("starter_targets"),
+                    "bullpenAppearances": item.get("bullpen_appearances"),
+                    "earliestDate": (item.get("date_range") or {}).get("earliestDate"),
+                    "latestDate": (item.get("date_range") or {}).get("latestDate"),
                 }
                 for item in seasons
             ],
@@ -1332,6 +1394,10 @@ class SportsDatasetRegistry:
             "limitationDetails": public_limitations,
             "modelingBlockers": metadata.get("modelingBlockers", []),
             "featureAudit": metadata.get("featureAudit"),
+            "dateCoverage": metadata.get("dateCoverage"),
+            "temporalContract": (metadata.get("manifestMetadata") or {}).get("temporalContract"),
+            "modelingStatus": metadata.get("modelingStatus"),
+            "modelFitOccurred": metadata.get("modelFitOccurred"),
         }
         if identity_bridge is not None:
             result["identityBridge"] = identity_bridge

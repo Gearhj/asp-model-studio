@@ -6,24 +6,32 @@ export type SportsDatasetTotals = {
   parquetFiles: number;
   rows: number;
   parquetBytes: number;
-  games: number;
+  games?: number;
   plateAppearances: number;
-  transitions: number;
-  starterTargets: number;
-  bullpenAppearances: number;
-  playerPriors: number;
+  transitions?: number;
+  starterTargets?: number;
+  bullpenAppearances?: number;
+  playerPriors?: number;
   partitions: number;
-  playerIdentityCoverage: number;
+  playerIdentityCoverage?: number;
 };
 
 export type SportsDatasetFamily = { family: string; rows: number };
 export type SportsSeasonCoverage = {
   season: number;
-  games: number;
+  games?: number;
   plateAppearances: number;
-  transitions: number;
-  starterTargets: number;
-  bullpenAppearances: number;
+  transitions?: number;
+  starterTargets?: number;
+  bullpenAppearances?: number;
+  earliestDate?: string;
+  latestDate?: string;
+};
+export type SportsDateCoverage = {
+  earliestDate: string;
+  latestDate: string;
+  rowCount: number;
+  partitionCount: number;
 };
 export type SportsPopulation = {
   populationId: string;
@@ -661,6 +669,15 @@ export type ActiveSportsDataset = {
   totals: SportsDatasetTotals;
   families: SportsDatasetFamily[];
   seasonCoverage: SportsSeasonCoverage[];
+  dateCoverage?: SportsDateCoverage;
+  temporalContract?: {
+    featureCutoffRule: string;
+    intendedCombinedDevelopmentSelection: [string, string];
+    intendedCombinedEligibleEvidence: [string, string];
+    intendedCombinedFinalOot: [string, string];
+  };
+  modelingStatus?: string;
+  modelFitOccurred?: boolean;
   populations: SportsPopulation[];
   folds: SportsTemporalFold[];
   evidenceCoverage: SportsEvidenceCoverage[] | Record<string, string | boolean | number>;
@@ -1721,6 +1738,42 @@ export async function getActiveSportsDataset(signal: AbortSignal) {
   return dataset ? normalizeActiveDataset(dataset) : null;
 }
 
+export async function getSportsDatasetCatalog(signal: AbortSignal): Promise<ActiveSportsDataset[] | null> {
+  const response = await fetch(`${BASE}/sports/datasets/catalog`, {
+    method: "GET",
+    credentials: "include",
+    signal,
+    headers: {
+      Accept: "application/json",
+      ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
+    },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(publicErrorMessage(payload, `HTTP ${response.status}`));
+  if (!isRecord(payload) || !Array.isArray(payload.datasets)) return null;
+  const datasets = payload.datasets
+    .filter(isRecord)
+    .map((item) => normalizeActiveDataset(item as ActiveSportsDataset));
+  return datasets.length ? datasets : null;
+}
+
+export async function activateSportsDataset(registrationId: string): Promise<ActiveSportsDataset> {
+  const response = await fetch(`${BASE}/sports/datasets/${encodeURIComponent(registrationId)}/activate`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
+    },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(publicErrorMessage(payload, `Activation failed with HTTP ${response.status}`));
+  if (!isRecord(payload) || !isRecord(payload.dataset)) {
+    throw new Error("The dataset activation response was incomplete.");
+  }
+  return normalizeActiveDataset(payload.dataset as ActiveSportsDataset);
+}
+
 export async function registerApprovedSportsDataset(): Promise<ActiveSportsDataset | null> {
   const response = await fetch(`${BASE}/sports/datasets/register-approved`, {
     method: "POST",
@@ -1764,6 +1817,10 @@ function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>): Ref
 
 export function useActiveSportsDataset() {
   return useEvidence(getActiveSportsDataset);
+}
+
+export function useSportsDatasetCatalog() {
+  return useEvidence(getSportsDatasetCatalog);
 }
 
 export function logicalExchangeUri(value: string | undefined) {

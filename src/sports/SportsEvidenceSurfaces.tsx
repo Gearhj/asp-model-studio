@@ -5,11 +5,12 @@ import Gen3CatalogSection from "./cockpit/Gen3CatalogSection";
 import {
   logicalExchangeUri,
   logicalSportsEvidenceUri,
+  activateSportsDataset,
   registerApprovedSportsDataset,
   type ActiveSportsDataset,
   type SportsEvidenceCoverage,
   type SportsIdentityBridgeEvidenceRow,
-  useActiveSportsDataset,
+  useSportsDatasetCatalog,
 } from "./sportsEvidenceApi";
 
 function Page({ status, children }: { status: string; children: ReactNode }) {
@@ -105,15 +106,16 @@ function BridgeMetric({ label, value, detail }: { label: string; value: string; 
 
 function MetricGrid({ dataset }: { dataset: ActiveSportsDataset }) {
   const totals = dataset.totals;
+  const currentStatcast = dataset.datasetId === "asp.mlb.statcast.current-pa.v1";
   const items = [
-    { label: "Seasons", value: dataset.seasons?.length ? `${Math.min(...dataset.seasons)}–${Math.max(...dataset.seasons)}` : "—", detail: dataset.league },
+    { label: currentStatcast ? "Date coverage" : "Seasons", value: dataset.dateCoverage ? `${dataset.dateCoverage.earliestDate}–${dataset.dateCoverage.latestDate}` : dataset.seasons?.length ? `${Math.min(...dataset.seasons)}–${Math.max(...dataset.seasons)}` : "—", detail: dataset.dateCoverage ? "Exact accepted plate-appearance dates" : dataset.league },
     { label: "Games", value: number(totals.games), detail: "Registered manifest evidence" },
     { label: "Plate appearances", value: number(totals.plateAppearances), detail: "Registered manifest evidence" },
     { label: "Transitions", value: number(totals.transitions), detail: "Registered manifest evidence" },
     { label: "Starter targets", value: number(totals.starterTargets), detail: "Registered manifest evidence" },
     { label: "Bullpen appearances", value: number(totals.bullpenAppearances), detail: "Registered manifest evidence" },
     { label: "Player priors", value: number(totals.playerPriors), detail: "Registered manifest evidence" },
-    { label: "Partitions", value: number(totals.partitions), detail: `${percentage(totals.playerIdentityCoverage)} primary player identity-reference coverage; canonical cross-family bridge absent` },
+    { label: "Partitions", value: number(totals.partitions), detail: currentStatcast ? "Content-addressed current Statcast PA partitions" : `${percentage(totals.playerIdentityCoverage)} primary player identity-reference coverage; canonical cross-family bridge absent` },
   ];
   return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Dataset evidence summary">{items.map((item) => <article key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</div><div className="mt-2 break-words text-2xl font-semibold tabular-nums text-slate-950">{item.value}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.detail}</div></article>)}</section>;
 }
@@ -124,7 +126,31 @@ function FamilyChart({ dataset }: { dataset: ActiveSportsDataset }) {
 }
 
 function SeasonCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
+  if (dataset.datasetId === "asp.mlb.statcast.current-pa.v1") {
+    return <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Earliest accepted date", "Latest accepted date", "Plate appearances"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{dataset.seasonCoverage.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 font-mono">{safeText(row.earliestDate)}</td><td className="px-3 py-3 font-mono">{safeText(row.latestDate)}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearances)}</td></tr>)}</tbody></table></div>;
+  }
   return <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Games", "Plate appearances", "Transitions", "Starter targets", "Bullpen"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{dataset.seasonCoverage.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 tabular-nums">{number(row.games)}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearances)}</td><td className="px-3 py-3 tabular-nums">{number(row.transitions)}</td><td className="px-3 py-3 tabular-nums">{number(row.starterTargets)}</td><td className="px-3 py-3 tabular-nums">{number(row.bullpenAppearances)}</td></tr>)}</tbody></table></div>;
+}
+
+function CurrentEvidenceBoundary({ dataset }: { dataset: ActiveSportsDataset }) {
+  if (dataset.datasetId !== "asp.mlb.statcast.current-pa.v1" || !dataset.dateCoverage) return null;
+  return <Card title="Current Statcast evidence boundary" description="Exact accepted plate-appearance coverage; no season endpoint is inferred from mutable current state.">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Detail label="Earliest accepted date" value={dataset.dateCoverage.earliestDate} />
+      <Detail label="Latest accepted date" value={dataset.dateCoverage.latestDate} />
+      <Detail label="Accepted plate appearances" value={number(dataset.dateCoverage.rowCount)} />
+      <Detail label="Content-addressed partitions" value={number(dataset.dateCoverage.partitionCount)} />
+    </div>
+    {dataset.temporalContract ? <div className="mt-4 grid gap-3 lg:grid-cols-3">
+      <Detail label="Eligible evidence" value={dataset.temporalContract.intendedCombinedEligibleEvidence.join(" through ")} />
+      <Detail label="Development / model selection" value={dataset.temporalContract.intendedCombinedDevelopmentSelection.join(" through ")} />
+      <Detail label="Final untouched OOT" value={dataset.temporalContract.intendedCombinedFinalOot.join(" through ")} />
+    </div> : null}
+    <div className="mt-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-cyan-950">
+      <div><div className="text-sm font-semibold">Evidence registration only</div><p className="mt-1 text-sm leading-6">No model was fit, scored, calibrated, selected, or promoted by this Data Warehouse registration.</p></div>
+      <Pill value={dataset.modelingStatus || "EVIDENCE_REGISTERED_NO_FIT"} />
+    </div>
+  </Card>;
 }
 
 function Populations({ dataset }: { dataset: ActiveSportsDataset }) {
@@ -171,7 +197,7 @@ function IdentityBridgeAuthority({ dataset }: { dataset: ActiveSportsDataset }) 
   const requiredArtifact = dataset.featureAudit?.missingBridge.requiredArtifact || "SPORTS_IDENTITY_BRIDGE_V1";
   const missingReason = dataset.featureAudit?.missingBridge.reason || "No immutable identity companion is registered for this dataset version.";
   if (!bridge) {
-    return <Card title="MLB identity bridge" description="Exact, source-version-bound player identity authority remains separate from the immutable FD1 dataset package.">
+    return <Card title="MLB identity bridge" description="A companion identity authority is shown only when its exact parent registration, manifest, and partition authority match this dataset.">
       <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
         <Fingerprint size={20} className="mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1"><div className="text-sm font-semibold">No governed MLB identity bridge is registered.</div><p className="mt-1 text-sm leading-6">{safeText(missingReason)}</p><div className="mt-3 inline-flex rounded-lg border border-amber-200 bg-white px-3 py-2 font-mono text-xs font-semibold">{safeText(requiredArtifact)}</div></div>
@@ -264,13 +290,14 @@ function Detail({ label, value }: { label: string; value: string }) {
 function DatasetDetails({ dataset }: { dataset: ActiveSportsDataset }) {
   return <>
     <MetricGrid dataset={dataset} />
+    <CurrentEvidenceBoundary dataset={dataset} />
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Family volume" description="Declared rows by logical data family."><FamilyChart dataset={dataset} /></Card><Card title="Season coverage" description="Registered evidence by season and target family."><SeasonCoverage dataset={dataset} /></Card></div>
-    <Card title="Population composition" description="Governed population precedence, permitted research uses, and prohibitions."><Populations dataset={dataset} /></Card>
-    <div className="grid gap-5 xl:grid-cols-2"><Card title="Temporal fold timeline" description="Frozen retrospective rolling-origin validation folds."><Folds dataset={dataset} /></Card><Card title="Evidence coverage matrix" description="Only coverage states returned by the registered dataset service are shown."><Coverage dataset={dataset} /></Card></div>
+    {dataset.populations.length ? <Card title="Population composition" description="Governed population precedence, permitted research uses, and prohibitions."><Populations dataset={dataset} /></Card> : null}
+    <div className="grid gap-5 xl:grid-cols-2">{dataset.folds.length ? <Card title="Temporal fold timeline" description="Frozen retrospective rolling-origin validation folds."><Folds dataset={dataset} /></Card> : null}<Card title="Evidence coverage matrix" description="Only coverage states returned by the registered dataset service are shown."><Coverage dataset={dataset} /></Card></div>
     <IdentityBridgeAuthority dataset={dataset} />
     <FeatureAuthority dataset={dataset} />
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Source rights" description="Approved uses and prohibited redistribution remain part of the registration."><Rights dataset={dataset} /></Card><Card title="Known limitations" description="Retrospective evidence is not prospective proof."><ul className="space-y-2">{dataset.limitations.map((limitation) => <li key={limitation} className="flex gap-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950"><Scale size={16} className="mt-1 shrink-0" />{limitation}</li>)}</ul></Card></div>
-    <Card title="Technical registration details" description="Checksums remain inspectable without exposing the administrator-controlled physical exchange path."><details><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2"><Detail label="Registration ID" value={dataset.registrationId} /><Detail label="Dataset ID" value={dataset.datasetId} /><Detail label="Dataset version" value={dataset.datasetVersionId} /><Detail label="Manifest ID" value={dataset.manifestId} /><Detail label="Manifest SHA-256" value={dataset.manifestSha} /><Detail label="Partition authority SHA-256" value={dataset.partitionAuthoritySha || "Unavailable"} /><Detail label="Package ID" value={dataset.packageId} /><Detail label="Logical root" value={logicalExchangeUri(dataset.logicalRoot)} /><Detail label="Evidence cutoff" value={dataset.evidenceCutoff} /></dl></details></Card>
+    <Card title="Technical registration details" description="Checksums remain inspectable without exposing administrator-controlled physical evidence paths."><details><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2"><Detail label="Registration ID" value={dataset.registrationId} /><Detail label="Dataset ID" value={dataset.datasetId} /><Detail label="Dataset version" value={dataset.datasetVersionId} /><Detail label="Manifest ID" value={dataset.manifestId} /><Detail label="Manifest SHA-256" value={dataset.manifestSha} /><Detail label="Partition authority SHA-256" value={dataset.partitionAuthoritySha || "Unavailable"} /><Detail label="Package ID" value={dataset.packageId} /><Detail label="Logical root" value={logicalSportsEvidenceUri(dataset.logicalRoot)} /><Detail label="Evidence cutoff" value={dataset.evidenceCutoff} /></dl></details></Card>
   </>;
 }
 
@@ -302,12 +329,66 @@ function RegistrationAction({ onRegistered }: { onRegistered: () => void }) {
   return <div className="mt-5"><button type="button" disabled={!isAdmin || status === "validating" || role === null} onClick={() => void register()} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"><ShieldCheck size={16} />{buttonLabel}</button>{role !== null && !isAdmin ? <p className="mt-2 text-xs font-semibold text-slate-500">Administrator permission is required to register the approved exchange.</p> : null}{message ? <p className={`mx-auto mt-3 max-w-2xl rounded-lg border px-3 py-2 text-xs font-semibold ${status === "error" ? "border-amber-300 bg-amber-100 text-amber-950" : "border-cyan-200 bg-cyan-50 text-cyan-950"}`} role="status">{message}</p> : null}<p className="mt-3 text-xs leading-5 text-slate-500"><LockKeyhole size={13} className="mr-1 inline" />The browser submits no filesystem path. The backend resolves only its administrator-controlled exchange root.</p></div>;
 }
 
+function DatasetCatalogSelection({
+  datasets, selectedRegistrationId, onSelect, onRefresh,
+}: {
+  datasets: ActiveSportsDataset[];
+  selectedRegistrationId: string;
+  onSelect: (registrationId: string) => void;
+  onRefresh: () => void;
+}) {
+  const [role, setRole] = useState<string | null>(null);
+  const [activation, setActivation] = useState<"idle" | "saving" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const selected = datasets.find((item) => item.registrationId === selectedRegistrationId) ?? datasets[0];
+  useEffect(() => {
+    let current = true;
+    void me().then((response) => { if (current) setRole(String(response.user.role).toLowerCase()); }).catch(() => { if (current) setRole(""); });
+    return () => { current = false; };
+  }, []);
+  async function activate() {
+    if (!selected || selected.active || role !== "admin" || activation === "saving") return;
+    setActivation("saving");
+    setMessage("");
+    try {
+      await activateSportsDataset(selected.registrationId);
+      setActivation("idle");
+      setMessage(`${selected.datasetId} is now the workspace dataset. No project contract was saved.`);
+      onRefresh();
+    } catch (error) {
+      setActivation("error");
+      setMessage(error instanceof Error ? error.message : "Dataset selection failed closed.");
+    }
+  }
+  return <Card title="Registered dataset catalog" description="Inspect any validated registration. Changing the workspace dataset is an explicit administrator action and never saves a project forecast contract.">
+    <div className="grid gap-3 lg:grid-cols-2">{datasets.map((item) => <button key={item.registrationId} type="button" onClick={() => onSelect(item.registrationId)} className={`rounded-xl border p-4 text-left transition ${item.registrationId === selected?.registrationId ? "border-cyan-400 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold text-slate-950">{item.datasetId}</span><Pill value={item.active ? "WORKSPACE ACTIVE" : "AVAILABLE"} /></div>
+      <div className="mt-2 text-xs text-slate-600">{item.dateCoverage ? `${item.dateCoverage.earliestDate} through ${item.dateCoverage.latestDate}` : `Evidence cutoff ${item.evidenceCutoff}`}</div>
+      <div className="mt-1 break-all font-mono text-[11px] text-slate-500">{item.registrationId}</div>
+    </button>)}</div>
+    {selected ? <div className="mt-4 flex flex-wrap items-center gap-3">
+      <button type="button" disabled={selected.active || role !== "admin" || activation === "saving"} onClick={() => void activate()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><Database size={15} />{selected.active ? "Current workspace dataset" : activation === "saving" ? "Selecting…" : "Use for workflow"}</button>
+      <span className="text-xs text-slate-500">Inspection is transient. Workflow selection changes only when you press the button.</span>
+    </div> : null}
+    {message ? <p className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${activation === "error" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-cyan-200 bg-cyan-50 text-cyan-950"}`} role="status">{message}</p> : null}
+  </Card>;
+}
+
 export function DataWarehouseEvidencePage() {
-  const evidence = useActiveSportsDataset();
-  const status = evidence.status === "ready" ? evidence.data.validationStatus : evidence.status === "loading" ? "Loading" : "Not registered";
-  const summary = useMemo(() => evidence.status === "ready" ? `${evidence.data.datasetId} · ${evidence.data.registrationId}` : "", [evidence]);
+  const evidence = useSportsDatasetCatalog();
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState("");
+  const selected = evidence.status === "ready"
+    ? evidence.data.find((item) => item.registrationId === selectedRegistrationId)
+      ?? evidence.data.find((item) => item.active)
+      ?? evidence.data[0]
+    : null;
+  useEffect(() => {
+    if (selected && selected.registrationId !== selectedRegistrationId) setSelectedRegistrationId(selected.registrationId);
+  }, [selected, selectedRegistrationId]);
+  const status = selected ? selected.validationStatus : evidence.status === "loading" ? "Loading" : "Not registered";
+  const summary = useMemo(() => selected ? `${selected.datasetId} · ${selected.registrationId}` : "", [selected]);
   return <Page status={status}>
     <div className="mb-4"><Gen3CatalogSection mode="warehouse" /></div>
-    {evidence.status === "loading" ? <StateMessage kind="loading" title="Loading governed dataset evidence" detail="Reading the target-local registration service." /> : evidence.status === "error" ? <StateMessage kind="error" title="Dataset evidence unavailable" detail={evidence.error}><button type="button" onClick={evidence.refresh} className="mt-5 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950"><RefreshCw size={15} /> Retry</button></StateMessage> : evidence.status === "empty" ? <StateMessage kind="empty" title="No Sports Dataset Registered" detail="No governed sports manifest is registered in this workspace. No warehouse values are inferred or prefilled."><div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-700">SPORTS_DATASET_MANIFEST_V1</div><RegistrationAction onRegistered={evidence.refresh} /></StateMessage> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span className="flex items-center gap-2 font-semibold"><ShieldCheck size={17} /> Registered evidence is {evidence.data.validationStatus}</span><span className="break-all font-mono text-xs">{summary}</span></div><DatasetDetails dataset={evidence.data} /></>}
+    {evidence.status === "loading" ? <StateMessage kind="loading" title="Loading governed dataset evidence" detail="Reading the target-local registration service." /> : evidence.status === "error" ? <StateMessage kind="error" title="Dataset evidence unavailable" detail={evidence.error}><button type="button" onClick={evidence.refresh} className="mt-5 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950"><RefreshCw size={15} /> Retry</button></StateMessage> : evidence.status === "empty" ? <StateMessage kind="empty" title="No Sports Dataset Registered" detail="No governed sports manifest is registered in this workspace. No warehouse values are inferred or prefilled."><div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-700">SPORTS_DATASET_MANIFEST_V1</div><RegistrationAction onRegistered={evidence.refresh} /></StateMessage> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span className="flex items-center gap-2 font-semibold"><ShieldCheck size={17} /> Registered evidence is {selected?.validationStatus}</span><span className="break-all font-mono text-xs">{summary}</span></div><DatasetCatalogSelection datasets={evidence.data} selectedRegistrationId={selectedRegistrationId} onSelect={setSelectedRegistrationId} onRefresh={evidence.refresh} />{selected ? <DatasetDetails dataset={selected} /> : null}</>}
   </Page>;
 }

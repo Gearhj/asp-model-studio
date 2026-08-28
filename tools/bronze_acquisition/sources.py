@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from dataclasses import dataclass, field
 
 from . import MAX_YEAR, MIN_YEAR
-from .safety import assert_year_allowed, assert_date_allowed
+from .safety import assert_current_statcast_date_allowed, assert_year_allowed, assert_date_allowed
 
 # The Baseball Savant CSV search endpoint SILENTLY TRUNCATES at this row cap. Any chunk must stay under it;
 # per-day queries (~9k pitches max) are safe, and the acquirer flags any chunk that reaches the cap.
@@ -37,13 +37,25 @@ _GAMETYPE = {"regular": "R", "postseason": "PO"}
 _SEASON_MONTHS = (3, 4, 5, 6, 7, 8, 9, 10, 11)
 
 
-def statcast_url(gametype_code: str, start_date: str, end_date: str) -> str:
-    assert_date_allowed(start_date)
-    assert_date_allowed(end_date)
+def _statcast_url(gametype_code: str, start_date: str, end_date: str) -> str:
     return (f"{_SAVANT}?all=true&type=details&hfGT={gametype_code}%7C"
             f"&game_date_gt={start_date}&game_date_lt={end_date}"
             f"&min_pitches=0&min_results=0&sort_col=pitches&player_event_sort=api_p_release_speed"
             f"&sort_order=desc&min_pas=0")
+
+
+def statcast_url(gametype_code: str, start_date: str, end_date: str) -> str:
+    assert_date_allowed(start_date)
+    assert_date_allowed(end_date)
+    return _statcast_url(gametype_code, start_date, end_date)
+
+
+def current_statcast_url(gametype_code: str, start_date: str, end_date: str) -> str:
+    assert_current_statcast_date_allowed(start_date)
+    assert_current_statcast_date_allowed(end_date)
+    if end_date < start_date:
+        raise ValueError("current Statcast end date precedes start date")
+    return _statcast_url(gametype_code, start_date, end_date)
 
 
 def statcast_partitions(start_year: int = MIN_YEAR, end_year: int = MAX_YEAR) -> list[Partition]:
@@ -63,6 +75,33 @@ def statcast_partitions(start_year: int = MIN_YEAR, end_year: int = MAX_YEAR) ->
                         filename=f"statcast_{scope}_{d}.csv",
                         natural_keys=["game_pk", "at_bat_number", "pitch_number"], date_col="game_date",
                         year=year, query={"gameType": code, "date": d}))
+    return parts
+
+
+def current_statcast_partitions(start_date: str, end_date: str, *, scope: str = "regular") -> list[Partition]:
+    """One resumable partition per explicitly authorized current-season date."""
+
+    assert_current_statcast_date_allowed(start_date)
+    assert_current_statcast_date_allowed(end_date)
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if end < start:
+        raise ValueError("current Statcast end date precedes start date")
+    if scope not in _GAMETYPE:
+        raise ValueError(f"unsupported Statcast game scope {scope!r}")
+    code = _GAMETYPE[scope]
+    parts: list[Partition] = []
+    cursor = start
+    while cursor <= end:
+        d = cursor.isoformat()
+        parts.append(Partition(
+            partition_id=f"statcast/{scope}/year={cursor.year}/{d}", source="statcast", scope=scope,
+            url=current_statcast_url(code, d, d),
+            rel_dir=f"statcast/{scope}/year={cursor.year}/month={cursor.month:02d}",
+            filename=f"statcast_{scope}_{d}.csv",
+            natural_keys=["game_pk", "at_bat_number", "pitch_number"], date_col="game_date",
+            year=cursor.year, query={"gameType": code, "date": d, "boundedCurrentExtension": True}))
+        cursor += timedelta(days=1)
     return parts
 
 

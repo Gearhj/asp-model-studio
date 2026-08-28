@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from server.sports_gold.contracts import (
@@ -18,6 +19,7 @@ from server.sports_gold.contracts import (
     PITCHER_HISTORY_FEATURES,
 )
 from server.sports_gold.features import (
+    aggregate_pitch_history,
     assemble_gold_frame,
     build_advanced_features,
     prepare_pa_history,
@@ -97,6 +99,35 @@ def _history_fixture() -> tuple[pd.DataFrame, pd.DataFrame]:
     history = prepare_pa_history(pd.DataFrame(rows), pitch)
     matched = pd.DataFrame([{"canonicalPaId": "current"}])
     return history, matched
+
+
+def test_pitch_history_accepts_additional_verified_lineage_columns(tmp_path: Path):
+    base = pa.table({
+        "canonicalPaId": ["pa-1"],
+        "pitchType": ["FF"],
+        "releaseSpeed": [95.0],
+        "pitchResultType": ["swinging_strike"],
+    })
+    current = base.append_column("sourcePartitionDate", pa.array(["2026-08-27"]))
+    base_path = tmp_path / "base.parquet"
+    current_path = tmp_path / "current.parquet"
+    pq.write_table(base, base_path)
+    pq.write_table(current, current_path)
+
+    result = aggregate_pitch_history((base_path, current_path))
+
+    assert result.to_dict("records") == [{
+        "canonicalPaId": "pa-1",
+        "pitch_count": 2,
+        "swing_count": 2,
+        "whiff_count": 2,
+        "contact_count": 0,
+        "fastball_count": 2,
+        "breaking_count": 0,
+        "offspeed_count": 0,
+        "fastball_velocity_sum": 190.0,
+        "fastball_velocity_count": 2,
+    }]
 
 
 def _model_frame() -> pd.DataFrame:

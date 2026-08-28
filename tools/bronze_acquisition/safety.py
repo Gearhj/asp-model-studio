@@ -7,7 +7,7 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
-from . import MAX_YEAR, MIN_YEAR
+from . import CURRENT_STATCAST_MAX_DATE, CURRENT_STATCAST_MIN_DATE, MAX_YEAR, MIN_YEAR
 
 
 class BronzeBoundaryError(RuntimeError):
@@ -47,6 +47,31 @@ def assert_date_allowed(date_str: str) -> str:
         raise BronzeBoundaryError(f"malformed calendar date {date_str!r}: {exc}")
     if parsed > date(MAX_YEAR, 12, 31):
         raise BronzeBoundaryError(f"date {date_str} is after {MAX_YEAR}-12-31")
+    return date_str
+
+
+def assert_current_statcast_date_allowed(date_str: str) -> str:
+    """Validate the separately authorized, date-bounded 2025-2026 Statcast extension.
+
+    This deliberately does not change ``assert_date_allowed`` or ``assert_year_allowed``: every legacy
+    Bronze planner remains sealed at 2024. The current extension is reachable only through its explicit
+    date-based planner and cannot move beyond the frozen task cutoff.
+    """
+
+    m = _DATE_RE.match(str(date_str or ""))
+    if not m:
+        raise BronzeBoundaryError(f"malformed date {date_str!r}; expected YYYY-MM-DD")
+    try:
+        parsed = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError as exc:
+        raise BronzeBoundaryError(f"malformed calendar date {date_str!r}: {exc}") from exc
+    lower = date.fromisoformat(CURRENT_STATCAST_MIN_DATE)
+    upper = date.fromisoformat(CURRENT_STATCAST_MAX_DATE)
+    if parsed < lower or parsed > upper:
+        raise BronzeBoundaryError(
+            f"current Statcast date {date_str} is outside the authorized window "
+            f"[{CURRENT_STATCAST_MIN_DATE}, {CURRENT_STATCAST_MAX_DATE}]"
+        )
     return date_str
 
 

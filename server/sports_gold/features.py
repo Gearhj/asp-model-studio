@@ -58,7 +58,10 @@ def _pitch_lazy(frame_or_paths: pa.Table | Sequence[Path]) -> pl.LazyFrame:
     paths = [str(Path(path)) for path in frame_or_paths]
     if not paths:
         raise GoldFeatureError("pitch history requires verified child paths")
-    return pl.scan_parquet(paths).select(required)
+    # Verified Silver generations can carry additional immutable lineage
+    # columns.  Gold consumes only this frozen projection, while still
+    # failing closed when any required feature input is absent.
+    return pl.scan_parquet(paths, extra_columns="ignore").select(required)
 
 
 def aggregate_pitch_history(frame_or_paths: pa.Table | Sequence[Path]) -> pd.DataFrame:
@@ -96,8 +99,17 @@ def aggregate_pitch_history(frame_or_paths: pa.Table | Sequence[Path]) -> pd.Dat
     return out.to_pandas()
 
 
-def prepare_pa_history(pa_table: pa.Table | pd.DataFrame, pitch_aggregates: pd.DataFrame) -> pd.DataFrame:
-    """Build one deterministic history row per Silver PA (2019--2024 only)."""
+def prepare_pa_history(
+    pa_table: pa.Table | pd.DataFrame,
+    pitch_aggregates: pd.DataFrame,
+    *,
+    allowed_seasons: Sequence[int] = (2019, 2020, 2021, 2022, 2023, 2024),
+) -> pd.DataFrame:
+    """Build deterministic Silver PA history within an explicit season authority.
+
+    The default remains the frozen 2019--2024 Gold V1 authority.  A bounded
+    extension must opt in to every additional season at its call site.
+    """
 
     frame = pa_table.to_pandas() if isinstance(pa_table, pa.Table) else pa_table.copy()
     required = {
@@ -111,7 +123,8 @@ def prepare_pa_history(pa_table: pa.Table | pd.DataFrame, pitch_aggregates: pd.D
     if frame["canonicalPaId"].isna().any() or frame["canonicalPaId"].duplicated().any():
         raise GoldFeatureError("Silver PA identity is null or duplicated")
     frame["season"] = pd.to_numeric(frame["season"], errors="raise").astype(np.int16)
-    if not frame["season"].isin([2019, 2020, 2021, 2022, 2023, 2024]).all():
+    governed_seasons = tuple(int(value) for value in allowed_seasons)
+    if not governed_seasons or not frame["season"].isin(governed_seasons).all():
         raise GoldFeatureError("PA history includes a prohibited season")
     frame["gameDate"] = pd.to_datetime(frame["gameDate"], format="%Y-%m-%d", errors="raise")
     frame["mlbamGamePk"] = pd.to_numeric(frame["mlbamGamePk"], errors="raise").astype(np.int64)

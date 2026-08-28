@@ -3,8 +3,9 @@
     python -m tools.bronze_acquisition.acquire --source chadwick --staging-root <root>
     python -m tools.bronze_acquisition.acquire --source statcast --start-year 2024 --end-year 2024 [--max-partitions N]
 
-Refuses any year > 2024. Resumable: verified partitions are skipped. Data lands ONLY under the external
-staging root; nothing is joined, engineered, or modeled.
+Legacy year planners refuse any year > 2024. The explicit ``--start-date`` / ``--end-date`` Statcast path
+is separately bounded through 2026-08-27. Resumable: verified partitions are skipped. Data lands ONLY under
+the external staging root; nothing is joined, engineered, or modeled.
 """
 from __future__ import annotations
 
@@ -13,11 +14,11 @@ import sys
 import time
 from pathlib import Path
 
-from . import MAX_YEAR, MIN_YEAR
+from . import CURRENT_STATCAST_MAX_DATE, MAX_YEAR, MIN_YEAR
 from .download import http_download, sha256_file
 from .manifest import BronzeManifest, inspect_csv, utc_now
 from .safety import BronzeBoundaryError, contained_path, redact, safe_extract_zip, safe_filename
-from .sources import PLANNERS
+from .sources import PLANNERS, current_statcast_partitions
 
 SOURCE_TERMS = {
     "statcast": {"owner": "MLB Advanced Media / Baseball Savant", "location": "https://baseballsavant.mlb.com",
@@ -60,20 +61,29 @@ def _record_terms(root: Path, source: str, log) -> None:
 
 
 def acquire(source: str, *, staging_root: Path, start_year: int, end_year: int, max_partitions: int | None,
-            dry_run: bool) -> dict:
+            dry_run: bool, start_date: str | None = None, end_date: str | None = None,
+            statcast_scope: str = "regular") -> dict:
     if source not in PLANNERS:
         raise BronzeBoundaryError(f"unknown source {source!r}")
-    if end_year > MAX_YEAR or start_year < MIN_YEAR:
-        raise BronzeBoundaryError(f"year window must be within [{MIN_YEAR}, {MAX_YEAR}] — 2025/2026 are prohibited")
+    date_mode = start_date is not None or end_date is not None
+    if date_mode:
+        if source != "statcast" or not start_date or not end_date:
+            raise BronzeBoundaryError("the date-bounded extension requires Statcast plus both --start-date and --end-date")
+    elif end_year > MAX_YEAR or start_year < MIN_YEAR:
+        raise BronzeBoundaryError(f"year window must be within [{MIN_YEAR}, {MAX_YEAR}] — use the explicit current Statcast date path")
     root = Path(staging_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     log = _log_file(root)
     _record_terms(root, source, log)
     manifest = BronzeManifest(root)
-    partitions = PLANNERS[source](start_year=start_year, end_year=end_year)
+    partitions = (
+        current_statcast_partitions(start_date, end_date, scope=statcast_scope)
+        if date_mode else PLANNERS[source](start_year=start_year, end_year=end_year)
+    )
     if max_partitions:
         partitions = partitions[:max_partitions]
-    log(f"source={source} window=[{start_year},{end_year}] partitions={len(partitions)} dry_run={dry_run}")
+    window = f"[{start_date},{end_date}]" if date_mode else f"[{start_year},{end_year}]"
+    log(f"source={source} window={window} partitions={len(partitions)} dry_run={dry_run}")
     done = skipped = failed = 0
     for part in partitions:
         if manifest.has_valid(part.partition_id):
@@ -89,7 +99,7 @@ def acquire(source: str, *, staging_root: Path, start_year: int, end_year: int, 
             record = {
                 "partitionId": part.partition_id, "source": source, "scope": part.scope,
                 "sourceUrlDomain": part.url.split("/")[2], "year": part.year, "query": part.query,
-                "retrievalUtc": utc_now(), "toolVersion": "1.0", "httpStatus": receipt["status"],
+                "retrievalUtc": utc_now(), "toolVersion": "1.1", "httpStatus": receipt["status"],
                 "attempts": receipt["attempts"], "reused": receipt["reused"],
                 "rawFilename": dest.name, "relativePath": str(dest.relative_to(root)).replace("\\", "/"),
                 "fileSizeBytes": receipt["bytes"], "fileSha256": receipt["sha256"],
@@ -105,9 +115,15 @@ def acquire(source: str, *, staging_root: Path, start_year: int, end_year: int, 
                 record.update(inspect_csv(dest, natural_keys=part.natural_keys, date_col=part.date_col))
                 if part.date_col and record.get("maxDate"):
                     md = str(record["maxDate"])[:4]
-                    if md.isdigit() and int(md) > MAX_YEAR:
+                    if md.isdigit() and not date_mode and int(md) > MAX_YEAR:
                         record["status"] = "QUARANTINE_LATER_YEAR"
                         record["anomaly"] = f"maxDate {record['maxDate']} exceeds {MAX_YEAR}"
+                    elif date_mode and (record.get("minDate") != part.query["date"] or record.get("maxDate") != part.query["date"]):
+                        record["status"] = "QUARANTINE_DATE_MISMATCH"
+                        record["anomaly"] = (
+                            f"partition {part.partition_id} returned dates "
+                            f"[{record.get('minDate')}, {record.get('maxDate')}]"
+                        )
                 if source == "statcast":
                     from .sources import STATCAST_ROW_CAP
                     if int(record.get("rowCount", 0)) >= STATCAST_ROW_CAP:
@@ -132,17 +148,21 @@ def acquire(source: str, *, staging_root: Path, start_year: int, end_year: int, 
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Quarantined MLB Bronze acquisition (2019-2024 only)")
+    ap = argparse.ArgumentParser(description="Quarantined MLB Bronze acquisition")
     ap.add_argument("--source", required=True, choices=sorted(PLANNERS))
     ap.add_argument("--staging-root", default=r"C:\Users\james\asp-data-staging\mlb-advanced-bronze-v1")
     ap.add_argument("--start-year", type=int, default=MIN_YEAR)
     ap.add_argument("--end-year", type=int, default=MAX_YEAR)
+    ap.add_argument("--start-date", help="Explicit current Statcast start date (YYYY-MM-DD)")
+    ap.add_argument("--end-date", help=f"Explicit current Statcast end date, at most {CURRENT_STATCAST_MAX_DATE}")
+    ap.add_argument("--statcast-scope", choices=("regular", "postseason"), default="regular")
     ap.add_argument("--max-partitions", type=int, default=None)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     try:
         out = acquire(a.source, staging_root=Path(a.staging_root), start_year=a.start_year, end_year=a.end_year,
-                      max_partitions=a.max_partitions, dry_run=a.dry_run)
+                      max_partitions=a.max_partitions, dry_run=a.dry_run, start_date=a.start_date,
+                      end_date=a.end_date, statcast_scope=a.statcast_scope)
     except BronzeBoundaryError as exc:
         print(f"BRONZE BOUNDARY REFUSED: {exc}", file=sys.stderr)
         return 2
