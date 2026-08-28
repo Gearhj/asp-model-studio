@@ -31,6 +31,7 @@ async function transpile(source, output) {
 await rm(TMP, { recursive: true, force: true });
 await transpile("src/lib/api.ts", path.join(TMP, "src/lib/api.js"));
 await transpile("src/sports/workflow/workflowState.ts", path.join(TMP, "src/sports/workflow/workflowState.js"));
+await transpile("src/sports/workflow/sportsAuthorityErrors.ts", path.join(TMP, "src/sports/workflow/sportsAuthorityErrors.js"));
 await transpile("src/sports/workflow/forecastContractPersistence.ts", path.join(TMP, "src/sports/workflow/forecastContractPersistence.js"));
 
 const wf = await import(pathToFileURL(path.join(TMP, "src/sports/workflow/workflowState.js")).href);
@@ -130,7 +131,7 @@ test("PUT sends expectedVersion plus flat exact dates and caches only acknowledg
 test("failed registration surfaces the server coverage error and never updates the cache", async () => {
   globalThis.fetch = async () => response({
     detail: {
-      code: "SOURCE_COVERAGE_EXCEEDED",
+      code: "SOURCE_COVERAGE_INSUFFICIENT",
       message: "Registered source evidence currently ends on 2025-09-28. The requested 2026 evaluation period is not available in the Data Warehouse.",
       requestedRange: { start: "2023-03-30", end: "2026-08-27" },
       missingIntervals: [{ start: "2025-09-29", end: "2026-08-27" }],

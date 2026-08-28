@@ -57,6 +57,25 @@ test("custom dates validate exactly inside registered PA coverage", () => {
   assert.equal(result.coverageMessage, null);
 });
 
+test("the intended 2026 custom contract is fully covered by current Statcast authority", () => {
+  const currentCoverage = {
+    ...coverage,
+    earliestDate: "2023-03-30",
+    latestDate: "2026-08-27",
+    registrationId: "sports-dataset-current-statcast-03ca6dab30e760b2",
+    datasetId: "asp.mlb.statcast.current-pa.v1",
+    datasetVersionId: "asp.mlb.statcast.current-pa.v1:partition-authority-sha256:6e134d8726587ad88d0807effb6e6b12ad39f39b99acb7f523ae6ae98155df34",
+  };
+  const result = wf.validateCustomTemporalDesign({
+    eligibleEvidence: { startDate: "2023-03-30", endDate: "2026-08-27" },
+    developmentSelection: { startDate: "2023-03-30", endDate: "2026-08-13" },
+    finalOot: { startDate: "2026-08-14", endDate: "2026-08-27" },
+  }, currentCoverage);
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.missingIntervals, []);
+  assert.equal(result.coverageMessage, null);
+});
+
 test("2026 is blocked with the exact registered end and missing interval", () => {
   const input = validRanges();
   input.eligibleEvidence.endDate = "2026-08-27";

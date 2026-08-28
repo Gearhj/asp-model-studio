@@ -1184,6 +1184,7 @@ class ProjectDatasetActivationRepository(BaseRepository):
         actor_user_id: str,
         expected_activation_revision: int | None = None,
         metadata: Dict[str, Any] | None = None,
+        reconcile_workflow: bool = True,
     ) -> Dict[str, Any]:
         if not all((project_id, dataset_id, dataset_version_id, actor_user_id)):
             raise ProjectDatasetActivationStateError(
@@ -1343,14 +1344,18 @@ class ProjectDatasetActivationRepository(BaseRepository):
                         "previousActivationRevision": current_revision,
                     },
                 )
-            workflow = self._reconcile_workflow_identity(
-                connection,
-                project_id=project_id,
-                dataset_id=dataset_id,
-                dataset_version_id=dataset_version_id,
-                activation_revision=activation_revision,
-                activated_at=activated_at,
-                preserve_effective=not changed,
+            workflow = (
+                self._reconcile_workflow_identity(
+                    connection,
+                    project_id=project_id,
+                    dataset_id=dataset_id,
+                    dataset_version_id=dataset_version_id,
+                    activation_revision=activation_revision,
+                    activated_at=activated_at,
+                    preserve_effective=not changed,
+                )
+                if reconcile_workflow
+                else None
             )
             link = self._row(
                 connection,

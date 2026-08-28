@@ -8,6 +8,9 @@ from datetime import date, timedelta
 from typing import Any, Mapping
 
 from .db import Database, json_dumps, json_loads, now_iso
+from .repositories.project_dataset_activation_repository import (
+    ProjectDatasetActivationRepository,
+)
 
 
 FORECAST_CONTRACT_METADATA_KEY = "sportsForecastContract"
@@ -266,20 +269,20 @@ def _normalize_custom_dates(payload: Mapping[str, Any]) -> tuple[dict[str, str],
     return ({key: parsed[key].isoformat() for key in keys}, parsed)
 
 
-def _source_coverage(connection: Any) -> dict[str, Any] | None:
-    registration = connection.execute(
-        """
-        SELECT registration_id, dataset_id, dataset_version_id, manifest_sha
-        FROM sports_dataset_registrations
-        WHERE active = 1
-          AND validation_status = 'VALID'
-          AND UPPER(league) = 'MLB'
-        ORDER BY registered_at DESC
-        LIMIT 1
-        """
-    ).fetchone()
-    if registration is None:
-        return None
+def _project_not_registered() -> SportsForecastContractError:
+    return SportsForecastContractError(
+        "PROJECT_NOT_REGISTERED",
+        "The ASP Model Studio sports project is not registered in the local persistence database.",
+        status_code=404,
+    )
+
+
+def _registration_coverage(
+    connection: Any,
+    registration: Mapping[str, Any],
+    *,
+    activation_revision: int | None = None,
+) -> dict[str, Any] | None:
     # player_prior is an annual summary whose maximum_date is deliberately
     # December 31.  It is not game-day/PA coverage and must never extend the
     # contract boundary beyond the last registered plate appearance.
@@ -300,7 +303,7 @@ def _source_coverage(connection: Any) -> dict[str, Any] | None:
     ).fetchone()
     if coverage is None or not coverage["earliest_date"] or not coverage["latest_date"]:
         return None
-    return {
+    result = {
         "registrationId": registration["registration_id"],
         "datasetId": registration["dataset_id"],
         "datasetVersionId": registration["dataset_version_id"],
@@ -312,6 +315,143 @@ def _source_coverage(connection: Any) -> dict[str, Any] | None:
         "partitionCount": int(coverage["partition_count"] or 0),
         "rowCount": int(coverage["row_count"] or 0),
     }
+    if activation_revision is not None:
+        result["activationRevision"] = activation_revision
+    return result
+
+
+def _source_coverage(connection: Any, project_id: str) -> dict[str, Any]:
+    """Resolve MLB PA coverage only through this project's durable selection.
+
+    The workspace-global ``sports_dataset_registrations.active`` flag is a
+    catalog convenience.  It is deliberately not scientific authority for a
+    project: one project's FD1 selection must not silently control another
+    project's current-Statcast contract.
+    """
+
+    selection = connection.execute(
+        """
+        SELECT active.dataset_id, active.dataset_version_id,
+               active.activation_revision, active.activation_status,
+               active.metadata_json AS activation_metadata_json,
+               link.link_status, link.metadata_json AS link_metadata_json
+        FROM active_modeling_dataset_versions AS active
+        LEFT JOIN project_dataset_links AS link
+          ON link.project_id = active.project_id
+         AND link.dataset_id = active.dataset_id
+        WHERE active.project_id = ?
+        """,
+        (project_id,),
+    ).fetchone()
+    if (
+        selection is None
+        or selection["activation_status"] != "active"
+        or selection["link_status"] != "active"
+    ):
+        raise SportsForecastContractError(
+            "DATASET_NOT_LINKED",
+            "Select an evidence dataset for this sports project before registering its forecast contract.",
+            status_code=409,
+            details={"projectId": project_id},
+        )
+
+    activation_metadata = json_loads(selection["activation_metadata_json"], {})
+    link_metadata = json_loads(selection["link_metadata_json"], {})
+    registration_id = (
+        str(
+            (link_metadata.get("registrationId") if isinstance(link_metadata, Mapping) else "")
+            or (
+                activation_metadata.get("registrationId")
+                if isinstance(activation_metadata, Mapping)
+                else ""
+            )
+            or ""
+        ).strip()
+    )
+    bound_manifest_sha = (
+        str(
+            (link_metadata.get("manifestSha") if isinstance(link_metadata, Mapping) else "")
+            or (
+                activation_metadata.get("manifestSha")
+                if isinstance(activation_metadata, Mapping)
+                else ""
+            )
+            or ""
+        ).strip()
+    )
+    parameters: list[Any] = [
+        selection["dataset_id"],
+        selection["dataset_version_id"],
+    ]
+    registration_clause = ""
+    if registration_id:
+        registration_clause = "AND registration_id = ?"
+        parameters.append(registration_id)
+    registrations = connection.execute(
+        """
+        SELECT registration_id, dataset_id, dataset_version_id, manifest_sha,
+               metadata_json
+        FROM sports_dataset_registrations
+        WHERE dataset_id = ?
+          AND dataset_version_id = ?
+          AND validation_status = 'VALID'
+          AND UPPER(league) = 'MLB'
+        """
+        + registration_clause
+        + " ORDER BY registered_at DESC, registration_id",
+        tuple(parameters),
+    ).fetchall()
+    # Legacy durable selections did not persist registrationId.  They remain
+    # compatible only when the exact dataset/version pair resolves uniquely;
+    # ambiguity is never repaired by choosing first/latest/global-active.
+    if len(registrations) != 1:
+        raise SportsForecastContractError(
+            "SOURCE_COVERAGE_UNAVAILABLE",
+            "The linked dataset does not resolve to one exact validated MLB evidence registration.",
+            status_code=409,
+            details={
+                "projectId": project_id,
+                "datasetId": selection["dataset_id"],
+                "datasetVersionId": selection["dataset_version_id"],
+                "registrationId": registration_id or None,
+            },
+        )
+    registration = registrations[0]
+    if bound_manifest_sha and registration["manifest_sha"] != bound_manifest_sha:
+        raise SportsForecastContractError(
+            "SOURCE_COVERAGE_UNAVAILABLE",
+            "The linked sports evidence manifest does not match the selected registration authority.",
+            status_code=409,
+            details={
+                "registrationId": registration["registration_id"],
+                "expectedManifestSha": bound_manifest_sha,
+                "actualManifestSha": registration["manifest_sha"],
+            },
+        )
+    registration_metadata = json_loads(registration["metadata_json"], {})
+    if (
+        isinstance(registration_metadata, Mapping)
+        and registration_metadata.get("authorityState") == "HISTORICAL"
+    ):
+        raise SportsForecastContractError(
+            "SOURCE_COVERAGE_UNAVAILABLE",
+            "The linked sports evidence registration is historical and cannot authorize a new forecast contract.",
+            status_code=409,
+            details={"registrationId": registration["registration_id"]},
+        )
+    coverage = _registration_coverage(
+        connection,
+        registration,
+        activation_revision=int(selection["activation_revision"]),
+    )
+    if coverage is None:
+        raise SportsForecastContractError(
+            "SOURCE_COVERAGE_UNAVAILABLE",
+            "The linked sports evidence registration has no authoritative plate-appearance date coverage.",
+            status_code=409,
+            details={"registrationId": registration["registration_id"]},
+        )
+    return coverage
 
 
 def _validate_source_coverage(
@@ -351,7 +491,7 @@ def _validate_source_coverage(
             "The requested eligible evidence period is not available in the Data Warehouse."
         )
     raise SportsForecastContractError(
-        "SOURCE_COVERAGE_EXCEEDED",
+        "SOURCE_COVERAGE_INSUFFICIENT",
         message,
         details={
             "requestedRange": {
@@ -429,7 +569,7 @@ def _validate_season_role_coverage(
             "The requested governed season is not available in the Data Warehouse."
         )
     raise SportsForecastContractError(
-        "SOURCE_COVERAGE_EXCEEDED",
+        "SOURCE_COVERAGE_INSUFFICIENT",
         message,
         details={
             "requestedRange": {
@@ -492,6 +632,108 @@ class SportsForecastContractStore:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def get_evidence_dataset(self, project_id: str) -> dict[str, Any]:
+        with self.database.connection() as connection:
+            if connection.execute(
+                "SELECT 1 FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone() is None:
+                raise _project_not_registered()
+            coverage = _source_coverage(connection, project_id)
+        return {
+            "projectId": project_id,
+            "registrationId": coverage["registrationId"],
+            "datasetId": coverage["datasetId"],
+            "datasetVersionId": coverage["datasetVersionId"],
+            "manifestSha": coverage["manifestSha"],
+            "activationRevision": coverage["activationRevision"],
+            "coverage": {
+                key: coverage[key]
+                for key in (
+                    "earliestDate",
+                    "latestDate",
+                    "family",
+                    "rowCount",
+                    "partitionCount",
+                )
+            },
+        }
+
+    def link_evidence_dataset(
+        self,
+        project_id: str,
+        registration_id: str,
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        registration_key = str(registration_id or "").strip()
+        if not registration_key:
+            raise SportsForecastContractError(
+                "SOURCE_REGISTRATION_REQUIRED",
+                "registrationId is required to select a sports evidence dataset.",
+                details={"field": "registrationId"},
+            )
+        with self.database.connection() as connection:
+            if connection.execute(
+                "SELECT 1 FROM projects WHERE project_id = ?",
+                (project_id,),
+            ).fetchone() is None:
+                raise _project_not_registered()
+            registration = connection.execute(
+                """
+                SELECT registration_id, dataset_id, dataset_version_id,
+                       manifest_sha, metadata_json
+                FROM sports_dataset_registrations
+                WHERE registration_id = ?
+                  AND validation_status = 'VALID'
+                  AND UPPER(league) = 'MLB'
+                """,
+                (registration_key,),
+            ).fetchone()
+            if registration is None:
+                raise SportsForecastContractError(
+                    "SOURCE_COVERAGE_UNAVAILABLE",
+                    "The selected validated MLB evidence registration is unavailable.",
+                    status_code=409,
+                    details={"registrationId": registration_key},
+                )
+            registration_metadata = json_loads(registration["metadata_json"], {})
+            if (
+                isinstance(registration_metadata, Mapping)
+                and registration_metadata.get("authorityState") == "HISTORICAL"
+            ):
+                raise SportsForecastContractError(
+                    "SOURCE_COVERAGE_UNAVAILABLE",
+                    "The selected sports evidence registration is historical and cannot authorize a new forecast contract.",
+                    status_code=409,
+                    details={"registrationId": registration_key},
+                )
+            if _registration_coverage(connection, registration) is None:
+                raise SportsForecastContractError(
+                    "SOURCE_COVERAGE_UNAVAILABLE",
+                    "The selected sports evidence registration has no authoritative plate-appearance date coverage.",
+                    status_code=409,
+                    details={"registrationId": registration_key},
+                )
+
+        ProjectDatasetActivationRepository(self.database).activate_exact(
+            project_id=project_id,
+            dataset_id=str(registration["dataset_id"]),
+            dataset_version_id=str(registration["dataset_version_id"]),
+            actor_user_id=user_id,
+            metadata={
+                "source": "sports_evidence_dataset_selection",
+                "registrationId": registration_key,
+                "manifestSha": str(registration["manifest_sha"]),
+                "requestedDatasetVersionId": str(registration["dataset_version_id"]),
+            },
+            # The generic predictive workflow uses step00..step13 lineage.
+            # Sports stages have their own persisted identifiers and must not
+            # be rewritten as a side effect of choosing evidence.
+            reconcile_workflow=False,
+        )
+        return self.get_evidence_dataset(project_id)
+
     def get(self, project_id: str) -> dict[str, Any]:
         with self.database.connection() as connection:
             row = connection.execute(
@@ -499,14 +741,10 @@ class SportsForecastContractStore:
                 (project_id,),
             ).fetchone()
             if row is None:
-                raise SportsForecastContractError(
-                    "PROJECT_NOT_FOUND",
-                    "ATLAS project was not found in the persistence database.",
-                    status_code=404,
-                )
+                raise _project_not_registered()
             metadata = json_loads(row["metadata_json"], {})
             state = _state(metadata if isinstance(metadata, dict) else {})
-            coverage = _source_coverage(connection)
+            coverage = _source_coverage(connection, project_id)
         return {**state, "sourceCoverage": coverage}
 
     def save(
@@ -551,11 +789,7 @@ class SportsForecastContractStore:
                 (project_id,),
             ).fetchone()
             if row is None:
-                raise SportsForecastContractError(
-                    "PROJECT_NOT_FOUND",
-                    "ATLAS project was not found in the persistence database.",
-                    status_code=404,
-                )
+                raise _project_not_registered()
             metadata = json_loads(row["metadata_json"], {})
             if not isinstance(metadata, dict):
                 metadata = {}
@@ -568,13 +802,7 @@ class SportsForecastContractStore:
                     status_code=409,
                     details={"expectedVersion": expected, "currentVersion": current_version},
                 )
-            coverage = _source_coverage(connection)
-            if coverage is None:
-                raise SportsForecastContractError(
-                    "REGISTERED_SOURCE_COVERAGE_UNAVAILABLE",
-                    "No active registered MLB plate-appearance coverage is available in the Data Warehouse.",
-                    status_code=409,
-                )
+            coverage = _source_coverage(connection, project_id)
             if parsed_custom is not None:
                 _validate_source_coverage(parsed_custom, coverage)
             else:

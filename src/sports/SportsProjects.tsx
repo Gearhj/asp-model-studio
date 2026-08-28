@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, FolderKanban, Plus, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { deleteLocalProject, loadLocalProjects } from "../lib/localProjects";
-import { deleteProjectFromDatabase, PersistenceHttpError } from "../lib/serverPersistence";
+import { deleteLocalProject, loadLocalProjects, type LocalProjectRecord } from "../lib/localProjects";
+import { deleteProjectFromDatabase, flushProjectDatabaseSave, listProjectsFromDatabase, PersistenceHttpError } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { deleteSportsProjectMetadata, isSportsWorkflow, loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
+import { deleteSportsProjectMetadata, isSportsWorkflow, loadSportsProjectMetadata, saveSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
 import { sportsPaDecisionStatus, type RegisteredSportsProject, type SportsPaTerminalStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { sportsProjectOverviewRoute } from "./sportsProjectRoutes";
+import { loadPersistedSportsProject, persistedSportsProjectSnapshot, sportsMetadataFromPersistedProject } from "./sportsProjectPersistence";
+import { sanitizeSportsAuthorityMessage } from "./workflow/sportsAuthorityErrors";
 
 export default function SportsProjects() {
   const navigate = useNavigate();
@@ -13,6 +16,9 @@ export default function SportsProjects() {
   const [pendingRemovalId, setPendingRemovalId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [removalError, setRemovalError] = useState("");
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState("");
+  const [registryLoading, setRegistryLoading] = useState(true);
   const datasetEvidence = useActiveSportsDataset();
   const governedProject = datasetEvidence.status === "ready" ? datasetEvidence.data.project ?? null : null;
   const terminalStatus = datasetEvidence.status === "ready"
@@ -32,11 +38,87 @@ export default function SportsProjects() {
     ? projects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name)
     : projects;
 
-  function openProject(projectId: string) {
+  useEffect(() => {
+    const controller = new AbortController();
+    void listProjectsFromDatabase(controller.signal)
+      .then((persistedProjects) => {
+        if (controller.signal.aborted) return;
+        const localById = new Map(projects.map((project) => [project.projectId, project]));
+        const merged = [...projects];
+        for (const persisted of persistedProjects) {
+          const workflowId = String(persisted.workflowType ?? persisted.workflow_type ?? "");
+          if (!isSportsWorkflow(workflowId)) continue;
+          const projectId = String(persisted.projectId ?? persisted.project_id ?? "").trim();
+          if (!projectId) continue;
+          const sportsMetadata = sportsMetadataFromPersistedProject(persisted);
+          if (sportsMetadata) saveSportsProjectMetadata(sportsMetadata);
+          const local = localById.get(projectId);
+          if (local) {
+            const index = merged.findIndex((project) => project.projectId === projectId);
+            merged[index] = { ...local, backendMetadata: persisted };
+            continue;
+          }
+          const snapshot = persistedSportsProjectSnapshot(persisted);
+          const record: LocalProjectRecord = {
+            projectId,
+            modelId: snapshot.modelId,
+            projectName: snapshot.projectName,
+            projectType: snapshot.projectType,
+            workflowId: snapshot.workflowId,
+            createdAt: String(persisted.createdAt ?? persisted.created_at ?? ""),
+            lastModified: String(persisted.updatedAt ?? persisted.updated_at ?? ""),
+            source: "database",
+            backendMetadata: persisted,
+            snapshot,
+          };
+          merged.push(record);
+          localById.set(projectId, record);
+        }
+        merged.sort((left, right) => right.lastModified.localeCompare(left.lastModified));
+        setProjects(merged);
+        setRegistryLoading(false);
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        setRegistryLoading(false);
+        if (projects.length === 0) {
+          setOpenError(caught instanceof Error
+            ? sanitizeSportsAuthorityMessage(caught.message)
+            : "The backend sports-project registry could not be loaded.");
+        }
+      });
+    return () => controller.abort();
+    // The browser snapshot is captured once, then reconciled against one server listing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openProject(projectId: string) {
     const project = projects.find((item) => item.projectId === projectId);
     if (!project) return;
-    useWorkflowStore.getState().loadProjectSnapshot(project.snapshot);
-    navigate("/project-overview");
+    setOpeningId(projectId);
+    setOpenError("");
+    try {
+      const persisted = await loadPersistedSportsProject(projectId);
+      if (persisted.sportsMetadata) saveSportsProjectMetadata(persisted.sportsMetadata);
+      useWorkflowStore.getState().loadProjectSnapshot(persisted.snapshot);
+    } catch (caught) {
+      if (caught instanceof PersistenceHttpError && caught.status === 404) {
+        const sportsMetadata = loadSportsProjectMetadata(projectId);
+        const reconciled = await flushProjectDatabaseSave(project.snapshot, sportsMetadata ? { sportsProject: sportsMetadata } : {});
+        if (!reconciled) {
+          setOpenError("This browser project could not be reconciled to backend persistence. Restore the backend and retry.");
+          setOpeningId(null);
+          return;
+        }
+        useWorkflowStore.getState().loadProjectSnapshot(project.snapshot);
+      } else {
+        setOpenError(caught instanceof Error ? sanitizeSportsAuthorityMessage(caught.message) : "The project could not be reopened from backend persistence.");
+        setOpeningId(null);
+        return;
+      }
+    }
+    navigate(sportsProjectOverviewRoute(projectId));
+    setOpeningId(null);
   }
 
   function openGovernedProject(project: RegisteredSportsProject) {
@@ -71,7 +153,7 @@ export default function SportsProjects() {
       hasDataset: false,
       datasetIdentity: null,
     });
-    navigate("/project-overview");
+    navigate(sportsProjectOverviewRoute(project.projectId));
   }
 
   async function removeProject(projectId: string) {
@@ -105,7 +187,9 @@ export default function SportsProjects() {
         <Link to="/projects/new" className="sports-primary-button"><Plus size={17} /> Create Sports Project</Link>
       </section>
 
-      {datasetEvidence.status === "loading" && localProjects.length === 0 ? (
+      {openError ? <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900" role="alert">{openError}</section> : null}
+
+      {(registryLoading || datasetEvidence.status === "loading") && localProjects.length === 0 ? (
         <section className="sports-panel grid min-h-[260px] place-items-center p-8 text-center" role="status"><div><FolderKanban size={26} className="mx-auto animate-pulse text-cyan-700" /><h2 className="mt-4 text-xl font-semibold text-slate-950">Loading governed project registry</h2><p className="mt-2 text-sm text-slate-600">Checking the active sports dataset registration.</p></div></section>
       ) : datasetEvidence.status === "error" && localProjects.length === 0 ? (
         <section className="sports-panel grid min-h-[260px] place-items-center border-amber-200 bg-amber-50 p-8 text-center" role="alert"><div><FolderKanban size={26} className="mx-auto text-amber-700" /><h2 className="mt-4 text-xl font-semibold text-amber-950">Governed project registry unavailable</h2><p className="mt-2 max-w-xl text-sm text-amber-900">{datasetEvidence.error}</p></div></section>
@@ -141,7 +225,7 @@ export default function SportsProjects() {
                   <Fact label="Workflow" value={`${complete} / ${project.snapshot.workflowSteps.length}`} />
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <button onClick={() => openProject(project.projectId)} className="sports-secondary-button">Open project <ArrowRight size={16} /></button>
+                  <button disabled={openingId === project.projectId} onClick={() => void openProject(project.projectId)} className="sports-secondary-button disabled:cursor-wait disabled:opacity-60">{openingId === project.projectId ? "Reopening…" : "Open project"} <ArrowRight size={16} /></button>
                   <button type="button" onClick={() => { setPendingRemovalId(project.projectId); setRemovalError(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50">
                     <Trash2 size={16} /> Remove local project
                   </button>

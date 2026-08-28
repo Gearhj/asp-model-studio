@@ -92,7 +92,7 @@ export type WorkflowState = {
   setModelId: (modelId: string) => void;
   setProjectName: (name: string) => void;
   setProjectType: (projectType: ProjectType) => void;
-  startProjectFromWorkflow: (params: { modelId?: string; projectName?: string; projectType: ProjectType; workflowId?: string; workflowSteps?: WorkflowStep[] }) => void;
+  startProjectFromWorkflow: (params: { projectId?: string; modelId?: string; projectName?: string; projectType: ProjectType; workflowId?: string; workflowSteps?: WorkflowStep[] }) => void;
   loadProjectSnapshot: (snapshot: WorkflowProjectSnapshot) => void;
   /**
    * Apply one already-verified backend project/workflow/dataset context in a
@@ -366,7 +366,7 @@ export const useWorkflowStore = create<WorkflowState>()(
           persistActiveProject(get());
         },
 
-      startProjectFromWorkflow: ({ modelId, projectName, projectType, workflowId, workflowSteps }) =>
+      startProjectFromWorkflow: ({ projectId: requestedProjectId, modelId, projectName, projectType, workflowId, workflowSteps }) =>
         {
           set((state) => {
             const workflow = workflowSteps
@@ -374,7 +374,7 @@ export const useWorkflowStore = create<WorkflowState>()(
               : getWorkflowDefinition(workflowId ?? getWorkflowForProjectType(projectType).id);
             const nextWorkflowSteps = workflowStepsWithStatus(workflow.steps, state.steps);
             return {
-              projectId: projectId(),
+              projectId: requestedProjectId?.trim() || projectId(),
               hasDataset: false,
               datasetIdentity: null,
               modelId: modelId?.trim() ?? state.modelId,

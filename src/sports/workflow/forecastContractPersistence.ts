@@ -6,6 +6,12 @@ import {
   type ForecastContract,
   type ForecastContractCoverage,
 } from "./workflowState";
+import {
+  sanitizeSportsAuthorityMessage,
+  sportsAuthorityErrorCode,
+  sportsAuthorityServerMessage,
+  type SportsAuthorityErrorCode,
+} from "./sportsAuthorityErrors";
 
 const rawEnv = (import.meta as any)?.env ?? {};
 const devUserId = rawEnv.DEV ? String(rawEnv.VITE_ATLAS_DEV_USER_ID || "local-dev-user") : "";
@@ -19,12 +25,14 @@ export type ForecastContractEnvelope = {
 
 export class ForecastContractHttpError extends Error {
   status: number;
+  code: SportsAuthorityErrorCode;
   detail: unknown;
 
-  constructor(status: number, message: string, detail: unknown) {
-    super(message);
+  constructor(status: number, code: SportsAuthorityErrorCode, message: string, detail: unknown) {
+    super(sanitizeSportsAuthorityMessage(message));
     this.name = "ForecastContractHttpError";
     this.status = status;
+    this.code = code;
     this.detail = detail;
   }
 }
@@ -72,19 +80,32 @@ function errorMessage(payload: unknown, status: number): string {
 }
 
 async function request(projectId: string, init: RequestInit): Promise<ForecastContractEnvelope> {
-  const response = await fetch(`${BASE}/projects/${encodeURIComponent(projectId)}/sports/forecast-contract`, {
-    credentials: "include",
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
-      ...(init.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/projects/${encodeURIComponent(projectId)}/sports/forecast-contract`, {
+      credentials: "include",
+      ...init,
+      headers: {
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (cause) {
+    const code = sportsAuthorityErrorCode(0, null, cause);
+    throw new ForecastContractHttpError(0, code, cause instanceof Error ? cause.message : "Backend request failed.", cause);
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok === false) {
-    throw new ForecastContractHttpError(response.status, errorMessage(payload, response.status), payload?.detail ?? payload);
+    const detail = payload?.detail ?? payload;
+    const code = sportsAuthorityErrorCode(response.status, detail);
+    throw new ForecastContractHttpError(
+      response.status,
+      code,
+      sportsAuthorityServerMessage(detail, errorMessage(payload, response.status)),
+      detail,
+    );
   }
   const contract = normalizeForecastContract(payload?.contract, projectId);
   const history = Array.isArray(payload?.history)

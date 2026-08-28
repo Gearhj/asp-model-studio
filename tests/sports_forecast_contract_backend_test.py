@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from server.persistence.db import Database, json_dumps
 from server.persistence.service import PersistenceService
 from server.persistence.sports_forecast_contract import (
@@ -56,6 +58,11 @@ class SportsForecastContractBackendTests(unittest.TestCase):
         )
         self._seed_registered_pa_coverage()
         self.contracts = SportsForecastContractStore(self.database)
+        self.contracts.link_evidence_dataset(
+            "mlb-project",
+            "registration-1",
+            user_id=TEST_USER["userId"],
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.test_root, ignore_errors=True)
@@ -161,6 +168,80 @@ class SportsForecastContractBackendTests(unittest.TestCase):
                     ),
                 )
 
+    def _seed_current_statcast_coverage(self) -> None:
+        version_id = (
+            "asp.mlb.statcast.current-pa.v1:partition-authority-sha256:"
+            "6e134d8726587ad88d0807effb6e6b12ad39f39b99acb7f523ae6ae98155df34"
+        )
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO sports_dataset_registrations (
+                  registration_id, dataset_id, dataset_version_id, manifest_id,
+                  manifest_sha, package_id, sport, league, evidence_cutoff,
+                  published_at, logical_package_root, validation_status,
+                  registered_at, last_validated_at, registered_by, rights_status,
+                  limitation_count, active, totals_json, seasons_json,
+                  evidence_coverage_json, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, 'Baseball', 'MLB', ?, ?, ?,
+                          'VALID', ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
+                """,
+                (
+                    "sports-dataset-current-statcast-03ca6dab30e760b2",
+                    "asp.mlb.statcast.current-pa.v1",
+                    version_id,
+                    "current-statcast-manifest",
+                    "d" * 64,
+                    "current-statcast-package",
+                    "2026-08-27",
+                    "2026-08-28T00:00:00Z",
+                    "asp-model-exchange://datasets/mlb-current-statcast/package",
+                    "2026-08-28T00:00:00Z",
+                    "2026-08-28T00:00:00Z",
+                    TEST_USER["userId"],
+                    "APPROVED_LOCAL_PRIVATE_USE",
+                    json_dumps({}, {}),
+                    json_dumps([2023, 2024, 2025, 2026], []),
+                    json_dumps({}, {}),
+                    json_dumps(
+                        {"datasetKind": "CURRENT_STATCAST_PLATE_APPEARANCE"},
+                        {},
+                    ),
+                ),
+            )
+            for partition_id, season, minimum, maximum in (
+                ("current-pa-2023", 2023, "2023-03-30", "2023-10-01"),
+                ("current-pa-2024", 2024, "2024-03-20", "2024-09-29"),
+                ("current-pa-2025", 2025, "2025-03-18", "2025-09-28"),
+                ("current-pa-2026", 2026, "2026-03-25", "2026-08-27"),
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO sports_dataset_partitions (
+                      partition_id, registration_id, family, season, month,
+                      logical_uri, row_count, byte_count, minimum_date,
+                      maximum_date, schema_id, physical_schema_fingerprint,
+                      file_sha, source_key, source_version_id,
+                      original_source_logical_identity, checkpoint_lineage_id,
+                      governance_checksum, target_eligibility_json,
+                      temporal_classification_json, rights_ids_json,
+                      physical_schema_json
+                    ) VALUES (?, ?, 'plate_appearance', ?, NULL, ?, 100, 1, ?, ?,
+                              'schema-current', ?, ?, 'source', 'source-current',
+                              NULL, NULL, NULL, '[]', '[]', '[]', '[]')
+                    """,
+                    (
+                        partition_id,
+                        "sports-dataset-current-statcast-03ca6dab30e760b2",
+                        season,
+                        f"asp-model-exchange://current/{season}.parquet",
+                        minimum,
+                        maximum,
+                        "e" * 64,
+                        "f" * 64,
+                    ),
+                )
+
     @staticmethod
     def _custom_payload(*, expected_version: int = 0) -> dict:
         return {
@@ -234,6 +315,188 @@ class SportsForecastContractBackendTests(unittest.TestCase):
         self.assertEqual(reloaded["history"], [first_snapshot])
         self.assertEqual(reloaded["sourceCoverage"]["datasetVersionId"], "dataset-version-1")
 
+    def test_reachable_backend_classifies_missing_project_without_legacy_name(self) -> None:
+        with self.assertRaises(SportsForecastContractError) as raised:
+            self.contracts.get("browser-only-project")
+        self.assertEqual(raised.exception.code, "PROJECT_NOT_REGISTERED")
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertNotIn("ATLAS", raised.exception.message)
+
+    def test_global_dataset_does_not_authorize_an_unlinked_project(self) -> None:
+        self.persistence.projects.upsert(
+            {
+                "project_id": "unlinked-project",
+                "project_name": "Unlinked Sports Project",
+                "project_type": "custom-workflow",
+                "workflow_type": "mlb-forecasting",
+                "owner_user_id": TEST_USER["userId"],
+                "metadata_json": {},
+            }
+        )
+        with self.assertRaises(SportsForecastContractError) as raised:
+            self.contracts.get("unlinked-project")
+        self.assertEqual(raised.exception.code, "DATASET_NOT_LINKED")
+        self.assertEqual(raised.exception.status_code, 409)
+
+    def test_sports_api_project_not_registered_is_structured_and_not_atlas(self) -> None:
+        from server.persistence import persistence_router
+
+        with patch.object(persistence_router, "_service", return_value=self.persistence):
+            with self.assertRaises(HTTPException) as raised:
+                persistence_router.get_sports_forecast_contract(
+                    "browser-only-project",
+                    TEST_USER,
+                )
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail["code"], "PROJECT_NOT_REGISTERED")
+        self.assertNotIn("ATLAS", raised.exception.detail["message"])
+
+    def test_sports_evidence_dataset_api_returns_exact_project_linkage(self) -> None:
+        from server.persistence import persistence_router
+
+        with (
+            patch.object(persistence_router, "_service", return_value=self.persistence),
+            patch.object(
+                persistence_router,
+                "_forecast_contracts",
+                return_value=self.contracts,
+            ),
+            patch.object(persistence_router, "audit_event"),
+        ):
+            selected = persistence_router.select_sports_evidence_dataset(
+                "mlb-project",
+                {"registrationId": "registration-1"},
+                TEST_USER,
+            )
+            reopened = persistence_router.get_sports_evidence_dataset(
+                "mlb-project",
+                TEST_USER,
+            )
+        self.assertTrue(selected["ok"])
+        self.assertEqual(selected, reopened)
+        self.assertEqual(selected["linkage"]["registrationId"], "registration-1")
+        self.assertEqual(
+            selected["linkage"]["coverage"],
+            {
+                "earliestDate": "2021-04-01",
+                "latestDate": "2025-09-28",
+                "family": "plate_appearance",
+                "rowCount": 300,
+                "partitionCount": 2,
+            },
+        )
+
+    def test_sports_dataset_selection_does_not_rewrite_sports_stage_state(self) -> None:
+        self.persistence.projects.upsert(
+            {
+                "project_id": "sports-stage-project",
+                "project_name": "Sports Stage Project",
+                "project_type": "custom-workflow",
+                "workflow_type": "mlb-forecasting",
+                "owner_user_id": TEST_USER["userId"],
+                "metadata_json": {},
+            }
+        )
+        expected_status = {"sportsStage": 1, "status": "draft"}
+        with self.database.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO workflow_state (
+                  project_id, current_step_id, completed_steps_json,
+                  workflow_status_json, step_evidence_status_json, updated_at
+                ) VALUES (?, 'mlb-01', ?, ?, ?, ?)
+                """,
+                (
+                    "sports-stage-project",
+                    json_dumps(["mlb-00"], []),
+                    json_dumps(expected_status, {}),
+                    json_dumps({"mlb-00": "complete"}, {}),
+                    "2026-08-28T00:00:00Z",
+                ),
+            )
+        self.contracts.link_evidence_dataset(
+            "sports-stage-project",
+            "registration-1",
+            user_id=TEST_USER["userId"],
+        )
+        with self.database.connection() as connection:
+            state = connection.execute(
+                "SELECT * FROM workflow_state WHERE project_id = ?",
+                ("sports-stage-project",),
+            ).fetchone()
+        self.assertEqual(state["current_step_id"], "mlb-01")
+        self.assertEqual(state["completed_steps_json"], json_dumps(["mlb-00"], []))
+        self.assertEqual(state["workflow_status_json"], json_dumps(expected_status, {}))
+        self.assertEqual(
+            state["step_evidence_status_json"],
+            json_dumps({"mlb-00": "complete"}, {}),
+        )
+
+    def test_current_statcast_link_accepts_intended_dates_and_survives_reload(self) -> None:
+        self._seed_current_statcast_coverage()
+        self.persistence.projects.upsert(
+            {
+                "project_id": "current-statcast-project",
+                "project_name": "MLB 2026 Current-Data Game Forecast Challenger",
+                "project_type": "custom-workflow",
+                "workflow_type": "mlb-forecasting",
+                "owner_user_id": TEST_USER["userId"],
+                "metadata_json": {},
+            }
+        )
+        linkage = self.contracts.link_evidence_dataset(
+            "current-statcast-project",
+            "sports-dataset-current-statcast-03ca6dab30e760b2",
+            user_id=TEST_USER["userId"],
+        )
+        self.assertEqual(linkage["coverage"]["earliestDate"], "2023-03-30")
+        self.assertEqual(linkage["coverage"]["latestDate"], "2026-08-27")
+        self.assertEqual(
+            linkage["datasetId"],
+            "asp.mlb.statcast.current-pa.v1",
+        )
+
+        payload = self._custom_payload()
+        payload["contract"].update(
+            {
+                "eligibleEvidenceEnd": "2026-08-27",
+                "developmentSelectionEnd": "2026-08-13",
+                "finalOotStart": "2026-08-14",
+                "finalOotEnd": "2026-08-27",
+            }
+        )
+        saved = self.contracts.save(
+            "current-statcast-project",
+            payload,
+            user_id=TEST_USER["userId"],
+        )
+        self.assertEqual(saved["current"]["eligibleEvidenceStart"], "2023-03-30")
+        self.assertEqual(saved["current"]["finalOotEnd"], "2026-08-27")
+        self.assertEqual(
+            saved["current"]["coverageAuthority"]["registrationId"],
+            "sports-dataset-current-statcast-03ca6dab30e760b2",
+        )
+
+        reopened = SportsForecastContractStore(Database(self.database.path))
+        self.assertEqual(
+            reopened.get("current-statcast-project")["current"],
+            saved["current"],
+        )
+        self.assertEqual(
+            reopened.get_evidence_dataset("current-statcast-project"),
+            linkage,
+        )
+
+        # Project selection is scoped. The original FD1 project and the
+        # workspace catalog-active registration remain unchanged.
+        original = self.contracts.get_evidence_dataset("mlb-project")
+        self.assertEqual(original["registrationId"], "registration-1")
+        with self.database.connection() as connection:
+            active = connection.execute(
+                "SELECT registration_id FROM sports_dataset_registrations WHERE active = 1"
+            ).fetchall()
+        self.assertEqual([row["registration_id"] for row in active], ["registration-1"])
+
     def test_2026_request_is_rejected_with_exact_coverage_and_missing_interval(self) -> None:
         payload = self._custom_payload()
         payload["contract"].update(
@@ -247,7 +510,7 @@ class SportsForecastContractBackendTests(unittest.TestCase):
         with self.assertRaises(SportsForecastContractError) as raised:
             self.contracts.save("mlb-project", payload, user_id=TEST_USER["userId"])
         error = raised.exception
-        self.assertEqual(error.code, "SOURCE_COVERAGE_EXCEEDED")
+        self.assertEqual(error.code, "SOURCE_COVERAGE_INSUFFICIENT")
         self.assertEqual(error.status_code, 422)
         detail = error.public_detail()
         self.assertEqual(detail["coverage"]["earliestDate"], "2021-04-01")
@@ -351,7 +614,7 @@ class SportsForecastContractBackendTests(unittest.TestCase):
                 user_id=TEST_USER["userId"],
             )
         detail = raised.exception.public_detail()
-        self.assertEqual(raised.exception.code, "SOURCE_COVERAGE_EXCEEDED")
+        self.assertEqual(raised.exception.code, "SOURCE_COVERAGE_INSUFFICIENT")
         self.assertEqual(detail["coverage"]["latestDate"], "2025-09-28")
         self.assertEqual(
             detail["missingIntervals"],

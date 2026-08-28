@@ -86,6 +86,25 @@ def _raise_forecast_contract_error(exc: SportsForecastContractError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
 
 
+def _raise_sports_backend_unavailable(exc: BaseException) -> None:
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "BACKEND_UNAVAILABLE",
+            "message": "The ASP Model Studio persistence backend is temporarily unavailable.",
+        },
+    ) from exc
+
+
+def _run_sports_operation(operation: Callable[[], Any]) -> Any:
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
 def _forecast_contract_response(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "ok": True,
@@ -277,6 +296,39 @@ def _authorize_project(
     return existing
 
 
+def _authorize_sports_project(
+    project_id: str,
+    user: Dict[str, Any],
+    permission: str,
+) -> Dict[str, Any]:
+    """Project authorization with sports-domain error classification.
+
+    A reachable backend returning a missing project is not an availability
+    failure, and sports surfaces must never expose the legacy ATLAS label.
+    """
+
+    try:
+        existing = _authorize_project(project_id, user, permission)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PROJECT_NOT_REGISTERED",
+                "message": (
+                    "The ASP Model Studio sports project is not registered in "
+                    "the local persistence database. Reopen or reconcile the project."
+                ),
+                "projectId": project_id,
+            },
+        ) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+    assert existing is not None
+    return existing
+
+
 def _id(prefix: str, payload: Dict[str, Any], *keys: str) -> str:
     return str(_pick(payload, *keys, default=f"{prefix}_{uuid.uuid4().hex}"))
 
@@ -418,12 +470,52 @@ def get_sports_forecast_contract(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
-    _authorize_project(project_id, user, "view")
-    try:
-        contract = _forecast_contracts().get(project_id)
-    except SportsForecastContractError as exc:
-        _raise_forecast_contract_error(exc)
+    _authorize_sports_project(project_id, user, "view")
+    contract = _run_sports_operation(lambda: _forecast_contracts().get(project_id))
     return _forecast_contract_response(contract)
+
+
+@router.get("/projects/{project_id}/sports/evidence-dataset")
+def get_sports_evidence_dataset(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    linkage = _run_sports_operation(
+        lambda: _forecast_contracts().get_evidence_dataset(project_id)
+    )
+    return {"ok": True, "linkage": linkage}
+
+
+@router.put("/projects/{project_id}/sports/evidence-dataset")
+def select_sports_evidence_dataset(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    linkage = _run_sports_operation(
+        lambda: _forecast_contracts().link_evidence_dataset(
+            project_id,
+            str(_pick(payload, "registrationId", "registration_id", default="") or ""),
+            user_id=str(user.get("userId") or ""),
+        )
+    )
+    audit_event(
+        "sports.evidence_dataset.selected",
+        "sports_dataset_registration",
+        str(linkage.get("registrationId") or ""),
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "projectId": project_id,
+            "datasetId": linkage.get("datasetId"),
+            "datasetVersionId": linkage.get("datasetVersionId"),
+            "activationRevision": linkage.get("activationRevision"),
+            "summary": "Selected the project's exact sports evidence dataset.",
+        },
+    )
+    return {"ok": True, "linkage": linkage}
 
 
 @router.put("/projects/{project_id}/sports/forecast-contract")
@@ -432,15 +524,14 @@ def save_sports_forecast_contract(
     payload: Dict[str, Any],
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
-    _authorize_project(project_id, user, "edit")
-    try:
-        contract = _forecast_contracts().save(
+    _authorize_sports_project(project_id, user, "edit")
+    contract = _run_sports_operation(
+        lambda: _forecast_contracts().save(
             project_id,
             payload,
             user_id=str(user.get("userId") or ""),
         )
-    except SportsForecastContractError as exc:
-        _raise_forecast_contract_error(exc)
+    )
     current = contract.get("current") or {}
     audit_event(
         "sports.forecast_contract.registered",

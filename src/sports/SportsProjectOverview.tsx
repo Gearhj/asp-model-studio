@@ -1,14 +1,18 @@
 import { ArrowRight, CheckCircle2, CircleDot, Database, GitBranch, Lock, PlayCircle, Target } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
-import { sportsPaDecisionStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { sportsPaDecisionStatus, useSportsDatasetCatalog } from "./sportsEvidenceApi";
+import { canonicalSportsProjectId, mlbWorkflowRoute, SPORTS_PROJECT_ID_PARAM } from "./sportsProjectRoutes";
 import {
-  resolveStages, firstActionableStage, completionSummary, loadBinding,
+  resolveStages, firstActionableStage, completionSummary,
   temporalPolicyLabel,
   type StageResolution, type StageStatus,
 } from "./workflow/workflowState";
 import { useForecastContract } from "./workflow/useForecastContract";
+import { useProjectSportsEvidenceDataset } from "./workflow/projectDatasetLinkage";
+import { useCanonicalSportsProject } from "./workflow/useCanonicalSportsProject";
 
 const STATUS_CHIP: Record<StageStatus, string> = {
   COMPLETE: "sports-status--green",
@@ -20,17 +24,39 @@ const STATUS_CHIP: Record<StageStatus, string> = {
 const STATUS_LABEL: Record<StageStatus, string> = { COMPLETE: "Complete", CURRENT: "Current stage", READY: "Ready", BLOCKED: "Blocked", STALE: "Requires review" };
 
 export default function SportsProjectOverview() {
-  const projectId = useWorkflowStore((state) => state.projectId);
+  const [params, setParams] = useSearchParams();
+  const stateProjectId = useWorkflowStore((state) => state.projectId);
+  const projectId = canonicalSportsProjectId(params.get(SPORTS_PROJECT_ID_PARAM), stateProjectId);
+  const projectIdentity = useCanonicalSportsProject(projectId, stateProjectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const workflowId = useWorkflowStore((state) => state.workflowId);
-  const datasetEvidence = useActiveSportsDataset();
+  const datasetCatalog = useSportsDatasetCatalog();
+  const projectDataset = useProjectSportsEvidenceDataset(projectId);
   const workflow = sportsWorkflowForId(workflowId);
   const metadata = loadSportsProjectMetadata(projectId);
-  const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const dataset = datasetCatalog.status === "ready" && projectDataset.linkage
+    ? datasetCatalog.data.find((item) => item.registrationId === projectDataset.linkage?.registrationId) ?? null
+    : null;
   const contractAuthority = useForecastContract(projectId);
   const contract = contractAuthority.contract;
-  const binding = loadBinding(projectId);
+  const binding = projectDataset.linkage ? {
+    projectId,
+    registrationId: projectDataset.linkage.registrationId,
+    datasetId: projectDataset.linkage.datasetId,
+    manifestSha: projectDataset.linkage.manifestSha,
+    seasons: dataset?.seasons ?? [],
+    boundAt: "",
+  } : null;
   const isMlb = workflow.key === "mlb";
+
+  useEffect(() => {
+    if (!projectId || params.get(SPORTS_PROJECT_ID_PARAM) === projectId) return;
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set(SPORTS_PROJECT_ID_PARAM, projectId);
+      return next;
+    }, { replace: true });
+  }, [params, projectId, setParams]);
 
   const resolutions = isMlb ? resolveStages(projectId, dataset, contract, binding) : [];
   const summary = isMlb ? completionSummary(resolutions) : { complete: 0, ready: 0, blocked: 0, total: 9, pct: 0 };
@@ -40,8 +66,12 @@ export default function SportsProjectOverview() {
   const phase4 = dataset?.phase4;
   const decision = sportsPaDecisionStatus(baseline?.decision) || sportsPaDecisionStatus(baseline?.status);
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : `${workflow.title} Project`;
-  const datasetLabel = binding ? `${binding.datasetId} · project bound` : dataset ? `${dataset.datasetId} · available, not bound` : datasetEvidence.status === "loading" ? "Loading evidence…" : "No dataset bound";
+  const datasetLabel = binding ? `${binding.datasetId} · project bound` : projectDataset.status === "loading" ? "Loading project evidence…" : "No dataset linked";
   const isNew = summary.complete === 0;
+
+  if (projectIdentity.status !== "ready") {
+    return <div className="sports-page-shell"><section className={`sports-panel p-6 text-sm ${projectIdentity.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : "text-slate-600"}`} role={projectIdentity.status === "error" ? "alert" : "status"}>{projectIdentity.status === "error" ? projectIdentity.error : "Reopening the canonical ASP Model Studio sports project…"}</section></div>;
+  }
 
   return (
     <div className="sports-page-shell space-y-5">
@@ -64,7 +94,7 @@ export default function SportsProjectOverview() {
             )}
             <div className="mt-6 flex flex-wrap gap-3">
               {isMlb ? (
-                <Link to={`/workflows/mlb?stage=${nextStep}`} className="sports-primary-button text-base">
+                <Link to={mlbWorkflowRoute(projectId, nextStep)} className="sports-primary-button text-base">
                   <PlayCircle size={18} /> {isNew ? "Start Stage 1" : `Continue Stage ${nextStep}`} <ArrowRight size={17} />
                 </Link>
               ) : (
@@ -98,7 +128,7 @@ export default function SportsProjectOverview() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Each stage shows its status and the exact next action. Status comes from registered evidence — page visits never imply completion.</p>
           </div>
           <div className="grid gap-px bg-slate-200 lg:grid-cols-2">
-            {resolutions.map((r) => <StageCard key={r.id} r={r} />)}
+            {resolutions.map((r) => <StageCard key={r.id} r={r} projectId={projectId} />)}
           </div>
         </section>
       )}
@@ -106,7 +136,7 @@ export default function SportsProjectOverview() {
   );
 }
 
-function StageCard({ r }: { r: StageResolution }) {
+function StageCard({ r, projectId }: { r: StageResolution; projectId: string }) {
   const complete = r.status === "COMPLETE";
   const blocked = r.status === "BLOCKED";
   const actionable = r.status === "CURRENT" || r.status === "READY";
@@ -128,9 +158,9 @@ function StageCard({ r }: { r: StageResolution }) {
           )}
           <div className="mt-3">
             {blocked ? (
-              <Link to={`/workflows/mlb?stage=${r.blockedByNumber}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900">Complete Step {r.blockedByNumber} <ArrowRight size={14} /></Link>
+              <Link to={mlbWorkflowRoute(projectId, r.blockedByNumber || 1)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900">Complete Step {r.blockedByNumber} <ArrowRight size={14} /></Link>
             ) : (
-              <Link to={`/workflows/mlb?stage=${r.number}`} className={`inline-flex items-center gap-1.5 text-sm font-semibold ${complete ? "text-slate-600 hover:text-slate-900" : "text-cyan-700 hover:text-cyan-800"}`}>
+              <Link to={mlbWorkflowRoute(projectId, r.number)} className={`inline-flex items-center gap-1.5 text-sm font-semibold ${complete ? "text-slate-600 hover:text-slate-900" : "text-cyan-700 hover:text-cyan-800"}`}>
                 {complete ? "Review" : r.action.label} <ArrowRight size={14} />
               </Link>
             )}

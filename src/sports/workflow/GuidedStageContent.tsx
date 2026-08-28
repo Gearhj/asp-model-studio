@@ -166,10 +166,11 @@ export function GuidedStageContent({ number, dataset, contract }: { number: numb
 }
 
 /** Compact adopt/continue bar for stages 2 & 4–8. Stage 3 (cockpit) and stage 9 (export) are special. */
-export function AdoptBar({ focus, onAdopt }: { focus: StageResolution; onAdopt: () => void }) {
+export function AdoptBar({ focus, projectId, onAdopt }: { focus: StageResolution; projectId: string; onAdopt: () => void }) {
   const complete = focus.status === "COMPLETE";
   const route = focus.action.route || "/dashboard";
-  const href = `${route}?from=mlb-workflow&stage=${focus.number}`;
+  const query = new URLSearchParams({ from: "mlb-workflow", stage: String(focus.number), projectId });
+  const href = `${route}?${query.toString()}`;
   const moduleLabel = focus.action.moduleLabel || "standalone workspace";
   const label = focus.number === 2 ? "Accept Data & Continue" : focus.action.kind === "inline_adopt" ? focus.action.label : "Accept & Continue";
   return (

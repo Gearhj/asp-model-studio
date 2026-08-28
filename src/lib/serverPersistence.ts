@@ -69,7 +69,7 @@ export async function persistenceRequest<T>(path: string, init: RequestInit): Pr
   if (!response.ok || payload?.ok === false) {
     throw new PersistenceHttpError(
       response.status,
-      payload?.detail ?? payload?.error ?? `ATLAS persistence request failed with HTTP ${response.status}.`
+      payload?.detail ?? payload?.error ?? `ASP Model Studio persistence request failed with HTTP ${response.status}.`
     );
   }
   return payload as T;
@@ -83,10 +83,13 @@ function emitDatabaseFailure(error: unknown, projectId?: string) {
     status: unavailable ? "backend_unavailable" : "database_save_failed",
     projectId,
     message: unavailable
-      ? "ATLAS database is unavailable. The project remains saved in local browser persistence."
+      ? "The ASP Model Studio database is unavailable. The project remains saved in local browser persistence."
       : error instanceof Error
         ? error.message
-        : "ATLAS could not save this record to the database. Local persistence remains available.",
+            .replace(/\bATLAS project\b/gi, "ASP Model Studio project")
+            .replace(/\bATLAS persistence\b/gi, "ASP Model Studio persistence")
+            .replace(/\bATLAS database\b/gi, "ASP Model Studio database")
+        : "ASP Model Studio could not save this record to the database. Local persistence remains available.",
   });
 }
 
@@ -98,7 +101,7 @@ async function mirrorToDatabase(projectId: string | undefined, operation: () => 
       status: "database_saved",
       projectId,
       savedAt: new Date().toISOString(),
-      message: "Project state is saved to the ATLAS SQLite database and the local compatibility store.",
+      message: "Project state is saved to the local ASP Model Studio database and browser compatibility store.",
     });
     return true;
   } catch (error) {
@@ -210,7 +213,7 @@ function optimizationTemplateId(snapshot: WorkflowProjectSnapshot) {
   return snapshot.templateId || readStoredOptimizationTemplateId(snapshot.projectId);
 }
 
-export async function saveProjectToDatabase(snapshot: WorkflowProjectSnapshot) {
+export async function saveProjectToDatabase(snapshot: WorkflowProjectSnapshot, additionalMetadata: JsonRecord = {}) {
   return mirrorToDatabase(snapshot.projectId, async () => {
     const updatedAt = new Date().toISOString();
     const templateId = optimizationTemplateId(snapshot);
@@ -229,6 +232,7 @@ export async function saveProjectToDatabase(snapshot: WorkflowProjectSnapshot) {
           hasDataset: Boolean(snapshot.hasDataset),
           projectTools: snapshot.projectTools ?? {},
           compatibilityStore: "browser_local_persistence",
+          ...additionalMetadata,
           ...(optimizationState ? { optimizationState } : {}),
         },
       }),
@@ -320,6 +324,19 @@ export function queueProjectDatabaseSave(snapshot: WorkflowProjectSnapshot, dela
       if (queued) void saveProjectToDatabase(queued);
     }, delayMs)
   );
+}
+
+/**
+ * Persist one exact project snapshot before a route starts reading project-scoped
+ * backend authority. This drains the normal debounce for the same canonical ID,
+ * so creation/reopen cannot race its own deferred mirror.
+ */
+export async function flushProjectDatabaseSave(snapshot: WorkflowProjectSnapshot, additionalMetadata: JsonRecord = {}) {
+  const existing = projectSaveTimers.get(snapshot.projectId);
+  if (existing) clearTimeout(existing);
+  projectSaveTimers.delete(snapshot.projectId);
+  queuedSnapshots.delete(snapshot.projectId);
+  return saveProjectToDatabase(snapshot, additionalMetadata);
 }
 
 export async function saveEvidenceToDatabase(projectId: string | undefined, evidence: JsonRecord) {

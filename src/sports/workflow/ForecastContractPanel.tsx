@@ -20,6 +20,7 @@ import {
   type TemporalDesignMode,
 } from "./workflowState";
 import type { ForecastContractLoadStatus } from "./useForecastContract";
+import { sportsAuthorityPresentation, type SportsAuthorityErrorCode } from "./sportsAuthorityErrors";
 
 const YEARS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
 const DEV_START_CANDIDATES = [2021, 2022, 2023];
@@ -41,6 +42,7 @@ export function ForecastContractPanel({
   coverage,
   authorityStatus,
   authorityError,
+  authorityErrorCode,
   onRegister,
 }: {
   projectId: string;
@@ -49,6 +51,7 @@ export function ForecastContractPanel({
   coverage: ForecastContractCoverage | null;
   authorityStatus: ForecastContractLoadStatus;
   authorityError: string | null;
+  authorityErrorCode: SportsAuthorityErrorCode | null;
   onRegister: (contract: ForecastContract) => Promise<void>;
 }) {
   const targets = TARGETS_BY_WORKFLOW["mlb-forecasting"];
@@ -82,6 +85,7 @@ export function ForecastContractPanel({
   );
   const backendReady = authorityStatus === "ready";
   const registering = authorityStatus === "saving";
+  const authorityFailure = authorityErrorCode ? sportsAuthorityPresentation(authorityErrorCode, authorityError || "") : null;
 
   const common = (): Omit<ForecastContract, "temporalDesignMode"> => ({
     projectId,
@@ -163,8 +167,8 @@ export function ForecastContractPanel({
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-cyan-700"><Sparkles size={14} /> Prefilled from your project — review and formalize</div>
 
       {authorityStatus === "loading" ? <AuthorityNotice tone="slate">Loading the backend forecast-contract authority…</AuthorityNotice> : null}
-      {authorityStatus === "error" ? <AuthorityNotice tone="rose"><b>Backend unavailable.</b> {authorityError || "Registration is disabled until the backend is restored."}</AuthorityNotice> : null}
-      {authorityError && authorityStatus !== "error" ? <AuthorityNotice tone="rose">{authorityError}</AuthorityNotice> : null}
+      {authorityStatus === "error" && authorityFailure ? <AuthorityNotice tone="rose"><span data-authority-error-code={authorityErrorCode}><b>{authorityFailure.title}.</b> {authorityFailure.message}</span></AuthorityNotice> : null}
+      {authorityError && authorityStatus !== "error" ? <AuthorityNotice tone="rose">{authorityFailure ? <span data-authority-error-code={authorityErrorCode}><b>{authorityFailure.title}.</b> {authorityFailure.message}</span> : authorityError}</AuthorityNotice> : null}
 
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <Field label="Forecast target"><select value={target} onChange={(event) => setTarget(event.target.value)} className="wf-input">{targets.map((item) => <option key={item}>{item}</option>)}</select></Field>
@@ -358,7 +362,7 @@ function ModeChoice({ checked, label, onClick }: { checked: boolean; label: stri
 }
 
 function DateField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
-  return <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span><input type="date" value={value} onChange={(event) => onChange(event.target.value)} className={`wf-input ${error ? "border-rose-400" : ""}`} />{error ? <span className="text-xs font-semibold text-rose-700">{error}</span> : null}</label>;
+  return <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span><input type="date" value={value} onInput={(event) => onChange(event.currentTarget.value)} className={`wf-input ${error ? "border-rose-400" : ""}`} />{error ? <span className="text-xs font-semibold text-rose-700">{error}</span> : null}</label>;
 }
 
 function AuthorityNotice({ children, tone }: { children: React.ReactNode; tone: "slate" | "rose" }) {

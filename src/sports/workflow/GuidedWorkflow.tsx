@@ -1,7 +1,7 @@
 // Canonical scientist-first MLB PROGRAM workflow (Phase 6D): 9 stages. Stage 2 merges dataset
 // preview + identity/leakage data-quality; Stage 3 embeds the full PA Modeling Cockpit. The
-// route is /workflows/mlb?stage=N (old ?step=N bookmarks map forward). No dead-end routes.
-import { useState } from "react";
+// route is /workflows/mlb?projectId=ID&stage=N (old ?step=N bookmarks map forward). No dead-end routes.
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, CircleDashed, CircleDot, Info, Lock,
@@ -11,16 +11,19 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useWorkflowStore } from "../../state/useWorkflowStore";
 import { loadSportsProjectMetadata } from "../sportsConfig";
-import { useActiveSportsDataset, type ActiveSportsDataset } from "../sportsEvidenceApi";
+import { useSportsDatasetCatalog, type ActiveSportsDataset, type RefreshableEvidenceState } from "../sportsEvidenceApi";
+import { canonicalSportsProjectId, sportsProjectOverviewRoute, SPORTS_PROJECT_ID_PARAM } from "../sportsProjectRoutes";
 import {
-  resolveStages, firstActionableStage, nextActionable, completionSummary, loadBinding,
+  resolveStages, firstActionableStage, nextActionable, completionSummary,
   adoptStage, PROGRAM_STAGE_COUNT, LEGACY_STEP_TO_STAGE,
   type ForecastContract, type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
 } from "./workflowState";
 import { ForecastContractPanel } from "./ForecastContractPanel";
-import { DatasetBindingPanel } from "./DatasetBindingPanel";
 import { GuidedStageContent, AdoptBar } from "./GuidedStageContent";
 import { useForecastContract, type ForecastContractState } from "./useForecastContract";
+import { ProjectEvidenceDatasetControl } from "./ProjectEvidenceDatasetControl";
+import { useProjectSportsEvidenceDataset, type ProjectSportsEvidenceState } from "./projectDatasetLinkage";
+import { useCanonicalSportsProject } from "./useCanonicalSportsProject";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, FlaskConical, UsersRound, Orbit, SlidersHorizontal, Gauge, GitBranch, PackageCheck];
 
@@ -40,14 +43,35 @@ const CLASS_LABEL: Record<DecisionClass, string> = { CONFIGURE: "Configure", REV
 
 export default function GuidedWorkflow() {
   const [params, setParams] = useSearchParams();
-  const projectId = useWorkflowStore((s) => s.projectId);
+  const stateProjectId = useWorkflowStore((s) => s.projectId);
+  const projectId = canonicalSportsProjectId(params.get(SPORTS_PROJECT_ID_PARAM), stateProjectId);
+  const projectIdentity = useCanonicalSportsProject(projectId, stateProjectId);
   const projectName = useWorkflowStore((s) => s.projectName);
-  const datasetEvidence = useActiveSportsDataset();
-  const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
+  const datasetCatalog = useSportsDatasetCatalog();
+  const projectDataset = useProjectSportsEvidenceDataset(projectId);
+  const dataset = datasetCatalog.status === "ready" && projectDataset.linkage
+    ? datasetCatalog.data.find((item) => item.registrationId === projectDataset.linkage?.registrationId) ?? null
+    : null;
   const metadata = loadSportsProjectMetadata(projectId);
   const contractAuthority = useForecastContract(projectId);
   const contract = contractAuthority.contract;
-  const binding = loadBinding(projectId);
+  const binding = projectDataset.linkage ? {
+    projectId,
+    registrationId: projectDataset.linkage.registrationId,
+    datasetId: projectDataset.linkage.datasetId,
+    manifestSha: projectDataset.linkage.manifestSha,
+    seasons: dataset?.seasons ?? [],
+    boundAt: "",
+  } : null;
+
+  useEffect(() => {
+    if (!projectId || params.get(SPORTS_PROJECT_ID_PARAM) === projectId) return;
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set(SPORTS_PROJECT_ID_PARAM, projectId);
+      return next;
+    }, { replace: true });
+  }, [params, projectId, setParams]);
 
   // The backend contract is authoritative. A project-scoped compatibility draft may initialize
   // Stage 1, but it cannot make the stage complete until the user explicitly registers it.
@@ -62,20 +86,26 @@ export default function GuidedWorkflow() {
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
 
   const goStage = (n: number) => setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(n)); np.delete("step"); np.delete("done"); return np; });
-  const refresh = () => setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(focus.number)); np.delete("step"); np.set("v", String(Date.now())); return np; });
+  const refresh = () => {
+    datasetCatalog.refresh();
+    void projectDataset.refresh();
+    setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(focus.number)); np.delete("step"); np.set("v", String(Date.now())); return np; });
+  };
   const advanceFrom = (from: number, registeredContract: ForecastContract | null = contract) => {
-    const next = firstActionableStage(resolveStages(projectId, dataset, registeredContract, loadBinding(projectId)));
+    const next = firstActionableStage(resolveStages(projectId, dataset, registeredContract, binding));
     setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(next)); np.delete("step"); np.set("done", String(from)); np.set("v", String(Date.now())); return np; });
   };
 
-  const loading = datasetEvidence.status === "loading";
+  if (projectIdentity.status !== "ready") {
+    return <div className="sports-page-shell"><section className={`sports-panel p-6 text-sm ${projectIdentity.status === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : "text-slate-600"}`} role={projectIdentity.status === "error" ? "alert" : "status"}>{projectIdentity.status === "error" ? projectIdentity.error : "Reopening the canonical ASP Model Studio sports project…"}</section></div>;
+  }
 
   return (
     <div className="sports-page-shell space-y-5">
       <section className="sports-hero-panel p-5 sm:p-7">
         <div className="relative z-10">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Link to="/project-overview" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-white"><ArrowLeft size={16} /> Project Overview</Link>
+            <Link to={sportsProjectOverviewRoute(projectId)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-white"><ArrowLeft size={16} /> Project Overview</Link>
             <span className="sports-status sports-status--teal">MLB · Program Workflow</span>
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
@@ -128,11 +158,7 @@ export default function GuidedWorkflow() {
         </nav>
 
         <div className="min-w-0 space-y-4">
-          {loading ? (
-            <div className="sports-panel p-8 text-center text-sm text-slate-500"><CircleDashed size={22} className="mx-auto animate-spin text-slate-400" /><p className="mt-3">Loading registered MLB evidence…</p></div>
-          ) : (
-            <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetStatus={datasetEvidence.status} contractAuthority={contractAuthority} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
-          )}
+          <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
 
           <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button onClick={() => goStage(Math.max(1, focus.number - 1))} disabled={focus.number === 1} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ArrowLeft size={15} /> Previous</button>
@@ -151,13 +177,14 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, projectId, metadata, dataset, datasetStatus, contractAuthority, justDone, onGoStage, advanceFrom, refresh,
+  focus, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, justDone, onGoStage, advanceFrom, refresh,
 }: {
   focus: StageResolution;
   projectId: string;
   metadata: ReturnType<typeof loadSportsProjectMetadata>;
   dataset: ActiveSportsDataset | null;
-  datasetStatus: string;
+  datasetCatalog: RefreshableEvidenceState<ActiveSportsDataset[]>;
+  projectDataset: ProjectSportsEvidenceState;
   contractAuthority: ForecastContractState;
   justDone: number;
   onGoStage: (n: number) => void;
@@ -165,7 +192,14 @@ function StageWorkspace({
   refresh: () => void;
 }) {
   const style = STATUS_STYLE[focus.status];
-  const binding = loadBinding(projectId);
+  const binding = projectDataset.linkage ? {
+    projectId,
+    registrationId: projectDataset.linkage.registrationId,
+    datasetId: projectDataset.linkage.datasetId,
+    manifestSha: projectDataset.linkage.manifestSha,
+    seasons: dataset?.seasons ?? [],
+    boundAt: "",
+  } : null;
   const contract = contractAuthority.contract;
   const formContract = contract ?? contractAuthority.compatibilityDraft;
   const contractFormKey = `${projectId}:${formContract?.version ?? "new"}:${formContract?.savedAt || formContract?.temporalDesignMode || "empty"}`;
@@ -212,9 +246,15 @@ function StageWorkspace({
       </section>
 
       {/* Stage 1 — Forecast contract */}
-      {focus.number === 1 && (contractAuthority.status === "loading"
-        ? <section className="sports-panel p-6 text-sm text-slate-500"><CircleDashed size={20} className="mr-2 inline animate-spin" /> Loading the backend forecast-contract authority…</section>
-        : <ForecastContractPanel
+      {focus.number === 1 && <>
+        <ProjectEvidenceDatasetControl
+          authority={projectDataset}
+          catalog={datasetCatalog}
+          onLinked={async () => { await contractAuthority.refresh(); refresh(); }}
+        />
+        {contractAuthority.status === "loading"
+          ? <section className="sports-panel p-6 text-sm text-slate-500"><CircleDashed size={20} className="mr-2 inline animate-spin" /> Loading the backend forecast-contract authority…</section>
+          : <ForecastContractPanel
             key={contractFormKey}
             projectId={projectId}
             metadata={metadata}
@@ -222,30 +262,32 @@ function StageWorkspace({
             coverage={contractAuthority.coverage}
             authorityStatus={contractAuthority.status}
             authorityError={contractAuthority.error}
+            authorityErrorCode={contractAuthority.errorCode}
             onRegister={async (draft) => {
               const registered = await contractAuthority.register(draft);
               advanceFrom(1, registered);
             }}
-          />)}
+          />}
+      </>}
 
       {/* Stage 2 — Data Evidence & Quality (bind, then review data + quality, then accept) */}
       {focus.number === 2 && (!binding
-        ? <DatasetBindingPanel projectId={projectId} dataset={dataset} datasetStatus={datasetStatus} bound={false} onBound={() => refresh()} />
+        ? <ProjectEvidenceDatasetControl authority={projectDataset} catalog={datasetCatalog} onLinked={() => refresh()} />
         : <>
             <GuidedStageContent number={2} dataset={dataset} contract={contract} />
-            <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, 2); advanceFrom(2); }} />
+            <AdoptBar focus={focus} projectId={projectId} onAdopt={() => { adoptStage(projectId, 2); advanceFrom(2); }} />
           </>)}
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
       {focus.number === 3 && <>
         <GuidedStageContent number={3} dataset={dataset} contract={contract} />
-        <AdoptBar focus={{ ...focus, action: { ...focus.action, label: "Adopt Current PA Champion & Continue", moduleLabel: "PA Modeling Cockpit" } }} onAdopt={() => { adoptStage(projectId, 3); advanceFrom(3); }} />
+        <AdoptBar focus={{ ...focus, action: { ...focus.action, label: "Adopt Current PA Champion & Continue", moduleLabel: "PA Modeling Cockpit" } }} projectId={projectId} onAdopt={() => { adoptStage(projectId, 3); advanceFrom(3); }} />
       </>}
 
       {/* Stages 4–8 — embedded analytical content + adopt */}
       {focus.number >= 4 && focus.number <= 8 && <>
         <GuidedStageContent number={focus.number} dataset={dataset} contract={contract} />
-        <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); advanceFrom(focus.number); }} />
+        <AdoptBar focus={focus} projectId={projectId} onAdopt={() => { adoptStage(projectId, focus.number); advanceFrom(focus.number); }} />
       </>}
 
       {/* Stage 9 — Export / Deployment (gated) */}
@@ -255,7 +297,7 @@ function StageWorkspace({
             <div><div className="text-sm font-semibold text-slate-900">Export gate</div><p className="mt-1 max-w-2xl text-sm text-slate-600">Export requires a governed Champion Decision from Stage 8. It packages the approved graph as an immutable bundle.</p></div>
             <button disabled className="inline-flex shrink-0 cursor-not-allowed items-center gap-2 rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500"><Lock size={15} /> Export MLB Bundle</button>
           </div>
-          <Link to="/registry-deployment?from=mlb-workflow&stage=9" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-700 hover:underline"><ExternalLink size={14} /> Open Registry &amp; Deployment</Link>
+          <Link to={`/registry-deployment?${new URLSearchParams({ from: "mlb-workflow", stage: "9", projectId }).toString()}`} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-700 hover:underline"><ExternalLink size={14} /> Open Registry &amp; Deployment</Link>
         </section>
       )}
 

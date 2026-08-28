@@ -1,8 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check, CircleAlert, Sparkles } from "lucide-react";
 import { upsertProjectFromState } from "../lib/localProjects";
+import { flushProjectDatabaseSave } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { mlbWorkflowRoute, sportsProjectOverviewRoute } from "./sportsProjectRoutes";
 import {
   FORECAST_LIFECYCLES,
   LEAGUES_BY_SPORT,
@@ -33,10 +35,12 @@ export default function NewSportsProject() {
   const [researchPurpose, setResearchPurpose] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const pendingProjectIdRef = useRef("");
 
   const workflow = workflowForSport(sport);
   const targets = workflow ? TARGETS_BY_WORKFLOW[workflow.id] : [];
-  const canCreate = Boolean(projectName.trim() && period.trim() && researchPurpose.trim() && workflow);
+  const canCreate = Boolean(projectName.trim() && period.trim() && researchPurpose.trim() && workflow && !creating);
 
   const workflowLabel = useMemo(() => {
     if (workflow) return workflow.title;
@@ -55,7 +59,7 @@ export default function NewSportsProject() {
     setSecondaryTargets((current) => current.includes(target) ? current.filter((item) => item !== target) : [...current, target]);
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     if (!workflow) {
@@ -67,7 +71,9 @@ export default function NewSportsProject() {
       return;
     }
 
+    setCreating(true);
     startProjectFromWorkflow({
+      projectId: pendingProjectIdRef.current || undefined,
       modelId: `${workflow.league.toLowerCase()}-${Date.now().toString(36)}`,
       projectName: projectName.trim(),
       projectType: "custom-workflow",
@@ -84,12 +90,14 @@ export default function NewSportsProject() {
     });
 
     const state = useWorkflowStore.getState();
+    pendingProjectIdRef.current = state.projectId;
     const record = upsertProjectFromState(state);
     if (!record) {
       setError("ASP Model Studio could not create the local project record. No project was registered.");
+      setCreating(false);
       return;
     }
-    saveSportsProjectMetadata({
+    const sportsMetadata = {
       projectId: state.projectId,
       sport,
       league,
@@ -100,9 +108,16 @@ export default function NewSportsProject() {
       secondaryTargets,
       researchPurpose: researchPurpose.trim(),
       description: description.trim(),
-    });
-    // Enter the guided workflow directly at Step 1 — never strand the user on a passive overview.
-    navigate(workflow.key === "mlb" ? "/workflows/mlb?stage=1" : "/project-overview");
+    };
+    saveSportsProjectMetadata(sportsMetadata);
+    const persisted = await flushProjectDatabaseSave(record.snapshot, { sportsProject: sportsMetadata });
+    if (!persisted) {
+      setError("The project is saved in this browser but could not be registered in the ASP Model Studio backend. Restore the backend and submit again; the existing canonical project ID will be reused.");
+      setCreating(false);
+      return;
+    }
+    // Enter the guided workflow only after the same canonical project ID is durable.
+    navigate(workflow.key === "mlb" ? mlbWorkflowRoute(state.projectId, 1) : sportsProjectOverviewRoute(state.projectId));
   }
 
   return (
@@ -174,7 +189,7 @@ export default function NewSportsProject() {
           )}
 
           <button type="submit" disabled={!canCreate} className="sports-primary-button mt-6 w-full justify-center sm:w-auto">
-            Create Sports Project <ArrowRight size={17} />
+            {creating ? "Registering project…" : "Create Sports Project"} <ArrowRight size={17} />
           </button>
         </section>
 

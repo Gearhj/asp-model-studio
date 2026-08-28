@@ -142,8 +142,9 @@ const [modelingApp, newProject, overview, guided, returnBar, sidebar, stageConte
 test("workflow uses ?stage routing with legacy ?step compatibility", () => {
   assert.ok(guided.includes('params.get("stage")'));
   assert.ok(guided.includes("LEGACY_STEP_TO_STAGE"));
-  assert.ok(newProject.includes("/workflows/mlb?stage=1"));
-  assert.ok(returnBar.includes("stage") && returnBar.includes("Return to MLB Workflow"));
+  assert.ok(newProject.includes("mlbWorkflowRoute(state.projectId, 1)"));
+  assert.ok(guided.includes("SPORTS_PROJECT_ID_PARAM") && guided.includes("useCanonicalSportsProject"));
+  assert.ok(returnBar.includes("mlbWorkflowRoute") && returnBar.includes("Return to MLB Workflow"));
 });
 
 test("Stage 2 merges data preview + data-quality; Stage 3 embeds the cockpit", () => {
