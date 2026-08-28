@@ -4,10 +4,11 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import { loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
 import { sportsPaDecisionStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
 import {
-  resolveStages, firstActionableStage, completionSummary, loadContract, loadBinding,
-  developmentWindowLabel,
+  resolveStages, firstActionableStage, completionSummary, loadBinding,
+  temporalPolicyLabel,
   type StageResolution, type StageStatus,
 } from "./workflow/workflowState";
+import { useForecastContract } from "./workflow/useForecastContract";
 
 const STATUS_CHIP: Record<StageStatus, string> = {
   COMPLETE: "sports-status--green",
@@ -26,7 +27,8 @@ export default function SportsProjectOverview() {
   const workflow = sportsWorkflowForId(workflowId);
   const metadata = loadSportsProjectMetadata(projectId);
   const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
-  const contract = loadContract(projectId);
+  const contractAuthority = useForecastContract(projectId);
+  const contract = contractAuthority.contract;
   const binding = loadBinding(projectId);
   const isMlb = workflow.key === "mlb";
 
@@ -82,7 +84,7 @@ export default function SportsProjectOverview() {
       {/* Metrics */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={<Target size={19} />} label="Forecast target" value={contract?.target || metadata?.primaryTarget || "Not configured"} />
-        <Metric icon={<CircleDot size={19} />} label="Temporal policy" value={contract ? `${developmentWindowLabel(contract)} → ${contract.validationSeason} → ${contract.frozenSeason}` : "Not configured"} />
+        <Metric icon={<CircleDot size={19} />} label="Temporal policy" value={contractAuthority.status === "loading" ? "Loading…" : temporalPolicyLabel(contract)} />
         <Metric icon={<Database size={19} />} label="Sports dataset" value={datasetLabel} />
         <Metric icon={<GitBranch size={19} />} label="Model graph" value={phase4?.graph?.nodes.length ? `${phase4.graph.nodes.length} nodes` : baseline?.graph?.nodes.length ? `${decision || "research"}` : "No graph yet"} />
       </section>

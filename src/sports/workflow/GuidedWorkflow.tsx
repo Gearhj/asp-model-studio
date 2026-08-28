@@ -1,7 +1,7 @@
 // Canonical scientist-first MLB PROGRAM workflow (Phase 6D): 9 stages. Stage 2 merges dataset
 // preview + identity/leakage data-quality; Stage 3 embeds the full PA Modeling Cockpit. The
 // route is /workflows/mlb?stage=N (old ?step=N bookmarks map forward). No dead-end routes.
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, CircleDashed, CircleDot, Info, Lock,
@@ -13,13 +13,14 @@ import { useWorkflowStore } from "../../state/useWorkflowStore";
 import { loadSportsProjectMetadata } from "../sportsConfig";
 import { useActiveSportsDataset, type ActiveSportsDataset } from "../sportsEvidenceApi";
 import {
-  resolveStages, firstActionableStage, nextActionable, completionSummary, loadContract, loadBinding,
+  resolveStages, firstActionableStage, nextActionable, completionSummary, loadBinding,
   adoptStage, PROGRAM_STAGE_COUNT, LEGACY_STEP_TO_STAGE,
-  type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
+  type ForecastContract, type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
 } from "./workflowState";
 import { ForecastContractPanel } from "./ForecastContractPanel";
 import { DatasetBindingPanel } from "./DatasetBindingPanel";
 import { GuidedStageContent, AdoptBar } from "./GuidedStageContent";
+import { useForecastContract, type ForecastContractState } from "./useForecastContract";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, FlaskConical, UsersRound, Orbit, SlidersHorizontal, Gauge, GitBranch, PackageCheck];
 
@@ -44,12 +45,13 @@ export default function GuidedWorkflow() {
   const datasetEvidence = useActiveSportsDataset();
   const dataset = datasetEvidence.status === "ready" ? datasetEvidence.data : null;
   const metadata = loadSportsProjectMetadata(projectId);
+  const contractAuthority = useForecastContract(projectId);
+  const contract = contractAuthority.contract;
+  const binding = loadBinding(projectId);
 
-  const resolutions = useMemo(
-    () => resolveStages(projectId, dataset),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId, datasetEvidence.status, params.get("stage"), params.get("step"), params.get("v")],
-  );
+  // The backend contract is authoritative. A project-scoped compatibility draft may initialize
+  // Stage 1, but it cannot make the stage complete until the user explicitly registers it.
+  const resolutions = resolveStages(projectId, dataset, contract, binding);
   const summary = completionSummary(resolutions);
   // ?stage=N is canonical; old ?step=N bookmarks map forward.
   const legacyStep = Number(params.get("step")) || 0;
@@ -61,8 +63,8 @@ export default function GuidedWorkflow() {
 
   const goStage = (n: number) => setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(n)); np.delete("step"); np.delete("done"); return np; });
   const refresh = () => setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(focus.number)); np.delete("step"); np.set("v", String(Date.now())); return np; });
-  const advanceFrom = (from: number) => {
-    const next = firstActionableStage(resolveStages(projectId, dataset));
+  const advanceFrom = (from: number, registeredContract: ForecastContract | null = contract) => {
+    const next = firstActionableStage(resolveStages(projectId, dataset, registeredContract, loadBinding(projectId)));
     setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(next)); np.delete("step"); np.set("done", String(from)); np.set("v", String(Date.now())); return np; });
   };
 
@@ -129,7 +131,7 @@ export default function GuidedWorkflow() {
           {loading ? (
             <div className="sports-panel p-8 text-center text-sm text-slate-500"><CircleDashed size={22} className="mx-auto animate-spin text-slate-400" /><p className="mt-3">Loading registered MLB evidence…</p></div>
           ) : (
-            <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetStatus={datasetEvidence.status} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
+            <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetStatus={datasetEvidence.status} contractAuthority={contractAuthority} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
           )}
 
           <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -149,20 +151,24 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, projectId, metadata, dataset, datasetStatus, justDone, onGoStage, advanceFrom, refresh,
+  focus, projectId, metadata, dataset, datasetStatus, contractAuthority, justDone, onGoStage, advanceFrom, refresh,
 }: {
   focus: StageResolution;
   projectId: string;
   metadata: ReturnType<typeof loadSportsProjectMetadata>;
   dataset: ActiveSportsDataset | null;
   datasetStatus: string;
+  contractAuthority: ForecastContractState;
   justDone: number;
   onGoStage: (n: number) => void;
-  advanceFrom: (from: number) => void;
+  advanceFrom: (from: number, registeredContract?: ForecastContract | null) => void;
   refresh: () => void;
 }) {
   const style = STATUS_STYLE[focus.status];
   const binding = loadBinding(projectId);
+  const contract = contractAuthority.contract;
+  const formContract = contract ?? contractAuthority.compatibilityDraft;
+  const contractFormKey = `${projectId}:${formContract?.version ?? "new"}:${formContract?.savedAt || formContract?.temporalDesignMode || "empty"}`;
 
   if (focus.status === "BLOCKED") {
     return (
@@ -206,25 +212,39 @@ function StageWorkspace({
       </section>
 
       {/* Stage 1 — Forecast contract */}
-      {focus.number === 1 && <ForecastContractPanel projectId={projectId} metadata={metadata} existing={loadContract(projectId)} onSaved={() => advanceFrom(1)} />}
+      {focus.number === 1 && (contractAuthority.status === "loading"
+        ? <section className="sports-panel p-6 text-sm text-slate-500"><CircleDashed size={20} className="mr-2 inline animate-spin" /> Loading the backend forecast-contract authority…</section>
+        : <ForecastContractPanel
+            key={contractFormKey}
+            projectId={projectId}
+            metadata={metadata}
+            existing={formContract}
+            coverage={contractAuthority.coverage}
+            authorityStatus={contractAuthority.status}
+            authorityError={contractAuthority.error}
+            onRegister={async (draft) => {
+              const registered = await contractAuthority.register(draft);
+              advanceFrom(1, registered);
+            }}
+          />)}
 
       {/* Stage 2 — Data Evidence & Quality (bind, then review data + quality, then accept) */}
       {focus.number === 2 && (!binding
         ? <DatasetBindingPanel projectId={projectId} dataset={dataset} datasetStatus={datasetStatus} bound={false} onBound={() => refresh()} />
         : <>
-            <GuidedStageContent number={2} dataset={dataset} />
+            <GuidedStageContent number={2} dataset={dataset} contract={contract} />
             <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, 2); advanceFrom(2); }} />
           </>)}
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
       {focus.number === 3 && <>
-        <GuidedStageContent number={3} dataset={dataset} contract={loadContract(projectId)} />
+        <GuidedStageContent number={3} dataset={dataset} contract={contract} />
         <AdoptBar focus={{ ...focus, action: { ...focus.action, label: "Adopt Current PA Champion & Continue", moduleLabel: "PA Modeling Cockpit" } }} onAdopt={() => { adoptStage(projectId, 3); advanceFrom(3); }} />
       </>}
 
       {/* Stages 4–8 — embedded analytical content + adopt */}
       {focus.number >= 4 && focus.number <= 8 && <>
-        <GuidedStageContent number={focus.number} dataset={dataset} />
+        <GuidedStageContent number={focus.number} dataset={dataset} contract={contract} />
         <AdoptBar focus={focus} onAdopt={() => { adoptStage(projectId, focus.number); advanceFrom(focus.number); }} />
       </>}
 

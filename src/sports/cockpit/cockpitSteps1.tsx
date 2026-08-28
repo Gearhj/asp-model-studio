@@ -12,7 +12,8 @@ import {
   type MissingSummary, type MissingEntry, type TemporalSplit, type FeatureCatalog,
   type EngineeredSpec, type EngineeredProfile, type AblationResult,
 } from "./cockpitApi";
-import { loadContract, loadBinding } from "../workflow/workflowState";
+import { loadBinding, type ForecastContract } from "../workflow/workflowState";
+import { useForecastContract } from "../workflow/useForecastContract";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
   OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
@@ -39,15 +40,18 @@ export type AuthorityState = {
   targetConfirmed: boolean; targetMode: AuthorityMode; selectedTarget: string;
   contractTarget: string | null;
 };
-export function readAuthorityState(projectId: string, notes: Record<string, string>): AuthorityState {
+export function readAuthorityState(
+  projectId: string,
+  notes: Record<string, string>,
+  registeredContract: ForecastContract | null = null,
+): AuthorityState {
   const binding = loadBinding(projectId);
-  const contract = loadContract(projectId);
   const noteSel = notes["dataset.selected"] || "";
   const datasetMode: AuthorityMode = noteSel ? "explicit" : binding ? "inherited" : "none";
   const datasetId = noteSel || binding?.datasetId || null;
   const selectedTarget = notes["target.selected"] || RECOMMENDED_TARGET;
   const noteConfirmed = !!notes["target.confirmed"] && notes["target.confirmed"] === selectedTarget;
-  const contractTarget = contract?.target || null;
+  const contractTarget = registeredContract?.target || null;
   const targetMode: AuthorityMode = noteConfirmed ? "explicit" : contractTarget ? "inherited" : "none";
   return {
     projectId,
@@ -64,7 +68,8 @@ export function readAuthorityState(projectId: string, notes: Record<string, stri
 export function ObjectiveStep({ projectId = "mlb-cockpit", go }: { projectId?: string; go?: (id: string) => void }) {
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { notes, setNote, markSaved, savedSteps } = useCockpitStore();
-  const auth = readAuthorityState(projectId, notes);
+  const contractAuthority = useForecastContract(projectId);
+  const auth = readAuthorityState(projectId, notes, contractAuthority.contract);
   if (!auth.datasetSelected) return <ObjectiveNoDataset go={go} />;
   if (!auth.targetConfirmed) return <ObjectiveTargetPending auth={auth} go={go} />;
   return (
@@ -199,7 +204,8 @@ const roleTone = (role: string): "rose" | "amber" | "emerald" | "slate" =>
 
 export function DataPopulationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const pop = useEndpoint<Population>("/cockpit/population");
-  return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} projectId={projectId} /> : null}</LoadGate>;
+  const contractAuthority = useForecastContract(projectId);
+  return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} projectId={projectId} registeredContract={contractAuthority.contract} /> : null}</LoadGate>;
 }
 
 // Modeling dataset authority (Phase 6G / 6G.2). Selecting the modeling dataset is the first, dominant
@@ -213,11 +219,11 @@ const DATASET_INVALIDATION_ITEMS = [
   "missing-value policy", "engineered features", "segmentation", "trained challengers",
   "calibration / evaluation artifacts",
 ];
-function DatasetSection({ projectId }: { projectId: string }) {
+function DatasetSection({ projectId, registeredContract }: { projectId: string; registeredContract: ForecastContract | null }) {
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { notes, setNote, invalidateForDatasetChange } = useCockpitStore();
   const [changing, setChanging] = useState(false);
-  const auth = readAuthorityState(projectId, notes);
+  const auth = readAuthorityState(projectId, notes, registeredContract);
   const dsa = obj.data?.datasetAuthority;
   const currentId = auth.datasetId;
 
@@ -317,10 +323,10 @@ function DField({ label, value, mono }: { label: string; value: string; mono?: b
 // inherit confirmation from its registered Forecast Contract (labelled honestly); otherwise the target
 // is AWAITING an explicit confirmation and downstream target-dependent analysis is withheld.
 const TARGET_OPTIONS = [{ value: "outcome", label: "outcome — 8-class plate-appearance result", recommended: true }];
-function TargetSelector({ projectId }: { projectId: string }) {
+function TargetSelector({ projectId, registeredContract }: { projectId: string; registeredContract: ForecastContract | null }) {
   const ta = useEndpoint<TargetAnalysis>("/cockpit/target-analysis");
   const { notes, setNote } = useCockpitStore();
-  const auth = readAuthorityState(projectId, notes);
+  const auth = readAuthorityState(projectId, notes, registeredContract);
   const recommended = RECOMMENDED_TARGET;
   const selected = auth.selectedTarget;
   const confirmed = auth.targetConfirmed;
@@ -403,7 +409,7 @@ function TargetSelector({ projectId }: { projectId: string }) {
   );
 }
 
-function PopulationBody({ pop, projectId }: { pop: Population; projectId: string }) {
+function PopulationBody({ pop, projectId, registeredContract }: { pop: Population; projectId: string; registeredContract: ForecastContract | null }) {
   const src = pop.sourceEvidence;
   // Games/batters are only materialized for the modeling seasons (2023–2025).
   const modeling = new Map(pop.perSeason.map((s) => [s.season, s]));
@@ -419,12 +425,12 @@ function PopulationBody({ pop, projectId }: { pop: Population; projectId: string
           non-selectable, non-authoritative — and must not be mistaken for the active modeling dataset. */}
       <Gen3CatalogSection mode="selection" projectId={projectId} />
       <Gen3PopulationPanel projectId={projectId} />
-      <TargetSelector projectId={projectId} />
+      <TargetSelector projectId={projectId} registeredContract={registeredContract} />
       <div className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500"><Archive size={11} /> Source lineage · historical evidence</span>
         <span className="ml-2">The panels below describe the registered FD1 source evidence and are <b>not</b> the active modeling dataset. The active modeling authority is the server binding above.</span>
       </div>
-      <DatasetSection projectId={projectId} />
+      <DatasetSection projectId={projectId} registeredContract={registeredContract} />
       {/* Two-layer population summary: registered source evidence vs. Gen-2 modeling matrix */}
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

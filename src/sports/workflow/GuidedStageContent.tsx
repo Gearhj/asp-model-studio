@@ -14,7 +14,13 @@ import {
 import PaModelingCockpit from "../cockpit/PaModelingCockpit";
 import DataPreviewPanel from "../cockpit/DataPreviewPanel";
 import type { StageResolution, ForecastContract } from "./workflowState";
-import { GOVERNED_TEMPORAL, developmentWindowLabel } from "./workflowState";
+import {
+  GOVERNED_TEMPORAL,
+  developmentWindowLabel,
+  finalOotWindowLabel,
+  temporalDesignMode,
+  validationWindowLabel,
+} from "./workflowState";
 
 function pct(v: number | undefined | null): string {
   if (v === undefined || v === null || Number.isNaN(v)) return "—";
@@ -32,7 +38,7 @@ function QualityChip({ label, value, pass = true }: { label: string; value: stri
   );
 }
 
-export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset | null }) {
+export function DataQualitySummary({ dataset, contract = null }: { dataset: ActiveSportsDataset | null; contract?: ForecastContract | null }) {
   const bridge = dataset?.identityBridge;
   const ja = bridge?.joinAudit;
   const audit = dataset?.featureAudit;
@@ -40,6 +46,10 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
   const seasons = audit?.perSeasonRows ?? [];
   const limitations = dataset?.limitations ?? [];
   const mapping = ja ? pct(ja.mappingRate) : (bridge ? "registered" : "—");
+  const customDates = temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN";
+  const sourceEvidenceLabel = customDates && contract?.eligibleEvidence
+    ? `${contract.eligibleEvidence.startDate}–${contract.eligibleEvidence.endDate}`
+    : `${GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–${GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}`;
   return (
     <section className="sports-panel p-5 sm:p-6">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><ShieldCheck size={14} /> Data quality</div>
@@ -50,12 +60,12 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
       <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/60 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Population authority — source evidence vs. modeling development</div>
         <div className="mt-1.5 grid gap-2 text-sm sm:grid-cols-4">
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Source evidence</div><div className="font-semibold text-slate-900">{GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–{GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Modeling development</div><div className="font-semibold text-emerald-700">{GOVERNED_TEMPORAL.developmentSeasons.join(", ")}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Validation</div><div className="font-semibold text-amber-700">{GOVERNED_TEMPORAL.validationSeason}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Frozen final</div><div className="font-semibold text-rose-700">{GOVERNED_TEMPORAL.frozenSeason}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Source evidence</div><div className="font-semibold text-slate-900">{sourceEvidenceLabel}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Modeling development</div><div className="font-semibold text-emerald-700">{customDates ? developmentWindowLabel(contract) : GOVERNED_TEMPORAL.developmentSeasons.join(", ")}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Validation</div><div className="font-semibold text-amber-700">{customDates ? validationWindowLabel(contract) : GOVERNED_TEMPORAL.validationSeason}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">{customDates ? "Final OOT" : "Frozen final"}</div><div className="font-semibold text-rose-700">{customDates ? finalOotWindowLabel(contract) : GOVERNED_TEMPORAL.frozenSeason}</div></div>
         </div>
-        <div className="mt-1.5 text-xs text-slate-600">{GOVERNED_TEMPORAL.priorOnlyReason}</div>
+        <div className="mt-1.5 text-xs text-slate-600">{customDates ? "Exact chronological folds remain deferred to Validation & Calibration; the final OOT range is reporting-only." : GOVERNED_TEMPORAL.priorOnlyReason}</div>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -104,11 +114,12 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
 
 // ---- Stage 3: PA Model Development intro ----
 function CockpitIntro({ contract }: { contract: ForecastContract | null }) {
+  const customDates = temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN";
   const facts: [string, string][] = [
     ["Target", contract?.target || "Plate-Appearance Outcome"],
     ["Development", developmentWindowLabel(contract)],
-    ["Validation", contract ? String(contract.validationSeason) : "2024"],
-    ["Frozen", contract ? String(contract.frozenSeason) : "2025"],
+    ["Validation", validationWindowLabel(contract)],
+    [customDates ? "Final OOT" : "Frozen", finalOotWindowLabel(contract)],
     ["Champion", "D3 (candidate C4)"],
     ["Evidence mode", contract?.evidenceMode || "STRICT"],
   ];
@@ -128,7 +139,7 @@ export function GuidedStageContent({ number, dataset, contract }: { number: numb
   const p4 = dataset?.phase4;
   switch (number) {
     case 2:
-      return <div className="space-y-4"><DataQualitySummary dataset={dataset} /><DataPreviewPanel title="Your selected data" /></div>;
+      return <div className="space-y-4"><DataQualitySummary dataset={dataset} contract={contract ?? null} /><DataPreviewPanel title="Your selected data" /></div>;
     case 3:
       return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} /></div>;
     case 4:

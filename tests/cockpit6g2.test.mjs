@@ -18,10 +18,12 @@ const dataset = steps1.slice(steps1.indexOf("Modeling dataset authority (Phase 6
 const targetSel = steps1.slice(steps1.indexOf("Explicit target-variable authority"), steps1.indexOf("function PopulationBody"));
 
 // ---------------- authority state model ----------------
-test("authority state is derived from explicit acts AND the project's registered contracts", () => {
-  assert.ok(steps1.includes('import { loadContract, loadBinding } from "../workflow/workflowState"'));
+test("authority state is derived from explicit acts AND the backend-registered contract", () => {
+  assert.ok(steps1.includes('import { loadBinding, type ForecastContract } from "../workflow/workflowState"'));
+  assert.ok(steps1.includes('import { useForecastContract } from "../workflow/useForecastContract"'));
   assert.ok(steps1.includes("export function readAuthorityState"));
-  assert.ok(steps1.includes("loadBinding(projectId)") && steps1.includes("loadContract(projectId)"));
+  assert.ok(steps1.includes("loadBinding(projectId)") && steps1.includes("registeredContract?.target"));
+  assert.ok(!steps1.includes("loadContract(projectId)"));
   // dataset selected = explicit note OR inherited Stage-2 binding; target confirmed = explicit note OR
   // inherited Stage-1 forecast contract — never fabricated from mere legacy metadata.
   assert.ok(steps1.includes('datasetMode: AuthorityMode = noteSel ? "explicit" : binding ? "inherited" : "none"'));
@@ -31,7 +33,8 @@ test("authority state is derived from explicit acts AND the project's registered
 
 // ---------------- Part C: Objective honors dataset/target state ----------------
 test("Objective withholds target-dependent facts until dataset selected AND target confirmed", () => {
-  assert.ok(objective.includes("const auth = readAuthorityState(projectId, notes)"));
+  assert.ok(objective.includes("const contractAuthority = useForecastContract(projectId)"));
+  assert.ok(objective.includes("const auth = readAuthorityState(projectId, notes, contractAuthority.contract)"));
   assert.ok(objective.includes("if (!auth.datasetSelected) return <ObjectiveNoDataset"));
   assert.ok(objective.includes("if (!auth.targetConfirmed) return <ObjectiveTargetPending"));
   // C1 / C2 explicit states

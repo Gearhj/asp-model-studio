@@ -3,21 +3,76 @@
 // inside Program Stage 3 (PA Model Development) and is NOT counted as program stages.
 //
 // Honest project-evidence semantics (from Phase 6C.1): existing WORKSPACE evidence is not the same
-// as PROJECT-ADOPTED evidence, which is not the same as a COMPLETE program stage. Persisted per
-// project in localStorage (no data copy, no duplicate registration, no governance change): forecast
-// contract, dataset binding, and per-stage adoptions.
+// as PROJECT-ADOPTED evidence, which is not the same as a COMPLETE program stage. Forecast contracts
+// are backend-authoritative; localStorage is only a project-scoped compatibility cache for legacy
+// records. Dataset binding and per-stage adoptions retain their existing local workflow persistence.
 import type { ActiveSportsDataset } from "../sportsEvidenceApi";
 
 // ---------------------------------------------------------------------------- persisted artifacts
+export type TemporalDesignMode = "SEASON_ROLES" | "CUSTOM_DATES_ROLLING_ORIGIN";
+
+export type ForecastDateRange = {
+  startDate: string;
+  endDate: string;
+};
+
+export type ForecastContractCoverage = {
+  earliestDate: string;
+  latestDate: string;
+  registrationId: string;
+  datasetId: string;
+  datasetVersionId: string;
+  manifestSha: string;
+  family?: string;
+  populationId?: string;
+  rowCount?: number;
+  partitionCount?: number;
+};
+
+export type ChronologicalValidationRequirement = {
+  required: true;
+  configurationStage: "VALIDATION_CALIBRATION";
+  foldCount: 5;
+  window: "EXPANDING";
+  validationBlocks: "DATE_ATOMIC";
+  grouping: "CANONICAL_GAME";
+  shuffle: false;
+  preprocessing: "FOLD_LOCAL";
+  boundaryOptions: ["BALANCED_BY_GAME_COUNT", "MANUAL_DATE_RANGES"];
+  finalOotUse: "REPORTING_ONLY";
+  exactBoundaries: null;
+};
+
+export const DEFERRED_CHRONOLOGICAL_VALIDATION: ChronologicalValidationRequirement = {
+  required: true,
+  configurationStage: "VALIDATION_CALIBRATION",
+  foldCount: 5,
+  window: "EXPANDING",
+  validationBlocks: "DATE_ATOMIC",
+  grouping: "CANONICAL_GAME",
+  shuffle: false,
+  preprocessing: "FOLD_LOCAL",
+  boundaryOptions: ["BALANCED_BY_GAME_COUNT", "MANUAL_DATE_RANGES"],
+  finalOotUse: "REPORTING_ONLY",
+  exactBoundaries: null,
+};
+
 export type ForecastContract = {
   projectId: string;
   version: number;
   target: string;
   lifecycle: string;
-  developmentSeasons: number[];
-  validationSeason: number;
-  frozenSeason: number;
-  prospectiveSeason: number | null;
+  /** Missing on legacy records; absence is normalized to SEASON_ROLES. */
+  temporalDesignMode?: TemporalDesignMode;
+  developmentSeasons?: number[];
+  validationSeason?: number | null;
+  frozenSeason?: number | null;
+  prospectiveSeason?: number | null;
+  eligibleEvidence?: ForecastDateRange | null;
+  developmentSelection?: ForecastDateRange | null;
+  finalOot?: ForecastDateRange | null;
+  chronologicalValidation?: ChronologicalValidationRequirement;
+  coverageAuthority?: ForecastContractCoverage | null;
   evidenceMode: "STRICT" | "ENHANCED";
   intendedOutputs: string[];
   researchPurpose: string;
@@ -34,6 +89,22 @@ export type DatasetBinding = {
   boundAt: string;
 };
 
+export type CustomTemporalValidation = {
+  valid: boolean;
+  fieldErrors: Partial<Record<
+    | "eligibleEvidenceStart"
+    | "eligibleEvidenceEnd"
+    | "developmentSelectionStart"
+    | "developmentSelectionEnd"
+    | "finalOotStart"
+    | "finalOotEnd",
+    string
+  >>;
+  errors: string[];
+  missingIntervals: ForecastDateRange[];
+  coverageMessage: string | null;
+};
+
 const CONTRACT_PREFIX = "asp-sports-forecast-contract:";
 const BINDING_PREFIX = "asp-sports-dataset-binding:";
 const PROGRAM_ADOPTION_PREFIX = "asp-sports-program-adoptions:"; // Phase 6D 9-stage adoptions
@@ -48,13 +119,165 @@ export const LEGACY_STEP_TO_STAGE: Record<number, number> = { 1: 1, 2: 2, 3: 2, 
 export function loadContract(projectId: string): ForecastContract | null {
   try {
     const raw = JSON.parse(localStorage.getItem(`${CONTRACT_PREFIX}${projectId}`) || "null");
-    return raw?.projectId === projectId ? (raw as ForecastContract) : null;
+    return normalizeForecastContract(raw, projectId);
   } catch {
     return null;
   }
 }
+/** Compatibility cache only. The backend forecast-contract endpoint is authoritative. */
 export function saveContract(contract: ForecastContract) {
-  localStorage.setItem(`${CONTRACT_PREFIX}${contract.projectId}`, JSON.stringify(contract));
+  localStorage.setItem(`${CONTRACT_PREFIX}${contract.projectId}`, JSON.stringify(normalizeForecastContract(contract, contract.projectId)));
+}
+
+export function normalizeForecastContract(value: unknown, expectedProjectId = ""): ForecastContract | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<ForecastContract>;
+  const projectId = String(raw.projectId || "").trim();
+  if (!projectId || (expectedProjectId && projectId !== expectedProjectId)) return null;
+  const mode: TemporalDesignMode = raw.temporalDesignMode === "CUSTOM_DATES_ROLLING_ORIGIN"
+    ? "CUSTOM_DATES_ROLLING_ORIGIN"
+    : "SEASON_ROLES";
+  const range = (candidate: unknown): ForecastDateRange | null => {
+    if (!candidate || typeof candidate !== "object") return null;
+    const item = candidate as Partial<ForecastDateRange>;
+    return { startDate: String(item.startDate || ""), endDate: String(item.endDate || "") };
+  };
+  const flatRange = (candidate: unknown, start: unknown, end: unknown): ForecastDateRange | null => {
+    const nested = range(candidate);
+    if (nested) return nested;
+    if (typeof start !== "string" && typeof end !== "string") return null;
+    return { startDate: String(start || ""), endDate: String(end || "") };
+  };
+  const custom = mode === "CUSTOM_DATES_ROLLING_ORIGIN";
+  return {
+    projectId,
+    version: Number.isInteger(raw.version) && Number(raw.version) >= 0 ? Number(raw.version) : 0,
+    target: String(raw.target || "Plate-Appearance Outcome"),
+    lifecycle: String(raw.lifecycle || "Pregame — Final"),
+    temporalDesignMode: mode,
+    developmentSeasons: custom ? [] : Array.isArray(raw.developmentSeasons)
+      ? raw.developmentSeasons.filter((item): item is number => Number.isInteger(item))
+      : [...DEFAULT_TEMPORAL.developmentSeasons],
+    validationSeason: custom ? null : Number.isInteger(raw.validationSeason) ? Number(raw.validationSeason) : DEFAULT_TEMPORAL.validationSeason,
+    frozenSeason: custom ? null : Number.isInteger(raw.frozenSeason) ? Number(raw.frozenSeason) : DEFAULT_TEMPORAL.frozenSeason,
+    prospectiveSeason: custom ? null : Number.isInteger(raw.prospectiveSeason) ? Number(raw.prospectiveSeason) : DEFAULT_TEMPORAL.prospectiveSeason,
+    eligibleEvidence: flatRange(raw.eligibleEvidence, (raw as any).eligibleEvidenceStart, (raw as any).eligibleEvidenceEnd),
+    developmentSelection: flatRange(raw.developmentSelection, (raw as any).developmentSelectionStart, (raw as any).developmentSelectionEnd),
+    finalOot: flatRange(raw.finalOot, (raw as any).finalOotStart, (raw as any).finalOotEnd),
+    chronologicalValidation: raw.chronologicalValidation?.required === true
+      ? raw.chronologicalValidation
+      : DEFERRED_CHRONOLOGICAL_VALIDATION,
+    coverageAuthority: raw.coverageAuthority ?? (raw as any).sourceAuthority ?? null,
+    evidenceMode: raw.evidenceMode === "ENHANCED" ? "ENHANCED" : "STRICT",
+    intendedOutputs: Array.isArray(raw.intendedOutputs) ? raw.intendedOutputs.map(String) : [],
+    researchPurpose: String(raw.researchPurpose || ""),
+    notes: String(raw.notes || ""),
+    savedAt: String(raw.savedAt || (raw as any).registeredAt || ""),
+  };
+}
+
+export function temporalDesignMode(contract: ForecastContract | null | undefined): TemporalDesignMode {
+  return contract?.temporalDesignMode === "CUSTOM_DATES_ROLLING_ORIGIN"
+    ? "CUSTOM_DATES_ROLLING_ORIGIN"
+    : "SEASON_ROLES";
+}
+
+export function isCanonicalIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+function addIsoDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day + days));
+  return parsed.toISOString().slice(0, 10);
+}
+
+export function missingCoverageIntervals(requested: ForecastDateRange, coverage: ForecastContractCoverage): ForecastDateRange[] {
+  if (!isCanonicalIsoDate(requested.startDate) || !isCanonicalIsoDate(requested.endDate)
+      || !isCanonicalIsoDate(coverage.earliestDate) || !isCanonicalIsoDate(coverage.latestDate)) return [];
+  const missing: ForecastDateRange[] = [];
+  if (requested.startDate < coverage.earliestDate) {
+    missing.push({ startDate: requested.startDate, endDate: requested.endDate < coverage.earliestDate ? requested.endDate : addIsoDays(coverage.earliestDate, -1) });
+  }
+  if (requested.endDate > coverage.latestDate) {
+    missing.push({ startDate: requested.startDate > coverage.latestDate ? requested.startDate : addIsoDays(coverage.latestDate, 1), endDate: requested.endDate });
+  }
+  return missing.filter((item) => item.startDate <= item.endDate);
+}
+
+export function seasonRoleCoverageError(
+  developmentStart: number,
+  frozenSeason: number,
+  coverage: ForecastContractCoverage | null,
+): string | null {
+  if (!coverage || !isCanonicalIsoDate(coverage.earliestDate) || !isCanonicalIsoDate(coverage.latestDate)) {
+    return "Registered source date coverage is unavailable. Forecast-contract registration is blocked.";
+  }
+  const earliestYear = Number(coverage.earliestDate.slice(0, 4));
+  const latestYear = Number(coverage.latestDate.slice(0, 4));
+  if (developmentStart < earliestYear) {
+    return `Registered source evidence currently begins on ${coverage.earliestDate}. Development season ${developmentStart} is not available in the Data Warehouse.`;
+  }
+  if (frozenSeason > latestYear) {
+    return `Registered source evidence currently ends on ${coverage.latestDate}. Frozen final season ${frozenSeason} is not available in the Data Warehouse. Missing interval: ${addIsoDays(coverage.latestDate, 1)} through ${frozenSeason}-12-31.`;
+  }
+  return null;
+}
+
+export function validateCustomTemporalDesign(input: {
+  eligibleEvidence: ForecastDateRange;
+  developmentSelection: ForecastDateRange;
+  finalOot: ForecastDateRange;
+}, coverage: ForecastContractCoverage | null): CustomTemporalValidation {
+  const fieldErrors: CustomTemporalValidation["fieldErrors"] = {};
+  const values = [
+    ["eligibleEvidenceStart", input.eligibleEvidence.startDate],
+    ["eligibleEvidenceEnd", input.eligibleEvidence.endDate],
+    ["developmentSelectionStart", input.developmentSelection.startDate],
+    ["developmentSelectionEnd", input.developmentSelection.endDate],
+    ["finalOotStart", input.finalOot.startDate],
+    ["finalOotEnd", input.finalOot.endDate],
+  ] as const;
+  for (const [field, value] of values) {
+    if (!isCanonicalIsoDate(value)) fieldErrors[field] = "Enter a valid calendar date.";
+  }
+  const errors: string[] = [];
+  const comparable = Object.keys(fieldErrors).length === 0;
+  if (comparable) {
+    if (input.eligibleEvidence.startDate > input.eligibleEvidence.endDate) errors.push("Eligible evidence start must not be after its end.");
+    if (input.developmentSelection.startDate > input.developmentSelection.endDate) errors.push("Development and model-selection start must not be after its end.");
+    if (input.finalOot.startDate > input.finalOot.endDate) errors.push("Final OOT start must not be after its end.");
+    if (input.developmentSelection.startDate < input.eligibleEvidence.startDate || input.developmentSelection.endDate > input.eligibleEvidence.endDate) {
+      errors.push("Development and model selection must lie within the eligible evidence range.");
+    }
+    if (input.finalOot.startDate < input.eligibleEvidence.startDate || input.finalOot.endDate > input.eligibleEvidence.endDate) {
+      errors.push("Final OOT must lie within the eligible evidence range.");
+    }
+    if (input.finalOot.startDate <= input.developmentSelection.endDate) {
+      errors.push("Final OOT must begin after development and model selection ends; the ranges must not overlap.");
+    }
+  }
+  const missingIntervals = comparable && coverage ? missingCoverageIntervals(input.eligibleEvidence, coverage) : [];
+  let coverageMessage: string | null = null;
+  if (!coverage) {
+    coverageMessage = "Registered source date coverage is unavailable. Forecast-contract registration is blocked.";
+  } else if (missingIntervals.length) {
+    const requestedEnd = input.eligibleEvidence.endDate;
+    const future = requestedEnd > coverage.latestDate;
+    coverageMessage = future
+      ? `Registered source evidence currently ends on ${coverage.latestDate}. The requested ${requestedEnd.slice(0, 4)} evaluation period is not available in the Data Warehouse.`
+      : `Registered source evidence currently begins on ${coverage.earliestDate}. The requested evidence period is not available in the Data Warehouse.`;
+  }
+  return {
+    valid: Object.keys(fieldErrors).length === 0 && errors.length === 0 && coverageMessage === null,
+    fieldErrors,
+    errors,
+    missingIntervals,
+    coverageMessage,
+  };
 }
 export function loadBinding(projectId: string): DatasetBinding | null {
   try {
@@ -118,7 +341,7 @@ type ProgramStage = {
 export const PROGRAM_STAGES: ProgramStage[] = [
   { number: 1, id: "objective", title: "Project & Forecast Objective", decisionClass: "CONFIGURE",
     purpose: "Define exactly what is predicted, the evaluation clock, the eligible population, and how success is measured.",
-    why: "Locks the target and temporal policy and prevents 2025 frozen-evaluation leakage.", est: "~2 min" },
+    why: "Locks the target and broad temporal boundary while protecting the untouched final OOT period from leakage.", est: "~2 min" },
   { number: 2, id: "data-quality", title: "Data Evidence & Quality", decisionClass: "REVIEW_AND_DECIDE",
     purpose: "Review the actual bound data and confirm it is suitable for modeling: coverage, identity, point-in-time integrity, and limitations.",
     why: "You must see and trust the data — identity mapping and leakage checks are part of validating the dataset.", est: "~2 min",
@@ -140,7 +363,7 @@ export const PROGRAM_STAGES: ProgramStage[] = [
     why: "Broader than PA-family experimentation: compares whole forecasting systems on equal footing.", est: "review",
     route: "/model-laboratory", moduleLabel: "Candidate Model Laboratory" },
   { number: 7, id: "validation", title: "Validation & Calibration", decisionClass: "REVIEW_AND_DECIDE",
-    purpose: "Evaluate forward-looking performance and calibration: 2024 validation, 2025 frozen evaluation, reliability, subgroups.",
+    purpose: "Configure exact chronological folds inside the registered development boundary, then evaluate final OOT performance, calibration, reliability, and subgroups.",
     why: "Sports-native temporal validation and calibration are the only honest measure of trustworthy forecasts.", est: "review & adopt",
     route: "/evaluation-calibration", moduleLabel: "Evaluation & Calibration" },
   { number: 8, id: "decision", title: "Champion Decision", decisionClass: "DECIDE",
@@ -360,9 +583,36 @@ export function governedDevelopmentSeasons(seasons: number[] | undefined | null)
 }
 
 // Compact "2021–2023 → 2024 → 2025" style label for the governed development window of a contract.
-export function developmentWindowLabel(contract: { developmentSeasons?: number[] } | null): string {
+export function developmentWindowLabel(contract: ForecastContract | null): string {
+  if (temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN") {
+    const range = contract?.developmentSelection;
+    return range?.startDate && range?.endDate ? `${range.startDate}–${range.endDate}` : "Custom dates not configured";
+  }
   const dev = governedDevelopmentSeasons(contract?.developmentSeasons);
   return dev.length > 1 ? `${dev[0]}–${dev[dev.length - 1]}` : String(dev[0]);
+}
+
+export function validationWindowLabel(contract: ForecastContract | null): string {
+  if (temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN") {
+    return "Exact folds deferred to Validation & Calibration";
+  }
+  return contract?.validationSeason ? String(contract.validationSeason) : String(DEFAULT_TEMPORAL.validationSeason);
+}
+
+export function finalOotWindowLabel(contract: ForecastContract | null): string {
+  if (temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN") {
+    const range = contract?.finalOot;
+    return range?.startDate && range?.endDate ? `${range.startDate}–${range.endDate}` : "Custom dates not configured";
+  }
+  return contract?.frozenSeason ? String(contract.frozenSeason) : String(DEFAULT_TEMPORAL.frozenSeason);
+}
+
+export function temporalPolicyLabel(contract: ForecastContract | null): string {
+  if (!contract) return "Not configured";
+  if (temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN") {
+    return `${developmentWindowLabel(contract)} → OOT ${finalOotWindowLabel(contract)}`;
+  }
+  return `${developmentWindowLabel(contract)} → ${validationWindowLabel(contract)} → ${finalOotWindowLabel(contract)}`;
 }
 
 // Default proposed temporal policy for the current project (owner-reviewable). Development is the

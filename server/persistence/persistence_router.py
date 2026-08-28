@@ -31,6 +31,11 @@ from ..model_registry.model_registry_service import archive_registry_for_project
 from ..sharing.sharing_service import SharingService
 from .db import PersistenceUnavailableError, now_iso
 from .service import PersistenceService, get_persistence_service
+from .sports_forecast_contract import (
+    FORECAST_CONTRACT_METADATA_KEY,
+    SportsForecastContractError,
+    SportsForecastContractStore,
+)
 
 
 router = APIRouter()
@@ -71,6 +76,23 @@ def _execute(operation: Callable[[], Any]) -> Any:
 
 def _service() -> PersistenceService:
     return get_persistence_service()
+
+
+def _forecast_contracts() -> SportsForecastContractStore:
+    return SportsForecastContractStore(_service().database)
+
+
+def _raise_forecast_contract_error(exc: SportsForecastContractError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+
+
+def _forecast_contract_response(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "contract": state.get("current"),
+        "history": state.get("history") or [],
+        "coverage": state.get("sourceCoverage"),
+    }
 
 
 def _accessible_dataset_ids(user: Dict[str, Any]) -> set[str]:
@@ -357,6 +379,11 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
         existing = service.projects.get(project_id) or {}
         existing_metadata = existing.get("metadata_json") or {}
         incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
+        incoming_metadata = dict(incoming_metadata) if isinstance(incoming_metadata, dict) else {}
+        # The registered sports forecast contract has its own atomic,
+        # expected-version endpoint. Generic project saves may preserve that
+        # reserved node but may never replace or delete it.
+        incoming_metadata.pop(FORECAST_CONTRACT_METADATA_KEY, None)
         merged = {
             "projectName": existing.get("project_name"),
             "projectType": existing.get("project_type"),
@@ -369,7 +396,10 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
             **payload,
         }
         merged["metadata"] = {**existing_metadata, **incoming_metadata}
-        return service.projects.upsert(_project_record(project_id, merged, user))
+        return service.projects.upsert_preserving_metadata_keys(
+            _project_record(project_id, merged, user),
+            reserved_metadata_keys={FORECAST_CONTRACT_METADATA_KEY},
+        )
 
     record = _execute(operation)
     audit_event(
@@ -381,6 +411,52 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
     )
     project = _execute(lambda: _project_with_durable_dataset_state(record, user))
     return {"ok": True, "project": project}
+
+
+@router.get("/projects/{project_id}/sports/forecast-contract")
+def get_sports_forecast_contract(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
+    try:
+        contract = _forecast_contracts().get(project_id)
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    return _forecast_contract_response(contract)
+
+
+@router.put("/projects/{project_id}/sports/forecast-contract")
+def save_sports_forecast_contract(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit")
+    try:
+        contract = _forecast_contracts().save(
+            project_id,
+            payload,
+            user_id=str(user.get("userId") or ""),
+        )
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    current = contract.get("current") or {}
+    audit_event(
+        "sports.forecast_contract.registered",
+        "sports_forecast_contract",
+        str(current.get("contractId") or project_id),
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "projectId": project_id,
+            "version": contract.get("currentVersion"),
+            "temporalDesignMode": current.get("temporalDesignMode"),
+            "saveDisposition": contract.get("saveDisposition"),
+            "summary": "Registered the MLB Stage 1 forecast contract.",
+        },
+    )
+    return _forecast_contract_response(contract)
 
 
 @router.delete("/projects/{project_id}")

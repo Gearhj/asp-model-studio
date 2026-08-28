@@ -1,77 +1,139 @@
-// Stage 1 — Project & Forecast Contract. Prefilled from project creation; the scientist reviews
-// and formalizes the target, temporal policy, and evidence mode, then registers a versioned
-// forecast contract. The 2025 frozen season is visually distinct and never used for selection.
-import { useState } from "react";
-import { ShieldCheck, Sparkles, FlaskConical, TriangleAlert } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CalendarRange, FlaskConical, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react";
 import type { SportsProjectMetadata } from "../sportsConfig";
-import { TARGETS_BY_WORKFLOW, FORECAST_LIFECYCLES } from "../sportsConfig";
+import { FORECAST_LIFECYCLES, TARGETS_BY_WORKFLOW } from "../sportsConfig";
 import {
-  DEFAULT_TEMPORAL, GOVERNED_TEMPORAL, governedDevelopmentSeasons, isEligibleDevelopmentStart,
-  SEASON_ROLE_POLICY, saveContract, saveTemporalDraft, type ForecastContract,
+  DEFAULT_TEMPORAL,
+  DEFERRED_CHRONOLOGICAL_VALIDATION,
+  GOVERNED_TEMPORAL,
+  SEASON_ROLE_POLICY,
+  governedDevelopmentSeasons,
+  isCanonicalIsoDate,
+  isEligibleDevelopmentStart,
+  saveTemporalDraft,
+  seasonRoleCoverageError,
+  temporalDesignMode,
+  validateCustomTemporalDesign,
+  type ForecastContract,
+  type ForecastContractCoverage,
+  type ForecastDateRange,
+  type TemporalDesignMode,
 } from "./workflowState";
+import type { ForecastContractLoadStatus } from "./useForecastContract";
 
 const YEARS = [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
-// Development START may be inspected for any registered candidate season (2021–2023). Only 2023 is
-// eligible under the current Gen-2 policy; selecting 2021/2022 creates a separate RESEARCH DRAFT and
-// never overwrites the registered contract (see save handlers below).
 const DEV_START_CANDIDATES = [2021, 2022, 2023];
 const SOURCE_TIMELINE = [2021, 2022, 2023, 2024, 2025, 2026];
+const EMPTY_RANGE: ForecastDateRange = { startDate: "", endDate: "" };
+
+type DateFieldKey =
+  | "eligibleEvidenceStart"
+  | "eligibleEvidenceEnd"
+  | "developmentSelectionStart"
+  | "developmentSelectionEnd"
+  | "finalOotStart"
+  | "finalOotEnd";
 
 export function ForecastContractPanel({
-  projectId, metadata, existing, onSaved,
+  projectId,
+  metadata,
+  existing,
+  coverage,
+  authorityStatus,
+  authorityError,
+  onRegister,
 }: {
   projectId: string;
   metadata: SportsProjectMetadata | null;
   existing: ForecastContract | null;
-  onSaved: () => void;
+  coverage: ForecastContractCoverage | null;
+  authorityStatus: ForecastContractLoadStatus;
+  authorityError: string | null;
+  onRegister: (contract: ForecastContract) => Promise<void>;
 }) {
   const targets = TARGETS_BY_WORKFLOW["mlb-forecasting"];
   const [target, setTarget] = useState(existing?.target || metadata?.primaryTarget || "Plate-Appearance Outcome");
   const [lifecycle, setLifecycle] = useState(existing?.lifecycle || metadata?.lifecycle || "Pregame — Final");
-  // Clamp any legacy development window to the governed modeling seasons (drops 2021–2022 prior-only).
+  const [mode, setMode] = useState<TemporalDesignMode>(temporalDesignMode(existing));
   const govDev = governedDevelopmentSeasons(existing?.developmentSeasons ?? DEFAULT_TEMPORAL.developmentSeasons);
   const [devStart, setDevStart] = useState(govDev[0]);
   const [devEnd, setDevEnd] = useState(govDev[govDev.length - 1]);
   const [valSeason, setValSeason] = useState(existing?.validationSeason ?? DEFAULT_TEMPORAL.validationSeason);
   const [frozenSeason, setFrozenSeason] = useState(existing?.frozenSeason ?? DEFAULT_TEMPORAL.frozenSeason);
-  const [prospective, setProspective] = useState<number | null>(existing?.prospectiveSeason ?? DEFAULT_TEMPORAL.prospectiveSeason);
-  const [evidenceMode, setEvidenceMode] = useState<"STRICT" | "ENHANCED">(existing?.evidenceMode || "ENHANCED");
+  const [prospective] = useState<number | null>(existing?.prospectiveSeason ?? DEFAULT_TEMPORAL.prospectiveSeason);
+  const [eligibleEvidence, setEligibleEvidence] = useState<ForecastDateRange>(existing?.eligibleEvidence ?? EMPTY_RANGE);
+  const [developmentSelection, setDevelopmentSelection] = useState<ForecastDateRange>(existing?.developmentSelection ?? EMPTY_RANGE);
+  const [finalOot, setFinalOot] = useState<ForecastDateRange>(existing?.finalOot ?? EMPTY_RANGE);
+  const [evidenceMode, setEvidenceMode] = useState<"STRICT" | "ENHANCED">(existing?.evidenceMode || "STRICT");
   const [purpose, setPurpose] = useState(existing?.researchPurpose || metadata?.researchPurpose || "");
   const [notes, setNotes] = useState(existing?.notes || metadata?.description || "");
   const [excludePriorFamilies, setExcludePriorFamilies] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
-  const devSeasons = YEARS.filter((y) => y >= devStart && y <= devEnd);
-  const valid = devSeasons.length > 0 && devEnd < valSeason && valSeason < frozenSeason;
-  // Selecting an earlier development start is a REVISED research spec, not the governed Gen-2 contract.
-  const isRevised = !isEligibleDevelopmentStart(devStart);
-  const noPriorSeason = devStart <= 2021;  // 2021 has no <=2020 registered prior for Y-1 features
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Save the GOVERNED contract — only when the development window is eligible (2023 start).
-  const save = () => {
-    if (!valid || isRevised) return;
-    const contract: ForecastContract = {
-      projectId,
-      version: (existing?.version ?? 0) + 1,
-      target,
-      lifecycle,
-      developmentSeasons: governedDevelopmentSeasons(devSeasons),
-      validationSeason: valSeason,
-      frozenSeason,
-      prospectiveSeason: prospective,
-      evidenceMode,
-      intendedOutputs: metadata?.secondaryTargets?.length ? [metadata.primaryTarget, ...metadata.secondaryTargets] : [target],
-      researchPurpose: purpose.trim(),
-      notes: notes.trim(),
-      savedAt: new Date().toISOString(),
-    };
-    saveContract(contract);
-    onSaved();
+  const devSeasons = YEARS.filter((year) => year >= devStart && year <= devEnd);
+  const seasonCoverageError = seasonRoleCoverageError(devStart, frozenSeason, coverage);
+  const seasonValid = devSeasons.length > 0 && devEnd < valSeason && valSeason < frozenSeason && seasonCoverageError === null;
+  const isRevised = !isEligibleDevelopmentStart(devStart);
+  const noPriorSeason = devStart <= 2021;
+  const customValidation = useMemo(
+    () => validateCustomTemporalDesign({ eligibleEvidence, developmentSelection, finalOot }, coverage),
+    [coverage, developmentSelection, eligibleEvidence, finalOot],
+  );
+  const backendReady = authorityStatus === "ready";
+  const registering = authorityStatus === "saving";
+
+  const common = (): Omit<ForecastContract, "temporalDesignMode"> => ({
+    projectId,
+    version: existing?.version ?? 0,
+    target,
+    lifecycle,
+    evidenceMode,
+    intendedOutputs: metadata?.secondaryTargets?.length ? [metadata.primaryTarget, ...metadata.secondaryTargets] : [target],
+    researchPurpose: purpose.trim(),
+    notes: notes.trim(),
+    savedAt: "",
+  });
+
+  const registerSeasonContract = async () => {
+    if (!seasonValid || isRevised || !backendReady) return;
+    setSaveError(null);
+    try {
+      await onRegister({
+        ...common(),
+        temporalDesignMode: "SEASON_ROLES",
+        developmentSeasons: governedDevelopmentSeasons(devSeasons),
+        validationSeason: valSeason,
+        frozenSeason,
+        prospectiveSeason: prospective,
+        chronologicalValidation: DEFERRED_CHRONOLOGICAL_VALIDATION,
+        coverageAuthority: coverage,
+      });
+    } catch (caught) {
+      setSaveError(caught instanceof Error ? caught.message : "The forecast contract could not be registered.");
+    }
   };
 
-  // Save a REVISED TEMPORAL EXPERIMENT — a separate research draft that never mutates the registered
-  // Gen-2 contract. This is what an earlier development start produces.
+  const registerCustomContract = async () => {
+    if (!customValidation.valid || !backendReady) return;
+    setSaveError(null);
+    try {
+      await onRegister({
+        ...common(),
+        temporalDesignMode: "CUSTOM_DATES_ROLLING_ORIGIN",
+        eligibleEvidence,
+        developmentSelection,
+        finalOot,
+        chronologicalValidation: DEFERRED_CHRONOLOGICAL_VALIDATION,
+        coverageAuthority: coverage,
+      });
+    } catch (caught) {
+      setSaveError(caught instanceof Error ? caught.message : "The forecast contract could not be registered.");
+    }
+  };
+
   const saveRevised = () => {
-    if (!valid) return;
+    if (!seasonValid) return;
     saveTemporalDraft({
       projectId,
       developmentSeasons: devSeasons,
@@ -84,139 +146,223 @@ export function ForecastContractPanel({
     setDraftSaved(true);
   };
 
+  const setDate = (field: DateFieldKey, value: string) => {
+    const setters: Record<DateFieldKey, () => void> = {
+      eligibleEvidenceStart: () => setEligibleEvidence((current) => ({ ...current, startDate: value })),
+      eligibleEvidenceEnd: () => setEligibleEvidence((current) => ({ ...current, endDate: value })),
+      developmentSelectionStart: () => setDevelopmentSelection((current) => ({ ...current, startDate: value })),
+      developmentSelectionEnd: () => setDevelopmentSelection((current) => ({ ...current, endDate: value })),
+      finalOotStart: () => setFinalOot((current) => ({ ...current, startDate: value })),
+      finalOotEnd: () => setFinalOot((current) => ({ ...current, endDate: value })),
+    };
+    setters[field]();
+  };
+
   return (
     <section className="sports-panel p-5 sm:p-6">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-cyan-700"><Sparkles size={14} /> Prefilled from your project — review and formalize</div>
 
+      {authorityStatus === "loading" ? <AuthorityNotice tone="slate">Loading the backend forecast-contract authority…</AuthorityNotice> : null}
+      {authorityStatus === "error" ? <AuthorityNotice tone="rose"><b>Backend unavailable.</b> {authorityError || "Registration is disabled until the backend is restored."}</AuthorityNotice> : null}
+      {authorityError && authorityStatus !== "error" ? <AuthorityNotice tone="rose">{authorityError}</AuthorityNotice> : null}
+
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <Field label="Forecast target">
-          <select value={target} onChange={(e) => setTarget(e.target.value)} className="wf-input">{targets.map((t) => <option key={t}>{t}</option>)}</select>
-        </Field>
-        <Field label="Forecast lifecycle">
-          <select value={lifecycle} onChange={(e) => setLifecycle(e.target.value)} className="wf-input">{FORECAST_LIFECYCLES.map((t) => <option key={t}>{t}</option>)}</select>
-        </Field>
+        <Field label="Forecast target"><select value={target} onChange={(event) => setTarget(event.target.value)} className="wf-input">{targets.map((item) => <option key={item}>{item}</option>)}</select></Field>
+        <Field label="Forecast lifecycle"><select value={lifecycle} onChange={(event) => setLifecycle(event.target.value)} className="wf-input">{FORECAST_LIFECYCLES.map((item) => <option key={item}>{item}</option>)}</select></Field>
       </div>
 
-      {/* Temporal policy */}
-      <div className="mt-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-900">Temporal policy</div>
-          <div className="text-[11px] font-semibold text-slate-500">Source evidence {GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–{GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}</div>
+      <fieldset className="mt-6">
+        <legend className="text-sm font-semibold uppercase tracking-wide text-slate-900">Temporal design</legend>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <ModeChoice checked={mode === "SEASON_ROLES"} label="Season roles" onClick={() => setMode("SEASON_ROLES")} />
+          <ModeChoice checked={mode === "CUSTOM_DATES_ROLLING_ORIGIN"} label="Custom dates / rolling-origin" onClick={() => setMode("CUSTOM_DATES_ROLLING_ORIGIN")} />
         </div>
-        <p className="mt-1 text-xs text-slate-500">Development trains, validation selects, and the frozen season is held out — never used for model selection. <b>Every registered season exists</b>; earlier seasons carry another governed role, they are not missing data.</p>
+      </fieldset>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Source evidence</div>
-            <div className="mt-0.5 text-lg font-semibold text-slate-900">2021–2025</div>
-            <div className="text-xs text-slate-500">all registered FD1 seasons</div>
+      {mode === "SEASON_ROLES" ? (
+        <SeasonRolesEditor
+          devStart={devStart}
+          devEnd={devEnd}
+          valSeason={valSeason}
+          frozenSeason={frozenSeason}
+          devSeasons={devSeasons}
+          isRevised={isRevised}
+          noPriorSeason={noPriorSeason}
+          seasonValid={seasonValid}
+          excludePriorFamilies={excludePriorFamilies}
+          draftSaved={draftSaved}
+          coverageError={seasonCoverageError}
+          setDevStart={setDevStart}
+          setDevEnd={setDevEnd}
+          setValSeason={setValSeason}
+          setFrozenSeason={setFrozenSeason}
+          setExcludePriorFamilies={setExcludePriorFamilies}
+        />
+      ) : (
+        <div className="mt-5 space-y-4">
+          <CoverageAuthority coverage={coverage} eligibleEvidence={eligibleEvidence} missingIntervals={customValidation.missingIntervals} />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <DateField label="Eligible evidence start" value={eligibleEvidence.startDate} onChange={(value) => setDate("eligibleEvidenceStart", value)} error={customValidation.fieldErrors.eligibleEvidenceStart} />
+            <DateField label="Eligible evidence end" value={eligibleEvidence.endDate} onChange={(value) => setDate("eligibleEvidenceEnd", value)} error={customValidation.fieldErrors.eligibleEvidenceEnd} />
+            <DateField label="Development and model-selection start" value={developmentSelection.startDate} onChange={(value) => setDate("developmentSelectionStart", value)} error={customValidation.fieldErrors.developmentSelectionStart} />
+            <DateField label="Development and model-selection end" value={developmentSelection.endDate} onChange={(value) => setDate("developmentSelectionEnd", value)} error={customValidation.fieldErrors.developmentSelectionEnd} />
+            <DateField label="Final OOT start" value={finalOot.startDate} onChange={(value) => setDate("finalOotStart", value)} error={customValidation.fieldErrors.finalOotStart} />
+            <DateField label="Final OOT end" value={finalOot.endDate} onChange={(value) => setDate("finalOotEnd", value)} error={customValidation.fieldErrors.finalOotEnd} />
           </div>
-          <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Current Gen-2 model policy</div>
-            <div className="mt-0.5 text-sm font-semibold text-slate-900">Dev 2023 · Val 2024 · Frozen 2025</div>
-            <div className="text-xs text-slate-500">2021–2022 = prior-history evidence</div>
-          </div>
+          <CustomDateTimeline coverage={coverage} eligibleEvidence={eligibleEvidence} developmentSelection={developmentSelection} finalOot={finalOot} />
+          {(customValidation.coverageMessage || customValidation.errors.length > 0) ? (
+            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+              {customValidation.coverageMessage ? <p className="font-semibold">{customValidation.coverageMessage}</p> : null}
+              {customValidation.errors.length ? <ul className="mt-1 space-y-1">{customValidation.errors.map((error) => <li key={error}>· {error}</li>)}</ul> : null}
+            </div>
+          ) : null}
         </div>
+      )}
 
-        <div className="mt-3 grid gap-4 sm:grid-cols-4">
-          <Field label="Development start"><select value={devStart} onChange={(e) => setDevStart(Number(e.target.value))} className="wf-input">{DEV_START_CANDIDATES.filter((y) => y <= devEnd).map((y) => <option key={y} value={y}>{y}{isEligibleDevelopmentStart(y) ? "" : " — not eligible"}</option>)}</select></Field>
-          <Field label="Development end"><select value={devEnd} onChange={(e) => setDevEnd(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y >= devStart && y < valSeason && y <= 2023).map((y) => <option key={y}>{y}</option>)}</select></Field>
-          <Field label="Validation"><select value={valSeason} onChange={(e) => setValSeason(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y > devEnd && y < frozenSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
-          <Field label="Frozen final"><select value={frozenSeason} onChange={(e) => setFrozenSeason(Number(e.target.value))} className="wf-input">{YEARS.filter((y) => y > valSeason).map((y) => <option key={y}>{y}</option>)}</select></Field>
-        </div>
-
-        <SourceEvidenceTimeline devSeasons={devSeasons} valSeason={valSeason} frozenSeason={frozenSeason} isRevised={isRevised} />
-
-        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-          <b>{devStart} — {SEASON_ROLE_POLICY[devStart]?.role}:</b> {SEASON_ROLE_POLICY[devStart]?.reason}
-        </div>
-
-        {isRevised && (
-          <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-amber-900"><TriangleAlert size={15} /> Revised temporal experiment — research specification</div>
-            <p className="mt-1 text-xs text-amber-900">A development start of <b>{devStart}</b> is <b>not part of the registered Gen-2 policy</b>. Saving here records a separate research specification — it will <b>not overwrite</b> the governed contract (Dev 2023 · Val 2024 · Frozen 2025).</p>
-            <p className="mt-1 rounded-md bg-white/70 px-2 py-1 text-[11px] text-amber-900"><b>Not yet executable in this cockpit:</b> the materialized modeling matrix contains 2023–2025 only, so a {devStart}-development model cannot be trained here. Executing it would require a separate governed {devStart} research materialization (2021–2022 are registered as prior-only history). This tool records the intent; it does not fabricate the modeling rows.</p>
-            {noPriorSeason && (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-white p-3 text-xs">
-                <div className="font-semibold text-slate-900">2021 feasibility assessment</div>
-                <ul className="mt-1 space-y-0.5 text-slate-600">
-                  <li>· Target rows available: <b className="text-emerald-700">YES</b></li>
-                  <li>· Y−1 player-state features: <b className="text-rose-700">NOT AVAILABLE</b> — no pre-2021 registered history (2020 data does not exist here)</li>
-                </ul>
-                <label className="mt-2 flex items-center gap-2 font-semibold text-slate-700"><input type="checkbox" checked={excludePriorFamilies} onChange={(e) => setExcludePriorFamilies(e.target.checked)} className="h-4 w-4 rounded border-slate-300" /> Exclude prior-history feature families for this experiment</label>
-                <p className="mt-1 text-[11px] text-slate-500">Explicit alternatives: (A) exclude prior-history families above, (B) begin development in 2022, or (C) retain the current 2023 Gen-2 policy. This tool does not choose for you and never fabricates 2020 data.</p>
-              </div>
-            )}
-            {draftSaved && <div className="mt-2 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-800">Revised temporal experiment saved as a research draft — the registered Gen-2 contract is unchanged.</div>}
-          </div>
-        )}
-
-        {!valid && <p className="mt-2 text-xs font-semibold text-amber-700">Development must end before validation, and validation before the frozen season.</p>}
+      <div className="mt-5 rounded-xl border border-cyan-200 bg-cyan-50/60 p-4 text-sm text-slate-700">
+        <div className="flex items-center gap-2 font-semibold text-cyan-900"><CalendarRange size={16} /> Chronological validation is required</div>
+        <p className="mt-1">“Exact chronological fold boundaries, grouping, and preprocessing rules will be configured in Validation &amp; Calibration.”</p>
+        <p className="mt-1 text-xs text-slate-600">That later stage supports five expanding-window folds using approximately balanced game counts or five manual validation date ranges. Stage 1 records only the broad boundary.</p>
       </div>
 
-      {/* Evidence mode */}
       <div className="mt-6">
         <div className="text-sm font-semibold text-slate-900">Evidence mode</div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          {(["ENHANCED", "STRICT"] as const).map((m) => (
-            <button key={m} type="button" onClick={() => setEvidenceMode(m)}
-              className={`rounded-xl border px-4 py-3 text-left text-sm ${evidenceMode === m ? "border-cyan-500 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-              <div className="flex items-center gap-2 font-semibold text-slate-900"><ShieldCheck size={15} className={evidenceMode === m ? "text-cyan-600" : "text-slate-400"} /> {m === "ENHANCED" ? "Enhanced research" : "Strict pregame"}</div>
-              <div className="mt-1 text-xs text-slate-500">{m === "ENHANCED" ? "All governed research families (player state, usage, weather)." : "Only strictly pregame-available evidence."}</div>
+          {(["STRICT", "ENHANCED"] as const).map((item) => (
+            <button key={item} type="button" onClick={() => setEvidenceMode(item)} className={`rounded-xl border px-4 py-3 text-left text-sm ${evidenceMode === item ? "border-cyan-500 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+              <div className="flex items-center gap-2 font-semibold text-slate-900"><ShieldCheck size={15} className={evidenceMode === item ? "text-cyan-600" : "text-slate-400"} /> {item === "ENHANCED" ? "Enhanced research" : "Strict pregame"}</div>
+              <div className="mt-1 text-xs text-slate-500">{item === "ENHANCED" ? "May include research-only evidence with timing limitations and is not automatically deployment-safe." : "Only evidence proven available before first pitch."}</div>
             </button>
           ))}
         </div>
       </div>
 
       <div className="mt-6 grid gap-4">
-        <Field label="Research purpose"><input value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Establish a leakage-safe game simulation baseline" className="wf-input" /></Field>
-        <Field label="Notes"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Scope, decision context, known limitations." className="wf-input" /></Field>
+        <Field label="Research purpose"><input value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder="Establish a leakage-safe game simulation baseline" className="wf-input" /></Field>
+        <Field label="Notes"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Scope, decision context, known limitations." className="wf-input" /></Field>
       </div>
 
-      {isRevised ? (
-        <button onClick={saveRevised} disabled={!valid} className="sports-primary-button mt-6 disabled:cursor-not-allowed disabled:opacity-50">
-          <FlaskConical size={16} /> Create revised temporal experiment
-        </button>
+      {saveError ? <div role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800">{saveError}</div> : null}
+
+      {mode === "SEASON_ROLES" && isRevised ? (
+        <button onClick={saveRevised} disabled={!seasonValid} className="sports-primary-button mt-6 disabled:cursor-not-allowed disabled:opacity-50"><FlaskConical size={16} /> Create revised temporal experiment</button>
       ) : (
-        <button onClick={save} disabled={!valid} className="sports-primary-button mt-6 disabled:cursor-not-allowed disabled:opacity-50">
-          <ShieldCheck size={16} /> Save &amp; Register Forecast Contract
+        <button
+          onClick={() => void (mode === "SEASON_ROLES" ? registerSeasonContract() : registerCustomContract())}
+          disabled={registering || !backendReady || (mode === "SEASON_ROLES" ? !seasonValid : !customValidation.valid)}
+          className="sports-primary-button mt-6 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ShieldCheck size={16} /> {registering ? "Registering…" : "Save & Register Forecast Contract"}
         </button>
       )}
     </section>
   );
 }
 
-// Full source-evidence timeline (2021–2026) with each season's governed role. When a revised research
-// spec proposes an earlier development window, those seasons show a distinct "DEV?" draft overlay. The
-// frozen season is never presented as tunable/selectable.
-function SourceEvidenceTimeline({ devSeasons, valSeason, frozenSeason, isRevised }: { devSeasons: number[]; valSeason: number; frozenSeason: number; isRevised: boolean }) {
-  const roleOf = (y: number): { label: string; cls: string; textCls: string } => {
-    if (isRevised && devSeasons.includes(y)) return { label: "DEV?", cls: "bg-violet-500 ring-2 ring-violet-300", textCls: "text-violet-600" };
-    if (!isRevised && devSeasons.includes(y)) return { label: "DEV", cls: "bg-emerald-500", textCls: "text-emerald-600" };
-    if (y === valSeason) return { label: "VAL", cls: "bg-amber-500", textCls: "text-amber-600" };
-    if (y === frozenSeason) return { label: "FROZEN", cls: "bg-rose-500 ring-2 ring-rose-300", textCls: "text-rose-600" };
-    if (SEASON_ROLE_POLICY[y]?.role === "PRIOR HISTORY") return { label: "PRIOR", cls: "bg-slate-400", textCls: "text-slate-500" };
-    return { label: "FUTURE", cls: "bg-slate-300", textCls: "text-slate-400" };
-  };
+function SeasonRolesEditor(props: {
+  devStart: number; devEnd: number; valSeason: number; frozenSeason: number; devSeasons: number[];
+  isRevised: boolean; noPriorSeason: boolean; seasonValid: boolean; excludePriorFamilies: boolean; draftSaved: boolean;
+  coverageError: string | null;
+  setDevStart: (value: number) => void; setDevEnd: (value: number) => void; setValSeason: (value: number) => void;
+  setFrozenSeason: (value: number) => void; setExcludePriorFamilies: (value: boolean) => void;
+}) {
   return (
-    <div className="mt-4">
-      <div className="flex gap-1">
-        {SOURCE_TIMELINE.map((y) => {
-          const r = roleOf(y);
-          return (
-            <div key={y} className="flex-1 text-center">
-              <div className={`flex h-8 items-center justify-center rounded text-xs font-bold text-white ${r.cls}`}>{y}</div>
-              <div className={`mt-1 text-[10px] font-semibold uppercase ${r.textCls}`}>{r.label}</div>
+    <div className="mt-5">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-semibold text-slate-900">Season-role policy</div><div className="text-[11px] font-semibold text-slate-500">Source evidence {GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–{GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}</div></div>
+      <p className="mt-1 text-xs text-slate-500">Development trains, validation selects, and the frozen season is held out. <b>Every registered season exists</b>; earlier seasons carry another governed role.</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Source evidence</div><div className="mt-0.5 text-lg font-semibold text-slate-900">2021–2025</div><div className="text-xs text-slate-500">all registered FD1 seasons</div></div>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Current Gen-2 model policy</div><div className="mt-0.5 text-sm font-semibold text-slate-900">Dev 2023 · Val 2024 · Frozen 2025</div><div className="text-xs text-slate-500">2021–2022 = prior-history evidence</div></div>
+      </div>
+      <div className="mt-3 grid gap-4 sm:grid-cols-4">
+        <Field label="Development start"><select value={props.devStart} onChange={(event) => props.setDevStart(Number(event.target.value))} className="wf-input">{DEV_START_CANDIDATES.filter((year) => year <= props.devEnd).map((year) => <option key={year} value={year}>{year}{isEligibleDevelopmentStart(year) ? "" : " — not eligible"}</option>)}</select></Field>
+        <Field label="Development end"><select value={props.devEnd} onChange={(event) => props.setDevEnd(Number(event.target.value))} className="wf-input">{YEARS.filter((year) => year >= props.devStart && year < props.valSeason && year <= 2023).map((year) => <option key={year}>{year}</option>)}</select></Field>
+        <Field label="Validation"><select value={props.valSeason} onChange={(event) => props.setValSeason(Number(event.target.value))} className="wf-input">{YEARS.filter((year) => year > props.devEnd && year < props.frozenSeason).map((year) => <option key={year}>{year}</option>)}</select></Field>
+        <Field label="Frozen final"><select value={props.frozenSeason} onChange={(event) => props.setFrozenSeason(Number(event.target.value))} className="wf-input">{YEARS.filter((year) => year > props.valSeason).map((year) => <option key={year}>{year}</option>)}</select></Field>
+      </div>
+      <SourceEvidenceTimeline devSeasons={props.devSeasons} valSeason={props.valSeason} frozenSeason={props.frozenSeason} isRevised={props.isRevised} />
+      <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"><b>{props.devStart} — {SEASON_ROLE_POLICY[props.devStart]?.role}:</b> {SEASON_ROLE_POLICY[props.devStart]?.reason}</div>
+      {props.isRevised ? (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-900"><TriangleAlert size={15} /> Revised temporal experiment — research specification</div>
+          <p className="mt-1 text-xs text-amber-900">A development start of <b>{props.devStart}</b> is <b>not part of the registered Gen-2 policy</b>. This research draft does not overwrite the governed season-role contract.</p>
+          <p className="mt-1 rounded-md bg-white/70 px-2 py-1 text-[11px] text-amber-900"><b>Not yet executable in this cockpit:</b> the materialized modeling matrix contains 2023–2025 only, so this research draft cannot fabricate the missing modeling rows.</p>
+          {props.noPriorSeason ? (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-white p-3 text-xs">
+              <div className="font-semibold text-slate-900">2021 feasibility assessment</div>
+              <ul className="mt-1 space-y-0.5 text-slate-600">
+                <li>· Target rows available: <b className="text-emerald-700">YES</b></li>
+                <li>· Y−1 player-state features: <b className="text-rose-700">NOT AVAILABLE</b> — no pre-2021 registered history</li>
+              </ul>
+              <label className="mt-2 flex items-center gap-2 font-semibold text-slate-700"><input type="checkbox" checked={props.excludePriorFamilies} onChange={(event) => props.setExcludePriorFamilies(event.target.checked)} className="h-4 w-4 rounded border-slate-300" /> Exclude prior-history feature families for this experiment</label>
+              <p className="mt-1 text-[11px] text-slate-500">This tool records the intent; it does not fabricate the modeling rows.</p>
             </div>
-          );
-        })}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700"><ShieldCheck size={12} /> {frozenSeason} FROZEN — never used for model selection</span>
-        {isRevised && <span className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold text-violet-700">DEV? — proposed research draft, not registered</span>}
-      </div>
+          ) : null}
+          {props.draftSaved ? <div className="mt-2 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-800">Revised temporal experiment saved as a research draft — the registered Gen-2 contract is unchanged.</div> : null}
+        </div>
+      ) : null}
+      {!props.seasonValid && !props.coverageError ? <p className="mt-2 text-xs font-semibold text-amber-700">Development must end before validation, and validation before the frozen season.</p> : null}
+      {props.coverageError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{props.coverageError}</p> : null}
     </div>
   );
+}
+
+function CoverageAuthority({ coverage, eligibleEvidence, missingIntervals }: { coverage: ForecastContractCoverage | null; eligibleEvidence: ForecastDateRange; missingIntervals: ForecastDateRange[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Registered Data Warehouse coverage</div>
+      <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div><dt className="text-xs text-slate-500">Earliest registered evidence</dt><dd className="font-semibold text-slate-900">{coverage?.earliestDate || "Unavailable"}</dd></div>
+        <div><dt className="text-xs text-slate-500">Latest registered evidence</dt><dd className="font-semibold text-slate-900">{coverage?.latestDate || "Unavailable"}</dd></div>
+        <div><dt className="text-xs text-slate-500">Requested date range</dt><dd className="font-semibold text-slate-900">{eligibleEvidence.startDate || "—"} through {eligibleEvidence.endDate || "—"}</dd></div>
+        <div><dt className="text-xs text-slate-500">Missing interval</dt><dd className={`font-semibold ${missingIntervals.length ? "text-rose-700" : "text-emerald-700"}`}>{missingIntervals.length ? missingIntervals.map((item) => `${item.startDate} through ${item.endDate}`).join("; ") : "None"}</dd></div>
+      </dl>
+      {coverage ? <details className="mt-2 text-xs text-slate-500"><summary className="cursor-pointer font-semibold">Coverage authority</summary><div className="mt-1 break-all font-mono">{coverage.datasetVersionId} · manifest {coverage.manifestSha} · registration {coverage.registrationId}</div></details> : null}
+    </div>
+  );
+}
+
+function CustomDateTimeline({ coverage, eligibleEvidence, developmentSelection, finalOot }: { coverage: ForecastContractCoverage | null; eligibleEvidence: ForecastDateRange; developmentSelection: ForecastDateRange; finalOot: ForecastDateRange }) {
+  const toDay = (value: string) => Date.parse(`${value}T00:00:00Z`) / 86_400_000;
+  const complete = [eligibleEvidence.startDate, eligibleEvidence.endDate, developmentSelection.startDate, developmentSelection.endDate, finalOot.startDate, finalOot.endDate].every(isCanonicalIsoDate);
+  if (!complete || eligibleEvidence.startDate > eligibleEvidence.endDate) return <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">Enter all six dates to draw the actual interval timeline.</div>;
+  const start = toDay(eligibleEvidence.startDate);
+  const span = Math.max(1, toDay(eligibleEvidence.endDate) - start + 1);
+  const styleFor = (range: ForecastDateRange) => ({ left: `${Math.max(0, Math.min(100, ((toDay(range.startDate) - start) / span) * 100))}%`, width: `${Math.max(1.5, Math.min(100, ((toDay(range.endDate) - toDay(range.startDate) + 1) / span) * 100))}%` });
+  const priorEnd = new Date(Date.parse(`${eligibleEvidence.startDate}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const prior = coverage && coverage.earliestDate < eligibleEvidence.startDate ? `${coverage.earliestDate} through ${priorEnd}` : null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4" aria-label="Custom temporal design timeline">
+      <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600"><span>{eligibleEvidence.startDate}</span><span>Eligible evidence</span><span>{eligibleEvidence.endDate}</span></div>
+      <div className="relative mt-3 h-14 overflow-hidden rounded-lg bg-slate-100"><div className="absolute inset-x-0 top-2 h-4 rounded bg-cyan-200" /><div className="absolute top-2 h-4 rounded bg-emerald-500" style={styleFor(developmentSelection)} title={`Development and selection ${developmentSelection.startDate} through ${developmentSelection.endDate}`} /><div className="absolute bottom-2 h-4 rounded bg-rose-500" style={styleFor(finalOot)} title={`Final OOT ${finalOot.startDate} through ${finalOot.endDate}`} /></div>
+      <div className="mt-2 flex flex-wrap gap-3 text-[11px] font-semibold"><span className="text-emerald-700">Development/selection {developmentSelection.startDate}–{developmentSelection.endDate}</span><span className="text-rose-700">Final OOT {finalOot.startDate}–{finalOot.endDate}</span></div>
+      {prior ? <div className="mt-2 text-xs text-slate-500">Earlier registered evidence, derived from the selected boundary: {prior}.</div> : null}
+    </div>
+  );
+}
+
+function SourceEvidenceTimeline({ devSeasons, valSeason, frozenSeason, isRevised }: { devSeasons: number[]; valSeason: number; frozenSeason: number; isRevised: boolean }) {
+  const roleOf = (year: number) => {
+    if (isRevised && devSeasons.includes(year)) return { label: "DEV?", cls: "bg-violet-500 ring-2 ring-violet-300", textCls: "text-violet-600" };
+    if (!isRevised && devSeasons.includes(year)) return { label: "DEV", cls: "bg-emerald-500", textCls: "text-emerald-600" };
+    if (year === valSeason) return { label: "VAL", cls: "bg-amber-500", textCls: "text-amber-600" };
+    if (year === frozenSeason) return { label: "FROZEN", cls: "bg-rose-500 ring-2 ring-rose-300", textCls: "text-rose-600" };
+    if (SEASON_ROLE_POLICY[year]?.role === "PRIOR HISTORY") return { label: "PRIOR", cls: "bg-slate-400", textCls: "text-slate-500" };
+    return { label: "FUTURE", cls: "bg-slate-300", textCls: "text-slate-400" };
+  };
+  return <div className="mt-4"><div className="flex gap-1">{SOURCE_TIMELINE.map((year) => { const role = roleOf(year); return <div key={year} className="flex-1 text-center"><div className={`flex h-8 items-center justify-center rounded text-xs font-bold text-white ${role.cls}`}>{year}</div><div className={`mt-1 text-[10px] font-semibold uppercase ${role.textCls}`}>{role.label}</div></div>; })}</div><div className="mt-2 flex flex-wrap gap-2"><span className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700"><ShieldCheck size={12} /> {frozenSeason} FROZEN — never used for model selection</span></div></div>;
+}
+
+function ModeChoice({ checked, label, onClick }: { checked: boolean; label: string; onClick: () => void }) {
+  return <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm font-semibold ${checked ? "border-cyan-500 bg-cyan-50 text-cyan-950" : "border-slate-200 bg-white text-slate-700"}`}><input type="radio" name="temporal-design" checked={checked} onChange={onClick} className="h-4 w-4" />{label}</label>;
+}
+
+function DateField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
+  return <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span><input type="date" value={value} onChange={(event) => onChange(event.target.value)} className={`wf-input ${error ? "border-rose-400" : ""}`} />{error ? <span className="text-xs font-semibold text-rose-700">{error}</span> : null}</label>;
+}
+
+function AuthorityNotice({ children, tone }: { children: React.ReactNode; tone: "slate" | "rose" }) {
+  return <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${tone === "rose" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>{children}</div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
