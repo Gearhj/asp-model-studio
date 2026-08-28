@@ -43,6 +43,7 @@ export default function SportsProjectOverview() {
     projectId,
     registrationId: projectDataset.linkage.registrationId,
     datasetId: projectDataset.linkage.datasetId,
+    datasetVersionId: projectDataset.linkage.datasetVersionId,
     manifestSha: projectDataset.linkage.manifestSha,
     seasons: dataset?.seasons ?? [],
     boundAt: "",

@@ -6,7 +6,7 @@ import sqlite3
 import uuid
 from typing import Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..security.security_store import (
     AUDIT_ROLES,
@@ -35,6 +35,10 @@ from .sports_forecast_contract import (
     FORECAST_CONTRACT_METADATA_KEY,
     SportsForecastContractError,
     SportsForecastContractStore,
+)
+from ..sports_current_statcast.stage2_review import (
+    CurrentGoldStage2ReviewError,
+    current_gold_stage2_review,
 )
 
 
@@ -485,6 +489,34 @@ def get_sports_evidence_dataset(
         lambda: _forecast_contracts().get_evidence_dataset(project_id)
     )
     return {"ok": True, "linkage": linkage}
+
+
+@router.get("/projects/{project_id}/sports/stage2-data-review")
+def get_sports_stage2_data_review(
+    project_id: str,
+    season: int | None = None,
+    limit: int = Query(default=25, ge=1, le=50),
+    sample: str = Query(default="head", pattern="^(head|random)$"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read the exact current-Gold matrix authorized by this project's link."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        review = current_gold_stage2_review(
+            _service().database,
+            project_id,
+            season=season,
+            limit=limit,
+            sample=sample,
+        )
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except CurrentGoldStage2ReviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+    return {"ok": True, "review": review}
 
 
 @router.put("/projects/{project_id}/sports/evidence-dataset")

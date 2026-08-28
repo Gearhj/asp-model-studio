@@ -84,9 +84,20 @@ export type DatasetBinding = {
   projectId: string;
   registrationId: string;
   datasetId: string;
+  datasetVersionId: string;
   manifestSha: string;
   seasons: number[];
   boundAt: string;
+};
+
+export type Stage2DataReviewAcceptance = {
+  projectId: string;
+  registrationId: string;
+  datasetVersionId: string;
+  sourceManifestSha: string;
+  goldManifestSha: string;
+  reviewDigest: string;
+  acceptedAt: string;
 };
 
 export type CustomTemporalValidation = {
@@ -109,6 +120,7 @@ const CONTRACT_PREFIX = "asp-sports-forecast-contract:";
 const BINDING_PREFIX = "asp-sports-dataset-binding:";
 const PROGRAM_ADOPTION_PREFIX = "asp-sports-program-adoptions:"; // Phase 6D 9-stage adoptions
 const LEGACY_ADOPTION_PREFIX = "asp-sports-stage-adoptions:";    // Phase 6C 12-stage adoptions
+const STAGE2_DATA_REVIEW_PREFIX = "asp-sports-stage2-data-review:";
 
 // Old (12-stage) → new (9-stage) adoption mapping. Old 4 (Hitter & Pitcher State) is relocated into
 // cockpit Feature Engineering and is not a program stage, so it maps to nothing.
@@ -291,6 +303,69 @@ export function saveBinding(binding: DatasetBinding) {
   localStorage.setItem(`${BINDING_PREFIX}${binding.projectId}`, JSON.stringify(binding));
 }
 
+export function loadStage2DataReviewAcceptance(projectId: string): Stage2DataReviewAcceptance | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${STAGE2_DATA_REVIEW_PREFIX}${projectId}`) || "null");
+    return raw?.projectId === projectId ? (raw as Stage2DataReviewAcceptance) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function stage2DataReviewAcceptanceMatches(projectId: string, binding: DatasetBinding | null): boolean {
+  const accepted = loadStage2DataReviewAcceptance(projectId);
+  return Boolean(
+    binding
+    && accepted
+    && accepted.registrationId === binding.registrationId
+    && accepted.datasetVersionId === binding.datasetVersionId
+    && accepted.sourceManifestSha === binding.manifestSha
+    && /^[a-f0-9]{64}$/i.test(accepted.goldManifestSha)
+    && /^[a-f0-9]{64}$/i.test(accepted.reviewDigest),
+  );
+}
+
+export function acceptStage2DataReview(
+  projectId: string,
+  binding: DatasetBinding,
+  review: {
+    projectId: string;
+    reviewDigest: string;
+    sourceAuthority: { registrationId: string; datasetVersionId: string; manifestSha: string };
+    goldAuthority: { manifestSha: string };
+    acceptance: { allowed: boolean };
+  },
+) {
+  const exactSource = review.projectId === projectId
+    && review.sourceAuthority.registrationId === binding.registrationId
+    && review.sourceAuthority.datasetVersionId === binding.datasetVersionId
+    && review.sourceAuthority.manifestSha === binding.manifestSha;
+  if (!review.acceptance.allowed || !exactSource) {
+    throw new Error("Stage 2 cannot be accepted because its verified matrix does not match the project-linked dataset.");
+  }
+  const acceptance: Stage2DataReviewAcceptance = {
+    projectId,
+    registrationId: binding.registrationId,
+    datasetVersionId: binding.datasetVersionId,
+    sourceManifestSha: binding.manifestSha,
+    goldManifestSha: review.goldAuthority.manifestSha,
+    reviewDigest: review.reviewDigest,
+    acceptedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(`${STAGE2_DATA_REVIEW_PREFIX}${projectId}`, JSON.stringify(acceptance));
+  adoptStage(projectId, 2);
+}
+
+export function resetAdoptionsFrom(projectId: string, firstStage: number) {
+  const retained = loadAdoptions(projectId).filter((stage) => stage < firstStage);
+  localStorage.setItem(`${PROGRAM_ADOPTION_PREFIX}${projectId}`, JSON.stringify(retained));
+}
+
+export function invalidateStage2DataReview(projectId: string) {
+  localStorage.removeItem(`${STAGE2_DATA_REVIEW_PREFIX}${projectId}`);
+  resetAdoptionsFrom(projectId, 2);
+}
+
 /** Program-stage adoptions (9-stage). Migrates 12-stage adoptions on first read; never destroys the
  *  legacy key, so no project progress is lost. */
 export function loadAdoptions(projectId: string): number[] {
@@ -458,11 +533,12 @@ export function resolveStages(
 ): StageResolution[] {
   const bound = ok(binding) && ok(dataset) && ok(dataset?.validationStatus);
   const adoptedSet = new Set(adoptions);
+  const stage2Accepted = stage2DataReviewAcceptanceMatches(projectId, binding);
 
   // base completion per stage
   const base: boolean[] = PROGRAM_STAGES.map((s) => {
     if (s.number === 1) return ok(contract);
-    if (s.number === 2) return bound && adoptedSet.has(2); // data reviewed + accepted (incl. identity/quality)
+    if (s.number === 2) return bound && adoptedSet.has(2) && stage2Accepted; // exact linked matrix reviewed + accepted
     if (s.number === 9) return false;                       // export always gated
     return adoptedSet.has(s.number);
   });

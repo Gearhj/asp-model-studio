@@ -3,6 +3,7 @@ import { CheckCircle2, Database, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ActiveSportsDataset, RefreshableEvidenceState } from "../sportsEvidenceApi";
 import type { ProjectSportsEvidenceState } from "./projectDatasetLinkage";
 import { sportsAuthorityPresentation } from "./sportsAuthorityErrors";
+import { invalidateStage2DataReview } from "./workflowState";
 
 export function ProjectEvidenceDatasetControl({
   authority,
@@ -37,7 +38,11 @@ export function ProjectEvidenceDatasetControl({
     if (!selectedRegistrationId || authority.status === "saving") return;
     setActionError("");
     try {
-      await authority.select(selectedRegistrationId);
+      const priorRegistrationId = authority.linkage?.registrationId ?? null;
+      const nextLinkage = await authority.select(selectedRegistrationId);
+      if (priorRegistrationId !== selectedRegistrationId) {
+        invalidateStage2DataReview(nextLinkage.projectId);
+      }
       await onLinked();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "The evidence dataset could not be linked to this project.");

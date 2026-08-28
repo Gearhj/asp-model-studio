@@ -42,6 +42,7 @@ export function DatasetBindingPanel({
       projectId,
       registrationId: dataset.registrationId,
       datasetId: dataset.datasetId,
+      datasetVersionId: dataset.datasetVersionId,
       manifestSha: dataset.manifestSha,
       seasons: dataset.seasons,
       boundAt: new Date().toISOString(),

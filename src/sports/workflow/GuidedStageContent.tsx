@@ -1,10 +1,8 @@
 // Embedded analytical content for the 9-stage MLB PROGRAM workflow (Phase 6D). Reuses the exact
 // standalone module content (no duplication, no iframes) so the scientist stays inside the project.
 // Stage 2 merges dataset preview + identity/leakage data-quality; Stage 3 is the PA Modeling Cockpit.
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ExternalLink, CheckCircle2, Layers, ShieldCheck, Database, TriangleAlert } from "lucide-react";
-import { getJSON } from "../../lib/api";
+import { ArrowRight, ExternalLink, CheckCircle2, Layers, ShieldCheck } from "lucide-react";
 import type { ActiveSportsDataset } from "../sportsEvidenceApi";
 import {
   ParticipationUsageBody, GameReplaySection, BaseOutTransitionSection, SimulationInputSection,
@@ -12,7 +10,8 @@ import {
   Phase4EvaluationSection, Phase4GraphSection, Phase4RegistrySection,
 } from "../Phase4Surfaces";
 import PaModelingCockpit from "../cockpit/PaModelingCockpit";
-import DataPreviewPanel from "../cockpit/DataPreviewPanel";
+import { CurrentGoldDataReviewPanel } from "./CurrentGoldDataReviewPanel";
+import type { CurrentGoldReviewState } from "./currentGoldDataReview";
 import type { StageResolution, ForecastContract } from "./workflowState";
 import {
   GOVERNED_TEMPORAL,
@@ -135,11 +134,23 @@ function CockpitIntro({ contract }: { contract: ForecastContract | null }) {
 }
 
 /** Central analytical content for a program stage. Stages 1 & 9 are handled inline in the shell. */
-export function GuidedStageContent({ number, dataset, contract }: { number: number; dataset: ActiveSportsDataset | null; contract?: ForecastContract | null }) {
+export function GuidedStageContent({
+  number,
+  dataset,
+  contract,
+  currentGoldReview,
+}: {
+  number: number;
+  dataset: ActiveSportsDataset | null;
+  contract?: ForecastContract | null;
+  currentGoldReview?: CurrentGoldReviewState;
+}) {
   const p4 = dataset?.phase4;
   switch (number) {
     case 2:
-      return <div className="space-y-4"><DataQualitySummary dataset={dataset} contract={contract ?? null} /><DataPreviewPanel title="Your selected data" /></div>;
+      return currentGoldReview
+        ? <CurrentGoldDataReviewPanel state={currentGoldReview} />
+        : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The project-scoped current Gold review authority is unavailable.</section>;
     case 3:
       return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} /></div>;
     case 4:
@@ -166,7 +177,19 @@ export function GuidedStageContent({ number, dataset, contract }: { number: numb
 }
 
 /** Compact adopt/continue bar for stages 2 & 4–8. Stage 3 (cockpit) and stage 9 (export) are special. */
-export function AdoptBar({ focus, projectId, onAdopt }: { focus: StageResolution; projectId: string; onAdopt: () => void }) {
+export function AdoptBar({
+  focus,
+  projectId,
+  onAdopt,
+  disabled = false,
+  disabledReason,
+}: {
+  focus: StageResolution;
+  projectId: string;
+  onAdopt: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+}) {
   const complete = focus.status === "COMPLETE";
   const route = focus.action.route || "/dashboard";
   const query = new URLSearchParams({ from: "mlb-workflow", stage: String(focus.number), projectId });
@@ -178,11 +201,11 @@ export function AdoptBar({ focus, projectId, onAdopt }: { focus: StageResolution
       {complete ? (
         <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><CheckCircle2 size={16} /> Adopted by this project — use Continue for the next stage.</div>
       ) : (
-        <p className="text-sm text-slate-600">{focus.evidenceAvailable ? "Review the evidence above, then accept it into this project to continue." : "This project has not yet adopted or materialized evidence for this stage."}</p>
+        <p className={`text-sm ${disabled ? "font-semibold text-amber-800" : "text-slate-600"}`}>{disabled && disabledReason ? disabledReason : focus.evidenceAvailable ? "Review the evidence above, then accept it into this project to continue." : "This project has not yet adopted or materialized evidence for this stage."}</p>
       )}
       <div className="flex shrink-0 flex-wrap gap-2">
         <Link to={href} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open full {moduleLabel} <ExternalLink size={14} /></Link>
-        {!complete && <button onClick={onAdopt} className="sports-primary-button">{label} <ArrowRight size={15} /></button>}
+        {!complete && <button type="button" onClick={onAdopt} disabled={disabled} className="sports-primary-button disabled:cursor-not-allowed disabled:opacity-50">{label} <ArrowRight size={15} /></button>}
       </div>
     </section>
   );

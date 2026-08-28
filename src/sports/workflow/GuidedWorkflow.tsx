@@ -15,8 +15,8 @@ import { useSportsDatasetCatalog, type ActiveSportsDataset, type RefreshableEvid
 import { canonicalSportsProjectId, sportsProjectOverviewRoute, SPORTS_PROJECT_ID_PARAM } from "../sportsProjectRoutes";
 import {
   resolveStages, firstActionableStage, nextActionable, completionSummary,
-  adoptStage, PROGRAM_STAGE_COUNT, LEGACY_STEP_TO_STAGE,
-  type ForecastContract, type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
+  acceptStage2DataReview, adoptStage, PROGRAM_STAGE_COUNT, LEGACY_STEP_TO_STAGE,
+  type DatasetBinding, type ForecastContract, type StageResolution, type StageStatus, type EvidenceState, type DecisionClass,
 } from "./workflowState";
 import { ForecastContractPanel } from "./ForecastContractPanel";
 import { GuidedStageContent, AdoptBar } from "./GuidedStageContent";
@@ -24,6 +24,7 @@ import { useForecastContract, type ForecastContractState } from "./useForecastCo
 import { ProjectEvidenceDatasetControl } from "./ProjectEvidenceDatasetControl";
 import { useProjectSportsEvidenceDataset, type ProjectSportsEvidenceState } from "./projectDatasetLinkage";
 import { useCanonicalSportsProject } from "./useCanonicalSportsProject";
+import { useProjectCurrentGoldDataReview, type CurrentGoldReviewState } from "./currentGoldDataReview";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, FlaskConical, UsersRound, Orbit, SlidersHorizontal, Gauge, GitBranch, PackageCheck];
 
@@ -40,6 +41,27 @@ const EVIDENCE_BADGE: Partial<Record<EvidenceState, { label: string; cls: string
   NO_EVIDENCE: { label: "Not configured for this project", cls: "border-slate-200 bg-slate-50 text-slate-500" },
 };
 const CLASS_LABEL: Record<DecisionClass, string> = { CONFIGURE: "Configure", REVIEW_AND_DECIDE: "Review & decide", ANALYZE: "Analyze", DECIDE: "Decide", TERMINAL: "Terminal", BLOCKED: "Blocked" };
+
+function stage2ReviewMatchesBinding(state: CurrentGoldReviewState, binding: DatasetBinding | null) {
+  const review = state.review;
+  return Boolean(
+    state.status === "ready"
+    && binding
+    && review
+    && review.projectId === binding.projectId
+    && review.sourceAuthority.registrationId === binding.registrationId
+    && review.sourceAuthority.datasetVersionId === binding.datasetVersionId
+    && review.sourceAuthority.manifestSha === binding.manifestSha,
+  );
+}
+
+function stage2AcceptanceReason(state: CurrentGoldReviewState, binding: DatasetBinding | null) {
+  if (state.status === "loading" || state.status === "idle") return "Accept Data is locked while the exact project-linked Gold matrix is verified.";
+  if (state.status === "error" || !state.review) return "Accept Data is locked because the project-scoped current Gold review is unavailable.";
+  if (!stage2ReviewMatchesBinding(state, binding)) return "Accept Data is locked because the materialized matrix differs from the project-linked dataset.";
+  if (!state.review.acceptance.allowed) return state.review.acceptance.blockers.join(" ") || "Accept Data is locked by an unresolved data-quality gate.";
+  return undefined;
+}
 
 export default function GuidedWorkflow() {
   const [params, setParams] = useSearchParams();
@@ -59,6 +81,7 @@ export default function GuidedWorkflow() {
     projectId,
     registrationId: projectDataset.linkage.registrationId,
     datasetId: projectDataset.linkage.datasetId,
+    datasetVersionId: projectDataset.linkage.datasetVersionId,
     manifestSha: projectDataset.linkage.manifestSha,
     seasons: dataset?.seasons ?? [],
     boundAt: "",
@@ -81,6 +104,7 @@ export default function GuidedWorkflow() {
   const legacyStep = Number(params.get("step")) || 0;
   const focusNumber = Number(params.get("stage")) || (legacyStep ? (LEGACY_STEP_TO_STAGE[legacyStep] || 1) : firstActionableStage(resolutions));
   const focus = resolutions.find((r) => r.number === focusNumber) || resolutions[0];
+  const currentGoldReview = useProjectCurrentGoldDataReview(projectId, Boolean(binding) && focus.number === 2);
   const justDone = Number(params.get("done")) || 0;
   const [navCollapsed, setNavCollapsed] = useState(false);
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
@@ -89,6 +113,7 @@ export default function GuidedWorkflow() {
   const refresh = () => {
     datasetCatalog.refresh();
     void projectDataset.refresh();
+    if (focus.number === 2) void currentGoldReview.refresh();
     setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(focus.number)); np.delete("step"); np.set("v", String(Date.now())); return np; });
   };
   const advanceFrom = (from: number, registeredContract: ForecastContract | null = contract) => {
@@ -158,7 +183,7 @@ export default function GuidedWorkflow() {
         </nav>
 
         <div className="min-w-0 space-y-4">
-          <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
+          <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} currentGoldReview={currentGoldReview} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
 
           <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button onClick={() => goStage(Math.max(1, focus.number - 1))} disabled={focus.number === 1} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ArrowLeft size={15} /> Previous</button>
@@ -177,7 +202,7 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, justDone, onGoStage, advanceFrom, refresh,
+  focus, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, currentGoldReview, justDone, onGoStage, advanceFrom, refresh,
 }: {
   focus: StageResolution;
   projectId: string;
@@ -186,6 +211,7 @@ function StageWorkspace({
   datasetCatalog: RefreshableEvidenceState<ActiveSportsDataset[]>;
   projectDataset: ProjectSportsEvidenceState;
   contractAuthority: ForecastContractState;
+  currentGoldReview: CurrentGoldReviewState;
   justDone: number;
   onGoStage: (n: number) => void;
   advanceFrom: (from: number, registeredContract?: ForecastContract | null) => void;
@@ -196,6 +222,7 @@ function StageWorkspace({
     projectId,
     registrationId: projectDataset.linkage.registrationId,
     datasetId: projectDataset.linkage.datasetId,
+    datasetVersionId: projectDataset.linkage.datasetVersionId,
     manifestSha: projectDataset.linkage.manifestSha,
     seasons: dataset?.seasons ?? [],
     boundAt: "",
@@ -274,8 +301,18 @@ function StageWorkspace({
       {focus.number === 2 && (!binding
         ? <ProjectEvidenceDatasetControl authority={projectDataset} catalog={datasetCatalog} onLinked={() => refresh()} />
         : <>
-            <GuidedStageContent number={2} dataset={dataset} contract={contract} />
-            <AdoptBar focus={focus} projectId={projectId} onAdopt={() => { adoptStage(projectId, 2); advanceFrom(2); }} />
+            <GuidedStageContent number={2} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} />
+            <AdoptBar
+              focus={focus}
+              projectId={projectId}
+              disabled={!stage2ReviewMatchesBinding(currentGoldReview, binding) || !currentGoldReview.review?.acceptance.allowed}
+              disabledReason={stage2AcceptanceReason(currentGoldReview, binding)}
+              onAdopt={() => {
+                if (!currentGoldReview.review) return;
+                acceptStage2DataReview(projectId, binding, currentGoldReview.review);
+                advanceFrom(2);
+              }}
+            />
           </>)}
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
