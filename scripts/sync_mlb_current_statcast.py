@@ -35,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--current-silver-root", type=Path, default=DEFAULT_STAGING / "mlb-current-statcast-silver-v1")
     parser.add_argument("--existing-gold-root", type=Path, default=DEFAULT_STAGING / "mlb-gold-v1")
     parser.add_argument("--current-gold-root", type=Path, default=DEFAULT_STAGING / "mlb-current-statcast-gold-v1")
+    parser.add_argument("--contextual-gold-root", type=Path, default=DEFAULT_STAGING / "mlb-current-statcast-context-gold-v2")
     parser.add_argument("--exchange-root", type=Path, default=Path(r"C:\Users\james\asp-model-exchange"))
     parser.add_argument("--package-root", type=Path, default=DEFAULT_STAGING)
     parser.add_argument("--database", type=Path, default=Path(".runtime/asp-model-studio/persistence/asp_model_studio.db"))
@@ -55,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         current_silver_root=args.current_silver_root,
         existing_gold_root=args.existing_gold_root,
         current_gold_root=args.current_gold_root,
+        contextual_gold_root=args.contextual_gold_root,
         exchange_root=args.exchange_root,
         package_root=args.package_root,
         database_path=args.database,

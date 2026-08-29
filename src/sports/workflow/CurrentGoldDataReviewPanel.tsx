@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Database, ListTree, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
-import type { CurrentGoldDataReview, CurrentGoldReviewState, Stage2Check, Stage2Column } from "./currentGoldDataReview";
+import type { ContextualFeaturePack, CurrentGoldDataReview, CurrentGoldReviewState, Stage2Check, Stage2Column } from "./currentGoldDataReview";
 
 const ROLE_STYLE: Record<Stage2Column["classification"], string> = {
   IDENTIFIER: "border-amber-200 bg-amber-50 text-amber-800",
@@ -19,6 +20,11 @@ function int(value: number) {
 
 function pct(value: number) {
   return `${(value * 100).toFixed(2)}%`;
+}
+
+function coveragePct(value: number) {
+  const normalized = value > 1 ? value : value * 100;
+  return `${normalized.toFixed(2)}%`;
 }
 
 function shortSha(value: string) {
@@ -127,6 +133,86 @@ function MatrixContract({ review }: { review: CurrentGoldDataReview }) {
   );
 }
 
+function ContextualFeatureReview({ pack }: { pack: ContextualFeaturePack }) {
+  const [included, setIncluded] = useState<Record<string, boolean>>(() => Object.fromEntries(
+    pack.features.map((feature) => [feature.name, feature.includedByDefault]),
+  ));
+  const selectedCount = pack.features.filter((feature) => included[feature.name]).length;
+  const setFamilyIncluded = (family: ContextualFeaturePack["families"][number]) => {
+    setIncluded((current) => {
+      const allIncluded = family.orderedFeatures.every((name) => current[name] === true);
+      const next = { ...current };
+      family.orderedFeatures.forEach((name) => { next[name] = !allIncluded; });
+      return next;
+    });
+  };
+  const toggleFeature = (name: string) => setIncluded((current) => ({ ...current, [name]: !current[name] }));
+
+  return (
+    <section className="rounded-2xl border border-violet-200 bg-white p-5" data-testid="stage2-contextual-feature-review">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-violet-700"><ListTree size={15} /> Contextual feature pack · review only</div>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">Review the declared contextual hypotheses, lineage, point-in-time treatment, and coverage. Inclusion controls below are a temporary review preview: they are not saved, do not alter Stage 2 acceptance, and do not fit, score, or adopt a model.</p>
+        </div>
+        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-800">{pack.status.replaceAll("_", " ")}</span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <Metric label="Semantic verification" value={pack.verified ? "VERIFIED" : "FAILED"} detail="source + projection" />
+        <Metric label="Context rows" value={int(pack.rowCount)} detail="existing materialization" />
+        <Metric label="Core features" value={int(pack.coreFeatureCount)} detail="current Gold predictors" />
+        <Metric label="Added context" value={int(pack.addedFeatureCount)} detail="hypothesis features" />
+        <Metric label="Total reviewed" value={int(pack.totalFeatureCount)} detail="core + contextual" />
+        <Metric label="Review preview" value={int(selectedCount)} detail="temporarily included" />
+        <Metric label="Team-game rows" value={int(pack.teamGameRowCount)} detail="context lineage" />
+        <Metric label="Rivalry mapping" value={pack.rivalryMappingStatus.replaceAll("_", " ")} detail="declared status" />
+      </div>
+
+      <dl className="mt-3 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 lg:grid-cols-3">
+        <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Dataset</dt><dd className="mt-0.5 break-all font-mono text-slate-800">{pack.datasetId}</dd></div>
+        <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Context manifest</dt><dd className="mt-0.5 break-all font-mono text-slate-800">{shortSha(pack.manifestSha256)}</dd></div>
+        <div><dt className="font-semibold uppercase tracking-wide text-slate-500">Source Gold manifest</dt><dd className="mt-0.5 break-all font-mono text-slate-800">{shortSha(pack.sourceGoldManifestSha256)}</dd></div>
+      </dl>
+
+      <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="note" aria-label="Contextual feature hypothesis and proxy warning">
+        <div className="flex items-center gap-2 font-semibold text-amber-900"><TriangleAlert size={15} /> Hypothesis, proxy, and rivalry warning</div>
+        <p className="mt-1 leading-6">Contextual additions are research hypotheses, not proven signal. Team, opponent, and rivalry fields can proxy for schedule, geography, roster quality, or era effects. Rivalry mapping is <b>{pack.rivalryMappingStatus.replaceAll("_", " ")}</b>; it must remain point-in-time and must not be interpreted as causal.</p>
+        {pack.warnings.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{pack.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
+      </div>
+
+      <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[900px] text-left text-xs">
+          <thead className="bg-slate-50"><tr>{["Family", "Features", "Ordered members", "Declared default", "Review preview"].map((label) => <th key={label} className="border-b border-slate-200 px-3 py-2 font-semibold text-slate-500">{label}</th>)}</tr></thead>
+          <tbody>{pack.families.map((family) => {
+            const familySelected = family.orderedFeatures.filter((name) => included[name]).length;
+            const allIncluded = familySelected === family.orderedFeatures.length && family.orderedFeatures.length > 0;
+            const state = familySelected === 0 ? "EXCLUDED" : allIncluded ? "INCLUDED" : "PARTIAL";
+            return <tr key={family.name} className="align-top"><td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{family.name}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(family.featureCount)}</td><td className="border-b border-slate-100 px-3 py-2"><div className="max-w-3xl font-mono text-[10px] leading-4 text-slate-500">{family.orderedFeatures.join(" · ")}</div></td><td className="border-b border-slate-100 px-3 py-2"><span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${family.includedByDefault ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>{family.includedByDefault ? "INCLUDED" : "EXCLUDED"}</span></td><td className="border-b border-slate-100 px-3 py-2"><button type="button" aria-pressed={allIncluded} aria-label={`${allIncluded ? "Exclude" : "Include"} ${family.name} in the review preview`} onClick={() => setFamilyIncluded(family)} className={`rounded-lg border px-2.5 py-1.5 font-semibold ${allIncluded ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-300 bg-white text-slate-700"}`}>{state} · {familySelected}/{family.featureCount}</button></td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+
+      <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3" open>
+        <summary className="cursor-pointer text-sm font-semibold text-slate-800">Feature definitions, lineage, point-in-time treatment, and coverage</summary>
+        <div className="mt-3 max-h-[720px] overflow-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[1480px] text-left text-xs">
+            <thead className="sticky top-0 z-10 bg-slate-50"><tr>{["Feature", "Family / category", "Definition", "Source lineage", "Point-in-time treatment", "Overall", "Development", "Final OOT", "Proxy warning", "Review preview"].map((label) => <th key={label} className="border-b border-slate-200 px-2.5 py-2 font-semibold text-slate-500">{label}</th>)}</tr></thead>
+            <tbody>{pack.features.map((feature) => <tr key={feature.name} className="align-top"><td className="border-b border-slate-100 px-2.5 py-2 font-mono font-semibold text-slate-900">{feature.name}</td><td className="border-b border-slate-100 px-2.5 py-2"><div className="font-semibold text-slate-700">{feature.family}</div><div className="mt-0.5 text-[10px] uppercase text-slate-400">{feature.category}</div></td><td className="border-b border-slate-100 px-2.5 py-2 leading-5 text-slate-600">{feature.definition}</td><td className="border-b border-slate-100 px-2.5 py-2 leading-5 text-slate-600">{feature.sourceLineage}</td><td className="border-b border-slate-100 px-2.5 py-2 leading-5 text-slate-600">{feature.pointInTimeTreatment}</td><td className="border-b border-slate-100 px-2.5 py-2 tabular-nums">{coveragePct(feature.coverageOverall)}</td><td className="border-b border-slate-100 px-2.5 py-2 tabular-nums">{coveragePct(feature.coverageDevelopment)}</td><td className="border-b border-slate-100 px-2.5 py-2 tabular-nums">{coveragePct(feature.coverageFinalOot)}</td><td className={`border-b border-slate-100 px-2.5 py-2 leading-5 ${feature.proxyWarning ? "font-medium text-amber-800" : "text-slate-400"}`}>{feature.proxyWarning || "No declared proxy warning"}</td><td className="border-b border-slate-100 px-2.5 py-2"><button type="button" aria-pressed={included[feature.name] === true} aria-label={`${included[feature.name] ? "Exclude" : "Include"} ${feature.name} in the review preview`} onClick={() => toggleFeature(feature.name)} className={`rounded-lg border px-2 py-1 font-semibold ${included[feature.name] ? "border-violet-300 bg-violet-50 text-violet-800" : "border-slate-300 bg-white text-slate-600"}`}>{included[feature.name] ? "Included" : "Excluded"}</button></td></tr>)}</tbody>
+          </table>
+        </div>
+      </details>
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Declared interactions</div>
+        {pack.interactions.length ? <div className="mt-2 grid gap-2 lg:grid-cols-2">{pack.interactions.map((interaction) => <div key={interaction.name} className="rounded-lg border border-slate-200 bg-white p-3"><div className="flex items-start justify-between gap-2"><span className="font-mono text-xs font-semibold text-slate-900">{interaction.name}</span><span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{interaction.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-xs leading-5 text-slate-600">{interaction.reason}</p></div>)}</div> : <p className="mt-2 text-xs text-slate-500">No contextual interactions are declared in this pack.</p>}
+      </div>
+
+      <p className="mt-3 text-xs text-slate-500">Review-preview selections reset when this page reloads. They are deliberately absent from project persistence, Stage 2 acceptance, model configuration, and model-registry authority.</p>
+    </section>
+  );
+}
+
 function MissingnessReview({ review }: { review: CurrentGoldDataReview }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5" data-testid="stage2-missingness-review">
@@ -166,5 +252,5 @@ export function CurrentGoldDataReviewPanel({ state }: { state: CurrentGoldReview
   if (state.status === "loading" || state.status === "idle") return <section className="rounded-2xl border border-slate-200 bg-white p-6" role="status"><div className="flex items-center gap-3 text-sm text-slate-600"><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" /> Verifying the project-linked current Gold matrix and its quality evidence…</div></section>;
   if (state.status === "error" || !state.review) return <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6" role="alert"><div className="flex items-center gap-2 font-semibold text-rose-900"><TriangleAlert size={18} /> Current Gold review unavailable</div><p className="mt-1 text-sm text-rose-800">{state.error || "The exact project-linked matrix could not be verified."}</p><button type="button" onClick={() => void state.refresh()} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800"><RefreshCw size={14} /> Retry</button></section>;
   const review = state.review;
-  return <div className="space-y-4"><Authority review={review} /><MatrixContract review={review} /><GateReview review={review} /><TargetAndTreatment review={review} /><MissingnessReview review={review} /><Preview review={review} /></div>;
+  return <div className="space-y-4"><Authority review={review} /><MatrixContract review={review} />{review.contextualFeaturePack ? <ContextualFeatureReview key={review.contextualFeaturePack.manifestSha256} pack={review.contextualFeaturePack} /> : null}<GateReview review={review} /><TargetAndTreatment review={review} /><MissingnessReview review={review} /><Preview review={review} /></div>;
 }

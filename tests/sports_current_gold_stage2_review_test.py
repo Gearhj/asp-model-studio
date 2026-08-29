@@ -33,6 +33,7 @@ SOURCE_DATASET_VERSION_ID = (
 SOURCE_MANIFEST_SHA = "03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c"
 GOLD_DATASET_ID = "gold-table:gold_mlb_current_pa_v1"
 GOLD_MANIFEST_SHA = "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758"
+CONTEXT_MANIFEST_SHA = "4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e"
 
 EXPECTED_ROWS_BY_SEASON = {
     "2023": 182_072,
@@ -157,6 +158,15 @@ def _require_current_authority() -> _ReadOnlyDatabase:
     )
     if not gold_manifest.is_file() or not stage2_review._existing_silver_root().is_dir():
         pytest.skip("the exact local Silver/Gold authority is not present")
+    contextual_manifest = (
+        stage2_review._contextual_gold_root()
+        / "publications"
+        / "sha256"
+        / CONTEXT_MANIFEST_SHA
+        / "manifest.json"
+    )
+    if not contextual_manifest.is_file():
+        pytest.skip("the exact local contextual Gold authority is not present")
     return database
 
 
@@ -230,4 +240,25 @@ def test_project_scoped_current_gold_stage2_review_matches_frozen_authority() ->
     assert review["pointInTimeReview"]["status"] == "PASS"
     assert review["leakageGate"]["status"] == "PASS_WITH_CONDITIONS"
     assert review["acceptance"] == {"allowed": True, "blockers": []}
+    context = review["contextualFeaturePack"]
+    assert context["datasetId"] == "gold-table:gold_mlb_current_pa_context_v2"
+    assert context["verified"] is True
+    assert context["manifestSha256"] == CONTEXT_MANIFEST_SHA
+    assert context["sourceGoldManifestSha256"] == GOLD_MANIFEST_SHA
+    assert context["rowCount"] == 697_729
+    assert context["coreFeatureCount"] == 48
+    assert context["addedFeatureCount"] == 206
+    assert context["totalFeatureCount"] == 254
+    assert context["teamGameRowCount"] == 18_600
+    assert context["rivalryMappingStatus"] == "PROPOSED_NOT_APPROVED"
+    assert [item["name"] for item in context["families"]] == [
+        "A CORE_GOLD_48",
+        "B CORE_PLUS_CALENDAR",
+        "C CORE_PLUS_REST_TRAVEL",
+        "D CORE_PLUS_CIRCADIAN",
+        "E CORE_PLUS_DIVISION_RIVALRY",
+        "F CORE_PLUS_CALENDAR_TRAVEL",
+        "G FULL_CONTEXTUAL_CHALLENGER",
+    ]
+    assert all(not item["includedByDefault"] for item in context["features"][48:])
     json.dumps(review, allow_nan=False)

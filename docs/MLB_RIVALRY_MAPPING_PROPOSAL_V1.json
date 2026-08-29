@@ -1,0 +1,27 @@
+{
+  "mappingContract": "MLB_RIVALRY_MAPPING_V1",
+  "mappingVersion": 1,
+  "status": "PROPOSED_NOT_APPROVED",
+  "active": false,
+  "reviewRequiredBy": "James Gearheart",
+  "activationRule": "No pair may populate rivalry_pair or any rivalry-derived feature until this artifact is explicitly approved in a later version.",
+  "proposedPairs": [
+    ["BOS", "NYY"],
+    ["CHC", "STL"],
+    ["LAD", "SF"],
+    ["HOU", "TEX"],
+    ["NYM", "PHI"],
+    ["CHC", "CWS"],
+    ["NYM", "NYY"],
+    ["LAA", "LAD"],
+    ["ATH", "SF"],
+    ["MIA", "TB"],
+    ["KC", "STL"],
+    ["BAL", "WSH"]
+  ],
+  "notes": [
+    "This is a human-review queue, not active scientific authority.",
+    "No pair was inferred from attendance, media coverage, team names, or model outcomes.",
+    "Approval should document pair rationale, effective dates, and any franchise-identity transitions."
+  ]
+}

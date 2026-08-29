@@ -45,6 +45,41 @@ export type Stage2Missingness = {
   byMonth: { month: string; missingRows: number; rows: number; missingPct: number }[];
 };
 
+export type ContextualFeaturePack = {
+  status: string;
+  verified: boolean;
+  datasetId: string;
+  manifestSha256: string;
+  sourceGoldManifestSha256: string;
+  rowCount: number;
+  coreFeatureCount: number;
+  addedFeatureCount: number;
+  totalFeatureCount: number;
+  teamGameRowCount: number;
+  rivalryMappingStatus: string;
+  features: {
+    name: string;
+    family: string;
+    category: string;
+    definition: string;
+    sourceLineage: string;
+    pointInTimeTreatment: string;
+    coverageOverall: number;
+    coverageDevelopment: number;
+    coverageFinalOot: number;
+    proxyWarning: string | null;
+    includedByDefault: boolean;
+  }[];
+  families: {
+    name: string;
+    featureCount: number;
+    orderedFeatures: string[];
+    includedByDefault: boolean;
+  }[];
+  interactions: { name: string; status: string; reason: string }[];
+  warnings: string[];
+};
+
 export type CurrentGoldDataReview = {
   schemaVersion: string;
   projectId: string;
@@ -106,6 +141,7 @@ export type CurrentGoldDataReview = {
     predictors: Stage2Missingness[];
     note: string;
   };
+  contextualFeaturePack?: ContextualFeaturePack;
   pointInTimeReview: Stage2Check;
   leakageGate: Stage2Check;
   modelingTreatment: {

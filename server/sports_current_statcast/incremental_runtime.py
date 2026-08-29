@@ -14,6 +14,11 @@ from zoneinfo import ZoneInfo
 import pyarrow.csv as pacsv
 
 from server.persistence.db import Database, json_loads
+from server.sports_current_statcast.contextual_gold import (
+    CONTEXT_GOLD_DATASET_ID,
+    build_contextual_gold,
+    verify_contextual_gold,
+)
 from server.sports_current_statcast.gold import build_current_gold, verify_current_gold
 from server.sports_current_statcast.pipeline import build_current_silver, verify_current_silver
 from server.sports_datasets.current_statcast import (
@@ -60,6 +65,11 @@ def _locator(root: Path) -> dict[str, Any]:
     return _json(Path(root) / "current.json")
 
 
+def _optional_locator(root: Path) -> dict[str, Any]:
+    path = Path(root) / "current.json"
+    return _json(path) if path.is_file() else {}
+
+
 def _current_manifest(root: Path) -> tuple[str, dict[str, Any]]:
     locator = _locator(root)
     manifest_sha = str(locator.get("manifestSha256") or locator.get("currentManifestSha256") or "")
@@ -91,6 +101,12 @@ def _current_registration(config: CurrentStatcastSyncConfig) -> dict[str, Any] |
 def _coverage_snapshot(config: CurrentStatcastSyncConfig) -> dict[str, Any]:
     silver_sha, silver = _current_manifest(config.current_silver_root)
     gold_sha, gold = _current_manifest(config.current_gold_root)
+    contextual_locator = _optional_locator(config.contextual_gold_root)
+    contextual_sha = str(
+        contextual_locator.get("manifestSha256")
+        or contextual_locator.get("currentManifestSha256")
+        or ""
+    )
     registration = _current_registration(config)
     partitions = list(silver.get("partitions") or [])
     return {
@@ -113,6 +129,7 @@ def _coverage_snapshot(config: CurrentStatcastSyncConfig) -> dict[str, Any]:
         "goldFeatureCount": int(gold.get("featureCount") or 0),
         "silverManifestSha256": silver_sha,
         "goldManifestSha256": gold_sha,
+        "contextualGoldManifestSha256": contextual_sha or None,
         "registrationId": registration.get("registration_id") if registration else None,
     }
 
@@ -214,8 +231,25 @@ def _recover_pending_commit(config: CurrentStatcastSyncConfig) -> None:
         return
     silver_new = str((payload.get("silver") or [None, None])[1] or "")
     gold_new = str((payload.get("gold") or [None, None])[1] or "")
+    contextual_pair = payload.get("contextualGold")
+    contextual_new = ""
     silver_verified = verify_current_silver(config.current_silver_root, silver_new)
     gold_verified = verify_current_gold(config.current_gold_root, gold_new)
+    if contextual_pair is not None:
+        if not isinstance(contextual_pair, list) or len(contextual_pair) != 2:
+            raise CurrentStatcastSyncRuntimeError(
+                "pending contextual Gold journal identity is invalid"
+            )
+        contextual_new = str(contextual_pair[1] or "")
+        contextual_verified = verify_contextual_gold(
+            config.contextual_gold_root,
+            contextual_new,
+            current_gold_root=config.current_gold_root,
+        )
+        if contextual_verified.get("sourceGoldManifestSha256") != gold_new:
+            raise CurrentStatcastSyncRuntimeError(
+                "pending contextual Gold publication is not bound to pending Gold"
+            )
     _atomic_locator(
         config.current_silver_root,
         CURRENT_STATCAST_DATASET_ID,
@@ -229,6 +263,20 @@ def _recover_pending_commit(config: CurrentStatcastSyncConfig) -> None:
         gold_new,
         gold_path,
     )
+    if contextual_new:
+        contextual_path = (
+            Path(config.contextual_gold_root)
+            / "publications"
+            / "sha256"
+            / contextual_new
+            / "manifest.json"
+        )
+        _atomic_locator(
+            config.contextual_gold_root,
+            CONTEXT_GOLD_DATASET_ID,
+            contextual_new,
+            contextual_path,
+        )
     journal.unlink(missing_ok=True)
 
 
@@ -349,6 +397,9 @@ def _probe_schedule(config: CurrentStatcastSyncConfig) -> dict[str, Any]:
         "correctionEligibleDates": [day for day in fully_completed if day <= resolved.isoformat()],
         "currentSilverPublicationIdentity": current["silverManifestSha256"],
         "currentGoldPublicationIdentity": current["goldManifestSha256"],
+        "currentContextualGoldPublicationIdentity": current.get(
+            "contextualGoldManifestSha256"
+        ),
         "currentWarehouseRegistrationIdentity": (
             registration.get("registration_id") if registration else None
         ),
@@ -454,6 +505,9 @@ def _sync_bronze(
         current_ids = {
             "currentSilverPublicationIdentity": probe.get("currentSilverPublicationIdentity"),
             "currentGoldPublicationIdentity": probe.get("currentGoldPublicationIdentity"),
+            "currentContextualGoldPublicationIdentity": probe.get(
+                "currentContextualGoldPublicationIdentity"
+            ),
             "currentWarehouseRegistrationIdentity": probe.get("currentWarehouseRegistrationIdentity"),
             "currentCoverage": dict(probe.get("currentCoverage") or {}),
         }
@@ -640,6 +694,44 @@ def _sync_gold(
         publish_current=False,
     )
     verified = verify_current_gold(config.current_gold_root, str(built["manifestSha256"]))
+    contextual_prior_locator = _optional_locator(config.contextual_gold_root)
+    contextual_prior = str(
+        contextual_prior_locator.get("manifestSha256")
+        or contextual_prior_locator.get("currentManifestSha256")
+        or ""
+    )
+    contextual_built = build_contextual_gold(
+        current_gold_root=config.current_gold_root,
+        output_root=config.contextual_gold_root,
+        current_gold_manifest_sha256=str(built["manifestSha256"]),
+        recompute_dates=affected_target_dates,
+        prior_manifest_sha256=contextual_prior or None,
+        publish_current=False,
+    )
+    contextual_verification = {
+        "datasetId": CONTEXT_GOLD_DATASET_ID,
+        "manifestSha256": str(contextual_built["manifestSha256"]),
+        "sourceGoldManifestSha256": str(
+            (contextual_built.get("sourceGold") or {}).get("manifestSha256") or ""
+        ),
+        "rowCount": int(contextual_built["rowCount"]),
+        "modelsFitted": int(contextual_built["modelsFitted"]),
+        "modelsScored": int(contextual_built["modelsScored"]),
+        "modelsCalibrated": int(contextual_built["modelsCalibrated"]),
+        "modelPromoted": contextual_built["modelPromoted"],
+        "verified": True,
+    }
+    if (
+        contextual_verification["sourceGoldManifestSha256"]
+        != str(built["manifestSha256"])
+        or contextual_verification["modelsFitted"] != 0
+        or contextual_verification["modelsScored"] != 0
+        or contextual_verification["modelsCalibrated"] != 0
+        or contextual_verification["modelPromoted"] is not False
+    ):
+        raise CurrentStatcastSyncRuntimeError(
+            "contextual Gold candidate is not model-free and bound to current Gold"
+        )
     return {
         "status": "COMPLETE",
         "publicationIdentity": str(built["manifestSha256"]),
@@ -651,6 +743,24 @@ def _sync_gold(
         "modelsFitted": int(built["modelsFitted"]),
         "manifest": built,
         "verification": verified,
+        "contextualPublication": {
+            "status": "COMPLETE",
+            "datasetId": CONTEXT_GOLD_DATASET_ID,
+            "publicationIdentity": str(contextual_built["manifestSha256"]),
+            "priorPublicationIdentity": contextual_prior or None,
+            "publicationPath": str(contextual_built["manifestPath"]),
+            "recomputedDates": list(
+                contextual_built.get("recomputedTargetDates") or affected_target_dates
+            ),
+            "featureCount": int(contextual_built["totalFeatureCount"]),
+            "rowCount": int(contextual_built["rowCount"]),
+            "modelsFitted": int(contextual_built["modelsFitted"]),
+            "modelsScored": int(contextual_built["modelsScored"]),
+            "modelsCalibrated": int(contextual_built["modelsCalibrated"]),
+            "modelPromoted": contextual_built["modelPromoted"],
+            "manifest": contextual_built,
+            "verification": contextual_verification,
+        },
     }
 
 
@@ -662,7 +772,7 @@ def _historical_pa_descriptors(config: CurrentStatcastSyncConfig) -> list[dict[s
 
 def _atomic_locator(root: Path, dataset_id: str, new_sha: str, manifest_path: Path) -> None:
     root = Path(root).resolve()
-    old = _locator(root)
+    old = _optional_locator(root)
     old_sha = str(old.get("manifestSha256") or old.get("currentManifestSha256") or "")
     history = list(old.get("historicalManifestSha256s") or [])
     if old_sha and old_sha != new_sha and old_sha not in history:
@@ -688,6 +798,25 @@ def _sync_warehouse(
     status: dict[str, Any],
 ) -> dict[str, Any]:
     silver_manifest = dict(silver_delta["manifest"])
+    contextual = gold_delta.get("contextualPublication")
+    if contextual is not None:
+        contextual_verification = (
+            contextual.get("verification") if isinstance(contextual, Mapping) else None
+        )
+        if (
+            not isinstance(contextual, Mapping)
+            or contextual.get("status") != "COMPLETE"
+            or int(contextual.get("modelsFitted") or 0) != 0
+            or int(contextual.get("modelsScored") or 0) != 0
+            or int(contextual.get("modelsCalibrated") or 0) != 0
+            or contextual.get("modelPromoted") is not False
+            or not isinstance(contextual_verification, Mapping)
+            or str(contextual_verification.get("sourceGoldManifestSha256") or "")
+            != str(gold_delta["publicationIdentity"])
+        ):
+            raise CurrentStatcastSyncRuntimeError(
+                "contextual Gold candidate failed the warehouse transaction boundary"
+            )
     sync_health = {
         "status": "COMPLETE",
         "latestFullyCompletedDate": (silver_manifest.get("dateCoverage") or {}).get("latestDate"),
@@ -745,14 +874,17 @@ def _sync_warehouse(
     expected_registration_id = CurrentStatcastDatasetRegistry._registration_id(
         str(validated.manifest["manifestSha256"])
     )
-    _write_json_atomic(
-        journal,
-        {
-            "silver": [silver_delta["priorPublicationIdentity"], silver_delta["publicationIdentity"]],
-            "gold": [gold_delta["priorPublicationIdentity"], gold_delta["publicationIdentity"]],
-            "registration": expected_registration_id,
-        },
-    )
+    journal_payload: dict[str, Any] = {
+        "silver": [silver_delta["priorPublicationIdentity"], silver_delta["publicationIdentity"]],
+        "gold": [gold_delta["priorPublicationIdentity"], gold_delta["publicationIdentity"]],
+        "registration": expected_registration_id,
+    }
+    if isinstance(contextual, Mapping):
+        journal_payload["contextualGold"] = [
+            contextual.get("priorPublicationIdentity"),
+            contextual["publicationIdentity"],
+        ]
+    _write_json_atomic(journal, journal_payload)
     database = Database(config.database_path)
     database.initialize()
     registration = CurrentStatcastDatasetRegistry(database).register(
@@ -770,6 +902,13 @@ def _sync_warehouse(
         str(gold_delta["publicationIdentity"]),
         Path(str(gold_delta["publicationPath"])),
     )
+    if isinstance(contextual, Mapping):
+        _atomic_locator(
+            config.contextual_gold_root,
+            CONTEXT_GOLD_DATASET_ID,
+            str(contextual["publicationIdentity"]),
+            Path(str(contextual["publicationPath"])),
+        )
     journal.unlink(missing_ok=True)
     metadata = registration.get("metadata_json") or {}
     return {

@@ -17,6 +17,10 @@ const stage2Content = stageContent.slice(
   stageContent.indexOf("case 2:"),
   stageContent.indexOf("case 3:"),
 );
+const contextualPanel = panel.slice(
+  panel.indexOf("function ContextualFeatureReview"),
+  panel.indexOf("function MissingnessReview"),
+);
 
 test("Stage 2 reads the project-scoped current-Gold review rather than the legacy cockpit preview", () => {
   assert.match(
@@ -82,6 +86,43 @@ test("predictor missingness exposes every required diagnostic without treating i
   assert.ok(panel.includes("review.missingness.note"));
   assert.ok(panel.includes("item.reasonCounts"));
   assert.ok(panel.includes("item.bySeason") && panel.includes("item.byMonth"));
+});
+
+test("Stage 2 renders the optional contextual pack as a non-authoritative review workspace", () => {
+  for (const field of [
+    "contextualFeaturePack",
+    "verified",
+    "sourceGoldManifestSha256",
+    "coreFeatureCount",
+    "addedFeatureCount",
+    "teamGameRowCount",
+    "rivalryMappingStatus",
+    "sourceLineage",
+    "pointInTimeTreatment",
+    "coverageDevelopment",
+    "coverageFinalOot",
+    "proxyWarning",
+    "includedByDefault",
+    "interactions",
+  ]) {
+    assert.ok(client.includes(field), `missing contextual feature contract field: ${field}`);
+  }
+  for (const label of [
+    "Contextual feature pack · review only",
+    "Hypothesis, proxy, and rivalry warning",
+    "Feature definitions, lineage, point-in-time treatment, and coverage",
+    "Declared interactions",
+    "Review preview",
+    "Semantic verification",
+  ]) {
+    assert.ok(contextualPanel.includes(label), `missing contextual review surface: ${label}`);
+  }
+  assert.ok(panel.includes("review.contextualFeaturePack ? <ContextualFeatureReview"));
+  assert.ok(contextualPanel.includes("useState<Record<string, boolean>>"));
+  assert.ok(contextualPanel.includes("aria-pressed"));
+  assert.ok(contextualPanel.includes("not saved"));
+  assert.ok(contextualPanel.includes("do not fit, score, or adopt a model"));
+  assert.doesNotMatch(contextualPanel, /localStorage|acceptStage2DataReview|adoptStage|postJSON/);
 });
 
 test("acceptance fails closed and the adopted review is bound to exact source and Gold identities", () => {

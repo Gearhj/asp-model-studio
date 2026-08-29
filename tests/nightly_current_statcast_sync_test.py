@@ -11,11 +11,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import inspect
+import json
 import threading
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -282,6 +284,7 @@ def _config(tmp_path: Path, *, through: str = "2026-08-27") -> INC.CurrentStatca
         current_silver_root=staging / "current-silver",
         existing_gold_root=staging / "existing-gold",
         current_gold_root=staging / "current-gold",
+        contextual_gold_root=staging / "current-context-gold",
         exchange_root=staging / "exchange",
         package_root=staging,
         database_path=tmp_path / "registry.db",
@@ -528,6 +531,175 @@ def test_only_affected_gold_target_dates_are_recomputed(tmp_path: Path) -> None:
 
     gold_calls = [value for name, value in world.calls if name == "gold"]
     assert gold_calls == [("2026-08-25", "2026-08-26", "2026-08-27")]
+
+
+def test_runtime_gold_builds_contextual_candidate_as_unpublished_follow_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path, through="2026-08-28")
+    config.current_gold_root.mkdir(parents=True)
+    (config.current_gold_root / "current.json").write_text(
+        json.dumps({"manifestSha256": "gold-prior"}), encoding="utf-8"
+    )
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def build_gold(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("gold", kwargs))
+        return {
+            "manifestSha256": "gold-next",
+            "manifestPath": str(config.current_gold_root / "gold-next.json"),
+            "featureCount": 48,
+            "rowCount": 7,
+            "modelsFitted": 0,
+            "modelsScored": 0,
+            "modelsCalibrated": 0,
+            "modelPromoted": False,
+        }
+
+    def verify_gold(_root: Path, manifest_sha: str) -> dict[str, Any]:
+        calls.append(("verify-gold", {"manifestSha256": manifest_sha}))
+        return {"manifestSha256": manifest_sha, "verified": True}
+
+    def build_context(**kwargs: Any) -> dict[str, Any]:
+        calls.append(("context", kwargs))
+        return {
+            "manifestSha256": "context-next",
+            "manifestPath": str(config.contextual_gold_root / "context-next.json"),
+            "sourceGold": {"manifestSha256": "gold-next"},
+            "recomputedTargetDates": ["2026-08-28"],
+            "totalFeatureCount": 96,
+            "rowCount": 7,
+            "modelsFitted": 0,
+            "modelsScored": 0,
+            "modelsCalibrated": 0,
+            "modelPromoted": False,
+        }
+
+    monkeypatch.setattr(RUNTIME, "build_current_gold", build_gold)
+    monkeypatch.setattr(RUNTIME, "verify_current_gold", verify_gold)
+    monkeypatch.setattr(RUNTIME, "build_contextual_gold", build_context)
+
+    result = RUNTIME._sync_gold(
+        config,
+        {
+            "publicationIdentity": "silver-next",
+            "manifest": {"dateCoverage": {"latestDate": "2026-08-28"}},
+        },
+        ["2026-08-28"],
+    )
+
+    assert [name for name, _kwargs in calls] == ["gold", "verify-gold", "context"]
+    context_kwargs = calls[-1][1]
+    assert context_kwargs["current_gold_manifest_sha256"] == "gold-next"
+    assert context_kwargs["recompute_dates"] == ["2026-08-28"]
+    assert context_kwargs["prior_manifest_sha256"] is None
+    assert context_kwargs["publish_current"] is False
+    assert result["contextualPublication"]["publicationIdentity"] == "context-next"
+    assert result["contextualPublication"]["modelsFitted"] == 0
+    assert not (config.contextual_gold_root / "current.json").exists()
+
+
+def test_warehouse_promotes_contextual_locator_only_after_registry_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path, through="2026-08-28")
+    events: list[tuple[str, Any]] = []
+    fail_registration = {"value": True}
+
+    class FakeDatabase:
+        def __init__(self, _path: Path) -> None:
+            pass
+
+        def initialize(self) -> None:
+            events.append(("database", None))
+
+    class FakeRegistry:
+        def __init__(self, _database: FakeDatabase) -> None:
+            pass
+
+        @staticmethod
+        def _registration_id(_manifest_sha: str) -> str:
+            return "registration-next"
+
+        def register(self, _validated: Any, *, user_id: str) -> dict[str, Any]:
+            events.append(("register", user_id))
+            if fail_registration["value"]:
+                raise RuntimeError("registry unavailable")
+            return {
+                "registration_id": "registration-next",
+                "metadata_json": {
+                    "supersedesRegistrationId": "registration-prior",
+                    "historicalRegistrationIds": ["registration-prior"],
+                },
+            }
+
+    monkeypatch.setattr(
+        RUNTIME,
+        "build_current_statcast_warehouse_manifest",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            manifest={"manifestSha256": "warehouse-next"}
+        ),
+    )
+    monkeypatch.setattr(RUNTIME, "_historical_pa_descriptors", lambda _config: [])
+    monkeypatch.setattr(RUNTIME, "Database", FakeDatabase)
+    monkeypatch.setattr(RUNTIME, "CurrentStatcastDatasetRegistry", FakeRegistry)
+    monkeypatch.setattr(
+        RUNTIME,
+        "_atomic_locator",
+        lambda root, dataset_id, new_sha, _path: events.append(
+            ("locator", (Path(root), dataset_id, new_sha))
+        ),
+    )
+    silver = {
+        "priorPublicationIdentity": "silver-prior",
+        "publicationIdentity": "silver-next",
+        "publicationPath": str(config.current_silver_root / "silver-next.json"),
+        "manifest": {
+            "dateCoverage": {"earliestDate": "2023-03-30", "latestDate": "2026-08-28"},
+            "counts": {},
+            "partitions": [],
+        },
+        "bronze": {},
+    }
+    gold = {
+        "priorPublicationIdentity": "gold-prior",
+        "publicationIdentity": "gold-next",
+        "publicationPath": str(config.current_gold_root / "gold-next.json"),
+        "rowCount": 7,
+        "featureCount": 48,
+        "contextualPublication": {
+            "status": "COMPLETE",
+            "priorPublicationIdentity": "context-prior",
+            "publicationIdentity": "context-next",
+            "publicationPath": str(config.contextual_gold_root / "context-next.json"),
+            "modelsFitted": 0,
+            "modelsScored": 0,
+            "modelsCalibrated": 0,
+            "modelPromoted": False,
+            "verification": {"sourceGoldManifestSha256": "gold-next"},
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="registry unavailable"):
+        RUNTIME._sync_warehouse(config, silver, gold, {})
+
+    assert [event for event in events if event[0] == "locator"] == []
+    journal = json.loads(
+        (config.report_root / "commit-journal.json").read_text(encoding="utf-8")
+    )
+    assert journal["contextualGold"] == ["context-prior", "context-next"]
+
+    fail_registration["value"] = False
+    result = RUNTIME._sync_warehouse(config, silver, gold, {})
+
+    locators = [value for name, value in events if name == "locator"]
+    assert locators == [
+        (config.current_silver_root, RUNTIME.CURRENT_STATCAST_DATASET_ID, "silver-next"),
+        (config.current_gold_root, "gold-table:gold_mlb_current_pa_v1", "gold-next"),
+        (config.contextual_gold_root, RUNTIME.CONTEXT_GOLD_DATASET_ID, "context-next"),
+    ]
+    assert result["status"] == "COMPLETE"
+    assert not (config.report_root / "commit-journal.json").exists()
 
 
 def test_warehouse_coverage_advances_only_after_verified_publications(tmp_path: Path) -> None:

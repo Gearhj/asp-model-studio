@@ -41,6 +41,9 @@ class CurrentStatcastSyncConfig:
     report_root: Path = Path(r".runtime\asp-model-studio\current-statcast-sync")
     lock_path: Path = Path(r".runtime\asp-model-studio\locks\current-statcast-sync.lock")
     registered_by: str = "nightly-current-statcast-sync"
+    contextual_gold_root: Path = Path(
+        r"C:\Users\james\asp-data-staging\mlb-current-statcast-context-gold-v2"
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.correction_lookback, int) or self.correction_lookback < 0:
@@ -82,6 +85,9 @@ def _identity_fields(bronze: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "silverPublicationIdentity": bronze.get("currentSilverPublicationIdentity"),
         "goldPublicationIdentity": bronze.get("currentGoldPublicationIdentity"),
+        "contextualGoldPublicationIdentity": bronze.get(
+            "currentContextualGoldPublicationIdentity"
+        ),
         "warehouseRegistrationIdentity": bronze.get("currentWarehouseRegistrationIdentity"),
         "resultingCoverage": dict(bronze.get("currentCoverage") or {}),
     }
@@ -217,7 +223,23 @@ def _sync_current_statcast_impl(
             _record_attempt(config, report)
             return report
         gold = deps.sync_gold(config, silver, affected)
-        if gold.get("status") != "COMPLETE" or int(gold.get("modelsFitted") or 0) != 0:
+        contextual = gold.get("contextualPublication")
+        contextual_failed = bool(
+            contextual is not None
+            and (
+                not isinstance(contextual, Mapping)
+                or contextual.get("status") != "COMPLETE"
+                or int(contextual.get("modelsFitted") or 0) != 0
+                or int(contextual.get("modelsScored") or 0) != 0
+                or int(contextual.get("modelsCalibrated") or 0) != 0
+                or contextual.get("modelPromoted") is not False
+            )
+        )
+        if (
+            gold.get("status") != "COMPLETE"
+            or int(gold.get("modelsFitted") or 0) != 0
+            or contextual_failed
+        ):
             report.update({"status": "FAILED", "failedStage": "GOLD"})
             _record_attempt(config, report)
             return report
@@ -255,6 +277,17 @@ def _sync_current_statcast_impl(
                 "modelFits": 0,
             }
         )
+        if isinstance(contextual, Mapping):
+            report.update(
+                {
+                    "contextualGoldPublicationIdentity": contextual.get(
+                        "publicationIdentity"
+                    ),
+                    "priorContextualGoldPublicationIdentity": contextual.get(
+                        "priorPublicationIdentity"
+                    ),
+                }
+            )
         _record_attempt(config, report)
         return report
 
