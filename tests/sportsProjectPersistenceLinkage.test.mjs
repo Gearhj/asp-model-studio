@@ -83,6 +83,13 @@ test("evidence selection is project-scoped and does not mutate workspace-active 
   assert.ok(!linkage.includes("/sports/datasets/{registration_id}/activate"));
 });
 
+test("MLB Stage 2 offers only workflow-compatible MLB evidence registrations", () => {
+  assert.ok(control.includes("item.compatibleWorkflowIds?.length"));
+  assert.ok(control.includes('item.compatibleWorkflowIds.includes("mlb-forecasting")'));
+  assert.ok(control.includes('item.league.trim().toUpperCase() === "MLB"'));
+  assert.ok(control.indexOf("catalog.data.filter") < control.indexOf("datasets.map"));
+});
+
 test("sports contract surfaces contain no legacy ATLAS project wording", () => {
   for (const source of [contractPanel, backendStore, workflow, control]) {
     assert.doesNotMatch(source, /ATLAS project|ATLAS persistence|ATLAS project not found/i);

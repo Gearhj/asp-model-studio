@@ -106,6 +106,19 @@ function BridgeMetric({ label, value, detail }: { label: string; value: string; 
 
 function MetricGrid({ dataset }: { dataset: ActiveSportsDataset }) {
   const totals = dataset.totals;
+  if (dataset.league.trim().toUpperCase() === "NFL") {
+    const nflItems = [
+      { label: "Games", value: number(totals.games), detail: "Canonical game authority" },
+      { label: "Plays", value: number(totals.plays), detail: "Canonical play authority" },
+      { label: "Drives", value: number(totals.drives), detail: "Canonical drive authority" },
+      { label: "Team-game rows", value: number(totals.teamGameRows), detail: "Team-game fact authority" },
+      { label: "Player-game rows", value: number(totals.playerGameRows), detail: "Player-game fact authority" },
+      { label: "Gold pregame games", value: number(totals.goldPregameGames), detail: "Research-only Gold game rows" },
+      { label: "Gold play states", value: number(totals.goldPlayStates), detail: "Research-only Gold play rows" },
+      { label: "Registered tables", value: number(totals.tables), detail: `${number(totals.canonicalRows)} canonical rows` },
+    ];
+    return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="NFL dataset evidence summary">{nflItems.map((item) => <article key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</div><div className="mt-2 break-words text-2xl font-semibold tabular-nums text-slate-950">{item.value}</div><div className="mt-1 text-xs leading-5 text-slate-500">{item.detail}</div></article>)}</section>;
+  }
   const currentStatcast = dataset.datasetId === "asp.mlb.statcast.current-pa.v1";
   const items = [
     { label: currentStatcast ? "Date coverage" : "Seasons", value: dataset.dateCoverage ? `${dataset.dateCoverage.earliestDate}–${dataset.dateCoverage.latestDate}` : dataset.seasons?.length ? `${Math.min(...dataset.seasons)}–${Math.max(...dataset.seasons)}` : "—", detail: dataset.dateCoverage ? "Exact accepted plate-appearance dates" : dataset.league },
@@ -130,6 +143,86 @@ function SeasonCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
     return <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Earliest accepted date", "Latest accepted date", "Plate appearances"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{dataset.seasonCoverage.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 font-mono">{safeText(row.earliestDate)}</td><td className="px-3 py-3 font-mono">{safeText(row.latestDate)}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearances)}</td></tr>)}</tbody></table></div>;
   }
   return <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Games", "Plate appearances", "Transitions", "Starter targets", "Bullpen"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{dataset.seasonCoverage.map((row) => <tr key={row.season} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3 tabular-nums">{number(row.games)}</td><td className="px-3 py-3 tabular-nums">{number(row.plateAppearances)}</td><td className="px-3 py-3 tabular-nums">{number(row.transitions)}</td><td className="px-3 py-3 tabular-nums">{number(row.starterTargets)}</td><td className="px-3 py-3 tabular-nums">{number(row.bullpenAppearances)}</td></tr>)}</tbody></table></div>;
+}
+
+function recordNumber(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordText(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key];
+  return typeof value === "string" || typeof value === "boolean" ? safeText(value) : "—";
+}
+
+function NflSeasonAndCurrentCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
+  const quality = dataset.quality;
+  const schedule = quality?.scheduleBySeasonAndGameType ?? [];
+  const playByPlay = quality?.pbpBySeasonAndGameType ?? [];
+  const rows = schedule.map((item) => {
+    const pbp = playByPlay.find((candidate) => candidate.season === item.season && candidate.gameType === item.gameType);
+    return { ...item, pbpGames: pbp?.games, plays: pbp?.plays };
+  });
+  const current = quality?.current2026;
+  return <div className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Detail label="Evidence start" value={dataset.dateCoverage?.earliestDate || dataset.evidenceCutoff} />
+      <Detail label="Evidence end" value={dataset.dateCoverage?.latestDate || dataset.evidenceCutoff} />
+      <Detail label="2026 scheduled games" value={number(recordNumber(current, "scheduledGames"))} />
+      <Detail label="2026 completed games" value={number(recordNumber(current, "completedGames"))} />
+      <Detail label="2026 minimum date" value={recordText(current, "minimumDate")} />
+      <Detail label="2026 maximum date" value={recordText(current, "maximumDate")} />
+      <Detail label="Completed-game evidence" value={recordText(current, "completedGameEvidence")} />
+      <Detail label="Current sync" value={safeText(dataset.nflCurrentSync?.status)} />
+    </div>
+    {dataset.nflCurrentSync?.latestSuccessfulAtUtc ? <p className="text-xs text-slate-500">Latest successful NFL foundation sync: <span className="font-mono">{safeText(dataset.nflCurrentSync.latestSuccessfulAtUtc)}</span></p> : null}
+    <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Season", "Game type", "Scheduled", "Completed", "PBP games", "Plays"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={`${row.season}-${row.gameType}`} className="border-b border-slate-100 last:border-0"><td className="px-3 py-3 font-semibold text-slate-900">{row.season}</td><td className="px-3 py-3">{row.gameType}</td><td className="px-3 py-3 tabular-nums">{number(row.scheduledGames)}</td><td className="px-3 py-3 tabular-nums">{number(row.completedGames)}</td><td className="px-3 py-3 tabular-nums">{number(row.pbpGames)}</td><td className="px-3 py-3 tabular-nums">{number(row.plays)}</td></tr>)}</tbody></table></div>
+  </div>;
+}
+
+function NflSourceFamilyCoverage({ dataset }: { dataset: ActiveSportsDataset }) {
+  const families = dataset.sourceFamilies ?? [];
+  return <Card title="NFL source-family coverage" description="Exact nflverse source families, eras, releases, licenses, and publication status returned by the registered authority.">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div className="text-sm text-slate-600">Provider: <strong>{safeText(dataset.sourceProvider)}</strong></div><Pill value={`${families.filter((item) => item.status === "COMPLETE").length} / ${families.length} complete`} /></div>
+    <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left text-xs"><thead><tr className="border-b border-slate-200 text-slate-500">{["Family", "Required", "Status", "Seasons / dates", "Partitions", "Rows", "Schema variants", "Latest source update"].map((label) => <th key={label} className="px-3 py-3 font-semibold uppercase tracking-wide">{label}</th>)}</tr></thead><tbody>{families.map((family) => <tr key={family.familyId} className="border-b border-slate-100 align-top last:border-0"><td className="px-3 py-3"><div className="font-semibold text-slate-900">{family.familyId.replaceAll("_", " ")}</div><div className="mt-1 text-[11px] text-slate-500">Releases: {family.releaseTags.join(", ") || "—"}<br />Licenses: {family.licenseIds.join(", ") || "—"}{family.missingSeasons.length ? <><br />Missing seasons: {family.missingSeasons.join(", ")}</> : null}</div></td><td className="px-3 py-3">{family.mandatory ? "MANDATORY" : "OPTIONAL"}</td><td className="px-3 py-3"><Pill value={family.status} /></td><td className="px-3 py-3">{family.seasons.length ? `${Math.min(...family.seasons)}–${Math.max(...family.seasons)}` : "—"}<div className="mt-1 font-mono text-[11px] text-slate-500">{family.minimumDate || "—"} through {family.maximumDate || "—"}</div></td><td className="px-3 py-3 tabular-nums">{number(family.partitionCount)}</td><td className="px-3 py-3 tabular-nums"><div>{number(family.rowCount)}</div>{family.rowsBySeason.length ? <details className="mt-1 text-[11px] text-slate-500"><summary className="cursor-pointer">By season</summary><div className="mt-1 max-h-44 overflow-auto whitespace-nowrap font-mono">{family.rowsBySeason.map((entry) => <div key={entry.season}>{entry.season}: {number(entry.rowCount)}</div>)}</div></details> : null}</td><td className="px-3 py-3 tabular-nums">{number(family.schemaVariantCount)}</td><td className="px-3 py-3 font-mono text-[11px]">{safeText(family.latestSourceUpdate)}</td></tr>)}</tbody></table></div>
+  </Card>;
+}
+
+function NflFeatureAuthority({ dataset }: { dataset: ActiveSportsDataset }) {
+  const families = Object.entries(dataset.featureFamilies ?? {});
+  const eraContracts = Object.entries(dataset.featureEraContracts ?? {});
+  return <Card title="NFL Gold feature-family authority" description="Exact research feature inventory by family. These are data contracts only; no estimator was fit or connected.">
+    <div className="grid gap-3 lg:grid-cols-2">{families.map(([family, features]) => <details key={family} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><summary className="cursor-pointer text-sm font-semibold text-slate-950">{family.replaceAll("_", " ")} <span className="ml-2 text-xs font-normal text-slate-500">{features.length} features</span></summary><ol className="mt-3 grid gap-1 text-xs leading-5 text-slate-700 sm:grid-cols-2">{features.map((feature, index) => <li key={feature} className="break-words"><span className="mr-1 font-mono text-slate-400">{index + 1}.</span>{feature}</li>)}</ol></details>)}</div>
+    {eraContracts.length ? <div className="mt-5"><h3 className="text-sm font-semibold text-slate-950">Feature-era contracts</h3><div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{eraContracts.map(([family, contract]) => <dl key={family} className="rounded-xl border border-slate-200 p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-slate-600">{family.replaceAll("_", " ")}</dt>{Object.entries(contract).map(([key, value]) => <div key={key} className="mt-2"><dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{humanizeEvidenceKey(key)}</dt><dd className="mt-0.5 text-xs text-slate-700">{safeText(value)}</dd></div>)}</dl>)}</div></div> : null}
+  </Card>;
+}
+
+function NflQualityReview({ dataset }: { dataset: ActiveSportsDataset }) {
+  const quality = dataset.quality;
+  if (!quality) return null;
+  const identity = quality.identity;
+  const reconciliation = quality.reconciliation;
+  const state = quality.stateQuality;
+  const market = quality.marketCoverage;
+  const gold = quality.gold;
+  return <Card title="NFL identity, reconciliation, and market review" description="Observed quality facts remain separate from model eligibility; market snapshots are post-evidence research inputs only when their timing is proven.">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Detail label="Duplicate game identities" value={number(recordNumber(identity, "duplicateGameIdentities"))} />
+      <Detail label="Duplicate play identities" value={number(recordNumber(identity, "duplicatePlayIdentities"))} />
+      <Detail label="Duplicate player identities" value={number(recordNumber(identity, "duplicateCanonicalPlayerIdentities"))} />
+      <Detail label="Ambiguous identities" value={number(recordNumber(identity, "ambiguousIdentityCount"))} />
+      <Detail label="Roster rows missing GSIS ID" value={number(recordNumber(identity, "rosterRowsMissingGsisId"))} />
+      <Detail label="Unresolved stat player IDs" value={number(recordNumber(identity, "unresolvedDistinctStatPlayerIds"))} />
+      <Detail label="PBP games without schedule" value={number(recordNumber(reconciliation, "pbpGamesWithoutSchedule"))} />
+      <Detail label="Completed games without PBP" value={number(recordNumber(reconciliation, "completed1999To2025RegPostGamesWithoutPbp"))} />
+      <Detail label="Impossible clock rows" value={number(recordNumber(state, "impossibleClockRows"))} />
+      <Detail label="Impossible score games" value={number(recordNumber(state, "impossibleScoreGames"))} />
+      <Detail label="Gold pregame games" value={number(recordNumber(gold, "pregameGames"))} />
+      <Detail label="Gold eligible play states" value={number(recordNumber(gold, "eligiblePlayStates"))} />
+    </div>
+    <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-amber-950">Historical market coverage</h3><Pill value={recordText(market, "timingSemantics")} /></div><dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Detail label="Market records" value={number(recordNumber(market, "records"))} /><Detail label="Two-sided moneyline" value={number(recordNumber(market, "completeTwoSidedMoneyline"))} /><Detail label="Two-sided spread" value={number(recordNumber(market, "completeTwoSidedSpread"))} /><Detail label="Two-sided total" value={number(recordNumber(market, "completeTwoSidedTotal"))} /><Detail label="Core predictor eligible" value={recordText(market, "corePredictorEligible")} /></dl></div>
+    <p className="mt-4 text-xs font-semibold text-slate-600">Models fitted: {number(quality.modelsFitted)} · Workspace activation: disabled · NFL workflow remains a research foundation.</p>
+  </Card>;
 }
 
 function CurrentEvidenceBoundary({ dataset }: { dataset: ActiveSportsDataset }) {
@@ -315,16 +408,16 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function DatasetDetails({ dataset }: { dataset: ActiveSportsDataset }) {
+  const isNfl = dataset.league.trim().toUpperCase() === "NFL";
   return <>
     <MetricGrid dataset={dataset} />
     <CurrentEvidenceBoundary dataset={dataset} />
-    <div className="grid gap-5 xl:grid-cols-2"><Card title="Family volume" description="Declared rows by logical data family."><FamilyChart dataset={dataset} /></Card><Card title="Season coverage" description="Registered evidence by season and target family."><SeasonCoverage dataset={dataset} /></Card></div>
+    <div className="grid gap-5 xl:grid-cols-2"><Card title="Family volume" description="Declared rows by logical data family."><FamilyChart dataset={dataset} /></Card><Card title={isNfl ? "NFL season and current-2026 coverage" : "Season coverage"} description={isNfl ? "Schedule, completed-game, play-by-play, and current-season evidence returned by the NFL authority." : "Registered evidence by season and target family."}>{isNfl ? <NflSeasonAndCurrentCoverage dataset={dataset} /> : <SeasonCoverage dataset={dataset} />}</Card></div>
+    {isNfl ? <><NflSourceFamilyCoverage dataset={dataset} /><NflFeatureAuthority dataset={dataset} /><NflQualityReview dataset={dataset} /></> : null}
     {dataset.populations.length ? <Card title="Population composition" description="Governed population precedence, permitted research uses, and prohibitions."><Populations dataset={dataset} /></Card> : null}
-    <div className="grid gap-5 xl:grid-cols-2">{dataset.folds.length ? <Card title="Temporal fold timeline" description="Frozen retrospective rolling-origin validation folds."><Folds dataset={dataset} /></Card> : null}<Card title="Evidence coverage matrix" description="Only coverage states returned by the registered dataset service are shown."><Coverage dataset={dataset} /></Card></div>
-    <IdentityBridgeAuthority dataset={dataset} />
-    <FeatureAuthority dataset={dataset} />
+    {!isNfl ? <><div className="grid gap-5 xl:grid-cols-2">{dataset.folds.length ? <Card title="Temporal fold timeline" description="Frozen retrospective rolling-origin validation folds."><Folds dataset={dataset} /></Card> : null}<Card title="Evidence coverage matrix" description="Only coverage states returned by the registered dataset service are shown."><Coverage dataset={dataset} /></Card></div><IdentityBridgeAuthority dataset={dataset} /><FeatureAuthority dataset={dataset} /></> : null}
     <div className="grid gap-5 xl:grid-cols-2"><Card title="Source rights" description="Approved uses and prohibited redistribution remain part of the registration."><Rights dataset={dataset} /></Card><Card title="Known limitations" description="Retrospective evidence is not prospective proof."><ul className="space-y-2">{dataset.limitations.map((limitation) => <li key={limitation} className="flex gap-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950"><Scale size={16} className="mt-1 shrink-0" />{limitation}</li>)}</ul></Card></div>
-    <Card title="Technical registration details" description="Checksums remain inspectable without exposing administrator-controlled physical evidence paths."><details><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2"><Detail label="Registration ID" value={dataset.registrationId} /><Detail label="Dataset ID" value={dataset.datasetId} /><Detail label="Dataset version" value={dataset.datasetVersionId} /><Detail label="Manifest ID" value={dataset.manifestId} /><Detail label="Manifest SHA-256" value={dataset.manifestSha} /><Detail label="Partition authority SHA-256" value={dataset.partitionAuthoritySha || "Unavailable"} /><Detail label="Package ID" value={dataset.packageId} /><Detail label="Logical root" value={logicalSportsEvidenceUri(dataset.logicalRoot)} /><Detail label="Evidence cutoff" value={dataset.evidenceCutoff} /></dl></details></Card>
+    <Card title="Technical registration details" description="Checksums remain inspectable without exposing administrator-controlled physical evidence paths."><details><summary className="cursor-pointer text-sm font-semibold text-cyan-800">Show immutable identifiers</summary><dl className="mt-4 grid gap-3 sm:grid-cols-2"><Detail label="Sport" value={dataset.sport} /><Detail label="League" value={dataset.league} />{dataset.authorityLayer ? <Detail label="Authority layer" value={dataset.authorityLayer} /> : null}{dataset.authorityState ? <Detail label="Authority state" value={dataset.authorityState} /> : null}<Detail label="Registration ID" value={dataset.registrationId} /><Detail label="Dataset ID" value={dataset.datasetId} /><Detail label="Dataset version" value={dataset.datasetVersionId} /><Detail label="Manifest ID" value={dataset.manifestId} /><Detail label="Manifest SHA-256" value={dataset.manifestSha} /><Detail label="Partition authority SHA-256" value={dataset.partitionAuthoritySha || "Unavailable"} /><Detail label="Package ID" value={dataset.packageId} /><Detail label="Logical root" value={logicalSportsEvidenceUri(dataset.logicalRoot)} /><Detail label="Evidence cutoff" value={dataset.evidenceCutoff} /></dl></details></Card>
   </>;
 }
 
@@ -368,13 +461,14 @@ function DatasetCatalogSelection({
   const [activation, setActivation] = useState<"idle" | "saving" | "error">("idle");
   const [message, setMessage] = useState("");
   const selected = datasets.find((item) => item.registrationId === selectedRegistrationId) ?? datasets[0];
+  const selectedActivationEligible = selected?.workspaceActivationEligible !== false;
   useEffect(() => {
     let current = true;
     void me().then((response) => { if (current) setRole(String(response.user.role).toLowerCase()); }).catch(() => { if (current) setRole(""); });
     return () => { current = false; };
   }, []);
   async function activate() {
-    if (!selected || selected.active || role !== "admin" || activation === "saving") return;
+    if (!selected || selected.active || !selectedActivationEligible || role !== "admin" || activation === "saving") return;
     setActivation("saving");
     setMessage("");
     try {
@@ -387,15 +481,16 @@ function DatasetCatalogSelection({
       setMessage(error instanceof Error ? error.message : "Dataset selection failed closed.");
     }
   }
-  return <Card title="Registered dataset catalog" description="Inspect any validated registration. Changing the workspace dataset is an explicit administrator action and never saves a project forecast contract.">
+  return <Card title="Registered dataset catalog" description="Inspect any validated registration. Read-only authorities cannot change the workspace dataset; eligible changes remain an explicit administrator action and never save a project forecast contract.">
     <div className="grid gap-3 lg:grid-cols-2">{datasets.map((item) => <button key={item.registrationId} type="button" onClick={() => onSelect(item.registrationId)} className={`rounded-xl border p-4 text-left transition ${item.registrationId === selected?.registrationId ? "border-cyan-400 bg-cyan-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold text-slate-950">{item.datasetId}</span><Pill value={item.active ? "WORKSPACE ACTIVE" : "AVAILABLE"} /></div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold text-slate-950">{item.datasetId}</span><Pill value={item.active ? "WORKSPACE ACTIVE" : item.workspaceActivationEligible === false ? "READ-ONLY AUTHORITY" : "AVAILABLE"} /></div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-700"><span>{item.sport} · {item.league}</span>{item.authorityLayer ? <Pill value={item.authorityLayer} /> : null}{item.authorityState ? <Pill value={item.authorityState} /> : null}</div>
       <div className="mt-2 text-xs text-slate-600">{item.dateCoverage ? `${item.dateCoverage.earliestDate} through ${item.dateCoverage.latestDate}` : `Evidence cutoff ${item.evidenceCutoff}`}</div>
       <div className="mt-1 break-all font-mono text-[11px] text-slate-500">{item.registrationId}</div>
     </button>)}</div>
     {selected ? <div className="mt-4 flex flex-wrap items-center gap-3">
-      <button type="button" disabled={selected.active || role !== "admin" || activation === "saving"} onClick={() => void activate()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><Database size={15} />{selected.active ? "Current workspace dataset" : activation === "saving" ? "Selecting…" : "Use for workflow"}</button>
-      <span className="text-xs text-slate-500">Inspection is transient. Workflow selection changes only when you press the button.</span>
+      {selectedActivationEligible ? <button type="button" disabled={selected.active || role !== "admin" || activation === "saving"} onClick={() => void activate()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><Database size={15} />{selected.active ? "Current workspace dataset" : activation === "saving" ? "Selecting…" : "Use for workflow"}</button> : <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"><LockKeyhole size={15} /> Read-only authority</span>}
+      <span className="text-xs text-slate-500">{selectedActivationEligible ? "Inspection is transient. Workflow selection changes only when you press the button." : "This authority is available for inspection only and cannot change the workspace dataset."}</span>
     </div> : null}
     {message ? <p className={`mt-3 rounded-lg border px-3 py-2 text-xs font-semibold ${activation === "error" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-cyan-200 bg-cyan-50 text-cyan-950"}`} role="status">{message}</p> : null}
   </Card>;

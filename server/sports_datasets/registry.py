@@ -1116,6 +1116,10 @@ class SportsDatasetRegistry:
             if row is None:
                 return None
             metadata = json_loads(row["metadata_json"], {})
+            if isinstance(metadata, Mapping) and metadata.get("workspaceActivationEligible") is False:
+                # Catalog-visible foundations (currently NFL) remain inspect-only
+                # until their own workflow receives explicit activation authority.
+                return None
             if (
                 row["dataset_id"] == _CURRENT_STATCAST_DATASET_ID
                 and isinstance(metadata, Mapping)
@@ -1466,6 +1470,20 @@ class SportsDatasetRegistry:
             "modelingStatus": metadata.get("modelingStatus"),
             "modelFitOccurred": metadata.get("modelFitOccurred"),
             "currentStatcastSync": current_sync,
+            "workspaceActivationEligible": metadata.get("workspaceActivationEligible", True),
+            "compatibleWorkflowIds": metadata.get("compatibleWorkflowIds", []),
+            "authorityLayer": metadata.get("authorityLayer"),
+            "authorityState": metadata.get("authorityState"),
+            "sourceProvider": metadata.get("sourceProvider"),
+            "sourceFamilies": metadata.get("sourceFamilies", []),
+            "featureFamilies": metadata.get("featureFamilies", {}),
+            "featureEraContracts": metadata.get("featureEraContracts", {}),
+            "quality": metadata.get("quality", {}),
+            "nflCurrentSync": (
+                (metadata.get("manifestMetadata") or {}).get("syncHealth")
+                if registration.get("league") == "NFL"
+                else None
+            ),
         }
         if identity_bridge is not None:
             result["identityBridge"] = identity_bridge

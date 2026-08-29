@@ -14,7 +14,12 @@ export function ProjectEvidenceDatasetControl({
   catalog: RefreshableEvidenceState<ActiveSportsDataset[]>;
   onLinked: () => void | Promise<void>;
 }) {
-  const datasets = catalog.status === "ready" ? catalog.data : [];
+  const datasets = catalog.status === "ready"
+    ? catalog.data.filter((item) => {
+        if (item.compatibleWorkflowIds?.length) return item.compatibleWorkflowIds.includes("mlb-forecasting");
+        return item.league.trim().toUpperCase() === "MLB";
+      })
+    : [];
   const initialRegistrationId = authority.linkage?.registrationId
     || datasets.find((item) => item.active)?.registrationId
     || datasets[0]?.registrationId

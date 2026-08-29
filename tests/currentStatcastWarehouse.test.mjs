@@ -14,6 +14,9 @@ test("current Statcast Data Warehouse surface shows exact dates and no fit claim
   for (const field of ["earliestDate", "latestDate", "rowCount", "partitionCount"]) {
     assert.ok(api.includes(`${field}:`), `API contract must expose ${field}`);
   }
+  for (const field of ["authorityLayer?", "authorityState?", "workspaceActivationEligible?", "compatibleWorkflowIds?"]) {
+    assert.ok(api.includes(field), `sport-neutral catalog contract must expose ${field}`);
+  }
   assert.ok(surface.includes('dataset.datasetId === "asp.mlb.statcast.current-pa.v1"'));
   assert.ok(surface.includes("Current Statcast evidence boundary"));
   assert.ok(surface.includes("Earliest accepted date"));
@@ -39,6 +42,13 @@ test("current Statcast Data Warehouse surface shows exact dates and no fit claim
   assert.ok(api.includes("activateSportsDataset"));
   assert.ok(surface.includes("Registered dataset catalog"));
   assert.ok(surface.includes("Use for workflow"));
+  assert.ok(surface.includes("{item.sport} · {item.league}"));
+  assert.ok(surface.includes("READ-ONLY AUTHORITY"));
+  assert.ok(surface.includes("selected?.workspaceActivationEligible !== false"));
+  assert.ok(surface.includes("Read-only authority"));
+  assert.match(surface, /selectedActivationEligible \? <button[\s\S]*Use for workflow[\s\S]*: <span[\s\S]*Read-only authority/);
+  assert.ok(surface.includes('label="Authority layer"'));
+  assert.ok(surface.includes('label="Authority state"'));
   assert.ok(surface.includes("Inspection is transient"));
   assert.ok(surface.includes("Final untouched OOT"));
   assert.ok(router.includes('@router.get("/sports/datasets/catalog")'));
