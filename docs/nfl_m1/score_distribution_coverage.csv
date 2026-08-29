@@ -1,0 +1,13 @@
+candidate_id,scope,quantity,nominal_coverage,observed_coverage,rows
+frozen-score-win-ensemble,FINAL_OOT,HOME_POINTS,0.9,0.894736842105,285
+frozen-score-win-ensemble,FINAL_OOT,AWAY_POINTS,0.9,0.905263157895,285
+frozen-score-win-ensemble,FINAL_OOT,SCORE_DIFFERENTIAL,0.9,0.898245614035,285
+frozen-score-win-ensemble,FINAL_OOT,TOTAL_POINTS,0.9,0.887719298246,285
+xgboost-fixed-research-challenger,FINAL_OOT,HOME_POINTS,0.9,0.894736842105,285
+xgboost-fixed-research-challenger,FINAL_OOT,AWAY_POINTS,0.9,0.901754385965,285
+xgboost-fixed-research-challenger,FINAL_OOT,SCORE_DIFFERENTIAL,0.9,0.898245614035,285
+xgboost-fixed-research-challenger,FINAL_OOT,TOTAL_POINTS,0.9,0.894736842105,285
+development-cross-fitted-score-win-ensemble,OOF,HOME_POINTS,0.9,0.904119318182,1408
+development-cross-fitted-score-win-ensemble,OOF,AWAY_POINTS,0.9,0.913352272727,1408
+development-cross-fitted-score-win-ensemble,OOF,SCORE_DIFFERENTIAL,0.9,0.901988636364,1408
+development-cross-fitted-score-win-ensemble,OOF,TOTAL_POINTS,0.9,0.906960227273,1408

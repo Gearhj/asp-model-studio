@@ -1,0 +1,130 @@
+{
+  "charts": {
+    "calibration": {
+      "file": "calibration.png",
+      "sha256": "6451eebe99e67685a8bdc424624e377724db8ce6f6d1ed9d5fd090f4ca4ea192",
+      "status": "RENDERED"
+    },
+    "cumulativeLogLossDifference": {
+      "file": "cumulative_log_loss_difference.png",
+      "sha256": "ef7b8c982015d32afd960402dcafd8721b829d45b3faba0ce2efb40aa01afb16",
+      "status": "RENDERED"
+    },
+    "featureTierAblation": {
+      "file": "feature_tier_ablation.png",
+      "sha256": "ec497832ff1ed061f95672304ee84f48a3a5195246bdaff10b6e42140becae54",
+      "status": "RENDERED"
+    },
+    "homeAwayPointsError": {
+      "file": "home_away_points_error.png",
+      "sha256": "92fe407ab696ab1754e77ac7bb94588316f799f3a7f8d0783622ac96102e34a5",
+      "status": "RENDERED"
+    },
+    "modelMarketDisagreement": {
+      "file": "model_market_disagreement.png",
+      "sha256": "6f615400dd9e82e442aaaf802782dc5070df912cabd7db54fdd94a8571178bfc",
+      "status": "RENDERED"
+    },
+    "oofOotLeaderboard": {
+      "file": "oof_oot_model_leaderboard.png",
+      "sha256": "e0559849d791ee0a1b78e26c03715a59b660f50a5dede7ad16602d3427b3dded",
+      "status": "RENDERED"
+    },
+    "recencyStrategy": {
+      "file": "recency_strategy_comparison.png",
+      "sha256": "c4d65881249351de42cca45ba2078e5c3531950262be727854ca606f53f02c5e",
+      "status": "RENDERED"
+    },
+    "scoreDistributionCoverage": {
+      "file": "score_distribution_coverage.png",
+      "sha256": "9379c7d495a4a7b3e33a8e54bc565eb84a55d0b7a959a3164acd9714fec7e7ab",
+      "status": "RENDERED"
+    },
+    "spreadTotalError": {
+      "file": "spread_total_error.png",
+      "sha256": "2c21666b6bdfa584dca19d6690ba0d3c70e592eecc788a1bba8b0bf6990929ef",
+      "status": "RENDERED"
+    },
+    "weeklyStability": {
+      "file": "weekly_stability.png",
+      "sha256": "0e22e199c225f9bf1b636e6ece2b0596cee887d51911a743d43f28ad29be5728",
+      "status": "RENDERED"
+    }
+  },
+  "contract": "ASP_NFL_M1_REPORTING_BUNDLE_V1",
+  "csv": {
+    "calibration": {
+      "file": "calibration_tables.csv",
+      "rows": 30,
+      "sha256": "94c761df472340f537464333313f3d2993f903efa48885ceffed4a34c38a6076"
+    },
+    "candidateModels": {
+      "file": "candidate_model_leaderboard.csv",
+      "rows": 18,
+      "sha256": "3097f2b2407b1b3b6578e5805f8e70d2a75a5df17c0c113d8276b8c860732d43"
+    },
+    "distributionCoverage": {
+      "file": "score_distribution_coverage.csv",
+      "rows": 12,
+      "sha256": "026054ae6dcf3a7accea12ace673af4942debd1ed0b77f6f5bc72a20ee97997e"
+    },
+    "featureCoefficients": {
+      "file": "feature_coefficients.csv",
+      "rows": 395,
+      "sha256": "0f4a6e406d9bd8d79b4e53fdecd348bf3ea20d7a39c089272865ab0e4df51a2e"
+    },
+    "featureTiers": {
+      "file": "feature_tier_leaderboard.csv",
+      "rows": 7,
+      "sha256": "7e12b6ef5845358d163705bf3ee1e23b4ac6770af741728125f6b280552840bc"
+    },
+    "foldCalibration": {
+      "file": "fold_calibration.csv",
+      "rows": 2150,
+      "sha256": "fd7f56370f11a378df06ad9e848a2ab09d6e85469db3ab91bc062f7aefdba0e3"
+    },
+    "foldMetrics": {
+      "file": "fold_metrics.csv",
+      "rows": 215,
+      "sha256": "a03ce0e17b35249aef605a89aa99613720a0073e29adb6466a176ca222c2d60f"
+    },
+    "gamePredictions": {
+      "file": "game_level_predictions.csv",
+      "rows": 285,
+      "sha256": "cb69543cf3c4b2760c4b1d7fd83a95a0341bf6513a2bf742526d154334b68a97"
+    },
+    "market": {
+      "file": "market_benchmark.csv",
+      "rows": 297,
+      "sha256": "46b30b383758a59e2e7c822798098c0ec13497e59c75f67aaefe9fdc9d5565bd"
+    },
+    "missingReasonSummary": {
+      "file": "missing_reason_summary.csv",
+      "rows": 6,
+      "sha256": "241a514418053944a39a7df7e90d3808566c44b2e1d78421744419bb237b501b"
+    },
+    "missingnessSourceEra": {
+      "file": "missingness_source_era.csv",
+      "rows": 197,
+      "sha256": "b9387b97ac2478a72496cc36054be3636a34155fd49b0ac43921506d1a0b7512"
+    },
+    "recencyStrategies": {
+      "file": "recency_strategy_leaderboard.csv",
+      "rows": 35,
+      "sha256": "fee96bc292c86ba99e78fc32e16cc84b767f40403fc0ced9d7d2158029626bcc"
+    },
+    "slices": {
+      "file": "stability_slices.csv",
+      "rows": 49,
+      "sha256": "14747dd1b193f2976a2e78a2a1d4059574fb7fac5b3f786509f1c0bb4de30dc8"
+    },
+    "temporalSplits": {
+      "file": "temporal_splits.csv",
+      "rows": 6,
+      "sha256": "dfad3d85307c87fd85cc52c16a65fd6088442c0b31f77c699786eca247b46652"
+    }
+  },
+  "modelsFittedByReporting": 0,
+  "modelsScoredByReporting": 0,
+  "unavailableMeansZero": false
+}

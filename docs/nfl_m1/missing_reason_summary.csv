@@ -1,0 +1,7 @@
+scope,reason,definition,rows,population_rows,prevalence,mutually_exclusive,target_values_used
+DEVELOPMENT,SOURCE_NOT_AVAILABLE_FOR_ERA,either registered home/away source-era-missing flag is set,17,6991,0.0024316978973,False,False
+DEVELOPMENT,MISSING_HISTORY,either team has zero prior governed games,17,6991,0.0024316978973,False,False
+DEVELOPMENT,INSUFFICIENT_HISTORY,neither team is missing history and either has 1-3 prior governed games,51,6991,0.00729509369189,False,False
+FINAL_OOT,SOURCE_NOT_AVAILABLE_FOR_ERA,either registered home/away source-era-missing flag is set,0,285,0,False,False
+FINAL_OOT,MISSING_HISTORY,either team has zero prior governed games,0,285,0,False,False
+FINAL_OOT,INSUFFICIENT_HISTORY,neither team is missing history and either has 1-3 prior governed games,0,285,0,False,False
