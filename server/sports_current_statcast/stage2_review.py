@@ -840,6 +840,37 @@ def current_gold_stage2_review(
     seasons = sorted(int(key) for key in profile["rowsBySeason"])
     identity = profile["identity"]
     source_coverage = linkage["coverage"]
+    source_rows_by_season = {
+        str(int(item["season"])): int(
+            item.get("plate_appearances") or item.get("rows") or 0
+        )
+        for item in (registration.get("seasons_json") or [])
+        if isinstance(item, Mapping) and item.get("season") is not None
+    }
+    gold_rows_by_season = {
+        str(key): int(value) for key, value in profile["rowsBySeason"].items()
+    }
+    population_by_season = []
+    for season in sorted(set(source_rows_by_season) | set(gold_rows_by_season)):
+        source_rows = int(source_rows_by_season.get(season, 0))
+        gold_rows = int(gold_rows_by_season.get(season, 0))
+        population_by_season.append({
+            "season": int(season),
+            "sourceRows": source_rows,
+            "goldRows": gold_rows,
+            "excludedRows": source_rows - gold_rows,
+        })
+    source_to_gold_excluded_rows = int(source_coverage.get("rowCount") or 0) - int(
+        profile["rowCount"]
+    )
+    declared_exclusion_reasons = {
+        str(key): int(value)
+        for key, value in (gold_manifest.get("exclusionReasonCounts") or {}).items()
+    }
+    exclusion_reasons_reconcile = (
+        bool(declared_exclusion_reasons)
+        and sum(declared_exclusion_reasons.values()) == source_to_gold_excluded_rows
+    )
     source_coverage_exact = (
         source_coverage.get("earliestDate"),
         source_coverage.get("latestDate"),
@@ -943,6 +974,7 @@ def current_gold_stage2_review(
             "manifestSha": linkage["manifestSha"],
             "activationRevision": linkage["activationRevision"],
             "rowCount": linkage["coverage"]["rowCount"],
+            "rowsBySeason": source_rows_by_season,
             "dateCoverage": {
                 "earliestDate": linkage["coverage"]["earliestDate"],
                 "latestDate": linkage["coverage"]["latestDate"],
@@ -963,6 +995,20 @@ def current_gold_stage2_review(
             "rowsBySeason": profile["rowsBySeason"],
             "sourceSilverManifestSha": source_publication_sha,
             "verified": True,
+        },
+        "populationReconciliation": {
+            "sourceRows": int(source_coverage.get("rowCount") or 0),
+            "goldRows": int(profile["rowCount"]),
+            "excludedRows": source_to_gold_excluded_rows,
+            "bySeason": population_by_season,
+            "exclusionReasonCounts": (
+                declared_exclusion_reasons if exclusion_reasons_reconcile else {}
+            ),
+            "exclusionReasonStatus": (
+                "EXACT_REGISTERED_REASON_COUNTS"
+                if exclusion_reasons_reconcile
+                else "NOT_AVAILABLE_IN_REGISTERED_STAGE2_AUTHORITY"
+            ),
         },
         "matrix": {
             "grain": "PLATE_APPEARANCE",

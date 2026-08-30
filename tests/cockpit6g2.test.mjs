@@ -124,9 +124,9 @@ test("dataset selection + target confirmation persist via project-scoped autosav
 
 // ---------------- shell wiring + no-regression ----------------
 test("the cockpit threads the project id + navigation into the objective and population steps", () => {
-  assert.ok(shell.includes("render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} />"));
-  assert.ok(shell.includes("render: (c) => <DataPopulationStep projectId={c.projectId} />"));
-  assert.ok(shell.includes("step.render({ projectId, go })"));
+  assert.ok(shell.includes("render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} />"));
+  assert.ok(shell.includes("render: (c) => <DataPopulationStep projectId={c.projectId} currentGoldReview={c.currentGoldReview} />"));
+  assert.ok(shell.includes("step.render({ projectId, go, currentGoldReview })"));
 });
 
 test("governed temporal authority + prior-history framing are unchanged", () => {

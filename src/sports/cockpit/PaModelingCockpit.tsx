@@ -8,6 +8,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useEndpoint, useCockpitStore, type Objective } from "./cockpitApi";
 import { useCockpitPersistence, type AutosaveStatus } from "./cockpitPersistence";
+import type { CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
+import { ProjectBoundLaterStepGate } from "./ProjectBoundStage3";
 import {
   ObjectiveStep, DataPopulationStep, ProfileStep, OutliersStep, MissingStep,
   FeatureEngineeringStep, SegmentationStep, TemporalSplitStep,
@@ -17,30 +19,30 @@ import {
   ChampionChallengerStep, RegistryStep,
 } from "./cockpitSteps2";
 
-type StepCtx = { projectId: string; go: (id: string) => void };
+type StepCtx = { projectId: string; go: (id: string) => void; currentGoldReview?: CurrentGoldReviewState };
 type Step = { id: string; n: string; label: string; icon: LucideIcon; group: string; render: (ctx: StepCtx) => JSX.Element };
 
 const STEPS: Step[] = [
-  { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} /> },
-  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} /> },
-  { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: () => <ProfileStep /> },
-  { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: () => <OutliersStep /> },
-  { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: () => <MissingStep /> },
-  { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: () => <FeatureEngineeringStep /> },
-  { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: () => <SegmentationStep /> },
-  { id: "split", n: "08", label: "Temporal Split", icon: CalendarClock, group: "Prepare", render: () => <TemporalSplitStep /> },
-  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => <ModelLabStep projectId={c.projectId} /> },
-  { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: () => <TuningStep /> },
-  { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => <EvaluationStep projectId={c.projectId} /> },
-  { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => <CalibrationStep projectId={c.projectId} /> },
-  { id: "simulation", n: "13", label: "Simulation Impact", icon: Orbit, group: "Assess", render: (c) => <SimulationStep projectId={c.projectId} /> },
-  { id: "champion", n: "14", label: "Champion / Challenger", icon: Trophy, group: "Decide", render: (c) => <ChampionChallengerStep projectId={c.projectId} /> },
-  { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: (c) => <RegistryStep projectId={c.projectId} /> },
+  { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} /> },
+  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} currentGoldReview={c.currentGoldReview} /> },
+  { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Data Profile" /> : <ProfileStep /> },
+  { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Outliers" /> : <OutliersStep /> },
+  { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Missing Values" /> : <MissingStep /> },
+  { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Feature Engineering" /> : <FeatureEngineeringStep /> },
+  { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Player Segmentation" /> : <SegmentationStep /> },
+  { id: "split", n: "08", label: "Temporal Split", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Temporal Split" /> : <TemporalSplitStep /> },
+  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Model Laboratory" /> : <ModelLabStep projectId={c.projectId} /> },
+  { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Hyperparameter Tuning" /> : <TuningStep /> },
+  { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Evaluation" /> : <EvaluationStep projectId={c.projectId} /> },
+  { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Calibration" /> : <CalibrationStep projectId={c.projectId} /> },
+  { id: "simulation", n: "13", label: "Simulation Impact", icon: Orbit, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Simulation Impact" /> : <SimulationStep projectId={c.projectId} /> },
+  { id: "champion", n: "14", label: "Champion / Challenger", icon: Trophy, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Champion / Challenger" /> : <ChampionChallengerStep projectId={c.projectId} /> },
+  { id: "registry", n: "15", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Registry & Evidence" /> : <RegistryStep projectId={c.projectId} /> },
 ];
 
-export default function PaModelingCockpit({ embedded = false, projectId = "mlb-cockpit" }: { embedded?: boolean; projectId?: string } = {}) {
+export default function PaModelingCockpit({ embedded = false, projectId = "mlb-cockpit", currentGoldReview }: { embedded?: boolean; projectId?: string; currentGoldReview?: CurrentGoldReviewState } = {}) {
   const [active, setActive] = useState("objective");
-  const obj = useEndpoint<Objective>("/cockpit/objective");
+  const obj = useEndpoint<Objective>(currentGoldReview ? null : "/cockpit/objective", [Boolean(currentGoldReview)]);
   const { config, savedSteps, lastResult } = useCockpitStore();
   const autosave = useCockpitPersistence(projectId, active, setActive);
   const step = STEPS.find((s) => s.id === active)!;
@@ -120,7 +122,7 @@ export default function PaModelingCockpit({ embedded = false, projectId = "mlb-c
             <div><div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-700">Step {step.n} · {step.group}</div>
               <h2 className="text-xl font-semibold tracking-tight text-slate-950">{step.label}</h2></div>
           </div>
-          {step.render({ projectId, go })}
+          {step.render({ projectId, go, currentGoldReview })}
           <StepFooter active={active} go={go} />
         </div>
       </div>

@@ -2,7 +2,7 @@
 // standalone module content (no duplication, no iframes) so the scientist stays inside the project.
 // Stage 2 merges dataset preview + identity/leakage data-quality; Stage 3 is the PA Modeling Cockpit.
 import { Link } from "react-router-dom";
-import { ArrowRight, ExternalLink, CheckCircle2, Layers, ShieldCheck } from "lucide-react";
+import { ArrowRight, ExternalLink, CheckCircle2, ShieldCheck } from "lucide-react";
 import type { ActiveSportsDataset } from "../sportsEvidenceApi";
 import {
   ParticipationUsageBody, GameReplaySection, BaseOutTransitionSection, SimulationInputSection,
@@ -10,6 +10,7 @@ import {
   Phase4EvaluationSection, Phase4GraphSection, Phase4RegistrySection,
 } from "../Phase4Surfaces";
 import PaModelingCockpit from "../cockpit/PaModelingCockpit";
+import { ProjectBoundStage3Intro } from "../cockpit/ProjectBoundStage3";
 import { CurrentGoldDataReviewPanel } from "./CurrentGoldDataReviewPanel";
 import type { CurrentGoldReviewState } from "./currentGoldDataReview";
 import type { StageResolution, ForecastContract } from "./workflowState";
@@ -111,28 +112,6 @@ export function DataQualitySummary({ dataset, contract = null }: { dataset: Acti
   );
 }
 
-// ---- Stage 3: PA Model Development intro ----
-function CockpitIntro({ contract }: { contract: ForecastContract | null }) {
-  const customDates = temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN";
-  const facts: [string, string][] = [
-    ["Target", contract?.target || "Plate-Appearance Outcome"],
-    ["Development", developmentWindowLabel(contract)],
-    ["Validation", validationWindowLabel(contract)],
-    [customDates ? "Final OOT" : "Frozen", finalOotWindowLabel(contract)],
-    ["Champion", "D3 (candidate C4)"],
-    ["Evidence mode", contract?.evidenceMode || "STRICT"],
-  ];
-  return (
-    <section className="sports-panel p-5">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Layers size={14} /> Begin model development</div>
-      <p className="mt-1 text-sm text-slate-600">Project context is inherited automatically — you do not configure it again. Player-state and pitch-sequence research now appear as <b>feature families</b> inside step 06 Feature Engineering.</p>
-      <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
-        {facts.map(([k, v]) => <div key={k} className="bg-white px-3 py-2"><dt className="text-[11px] font-semibold uppercase text-slate-400">{k}</dt><dd className="mt-0.5 text-sm font-semibold text-slate-900">{v}</dd></div>)}
-      </dl>
-    </section>
-  );
-}
-
 /** Central analytical content for a program stage. Stages 1 & 9 are handled inline in the shell. */
 export function GuidedStageContent({
   number,
@@ -152,7 +131,9 @@ export function GuidedStageContent({
         ? <CurrentGoldDataReviewPanel state={currentGoldReview} />
         : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The project-scoped current Gold review authority is unavailable.</section>;
     case 3:
-      return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} /></div>;
+      return currentGoldReview
+        ? <div className="space-y-4"><ProjectBoundStage3Intro state={currentGoldReview} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} currentGoldReview={currentGoldReview} /></div>
+        : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The accepted project-bound Stage 2 authority is required before Stage 3 can open.</section>;
     case 4:
       return <div className="space-y-4"><ParticipationUsageBody study={p4} /></div>;
     case 5:

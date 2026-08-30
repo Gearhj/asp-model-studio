@@ -90,6 +90,7 @@ export type CurrentGoldDataReview = {
     manifestSha: string;
     activationRevision: number;
     rowCount: number;
+    rowsBySeason: Record<string, number>;
     dateCoverage: { earliestDate: string; latestDate: string };
     silverPublicationManifestSha: string;
   };
@@ -107,6 +108,21 @@ export type CurrentGoldDataReview = {
     rowsBySeason: Record<string, number>;
     sourceSilverManifestSha: string;
     verified: boolean;
+  };
+  populationReconciliation: {
+    sourceRows: number;
+    goldRows: number;
+    excludedRows: number;
+    bySeason: {
+      season: number;
+      sourceRows: number;
+      goldRows: number;
+      excludedRows: number;
+    }[];
+    exclusionReasonCounts: Record<string, number>;
+    exclusionReasonStatus:
+      | "EXACT_REGISTERED_REASON_COUNTS"
+      | "NOT_AVAILABLE_IN_REGISTERED_STAGE2_AUTHORITY";
   };
   matrix: {
     grain: string;

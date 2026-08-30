@@ -14,6 +14,8 @@ import {
 } from "./cockpitApi";
 import { loadBinding, type ForecastContract } from "../workflow/workflowState";
 import { useForecastContract } from "../workflow/useForecastContract";
+import type { CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
+import { ProjectBoundModelingCharter, ProjectBoundPopulation } from "./ProjectBoundStage3";
 import {
   Card, Pill, MetricCard, Button, Segmented, NumberField, LoadGate, BarChart, Histogram,
   OutlierHistogramPair, ImputationHistogramPair, FeatureSignalScatter, CorrelationHeatmap, BoxPlotSingle, LineChart, ScatterClusters, fmt,
@@ -65,7 +67,12 @@ export function readAuthorityState(
 // State-aware (Phase 6G.2): the project objective can only present target-dependent facts once the
 // modeling dataset is selected AND the target is confirmed. Before that it guides the scientist back to
 // Data & Population instead of showing PA-Outcome distributions as if they were settled.
-export function ObjectiveStep({ projectId = "mlb-cockpit", go }: { projectId?: string; go?: (id: string) => void }) {
+export function ObjectiveStep({ projectId = "mlb-cockpit", go, currentGoldReview }: { projectId?: string; go?: (id: string) => void; currentGoldReview?: CurrentGoldReviewState }) {
+  if (currentGoldReview) return <ProjectBoundModelingCharter state={currentGoldReview} />;
+  return <LegacyObjectiveStep projectId={projectId} go={go} />;
+}
+
+function LegacyObjectiveStep({ projectId, go }: { projectId: string; go?: (id: string) => void }) {
   const obj = useEndpoint<Objective>("/cockpit/objective");
   const { notes, setNote, markSaved, savedSteps } = useCockpitStore();
   const contractAuthority = useForecastContract(projectId);
@@ -202,7 +209,12 @@ function ObjectiveTargetPending({ auth, go }: { auth: AuthorityState; go?: (id: 
 const roleTone = (role: string): "rose" | "amber" | "emerald" | "slate" =>
   /FROZEN/i.test(role) ? "rose" : /VALID/i.test(role) ? "amber" : /DEVELOP/i.test(role) ? "emerald" : "slate";
 
-export function DataPopulationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
+export function DataPopulationStep({ projectId = "mlb-cockpit", currentGoldReview }: { projectId?: string; currentGoldReview?: CurrentGoldReviewState } = {}) {
+  if (currentGoldReview) return <ProjectBoundPopulation state={currentGoldReview} />;
+  return <LegacyDataPopulationStep projectId={projectId} />;
+}
+
+function LegacyDataPopulationStep({ projectId }: { projectId: string }) {
   const pop = useEndpoint<Population>("/cockpit/population");
   const contractAuthority = useForecastContract(projectId);
   return <LoadGate state={pop}>{pop.data ? <PopulationBody pop={pop.data} projectId={projectId} registeredContract={contractAuthority.contract} /> : null}</LoadGate>;

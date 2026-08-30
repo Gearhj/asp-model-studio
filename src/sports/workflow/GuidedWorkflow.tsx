@@ -104,7 +104,9 @@ export default function GuidedWorkflow() {
   const legacyStep = Number(params.get("step")) || 0;
   const focusNumber = Number(params.get("stage")) || (legacyStep ? (LEGACY_STEP_TO_STAGE[legacyStep] || 1) : firstActionableStage(resolutions));
   const focus = resolutions.find((r) => r.number === focusNumber) || resolutions[0];
-  const currentGoldReview = useProjectCurrentGoldDataReview(projectId, Boolean(binding) && focus.number === 2);
+  const currentGoldReview = useProjectCurrentGoldDataReview(projectId,
+    Boolean(binding) && (focus.number === 2 || focus.number === 3),
+  );
   const justDone = Number(params.get("done")) || 0;
   const [navCollapsed, setNavCollapsed] = useState(false);
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
@@ -113,7 +115,7 @@ export default function GuidedWorkflow() {
   const refresh = () => {
     datasetCatalog.refresh();
     void projectDataset.refresh();
-    if (focus.number === 2) void currentGoldReview.refresh();
+    if (focus.number === 2 || focus.number === 3) void currentGoldReview.refresh();
     setParams((p) => { const np = new URLSearchParams(p); np.set("stage", String(focus.number)); np.delete("step"); np.set("v", String(Date.now())); return np; });
   };
   const advanceFrom = (from: number, registeredContract: ForecastContract | null = contract) => {
@@ -317,8 +319,11 @@ function StageWorkspace({
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
       {focus.number === 3 && <>
-        <GuidedStageContent number={3} dataset={dataset} contract={contract} />
-        <AdoptBar focus={{ ...focus, action: { ...focus.action, label: "Adopt Current PA Champion & Continue", moduleLabel: "PA Modeling Cockpit" } }} projectId={projectId} onAdopt={() => { adoptStage(projectId, 3); advanceFrom(3); }} />
+        <GuidedStageContent number={3} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} />
+        <section className="sports-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="stage3-no-champion-gate">
+          <div><div className="text-sm font-semibold text-slate-900">Project champion: None yet</div><p className="mt-1 text-sm text-slate-600">Stage 3 remains open until chronological model development produces a separately governed selection decision. This population handoff does not fit, score, promote, or adopt a legacy artifact.</p></div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><Lock size={14} /> Legacy modeling execution held closed</span>
+        </section>
       </>}
 
       {/* Stages 4–8 — embedded analytical content + adopt */}

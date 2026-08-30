@@ -41,6 +41,12 @@ EXPECTED_ROWS_BY_SEASON = {
     "2025": 182_847,
     "2026": 152_099,
 }
+EXPECTED_SOURCE_ROWS_BY_SEASON = {
+    "2023": 184_497,
+    "2024": 182_883,
+    "2025": 182_847,
+    "2026": 152_099,
+}
 EXPECTED_ORDERED_PREDICTORS = (
     "context_inning",
     "context_top_bottom",
@@ -203,6 +209,8 @@ def test_project_scoped_current_gold_stage2_review_matches_frozen_authority() ->
     assert source["datasetId"] == SOURCE_DATASET_ID
     assert source["datasetVersionId"] == SOURCE_DATASET_VERSION_ID
     assert source["manifestSha"] == SOURCE_MANIFEST_SHA
+    assert source["rowCount"] == 702_326
+    assert source["rowsBySeason"] == EXPECTED_SOURCE_ROWS_BY_SEASON
 
     gold = review["goldAuthority"]
     assert gold["datasetId"] == GOLD_DATASET_ID
@@ -240,6 +248,19 @@ def test_project_scoped_current_gold_stage2_review_matches_frozen_authority() ->
     assert review["pointInTimeReview"]["status"] == "PASS"
     assert review["leakageGate"]["status"] == "PASS_WITH_CONDITIONS"
     assert review["acceptance"] == {"allowed": True, "blockers": []}
+    assert review["populationReconciliation"] == {
+        "sourceRows": 702_326,
+        "goldRows": 697_729,
+        "excludedRows": 4_597,
+        "bySeason": [
+            {"season": 2023, "sourceRows": 184_497, "goldRows": 182_072, "excludedRows": 2_425},
+            {"season": 2024, "sourceRows": 182_883, "goldRows": 180_711, "excludedRows": 2_172},
+            {"season": 2025, "sourceRows": 182_847, "goldRows": 182_847, "excludedRows": 0},
+            {"season": 2026, "sourceRows": 152_099, "goldRows": 152_099, "excludedRows": 0},
+        ],
+        "exclusionReasonCounts": {},
+        "exclusionReasonStatus": "NOT_AVAILABLE_IN_REGISTERED_STAGE2_AUTHORITY",
+    }
     context = review["contextualFeaturePack"]
     assert context["datasetId"] == "gold-table:gold_mlb_current_pa_context_v2"
     assert context["verified"] is True
