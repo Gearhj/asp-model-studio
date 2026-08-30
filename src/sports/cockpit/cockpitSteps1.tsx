@@ -209,8 +209,8 @@ function ObjectiveTargetPending({ auth, go }: { auth: AuthorityState; go?: (id: 
 const roleTone = (role: string): "rose" | "amber" | "emerald" | "slate" =>
   /FROZEN/i.test(role) ? "rose" : /VALID/i.test(role) ? "amber" : /DEVELOP/i.test(role) ? "emerald" : "slate";
 
-export function DataPopulationStep({ projectId = "mlb-cockpit", currentGoldReview }: { projectId?: string; currentGoldReview?: CurrentGoldReviewState } = {}) {
-  if (currentGoldReview) return <ProjectBoundPopulation state={currentGoldReview} />;
+export function DataPopulationStep({ projectId = "mlb-cockpit", go, currentGoldReview }: { projectId?: string; go?: (id: string) => void; currentGoldReview?: CurrentGoldReviewState } = {}) {
+  if (currentGoldReview) return <ProjectBoundPopulation state={currentGoldReview} go={go} />;
   return <LegacyDataPopulationStep projectId={projectId} />;
 }
 

@@ -122,7 +122,22 @@ export type CurrentGoldDataReview = {
     exclusionReasonCounts: Record<string, number>;
     exclusionReasonStatus:
       | "EXACT_REGISTERED_REASON_COUNTS"
+      | "EXACT_DERIVED_CONSTRUCTION_STAGE_COUNTS"
       | "NOT_AVAILABLE_IN_REGISTERED_STAGE2_AUTHORITY";
+    membershipEvidence?: {
+      identitySetSha256: string;
+      membershipStatusCounts: Record<string, number>;
+      causalReasonStatus: string;
+      byMonth: { month: string; excludedRows: number }[];
+      byBattingTeam: { team: string; excludedRows: number }[];
+      byGovernedTargetOrUnmapped: { target: string; excludedRows: number }[];
+      identityConditions: Record<string, number>;
+      finalOotExcludedRows: number;
+      featureConstructionCondition: string;
+      featureConstructionConditionCounts: Record<string, number>;
+      exclusionStageStatus: string;
+      finerSourceSideCauseStatus: string;
+    };
   };
   matrix: {
     grain: string;
@@ -187,7 +202,10 @@ export type CurrentGoldReviewState = {
   refresh: () => Promise<void>;
 };
 
-export function useProjectCurrentGoldDataReview(projectId: string, enabled = true): CurrentGoldReviewState {
+export function useProjectCurrentGoldDataReview(
+  projectId: string,
+  enabled = true,
+): CurrentGoldReviewState {
   const [status, setStatus] = useState<CurrentGoldReviewState["status"]>(enabled ? "loading" : "idle");
   const [review, setReview] = useState<CurrentGoldDataReview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -217,6 +235,77 @@ export function useProjectCurrentGoldDataReview(projectId: string, enabled = tru
       setReview(null);
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "The current Gold review could not be loaded.");
+    }
+  }, [enabled, projectId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  return { status, review, error, refresh: async () => load() };
+}
+
+type Stage3AuthorityEnvelope = {
+  ok: boolean;
+  authority: { projectId: string };
+  population: { scope: string; finalOotLocked: boolean };
+  audit: {
+    finalOotTargetAccessed: boolean;
+    finalOotUsedForSelection: boolean;
+    legacyGlobalMatrixUsed: boolean;
+    providerCalls: number;
+  };
+  data: { stage3Handoff: CurrentGoldDataReview };
+};
+
+/**
+ * Stage 3 deliberately bootstraps from the redacted development-EDA authority,
+ * never from the Stage 2 transport that contains sealed final-OOT target counts.
+ */
+export function useProjectStage3DataAuthority(projectId: string, enabled = true): CurrentGoldReviewState {
+  const [status, setStatus] = useState<CurrentGoldReviewState["status"]>(enabled ? "loading" : "idle");
+  const [review, setReview] = useState<CurrentGoldDataReview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled || !projectId) {
+      setStatus("idle");
+      setReview(null);
+      setError(null);
+      return;
+    }
+    setStatus("loading");
+    setError(null);
+    try {
+      const payload = await getJSON<Stage3AuthorityEnvelope>(
+        `/projects/${encodeURIComponent(projectId)}/sports/stage3-eda/metadata`,
+        { signal },
+      );
+      if (signal?.aborted) return;
+      const safe = payload?.data?.stage3Handoff;
+      if (
+        !payload?.ok
+        || payload.authority?.projectId !== projectId
+        || payload.population?.scope !== "DEVELOPMENT_ONLY"
+        || !payload.population?.finalOotLocked
+        || payload.audit?.finalOotTargetAccessed
+        || payload.audit?.finalOotUsedForSelection
+        || payload.audit?.legacyGlobalMatrixUsed
+        || payload.audit?.providerCalls !== 0
+        || !safe
+        || safe.projectId !== projectId
+      ) {
+        throw new Error("The redacted project-bound Stage 3 authority was incomplete or unsafe.");
+      }
+      setReview(safe);
+      setStatus("ready");
+    } catch (caught) {
+      if (signal?.aborted) return;
+      setReview(null);
+      setStatus("error");
+      setError(caught instanceof Error ? caught.message : "The Stage 3 development authority could not be loaded.");
     }
   }, [enabled, projectId]);
 

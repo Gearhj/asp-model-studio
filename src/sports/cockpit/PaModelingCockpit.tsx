@@ -10,6 +10,7 @@ import { useEndpoint, useCockpitStore, type Objective } from "./cockpitApi";
 import { useCockpitPersistence, type AutosaveStatus } from "./cockpitPersistence";
 import type { CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
 import { ProjectBoundLaterStepGate } from "./ProjectBoundStage3";
+import { ProjectBoundDataProfile } from "./ProjectBoundDataProfile";
 import {
   ObjectiveStep, DataPopulationStep, ProfileStep, OutliersStep, MissingStep,
   FeatureEngineeringStep, SegmentationStep, TemporalSplitStep,
@@ -24,8 +25,8 @@ type Step = { id: string; n: string; label: string; icon: LucideIcon; group: str
 
 const STEPS: Step[] = [
   { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} /> },
-  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} currentGoldReview={c.currentGoldReview} /> },
-  { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Data Profile" /> : <ProfileStep /> },
+  { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} /> },
+  { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: (c) => c.currentGoldReview ? <ProjectBoundDataProfile state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <ProfileStep /> },
   { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Outliers" /> : <OutliersStep /> },
   { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Missing Values" /> : <MissingStep /> },
   { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Feature Engineering" /> : <FeatureEngineeringStep /> },

@@ -40,6 +40,11 @@ from ..sports_current_statcast.stage2_review import (
     CurrentGoldStage2ReviewError,
     current_gold_stage2_review,
 )
+from ..sports_current_statcast.stage3_eda import (
+    Stage3EdaError,
+    stage3_eda_metadata,
+    stage3_eda_query,
+)
 
 
 router = APIRouter()
@@ -517,6 +522,43 @@ def get_sports_stage2_data_review(
     except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
         _raise_sports_backend_unavailable(exc)
     return {"ok": True, "review": review}
+
+
+@router.get("/projects/{project_id}/sports/stage3-eda/metadata")
+def get_sports_stage3_eda_metadata(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return the redacted, development-only Stage 3 analytical authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        return stage3_eda_metadata(_service().database, project_id)
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.post("/projects/{project_id}/sports/stage3-eda/query")
+def post_sports_stage3_eda_query(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one bounded aggregate query over project-bound development rows."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        return stage3_eda_query(_service().database, project_id, payload)
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
 
 
 @router.put("/projects/{project_id}/sports/evidence-dataset")

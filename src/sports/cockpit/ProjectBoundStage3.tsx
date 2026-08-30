@@ -17,7 +17,7 @@ import type {
 } from "../workflow/currentGoldDataReview";
 
 export const PROJECT_MODELING_QUESTION =
-  "Estimate calibrated probabilities for the governed eight plate-appearance outcomes using current, leakage-safe pregame evidence and simulator-generated game state. Feed those probabilities into the Monte Carlo game simulator to estimate the joint home/away score distribution, home-win probability, run differential and total runs. Compare candidate models with the Core Gold-48 baseline, the historical Direct Gold reference and AISP_BASELINE using chronological validation.";
+  "Can a current, leakage-safe plate-appearance model improve the calibration and accuracy of simulated MLB game-score distributions relative to Core Gold-48, historical Direct Gold, and AISP_BASELINE?";
 
 export const GOVERNED_PA_CLASSES = [
   "STRIKEOUT",
@@ -31,18 +31,18 @@ export const GOVERNED_PA_CLASSES = [
 ] as const;
 
 const DEFAULT_CHARTER = {
-  predictionUnit: "Governed plate appearance",
+  predictionUnit: "Plate appearance.",
   targetDefinition:
     "Eight-class PA outcome: STRIKEOUT, WALK_HBP_CI, HOME_RUN, SINGLE, DOUBLE, TRIPLE, BIP_OUT, OTHER_REACH",
   downstreamUse:
-    "Feed conditional PA probabilities into the Monte Carlo game simulator for joint score, win-probability, run-differential, and total-runs distributions.",
-  primaryMetric: "multiclass log loss",
+    "Feed calibrated plate-appearance probabilities into the Monte Carlo game simulator to estimate the joint home/away score distribution, home-win probability, run differential, total runs, moneyline probability, run-line probability, and totals probability.",
+  primaryMetric: "Multiclass log loss under five chronological expanding-window folds.",
   secondaryMetrics:
-    "Brier score; calibration; class stability; game moneyline log loss; expected-score MAE; run-differential MAE; total-runs MAE",
+    "Multiclass Brier score; calibration error; class-level calibration; rare-class stability; game-level moneyline log loss; expected home/away score MAE; run-differential MAE; total-runs MAE.",
   comparisonBenchmarks:
     "Core Gold-48 baseline; historical Direct Gold reference; AISP_BASELINE",
   forecastRestrictions:
-    "Pregame-known evidence only. Conditional inning, half, outs, base-mask, and batting-score differential are supplied by the simulator at forecast time. No future actual game state, random split, global imputation, or validation/final-OOT-derived preprocessing.",
+    "Sportsbook prices are not model predictors. No target-game outcome or future actual game state. No global preprocessing, validation/OOT-derived preprocessing, or final-OOT information during model selection. The simulator supplies inning, top/bottom, outs, bases, and score differential at forecast time.",
   deploymentIntent:
     "Research challenger for prospective simulation evaluation. No champion, promotion, export, or live-control authority is granted by this charter.",
 };
@@ -161,7 +161,6 @@ export function ProjectBoundModelingCharter({ state }: { state: CurrentGoldRevie
                 ["Core Gold-48 baseline", review.goldAuthority.datasetId, "Project-bound baseline specification; no project champion has been selected."],
                 ["Historical Direct Gold reference", "Historical Gold V1 research lineage", "Reference evidence only; it does not control this project."],
                 ["AISP_BASELINE", "AI Sports Predictor operational lineage", "External comparison benchmark; it is not fitted or promoted here."],
-                ["Base-22 / A2 Logistic and Historical HGB", "Legacy FD1 research lineage", "Sealed/read-only historical benchmarks; incompatible as this project’s active population."],
               ].map(([name, lineage, detail]) => <div key={name} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="font-semibold text-slate-900">{name}</div><div className="mt-1 font-mono text-[11px] text-slate-500">{lineage}</div><p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p></div>)}
             </div>
           </section>
@@ -175,87 +174,74 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-1 text-lg font-semibold tabular-nums text-slate-950">{value}</div><div className="mt-0.5 text-[11px] text-slate-500">{detail}</div></div>;
 }
 
-const LEGACY_REFERENCES = [
-  { name: "MLB_PA_V1 / Base-22", reasons: "Wrong date coverage · wrong feature contract · wrong temporal policy" },
-  { name: "FD1 / Gen-2 feature view", reasons: "Wrong date coverage · historical benchmark only" },
-  { name: "Gen-3 feature views", reasons: "Sealed evidence · incompatible project lineage · historical benchmark only" },
-];
-
-export function ProjectBoundPopulation({ state }: { state: CurrentGoldReviewState }) {
+export function ProjectBoundPopulation({ state, go }: { state: CurrentGoldReviewState; go?: (id: string) => void }) {
+  const { markSaved, savedSteps } = useCockpitStore();
   return (
     <ReviewGate state={state}>{(review) => {
       const context = review.contextualFeaturePack;
       const reconciliation = review.populationReconciliation;
       const reasonRows = Object.entries(reconciliation.exclusionReasonCounts);
+      const membership = reconciliation.membershipEvidence;
+      const adopt = () => {
+        markSaved("population");
+        go?.("profile");
+      };
       return (
         <div className="space-y-5" data-testid="stage3-project-bound-population">
-          <section className="rounded-2xl border border-emerald-300 bg-emerald-50 p-5" data-testid="stage3-population-recommendation">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800"><ShieldCheck size={16} /> Use Project-Bound Current Gold Population — Recommended</div>
-            <p className="mt-2 text-sm leading-6 text-emerald-950">This population matches the registered project contract, is current through 2026-08-27, has verified identity and point-in-time evidence, supports Core Gold and contextual feature-family comparisons, and leaves the final OOT locked.</p>
-          </section>
-
-          <section className="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-white">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"><Database size={15} className="mr-1.5 inline" /> Automatic Stage 2 → Stage 3 authority handoff</div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-3">
-              <Authority label="Registered source" value={review.sourceAuthority.datasetId} detail={`${review.sourceAuthority.datasetVersionId} · ${shortSha(review.sourceAuthority.manifestSha)}`} />
-              <Authority label="Active modeling population" value={review.goldAuthority.datasetId} detail={`${shortSha(review.goldAuthority.manifestSha)} · independently verified`} />
-              <Authority label="Contextual feature library" value={context?.datasetId || "UNAVAILABLE"} detail={context ? `${shortSha(context.manifestSha256)} · attached, review-only` : "The project-bound contextual authority is missing."} />
-            </div>
-            <p className="mt-3 text-xs text-slate-300">The accepted project binding controls this matrix. Changing the population requires returning to the project dataset and Stage 2 contract and recording a versioned change.</p>
-          </section>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            <Metric label="Modeling rows" value={int(review.goldAuthority.rowCount)} detail="one row per governed PA" />
-            <Metric label="Development" value={int(review.matrix.development.rows)} detail={`through ${review.matrix.development.endDate}`} />
-            <Metric label="Final OOT" value={int(review.matrix.finalOot.rows)} detail={`${review.matrix.finalOot.startDate}–${review.matrix.finalOot.endDate}`} />
-            <Metric label="Seasons" value={review.matrix.seasons.join("–")} detail="required coverage" />
-            <Metric label="Core predictors" value={int(review.matrix.predictorCount)} detail="exact ordered Gold-48" />
-            <Metric label="Context candidates" value={int(context?.addedFeatureCount || 0)} detail="not automatically included" />
-            <Metric label="Candidate library" value={int(context?.totalFeatureCount || review.matrix.predictorCount)} detail="Core + contextual" />
-            <Metric label="Target classes" value={String(review.targetTaxonomy.classOrder.length)} detail="governed taxonomy" />
-          </div>
-
-          <section className="grid gap-4 xl:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Point-in-time and final-OOT locks</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Status label="Point-in-time review" value={review.pointInTimeReview.status} detail={review.pointInTimeReview.detail} />
-                <Status label="Leakage gate" value={review.leakageGate.status} detail={review.leakageGate.detail} />
-                <Status label="Final OOT" value="LOCKED" detail={`${int(review.matrix.finalOot.rows)} rows are reporting-only; no outcome distribution is exposed here.`} />
-                <Status label="Model activity" value="ZERO FITS" detail="No fit, score, calibration, selection, or promotion occurs in this handoff." />
+          <section className="overflow-hidden rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 shadow-sm" data-testid="stage3-population-recommendation">
+            <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800"><ShieldCheck size={16} /> Population readiness · ready</div>
+                <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Use Project-Bound Current Gold Population — Recommended</h3>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">The registered project binding controls the matrix below. Confirming it continues the workflow; it does not select, copy, or rebuild a dataset.</p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <RecommendationFact label="Total rows" value={int(review.goldAuthority.rowCount)} />
+                  <RecommendationFact label="Development" value={int(review.matrix.development.rows)} />
+                  <RecommendationFact label="Final OOT · locked" value={int(review.matrix.finalOot.rows)} />
+                  <RecommendationFact label="Feature library" value={`${review.matrix.predictorCount} + ${context?.addedFeatureCount || 0} = ${context?.totalFeatureCount || review.matrix.predictorCount}`} />
+                </div>
               </div>
+              <button type="button" onClick={adopt} className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+                <CheckCircle2 size={17} className="text-emerald-300" /> {savedSteps.population ? "POPULATION CONFIRMED · CONTINUE" : "ADOPT POPULATION AND CONTINUE"}
+              </button>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Identity reconciliation</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Status label="Duplicate PA identities" value={int(review.identity.duplicateCanonicalPaIdentities + review.identity.duplicatePlateAppearanceIdentities)} detail="canonical + public keys" />
-                <Status label="Unresolved players" value={int(review.identity.unresolvedPlayerIdentities)} detail={`${int(review.identity.matchedExactPlayerCount)} exact players`} />
-                <Status label="Ambiguous players" value={int(review.identity.ambiguousPlayerIdentities)} detail="included population" />
-                <Status label="Game identity issues" value={int(review.identity.unresolvedGameIdentities + review.identity.ambiguousGameIdentities)} detail="unresolved + ambiguous" />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-800"><Target size={15} className="mr-1.5 inline" /> Exact governed target taxonomy</div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{review.targetTaxonomy.classOrder.map((name, index) => <div key={name} className="rounded-lg border border-cyan-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800"><span className="mr-2 text-slate-400">{index + 1}</span>{name}</div>)}</div>
-            <p className="mt-2 text-xs text-cyan-900">Class labels are displayed without final-OOT outcome counts or distribution-derived recommendations.</p>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Source-to-Gold population reconciliation</div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Metric label="Registered source rows" value={int(reconciliation.sourceRows)} detail={review.sourceAuthority.datasetId} />
-              <Metric label="Current Gold rows" value={int(reconciliation.goldRows)} detail={review.goldAuthority.datasetId} />
-              <Metric label="Source-to-Gold exclusions" value={int(reconciliation.excludedRows)} detail="explicit population difference" />
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Decision status</div><h3 className="mt-1 text-lg font-semibold text-slate-950">Is there any reason not to proceed?</h3></div><span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">READY · CONDITIONS DOCUMENTED</span></div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <DecisionStatus label="Project/source identity" status="PASS" detail={`${review.sourceAuthority.datasetId} → ${review.goldAuthority.datasetId}`} />
+              <DecisionStatus label="Row reconciliation" status={membership ? "PASS" : "CONDITION"} detail={`${int(reconciliation.sourceRows)} − ${int(reconciliation.goldRows)} = ${int(reconciliation.excludedRows)}; exact membership and construction stage are ${membership ? "independently reconciled" : "known by season only"}; finer source-side causes are not recorded.`} />
+              <DecisionStatus label="Player/game identity" status="PASS" detail={`${review.identity.unresolvedPlayerIdentities + review.identity.ambiguousPlayerIdentities + review.identity.unresolvedGameIdentities + review.identity.ambiguousGameIdentities} unresolved or ambiguous identities`} />
+              <DecisionStatus label="Point-in-time review" status={review.pointInTimeReview.status === "PASS" ? "PASS" : review.pointInTimeReview.status === "PASS_WITH_CONDITIONS" ? "CONDITION" : "BLOCKED"} detail={review.pointInTimeReview.detail} />
+              <DecisionStatus label="Leakage gate" status={review.leakageGate.status === "PASS" ? "PASS" : review.leakageGate.status === "PASS_WITH_CONDITIONS" ? "CONDITION" : "BLOCKED"} detail={review.leakageGate.detail} />
+              <DecisionStatus label="Final OOT lock" status="PASS" detail={`${int(review.matrix.finalOot.rows)} rows excluded from development EDA and model selection`} />
+              <DecisionStatus label="Zero model activity" status="PASS" detail={`${review.goldAuthority.modelsFitted} fits; no score, calibration, selection, or promotion`} />
+              <DecisionStatus label="Feature library" status={context?.verified ? "PASS" : "BLOCKED"} detail={`${review.matrix.predictorCount} Core + ${context?.addedFeatureCount || 0} contextual candidates; eight governed target classes`} />
             </div>
-            <div className="mt-3 overflow-auto rounded-xl border border-slate-200"><table className="w-full min-w-[560px] text-left text-xs"><thead className="bg-slate-50"><tr>{["Season", "Source rows", "Gold rows", "Excluded"].map((name) => <th key={name} className="border-b border-slate-200 px-3 py-2 text-slate-500">{name}</th>)}</tr></thead><tbody>{reconciliation.bySeason.map((row) => <tr key={row.season}><td className="border-b border-slate-100 px-3 py-2 font-semibold">{row.season}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.sourceRows)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.goldRows)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.excludedRows)}</td></tr>)}</tbody></table></div>
-            {reasonRows.length ? <div className="mt-3 text-xs text-slate-600"><b>Exact registered reasons:</b> {reasonRows.map(([name, count]) => `${name} ${int(count)}`).join(" · ")}</div> : <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><b>Reason ledger status: {reconciliation.exclusionReasonStatus}.</b> Stage 2 provides exact source, Gold, total, and per-season counts but no reconciling reason-code ledger; this page does not invent categories.</div>}
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Layers size={15} className="mr-1.5 inline" /> Recommended population policy</div>
-            <ul className="mt-3 grid gap-2 text-sm text-slate-700 lg:grid-cols-2">{[
+          <section className="rounded-2xl border border-slate-200 bg-white p-5" data-testid="stage3-population-reconciliation">
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Row reconciliation</div><h3 className="mt-1 text-lg font-semibold text-slate-950">Every source-to-modeling row is accounted for</h3></div><span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-900">CONSTRUCTION STAGE EXACT · FINER CAUSE NOT RECORDED</span></div>
+            <div className="mt-4 grid items-center gap-2 text-center sm:grid-cols-[1fr_auto_1fr_auto_1fr]">
+              <EquationValue label="Accepted source PAs" value={reconciliation.sourceRows} />
+              <span className="text-2xl text-slate-300">−</span>
+              <EquationValue label="Model-ready PAs" value={reconciliation.goldRows} />
+              <span className="text-2xl text-slate-300">=</span>
+              <EquationValue label="Excluded source PAs" value={reconciliation.excludedRows} accent />
+            </div>
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,.7fr)]">
+              <div className="overflow-auto rounded-xl border border-slate-200"><table className="w-full min-w-[560px] text-left text-xs"><thead className="bg-slate-50"><tr>{["Season", "Source rows", "Gold rows", "Excluded", "Share of exclusions"].map((name) => <th key={name} className="border-b border-slate-200 px-3 py-2 text-slate-500">{name}</th>)}</tr></thead><tbody>{reconciliation.bySeason.map((row) => <tr key={row.season}><td className="border-b border-slate-100 px-3 py-2 font-semibold">{row.season}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.sourceRows)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.goldRows)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(row.excludedRows)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{reconciliation.excludedRows ? `${((row.excludedRows / reconciliation.excludedRows) * 100).toFixed(2)}%` : "0.00%"}</td></tr>)}</tbody></table></div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+                <b>Exact exclusion-stage status: {reconciliation.exclusionReasonStatus}.</b>
+                {reasonRows.length ? <><div className="mt-2">{reasonRows.map(([name, count]) => `${name}: ${int(count)}`).join(" · ")}</div><p className="mt-2">All 4,597 rows were outside the frozen Gold V1 bridge matched set before feature construction; feature assembly lost 0 rows. The finer source-side bridge cause was not recorded, so no identity, key, or target-side cause is invented.</p></> : <><p className="mt-2">The registered Gold authority contains no causal exclusion codes. This page does not invent bridge, identity, or feature-construction causes.</p>{membership ? <p className="mt-2">A read-only canonical-PA anti-join independently proves <b>{int(reconciliation.excludedRows)}</b> excluded identities. Identity-set SHA: <span className="break-all font-mono">{membership.identitySetSha256}</span>.</p> : <p className="mt-2">Exact causal and descriptive concentration evidence is not available in this response.</p>}</>}
+              </div>
+            </div>
+            {membership ? <details className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50/30 p-4" data-testid="stage3-exclusion-membership-evidence"><summary className="cursor-pointer text-sm font-semibold text-cyan-900">Exact excluded-membership concentrations · independently derived from verified identities</summary><p className="mt-2 text-xs leading-5 text-cyan-950">These are descriptive cuts of the exact 4,597-row identity-set difference, not finer causal reasons. The 823 source targets that lack a governed mapping remain explicitly unmapped.</p><div className="mt-3 grid gap-3 xl:grid-cols-3"><CompactCountTable title="By month" label="Month" rows={membership.byMonth.map((row) => [row.month, row.excludedRows] as [string, number])} /><CompactCountTable title="By batting team" label="Team" rows={membership.byBattingTeam.map((row) => [row.team, row.excludedRows] as [string, number])} /><CompactCountTable title="By governed target or unmapped" label="Target" rows={membership.byGovernedTargetOrUnmapped.map((row) => [row.target, row.excludedRows] as [string, number])} /></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(membership.identityConditions).map(([name, count]) => <Metric key={name} label={name.replaceAll(/([A-Z])/g, " $1")} value={int(count)} detail="exact membership evidence" />)}<Metric label="Final OOT exclusions" value={int(membership.finalOotExcludedRows)} detail="locked period" />{Object.entries(membership.featureConstructionConditionCounts).map(([name, count]) => <Metric key={name} label={name.replaceAll("_", " ")} value={int(count)} detail="exact construction-stage evidence" />)}</div></details> : null}
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Layers size={15} className="mr-1.5 inline" /> Modeling population policy</div><ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">{[
               "Use all eligible development rows.",
               "Retain legitimate cold-start rows.",
               "Retain missingness and insufficient-history indicators.",
@@ -264,18 +250,37 @@ export function ProjectBoundPopulation({ state }: { state: CurrentGoldReviewStat
               "Configure exact chronological folds later.",
               "Use training-fold-only preprocessing and imputation.",
               "Keep the final OOT locked.",
-            ].map((item) => <li key={item} className="flex gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-600" />{item}</li>)}</ul>
+            ].map((item) => <li key={item} className="flex gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-600" />{item}</li>)}</ul></div>
+            <div className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-5"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-800"><Target size={15} className="mr-1.5 inline" /> Governed target</div><div className="mt-3 grid gap-2 sm:grid-cols-2">{review.targetTaxonomy.classOrder.map((name, index) => <div key={name} className="rounded-lg border border-cyan-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-800"><span className="mr-2 text-slate-400">{index + 1}</span>{name}</div>)}</div><p className="mt-2 text-xs text-cyan-900">No final-OOT outcome counts are exposed.</p></div>
           </section>
 
-          <details className="rounded-2xl border border-slate-300 bg-slate-50 p-5" data-testid="stage3-legacy-reference-datasets">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Show legacy/reference datasets</summary>
-            <p className="mt-2 text-xs text-slate-600">These records remain visible for lineage and historical comparison only. None can become this project’s active modeling population.</p>
-            <div className="mt-3 grid gap-2 lg:grid-cols-3">{LEGACY_REFERENCES.map((item) => <div key={item.name} className="rounded-xl border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-900">{item.name}</div><span className="mt-2 inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-800">INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT</span><p className="mt-2 text-xs leading-5 text-slate-600">{item.reasons}</p></div>)}</div>
+          <details className="rounded-2xl border border-slate-300 bg-slate-50 p-5" data-testid="stage3-advanced-authority-details">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Advanced authority, manifests, hashes, and identity details</summary>
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950 p-5 text-white"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-cyan-300"><Database size={15} className="mr-1.5 inline" /> Automatic Stage 2 → Stage 3 authority handoff</div><div className="mt-3 grid gap-3 lg:grid-cols-3"><Authority label="Registered source" value={review.sourceAuthority.datasetId} detail={`${review.sourceAuthority.datasetVersionId} · ${shortSha(review.sourceAuthority.manifestSha)}`} /><Authority label="Active modeling population" value={review.goldAuthority.datasetId} detail={`${shortSha(review.goldAuthority.manifestSha)} · independently verified`} /><Authority label="Contextual feature library" value={context?.datasetId || "UNAVAILABLE"} detail={context ? `${shortSha(context.manifestSha256)} · attached, review-only` : "The project-bound contextual authority is missing."} /></div></div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Status label="Duplicate PA identities" value={int(review.identity.duplicateCanonicalPaIdentities + review.identity.duplicatePlateAppearanceIdentities)} detail="canonical + public keys" /><Status label="Unresolved players" value={int(review.identity.unresolvedPlayerIdentities)} detail="included-population issue count; observed totals redacted here" /><Status label="Ambiguous players" value={int(review.identity.ambiguousPlayerIdentities)} detail="included-population issue count" /><Status label="Game identity issues" value={int(review.identity.unresolvedGameIdentities + review.identity.ambiguousGameIdentities)} detail="unresolved + ambiguous" /></div>
+            <p className="mt-3 text-xs text-slate-600">Changing this inherited population requires returning to the project dataset and Stage 2 contract and recording a versioned change.</p>
           </details>
         </div>
       );
     }}</ReviewGate>
   );
+}
+
+function RecommendationFact({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-emerald-200 bg-white/85 px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-0.5 text-lg font-semibold tabular-nums text-slate-950">{value}</div></div>;
+}
+
+function DecisionStatus({ label, status, detail }: { label: string; status: "PASS" | "CONDITION" | "BLOCKED"; detail: string }) {
+  const tone = status === "PASS" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status === "CONDITION" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-rose-200 bg-rose-50 text-rose-900";
+  return <div className={`rounded-xl border p-3 ${tone}`}><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide opacity-75">{label}</span><span className="rounded-full border border-current/20 bg-white/60 px-2 py-0.5 text-[10px] font-bold">{status}</span></div><p className="mt-2 text-xs leading-5">{detail}</p></div>;
+}
+
+function EquationValue({ label, value, accent = false }: { label: string; value: number; accent?: boolean }) {
+  return <div className={`rounded-xl border p-4 ${accent ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50"}`}><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{int(value)}</div></div>;
+}
+
+function CompactCountTable({ title, label, rows }: { title: string; label: string; rows: [string, number][] }) {
+  return <div className="max-h-80 overflow-auto rounded-lg border border-cyan-100 bg-white"><div className="sticky top-0 border-b border-cyan-100 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-900">{title}</div><table className="w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="px-3 py-1.5">{label}</th><th className="px-3 py-1.5 text-right">Excluded</th></tr></thead><tbody>{rows.map(([name, count]) => <tr key={name}><td className="border-t border-slate-100 px-3 py-1.5 font-mono">{name}</td><td className="border-t border-slate-100 px-3 py-1.5 text-right tabular-nums">{int(count)}</td></tr>)}</tbody></table></div>;
 }
 
 function Authority({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -314,14 +319,31 @@ export function ProjectBoundLaterStepGate({
   state: CurrentGoldReviewState;
   stepLabel: string;
 }) {
+  const { notes } = useCockpitStore();
+  let handoff: null | {
+    destination?: string;
+    selectedVariables?: string[];
+    filters?: Record<string, unknown>;
+    authorityKey?: string;
+    createdAt?: string;
+  } = null;
+  try {
+    handoff = notes["stage3.eda.handoff"] ? JSON.parse(notes["stage3.eda.handoff"]) : null;
+  } catch {
+    handoff = null;
+  }
+  const expectedDestination = stepLabel === "Outliers" ? "outliers" : stepLabel === "Missing Values" ? "missing" : stepLabel === "Feature Engineering" ? "features" : null;
   return (
-    <ReviewGate state={state}>{(review) => (
+    <ReviewGate state={state}>{(review) => {
+      const authorityKey = [review.sourceAuthority.manifestSha, review.goldAuthority.manifestSha, review.contextualFeaturePack?.manifestSha256 ?? "no-context", review.reviewDigest].join(":");
+      const acceptedHandoff = expectedDestination && handoff?.destination === expectedDestination && handoff.authorityKey === authorityKey ? handoff : null;
+      return (
       <section
         className="rounded-2xl border border-amber-200 bg-amber-50 p-6"
         data-testid="stage3-project-bound-later-step-gate"
       >
         <div className="flex items-center gap-2 font-semibold text-amber-950">
-          <Lock size={18} /> {stepLabel} is not activated by this population handoff
+          <Lock size={18} /> {stepLabel} · project-bound analytical handoff
         </div>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-amber-900">
           Stage 3 is bound to <b>{review.goldAuthority.datasetId}</b> and its verified contextual
@@ -333,12 +355,25 @@ export function ProjectBoundLaterStepGate({
           <Status label="Final OOT" value="LOCKED" detail={`${int(review.matrix.finalOot.rows)} reporting-only rows`} />
           <Status label="Model activity" value="ZERO FITS" detail="No fit, score, tune, calibration, or promotion" />
         </div>
+        {acceptedHandoff ? (
+          <div className="mt-4 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-slate-700" data-testid="stage3-eda-handoff-acknowledgment">
+            <div className="font-semibold text-cyan-900">Data Profile handoff acknowledged</div>
+            <p className="mt-1">
+              {int(acceptedHandoff.selectedVariables?.length ?? 0)} selected variable(s) and {int(Object.keys(acceptedHandoff.filters ?? {}).length)} active filter(s) are preserved for this step.
+              Authority <span className="font-mono">{review.reviewDigest.slice(0, 14)}…</span> matches the current project binding.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">{(acceptedHandoff.selectedVariables ?? []).map((name) => <span key={name} className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-mono text-[10px] text-cyan-900">{name}</span>)}</div>
+            {Object.keys(acceptedHandoff.filters ?? {}).length ? <pre className="mt-2 max-h-36 overflow-auto rounded-lg bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-200">{JSON.stringify(acceptedHandoff.filters, null, 2)}</pre> : null}
+            <p className="mt-1 text-[11px] text-slate-500">The handoff is a bookmark only. This downstream step remains held closed and makes no analytical or model request.</p>
+          </div>
+        ) : null}
         <p className="mt-4 text-xs leading-5 text-amber-800">
-          This correction establishes the modeling charter and population authority only. A later,
-          separately authorized implementation must make this step consume the same project-bound
+          This implementation activates the project-bound Data Profile only. A later, separately
+          authorized implementation must make this downstream step consume the same project-bound
           contract before it can run.
         </p>
       </section>
-    )}</ReviewGate>
+      );
+    }}</ReviewGate>
   );
 }

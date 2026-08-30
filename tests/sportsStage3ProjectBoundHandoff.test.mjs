@@ -15,17 +15,22 @@ const [handoff, cockpit, steps, stageContent, workflow, client] = await Promise.
 ]);
 
 test("Stage 3 inherits the project-scoped Stage 2 authority automatically", () => {
-  assert.ok(workflow.includes("focus.number === 2 || focus.number === 3"));
+  assert.ok(workflow.includes("useProjectStage3DataAuthority"));
+  assert.ok(workflow.includes("focus.number === 2"));
   assert.ok(stageContent.includes("currentGoldReview={currentGoldReview}"));
   assert.ok(stageContent.includes("ProjectBoundStage3Intro"));
   assert.ok(cockpit.includes("currentGoldReview={c.currentGoldReview}"));
   assert.ok(steps.includes("ProjectBoundModelingCharter"));
   assert.ok(steps.includes("ProjectBoundPopulation"));
   assert.ok(client.includes("populationReconciliation"));
+  assert.ok(client.includes("/sports/stage3-eda/metadata"));
+  assert.ok(client.includes('scope !== "DEVELOPMENT_ONLY"'));
+  assert.ok(client.includes("finalOotTargetAccessed") && client.includes("legacyGlobalMatrixUsed") && client.includes("providerCalls !== 0"));
+  assert.ok(client.includes("data: { stage3Handoff: CurrentGoldDataReview }"));
 });
 
 test("the Modeling Charter is meaningful, editable, and has no inherited champion", () => {
-  assert.ok(handoff.includes("Estimate calibrated probabilities for the governed eight"));
+  assert.ok(handoff.includes("Can a current, leakage-safe plate-appearance model improve"));
   for (const field of [
     "Modeling question",
     "Prediction unit",
@@ -37,7 +42,7 @@ test("the Modeling Charter is meaningful, editable, and has no inherited champio
     "Forecast-time restrictions",
     "Deployment intent",
   ]) assert.ok(handoff.includes(field), `missing charter field: ${field}`);
-  assert.ok(handoff.includes("multiclass log loss"));
+  assert.ok(handoff.includes("Multiclass log loss"));
   assert.ok(handoff.includes('value="None yet"'));
   assert.doesNotMatch(handoff, /Project champion[^\n]*D3|Project champion[^\n]*C4/);
   assert.ok(workflow.includes("Project champion: None yet"));
@@ -55,19 +60,20 @@ test("the active population and governed target are exact and final OOT stays lo
   assert.ok(handoff.includes("review.matrix.finalOot.rows"));
   assert.ok(handoff.includes("context?.addedFeatureCount"));
   assert.ok(handoff.includes("context?.totalFeatureCount"));
-  assert.ok(handoff.includes("Source-to-Gold exclusions"));
+  assert.ok(handoff.includes("Excluded source PAs"));
   assert.ok(handoff.includes("exclusionReasonStatus"));
   assert.ok(handoff.includes('value="LOCKED"'));
-  assert.ok(handoff.includes("without final-OOT outcome counts"));
+  assert.ok(handoff.includes("No final-OOT outcome counts are exposed"));
 });
 
-test("legacy datasets are hidden references and all later legacy execution paths fail closed", () => {
-  assert.ok(handoff.includes("Show legacy/reference datasets"));
-  assert.ok(handoff.includes("INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT"));
+test("legacy datasets are absent from the primary page and later legacy execution paths fail closed", () => {
+  assert.ok(handoff.includes("Advanced authority, manifests, hashes, and identity details"));
+  assert.doesNotMatch(handoff, /Show legacy\/reference datasets|MLB_PA_V1 \/ Base-22|INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT/);
   assert.ok(handoff.includes("ProjectBoundLaterStepGate"));
   assert.ok(cockpit.includes('currentGoldReview ? null : "/cockpit/objective"'));
+  assert.ok(cockpit.includes("ProjectBoundDataProfile"));
   for (const label of [
-    "Data Profile", "Outliers", "Missing Values", "Feature Engineering",
+    "Outliers", "Missing Values", "Feature Engineering",
     "Player Segmentation", "Temporal Split", "Model Laboratory", "Hyperparameter Tuning",
     "Evaluation", "Calibration", "Simulation Impact", "Champion / Challenger", "Registry & Evidence",
   ]) assert.ok(cockpit.includes(`stepLabel="${label}"`), `legacy fallback remains for ${label}`);

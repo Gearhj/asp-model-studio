@@ -24,7 +24,7 @@ import { useForecastContract, type ForecastContractState } from "./useForecastCo
 import { ProjectEvidenceDatasetControl } from "./ProjectEvidenceDatasetControl";
 import { useProjectSportsEvidenceDataset, type ProjectSportsEvidenceState } from "./projectDatasetLinkage";
 import { useCanonicalSportsProject } from "./useCanonicalSportsProject";
-import { useProjectCurrentGoldDataReview, type CurrentGoldReviewState } from "./currentGoldDataReview";
+import { useProjectCurrentGoldDataReview, useProjectStage3DataAuthority, type CurrentGoldReviewState } from "./currentGoldDataReview";
 
 const STEP_ICONS: LucideIcon[] = [Target, Database, FlaskConical, UsersRound, Orbit, SlidersHorizontal, Gauge, GitBranch, PackageCheck];
 
@@ -104,9 +104,13 @@ export default function GuidedWorkflow() {
   const legacyStep = Number(params.get("step")) || 0;
   const focusNumber = Number(params.get("stage")) || (legacyStep ? (LEGACY_STEP_TO_STAGE[legacyStep] || 1) : firstActionableStage(resolutions));
   const focus = resolutions.find((r) => r.number === focusNumber) || resolutions[0];
-  const currentGoldReview = useProjectCurrentGoldDataReview(projectId,
-    Boolean(binding) && (focus.number === 2 || focus.number === 3),
+  const stage2CurrentGoldReview = useProjectCurrentGoldDataReview(projectId,
+    Boolean(binding) && focus.number === 2,
   );
+  const stage3CurrentGoldReview = useProjectStage3DataAuthority(projectId,
+    Boolean(binding) && focus.number === 3,
+  );
+  const currentGoldReview = focus.number === 3 ? stage3CurrentGoldReview : stage2CurrentGoldReview;
   const justDone = Number(params.get("done")) || 0;
   const [navCollapsed, setNavCollapsed] = useState(false);
   const displayName = projectName && projectName !== "Untitled Sports Project" ? projectName : "MLB Plate Appearance Modeling";
