@@ -64,6 +64,12 @@ class NflProspectiveShadowError(RuntimeError):
     """The frozen prospective research-shadow path failed closed."""
 
 
+def _now_utc() -> datetime:
+    """Single injectable wall-clock boundary for honest availability tests."""
+
+    return datetime.now(UTC)
+
+
 @dataclass(frozen=True)
 class VerifiedFrozenM1:
     model_bundle: Mapping[str, Any]
@@ -429,6 +435,8 @@ def _write_index(root: Path, value: Mapping[str, Any]) -> None:
 def _publish_current_authority_bundles(
     index: Mapping[str, Any],
     exchange_root: Path,
+    *,
+    publication_deadline: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose one authoritative bundle per slate without erasing history.
 
@@ -505,7 +513,14 @@ def _publish_current_authority_bundles(
             "forecasts": forecasts,
         }
         bundle["bundleId"] = derive_sports_forecast_bundle_id(bundle)
-        published = write_sports_forecast_bundle(exchange_root, bundle)
+        if publication_deadline is not None and _now_utc().astimezone(UTC) > publication_deadline:
+            raise NflProspectiveShadowError("current-authority publication missed FINAL_PREGAME cutoff")
+        published = write_sports_forecast_bundle(
+            exchange_root,
+            bundle,
+            not_after_utc=publication_deadline,
+            now_utc=_now_utc,
+        )
         verified = verify_sports_forecast_bundle(exchange_root, published.bundle_sha256)
         current_bundles.append({
             "slateDate": slate_date,
@@ -526,13 +541,31 @@ def activate_2026_shadow(
 ) -> dict[str, Any]:
     """Create all upcoming 2026 vectors, score once, and publish date bundles."""
 
-    available = (as_of or datetime.now(UTC)).astimezone(UTC); publication_root = Path(publication_root).resolve(); exchange_root = Path(exchange_root).resolve(); publication_root.mkdir(parents=True, exist_ok=True); exchange_root.mkdir(parents=True, exist_ok=True)
+    forecast_cutoff = (as_of or _now_utc()).astimezone(UTC); publication_root = Path(publication_root).resolve(); exchange_root = Path(exchange_root).resolve(); publication_root.mkdir(parents=True, exist_ok=True); exchange_root.mkdir(parents=True, exist_ok=True)
+    requested = tuple(dict.fromkeys(str(item) for item in snapshot_types))
+    invalid = set(requested)-{"EARLY","CURRENT","FINAL_PREGAME"}
+    if invalid: raise NflProspectiveShadowError(f"snapshot types differ: {sorted(invalid)}")
+    if "FINAL_PREGAME" in requested and len(requested) != 1:
+        raise NflProspectiveShadowError("FINAL_PREGAME must run as a bounded standalone snapshot job")
     frozen = verify_frozen_m1(artifact_root=artifact_root, foundation_root=foundation_root, publication_root=publication_root); runtime = load_foundation_runtime(foundation_root)
     schedule_as_of = _utc(runtime.schedule_as_of_utc)
-    if schedule_as_of > available: raise NflProspectiveShadowError("foundation schedule is newer than activation cutoff")
+    if schedule_as_of > forecast_cutoff: raise NflProspectiveShadowError("foundation schedule is newer than activation cutoff")
     parity = historical_feature_parity(runtime)
-    targets, team_games, names = _load_targets(runtime, as_of=available)
-    if not targets: return {"status": "NO_ELIGIBLE_UPCOMING_GAMES", "games": 0, "parity": parity}
+    targets, team_games, names = _load_targets(runtime, as_of=forecast_cutoff)
+    if requested == ("FINAL_PREGAME",):
+        targets = [
+            target for target in targets
+            if 900 <= (target["scheduled_start_utc"] - forecast_cutoff).total_seconds() <= 1_800
+        ]
+    if not targets:
+        return {
+            "status": "NO_ELIGIBLE_UPCOMING_GAMES", "games": 0, "parity": parity,
+            "reason": "NO_DUE_FINAL_PREGAME_GAMES" if requested == ("FINAL_PREGAME",) else "NO_UPCOMING_GAMES",
+        }
+    final_publication_deadline = (
+        min(target["scheduled_start_utc"] - timedelta(minutes=15) for target in targets)
+        if requested == ("FINAL_PREGAME",) else None
+    )
     vectors = [materialize_feature_vector(target, team_games, frozen.feature_names) for target in targets]
     value_hashes = [
         hashlib.sha256(
@@ -543,10 +576,7 @@ def activate_2026_shadow(
         for vector in vectors
     ]
     index = _read_index(publication_root)
-    requested = tuple(dict.fromkeys(str(item) for item in snapshot_types))
-    invalid = set(requested)-{"EARLY","CURRENT","FINAL_PREGAME"}
-    if invalid: raise NflProspectiveShadowError(f"snapshot types differ: {sorted(invalid)}")
-    revision = producer_revision or _git_revision(); generated = _utc_text(available); source_cutoff = runtime.schedule_as_of_utc
+    revision = producer_revision or _git_revision(); cutoff_text = _utc_text(forecast_cutoff); source_cutoff = runtime.schedule_as_of_utc
 
     def snapshot_due(
         event_index: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -555,7 +585,7 @@ def activate_2026_shadow(
         values_sha: str,
     ) -> bool:
         if snapshot == "EARLY" and event_index["EARLY"]: return False
-        if any(entry.get("forecastCutoffUtc") == generated for entry in event_index[snapshot]): return False
+        if any(entry.get("forecastCutoffUtc") == cutoff_text for entry in event_index[snapshot]): return False
         if snapshot in {"CURRENT", "FINAL_PREGAME"} and any(
             entry.get("featureValuesSha256") == values_sha
             and entry.get("sourceFoundationManifestSha256") == runtime.paths.foundation_manifest_sha256
@@ -563,7 +593,7 @@ def activate_2026_shadow(
             for entry in event_index[snapshot]
         ): return False
         if snapshot == "FINAL_PREGAME":
-            seconds = (target["scheduled_start_utc"]-available).total_seconds()
+            seconds = (target["scheduled_start_utc"]-forecast_cutoff).total_seconds()
             # CURRENT carries earlier refreshes. FINAL_PREGAME is a narrow,
             # pre-kickoff freeze and can never be substituted after kickoff.
             if seconds < 900 or seconds > 1_800: return False
@@ -585,32 +615,69 @@ def activate_2026_shadow(
         ):
             vector_hashes.append(matching_existing)
             continue
-        vector_record = {"contract": FEATURE_VECTOR_CONTRACT, "eventId": event_id, "season": 2026, "forecastCutoffUtc": generated, "sourceCutoffUtc": runtime.schedule_as_of_utc, "trainingFoundationManifestSha256": FOUNDATION_MANIFEST_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "sourceDatasetVersionId": runtime.paths.dataset_version_id, "modelManifestSha256": MODEL_MANIFEST_SHA256, "featureContractSha256": frozen.feature_contract_sha256, "featureValuesSha256": values_sha, "featureNames": list(frozen.feature_names), "values": [vector[name] for name in frozen.feature_names], "missingFeatures": [name for name in frozen.feature_names if vector[name] is None], "targetOutcomeFieldsRead": False, "marketFieldsRead": False}
+        vector_record = {"contract": FEATURE_VECTOR_CONTRACT, "eventId": event_id, "season": 2026, "forecastCutoffUtc": cutoff_text, "sourceCutoffUtc": runtime.schedule_as_of_utc, "trainingFoundationManifestSha256": FOUNDATION_MANIFEST_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "sourceDatasetVersionId": runtime.paths.dataset_version_id, "modelManifestSha256": MODEL_MANIFEST_SHA256, "featureContractSha256": frozen.feature_contract_sha256, "featureValuesSha256": values_sha, "featureNames": list(frozen.feature_names), "values": [vector[name] for name in frozen.feature_names], "missingFeatures": [name for name in frozen.feature_names if vector[name] is None], "targetOutcomeFieldsRead": False, "marketFieldsRead": False}
         digest, _, _ = _persist_feature_vector(publication_root, vector_record); vector_hashes.append(digest)
     frame = pd.DataFrame(vectors, columns=list(frozen.feature_names)); prediction = frozen.model_bundle["scoreModels"]["XGBOOST"].predict(frame)
     simulation = simulate_joint_scores(predicted_home_mean=prediction.expected_home_points, predicted_away_mean=prediction.expected_away_points, residual_authority=frozen.model_bundle["pairedResidualAuthority"], draws=SIMULATION_DRAWS, seed=SIMULATION_SEED)
+    completed_at = _now_utc().astimezone(UTC)
+    if completed_at < forecast_cutoff:
+        raise NflProspectiveShadowError("completion clock precedes forecast evidence cutoff")
+    completed_text = _utc_text(completed_at)
+    late_final_omissions = 0
+    final_forecasts_published = 0
     by_date: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for position, (target, vector, vector_sha, values_sha) in enumerate(zip(targets, vectors, vector_hashes, value_hashes, strict=True)):
         event_id = str(target["canonical_game_id"]); event_index = index["events"].setdefault(event_id, {"EARLY": [], "CURRENT": [], "FINAL_PREGAME": []})
         for snapshot in requested:
             if not snapshot_due(event_index, snapshot, target, values_sha): continue
+            if completed_at >= target["scheduled_start_utc"]:
+                if snapshot == "FINAL_PREGAME": late_final_omissions += 1
+                continue
+            if snapshot == "FINAL_PREGAME" and completed_at > target["scheduled_start_utc"] - timedelta(minutes=15):
+                late_final_omissions += 1
+                continue
             version = len(event_index[snapshot]) + 1
-            record = _forecast_record(target=target, vector_sha=vector_sha, vector=vector, names=names, simulation_home=simulation.home[position], simulation_away=simulation.away[position], snapshot_type=snapshot, snapshot_version=version, frozen=frozen, schedule_as_of=runtime.schedule_as_of_utc, source_cutoff=source_cutoff, forecast_cutoff=generated, available_as_of=generated, producer_revision=revision)
+            record = _forecast_record(target=target, vector_sha=vector_sha, vector=vector, names=names, simulation_home=simulation.home[position], simulation_away=simulation.away[position], snapshot_type=snapshot, snapshot_version=version, frozen=frozen, schedule_as_of=runtime.schedule_as_of_utc, source_cutoff=source_cutoff, forecast_cutoff=cutoff_text, available_as_of=completed_text, producer_revision=revision)
             if any(entry.get("forecastId") == record["forecastId"] for entry in event_index[snapshot]): continue
             by_date[str(target["game_date"])].append(record)
     publications = []
     for slate_date, forecasts in sorted(by_date.items()):
-        bundle = {"schemaVersion": ASP_SPORTS_FORECAST_EXCHANGE_V1, "bundleId": "PENDING", "sport": "NFL", "league": "NFL", "season": 2026, "slateDate": slate_date, "generatedAtUtc": generated, "status": "RESEARCH_SHADOW", "researchShadowOnly": True, "modelPromotionAllowed": False, "executionAllowed": False, "parlaysAllowed": False, "forecasts": forecasts}
-        bundle["bundleId"] = derive_sports_forecast_bundle_id(bundle); published = write_sports_forecast_bundle(exchange_root, bundle); verify_sports_forecast_bundle(exchange_root, published.bundle_sha256)
-        logical = f"asp-model-exchange://{BUNDLE_OBJECT_FAMILY}/sha256/{published.bundle_sha256}/bundle.json"
-        item = {"slateDate": slate_date, "bundleSha256": published.bundle_sha256, "bundleLogicalUri": logical, "forecastCount": len(forecasts), "forecastIds": [row["forecastId"] for row in forecasts]}
-        if item["bundleSha256"] not in {entry["bundleSha256"] for entry in index["bundles"]}: index["bundles"].append(item)
+        publication_check = _now_utc().astimezone(UTC)
+        if publication_check < completed_at:
+            raise NflProspectiveShadowError("publication clock precedes forecast completion")
+        publishable = []
         for row in forecasts:
+            kickoff = _utc(row["scheduledStartUtc"])
+            if publication_check >= kickoff:
+                if row["snapshotType"] == "FINAL_PREGAME": late_final_omissions += 1
+                continue
+            if row["snapshotType"] == "FINAL_PREGAME" and publication_check > kickoff - timedelta(minutes=15):
+                late_final_omissions += 1
+                continue
+            publishable.append(row)
+        if not publishable:
+            continue
+        publication_text = _utc_text(publication_check)
+        bundle = {"schemaVersion": ASP_SPORTS_FORECAST_EXCHANGE_V1, "bundleId": "PENDING", "sport": "NFL", "league": "NFL", "season": 2026, "slateDate": slate_date, "generatedAtUtc": publication_text, "status": "RESEARCH_SHADOW", "researchShadowOnly": True, "modelPromotionAllowed": False, "executionAllowed": False, "parlaysAllowed": False, "forecasts": publishable}
+        publication_deadline = min(
+            (_utc(row["scheduledStartUtc"]) - timedelta(minutes=15) for row in publishable if row["snapshotType"] == "FINAL_PREGAME"),
+            default=None,
+        )
+        bundle["bundleId"] = derive_sports_forecast_bundle_id(bundle); published = write_sports_forecast_bundle(exchange_root, bundle, not_after_utc=publication_deadline, now_utc=_now_utc); verify_sports_forecast_bundle(exchange_root, published.bundle_sha256)
+        logical = f"asp-model-exchange://{BUNDLE_OBJECT_FAMILY}/sha256/{published.bundle_sha256}/bundle.json"
+        item = {"slateDate": slate_date, "bundleSha256": published.bundle_sha256, "bundleLogicalUri": logical, "forecastCount": len(publishable), "forecastIds": [row["forecastId"] for row in publishable]}
+        final_forecasts_published += sum(row["snapshotType"] == "FINAL_PREGAME" for row in publishable)
+        if item["bundleSha256"] not in {entry["bundleSha256"] for entry in index["bundles"]}: index["bundles"].append(item)
+        for row in publishable:
             entries = index["events"][row["eventId"]][row["snapshotType"]]
             vector_position = next(index for index, target in enumerate(targets) if str(target["canonical_game_id"]) == row["eventId"])
             entries.append({"forecastId": row["forecastId"], "forecastCutoffUtc": row["forecastCutoffUtc"], "featureVectorSha256": row["features"]["featureVectorSha256"], "featureValuesSha256": value_hashes[vector_position], "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "producerRevision": revision, "snapshotVersion": row["snapshotVersion"], "bundleSha256": published.bundle_sha256, "bundleLogicalUri": logical})
         publications.append(item)
-    index["updatedAtUtc"] = generated; index["featureContractSha256"] = frozen.feature_contract_sha256; index["modelBinarySha256"] = MODEL_BINARY_SHA256
+    run_completed = _now_utc().astimezone(UTC)
+    if run_completed < completed_at:
+        raise NflProspectiveShadowError("run-completion clock precedes forecast completion")
+    run_completed_text = _utc_text(run_completed)
+    index["updatedAtUtc"] = run_completed_text; index["featureContractSha256"] = frozen.feature_contract_sha256; index["modelBinarySha256"] = MODEL_BINARY_SHA256
     existing_fixture_sha = index.get("reloadFixtureSha256")
     if existing_fixture_sha:
         fixture_sha = str(existing_fixture_sha)
@@ -624,21 +691,24 @@ def activate_2026_shadow(
         if not fixture_path.exists(): fixture_path.write_bytes(fixture_payload)
         verify_activation_reload_fixture(publication_root, fixture_sha, frozen)
     index["reloadFixtureSha256"] = fixture_sha; index["sourceFoundationManifestSha256"] = runtime.paths.foundation_manifest_sha256; index["sourceDatasetVersionId"] = runtime.paths.dataset_version_id
+    authority_deadline = final_publication_deadline if final_forecasts_published else None
     current_authority_bundles, historical_bundle_shas = _publish_current_authority_bundles(
-        index, exchange_root
+        index, exchange_root, publication_deadline=authority_deadline
     )
     index["currentAuthorityBundles"] = current_authority_bundles
     index["historicalAuthorityBundleSha256s"] = historical_bundle_shas
-    _write_index(publication_root, index)
     locator = write_nfl_2026_research_shadow_locator(
         exchange_root,
         current_bundle_sha256s=[entry["bundleSha256"] for entry in current_authority_bundles],
         historical_bundle_sha256s=historical_bundle_shas,
         feature_contract_sha256=frozen.feature_contract_sha256,
-        updated_at_utc=generated,
+        updated_at_utc=run_completed_text,
+        not_after_utc=authority_deadline,
+        now_utc=_now_utc,
     )
+    _write_index(publication_root, index)
     locator_path = exchange_root / BUNDLE_OBJECT_FAMILY / "nfl-2026-research-shadow-index.json"
-    return {"status": "ACTIVE", "games": len(targets), "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
+    return {"status": "ACTIVE", "games": len(targets), "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "forecastCutoffUtc": cutoff_text, "completedAtUtc": run_completed_text, "lateFinalPregameOmissions": late_final_omissions, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
 
 
 __all__ = ["activate_2026_shadow", "historical_feature_parity", "load_foundation_runtime", "materialize_feature_vector", "verify_activation_reload_fixture", "verify_frozen_m1", "NflProspectiveShadowError"]

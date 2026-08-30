@@ -75,7 +75,12 @@ Initial activation time was `2026-08-30T00:54:52.304219Z`
 `FINAL_PREGAME` is permitted only in the narrow window 15–30 minutes before kickoff;
 earlier refreshes remain `CURRENT`, and no final snapshot is backfilled at or after
 the 15-minute cutoff. Unchanged evidence creates at most one final snapshot in that
-window. An unchanged-evidence rerun at `2026-08-30T01:03:53.166652Z` reevaluated all
+window. The standalone final job filters to due events before feature construction or
+simulation, preserves its invocation time as the evidence cutoff, stamps forecast
+availability only after scoring completes, and checks the wall clock again immediately
+before bundle publication. A computation that crosses the cutoff is omitted and cannot
+enter the index or locator. Ordinary snapshots are likewise omitted if completion has
+crossed kickoff. An unchanged-evidence rerun at `2026-08-30T01:03:53.166652Z` reevaluated all
 272 games and produced zero new forecasts and zero new bundles. It also reused the
 existing stable feature evidence rather than writing new unreferenced vector objects.
 A different producer commit is part of the governed CURRENT identity: it preserves the
@@ -129,8 +134,9 @@ Focused command:
 Result: **6 passed**. Coverage includes frozen artifact hashes/reload, 197/197
 historical parity, cutoff and season-boundary rules, schedule population including
 January 2027, immutable bundle verification, locator verification, research-only
-disposition, unchanged-evidence forecast and feature-object idempotence, and the
-unchanged legacy post-2024 rejection rule.
+disposition, unchanged-evidence forecast and feature-object idempotence, due-event-only
+FINAL computation, delayed-completion rejection at the 15-minute cutoff, no ordinary
+snapshot after kickoff, and the unchanged legacy post-2024 rejection rule.
 
 Operational command:
 

@@ -14,10 +14,10 @@ import os
 import shutil
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from ..audit_assurance.canonical import canonical_json_bytes
 from ..sports_cockpit.path_containment import ContainmentError, contained_no_reparse
@@ -413,6 +413,14 @@ def _validate_bundle(value: Mapping[str, Any], *, enforce_identity: bool) -> dic
         raise SportsForecastExchangeError("bundle research-shadow disposition differs")
     if any(child["eventDate"] != result["slateDate"] for child in forecasts):
         raise SportsForecastExchangeError("bundle may contain only one slate date")
+    generated_at = datetime.fromisoformat(result["generatedAtUtc"].replace("Z", "+00:00"))
+    for child in forecasts:
+        available_at = datetime.fromisoformat(child["availableAsOfUtc"].replace("Z", "+00:00"))
+        scheduled_at = datetime.fromisoformat(child["scheduledStartUtc"].replace("Z", "+00:00"))
+        if generated_at < available_at:
+            raise SportsForecastExchangeError("bundle generation precedes forecast availability")
+        if child["snapshotType"] == "FINAL_PREGAME" and generated_at > scheduled_at - timedelta(minutes=15):
+            raise SportsForecastExchangeError("bundle published FINAL_PREGAME after its cutoff")
     if enforce_identity and result["bundleId"] != _derived_id(result, "bundleId", BUNDLE_ID_PREFIX):
         raise SportsForecastExchangeError("bundleId differs from canonical content")
     return result
@@ -469,7 +477,13 @@ def verify_sports_forecast_bundle(external_root: Path, bundle_sha256: str) -> Pu
     return PublishedSportsForecastBundle(root, digest, path, fixture_path, validation_path, len(payload), hashlib.sha256(fixture_payload).hexdigest(), hashlib.sha256(validation_payload).hexdigest(), False, MappingProxyType(record))
 
 
-def write_sports_forecast_bundle(external_root: Path, value: Mapping[str, Any]) -> PublishedSportsForecastBundle:
+def write_sports_forecast_bundle(
+    external_root: Path,
+    value: Mapping[str, Any],
+    *,
+    not_after_utc: datetime | None = None,
+    now_utc: Callable[[], datetime] | None = None,
+) -> PublishedSportsForecastBundle:
     root = _root(external_root); record = validate_sports_forecast_bundle(value); payload = canonical_json_bytes(record); digest = hashlib.sha256(payload).hexdigest()
     parent = root / BUNDLE_OBJECT_FAMILY / "sha256"; parent.mkdir(parents=True, exist_ok=True); final = parent / digest
     if final.exists():
@@ -479,6 +493,11 @@ def write_sports_forecast_bundle(external_root: Path, value: Mapping[str, Any]) 
     try:
         for name, child in {"bundle.json": payload, "consumer-import-fixture.json": canonical_json_bytes(_fixture(record, digest)), "VALIDATION.md": VALIDATION_INSTRUCTIONS_BYTES}.items():
             with (staging / name).open("xb") as stream: stream.write(child); stream.flush(); os.fsync(stream.fileno())
+        if not_after_utc is not None:
+            deadline = not_after_utc.astimezone(timezone.utc)
+            observed = (now_utc or (lambda: datetime.now(timezone.utc)))().astimezone(timezone.utc)
+            if observed > deadline:
+                raise SportsForecastExchangeError("bundle publication missed its governed deadline")
         try: os.replace(staging, final)
         except OSError:
             if not final.exists(): raise
@@ -585,6 +604,8 @@ def write_nfl_2026_research_shadow_locator(
     historical_bundle_sha256s: Sequence[str],
     feature_contract_sha256: str,
     updated_at_utc: str,
+    not_after_utc: datetime | None = None,
+    now_utc: Callable[[], datetime] | None = None,
 ) -> Mapping[str, Any]:
     """Atomically replace only the locator after every listed object verifies."""
 
@@ -628,6 +649,11 @@ def write_nfl_2026_research_shadow_locator(
     try:
         with temporary.open("xb") as stream:
             stream.write(payload); stream.flush(); os.fsync(stream.fileno())
+        if not_after_utc is not None:
+            deadline = not_after_utc.astimezone(timezone.utc)
+            observed = (now_utc or (lambda: datetime.now(timezone.utc)))().astimezone(timezone.utc)
+            if observed > deadline:
+                raise SportsForecastExchangeError("locator publication missed its governed deadline")
         os.replace(temporary, path)
     finally:
         if temporary.exists(): temporary.unlink()

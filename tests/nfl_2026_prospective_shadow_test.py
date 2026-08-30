@@ -44,6 +44,8 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
     publication = root / "publication"
     exchange = root / "exchange"
     cutoff = datetime(2026, 8, 29, 16, 0, tzinfo=timezone.utc)
+    clock = {"now": cutoff + timedelta(seconds=1)}
+    monkeypatch.setattr(P, "_now_utc", lambda: clock["now"])
     try:
         first = P.activate_2026_shadow(
             publication_root=publication,
@@ -71,6 +73,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             canonical_json_bytes(locator["currentBundleSha256s"])
         ).hexdigest()
         feature_objects_before = sorted((publication / "feature-vectors" / "sha256").iterdir())
+        clock["now"] = cutoff.replace(hour=17) + timedelta(seconds=1)
         second = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
@@ -84,6 +87,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert second_locator["currentBundleListSha256"] == locator["currentBundleListSha256"]
         assert second_locator["historicalBundleListSha256"] == locator["historicalBundleListSha256"]
         assert sorted((publication / "feature-vectors" / "sha256").iterdir()) == feature_objects_before
+        clock["now"] = cutoff.replace(hour=18) + timedelta(seconds=1)
         revised = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
@@ -112,6 +116,24 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "CURRENT"} == {2}
         first_target = bounded_targets(P.load_foundation_runtime(), as_of=cutoff)[0][0]
         final_cutoff = first_target["scheduled_start_utc"] - timedelta(minutes=25)
+        before_late_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        clock["now"] = first_target["scheduled_start_utc"] - timedelta(minutes=14)
+        delayed = P.activate_2026_shadow(
+            publication_root=publication,
+            exchange_root=exchange,
+            as_of=final_cutoff,
+            snapshot_types=("FINAL_PREGAME",),
+            producer_revision="1111111111111111111111111111111111111111",
+        )
+        assert delayed["games"] == 1
+        assert delayed["featureVectorCount"] == 1
+        assert delayed["forecastsCreated"] == 0
+        assert delayed["bundleCount"] == 0
+        assert delayed["lateFinalPregameOmissions"] == 1
+        after_late_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert after_late_locator["currentBundleListSha256"] == before_late_locator["currentBundleListSha256"]
+        assert after_late_locator["historicalBundleListSha256"] == before_late_locator["historicalBundleListSha256"]
+        clock["now"] = first_target["scheduled_start_utc"] - timedelta(minutes=24)
         final = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
@@ -120,8 +142,12 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             producer_revision="1111111111111111111111111111111111111111",
         )
         assert final["forecastsCreated"] == 1
+        assert final["games"] == 1
+        assert final["featureVectorCount"] == 1
+        assert final["lateFinalPregameOmissions"] == 0
         final_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
         assert final["exchangeLocatorCurrentForecastCount"] == 5
+        clock["now"] = first_target["scheduled_start_utc"] - timedelta(minutes=19)
         repeat_final = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
@@ -133,6 +159,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         repeat_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
         assert repeat_locator["currentBundleListSha256"] == final_locator["currentBundleListSha256"]
         assert repeat_locator["historicalBundleListSha256"] == final_locator["historicalBundleListSha256"]
+        clock["now"] = first_target["scheduled_start_utc"] - timedelta(minutes=13)
         late_final = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
@@ -140,7 +167,8 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             snapshot_types=("FINAL_PREGAME",),
             producer_revision="1111111111111111111111111111111111111111",
         )
-        assert late_final["forecastsCreated"] == 0
+        assert late_final["status"] == "NO_ELIGIBLE_UPCOMING_GAMES"
+        assert late_final["reason"] == "NO_DUE_FINAL_PREGAME_GAMES"
         late_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
         assert late_locator["currentBundleListSha256"] == final_locator["currentBundleListSha256"]
         assert late_locator["historicalBundleListSha256"] == final_locator["historicalBundleListSha256"]
@@ -149,6 +177,23 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 2 for value in index["events"].values())
         final_counts = sorted(len(value["FINAL_PREGAME"]) for value in index["events"].values())
         assert final_counts == [0, 1]
+        def first_only(*args, **kwargs):
+            targets, team_games, names = original_targets(*args, **kwargs)
+            return targets[:1], team_games, names
+        monkeypatch.setattr(P, "_load_targets", first_only)
+        clock["now"] = first_target["scheduled_start_utc"] + timedelta(minutes=1)
+        late_current = P.activate_2026_shadow(
+            publication_root=publication,
+            exchange_root=exchange,
+            as_of=first_target["scheduled_start_utc"] - timedelta(minutes=1),
+            snapshot_types=("CURRENT",),
+            producer_revision="2222222222222222222222222222222222222222",
+        )
+        assert late_current["games"] == 1
+        assert late_current["forecastsCreated"] == 0
+        assert late_current["bundleCount"] == 0
+        final_index = json.loads((publication / "prospective-index.json").read_text(encoding="utf-8"))
+        assert len(final_index["events"][first_target["canonical_game_id"]]["CURRENT"]) == 2
     finally:
         if root.exists():
             shutil.rmtree(root)
