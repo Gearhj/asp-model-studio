@@ -395,10 +395,9 @@ export function ProjectBoundLaterStepGate({
       const authorityKey = [review.sourceAuthority.manifestSha, review.goldAuthority.manifestSha, review.contextualFeaturePack?.manifestSha256 ?? "no-context", review.reviewDigest].join(":");
       const acceptedHandoff = expectedDestination && handoff?.destination === expectedDestination && handoff.authorityKey === authorityKey ? handoff : null;
       return (
-      <section
-        className="rounded-2xl border border-amber-200 bg-amber-50 p-6"
-        data-testid="stage3-project-bound-later-step-gate"
-      >
+      <div className="space-y-4" data-testid="stage3-project-bound-later-step-gate">
+        <LaterStepPrimeSummary review={review} stepLabel={stepLabel} selectedVariables={acceptedHandoff?.selectedVariables ?? []} />
+      <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
         <div className="flex items-center gap-2 font-semibold text-amber-950">
           <Lock size={18} /> {stepLabel} · project-bound analytical handoff
         </div>
@@ -431,7 +430,50 @@ export function ProjectBoundLaterStepGate({
           contract before it can run.
         </p>
       </section>
+      </div>
       );
     }}</ReviewGate>
   );
+}
+
+function LaterStepPrimeSummary({
+  review,
+  stepLabel,
+  selectedVariables,
+}: {
+  review: CurrentGoldDataReview;
+  stepLabel: string;
+  selectedVariables: string[];
+}) {
+  if (stepLabel === "Outliers") {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="stage3-outlier-prime-summary">
+        <div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">Outlier review summary</div><h3 className="mt-1 text-lg font-semibold text-slate-950">No governed outlier decision has been made</h3></div><span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-900">NOT EVALUATED</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3"><Status label="Development scope" value={int(review.matrix.development.rows)} detail={`Through ${review.matrix.development.endDate}`} /><Status label="Variables handed off" value={int(selectedVariables.length)} detail={selectedVariables.length ? "Explicit Data Profile selection" : "No analytical selection yet"} /><Status label="Action authority" value="HELD CLOSED" detail="No clipping, winsorizing, exclusion, or transformation applied" /></div>
+        <p className="mt-3 text-xs leading-5 text-slate-600">This page distinguishes an unevaluated outlier policy from a zero-outlier finding. Final-OOT outcomes remain locked and no threshold is inferred from them.</p>
+      </section>
+    );
+  }
+  if (stepLabel === "Missing Values") {
+    const affected = review.missingness.predictors.filter((item) => item.missingRows > 0);
+    const largest = [...affected].sort((a, b) => b.developmentMissingPct - a.developmentMissingPct)[0];
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="stage3-missing-prime-summary">
+        <div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">Missing-value summary</div><h3 className="mt-1 text-lg font-semibold text-slate-950">Physical missingness and cold start stay distinct</h3></div><span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-900">TREATMENT NOT ADOPTED</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-4"><Status label="Affected predictors" value={`${affected.length} / ${review.missingness.predictors.length}`} detail="Registered predictor diagnostics" /><Status label="Largest development gap" value={largest ? `${largest.developmentMissingPct.toFixed(2)}%` : "0.00%"} detail={largest?.feature ?? "No physical gap recorded"} /><Status label="Cold-start rows" value={int(review.modelingTreatment.coldStartRowCount ?? 0)} detail={review.modelingTreatment.coldStartRows} /><Status label="Global imputation" value={review.modelingTreatment.globalImputation} detail="Fold-local treatment only may be selected later" /></div>
+        <p className="mt-3 text-xs leading-5 text-slate-600">No cold-start row is dropped. Missingness flags remain candidates; no validation or final-OOT-derived preprocessing is authorized.</p>
+      </section>
+    );
+  }
+  if (stepLabel === "Feature Engineering") {
+    const contextual = review.contextualFeaturePack;
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="stage3-feature-prime-summary">
+        <div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">Feature-engineering summary</div><h3 className="mt-1 text-lg font-semibold text-slate-950">Candidate contracts are inventoried; none is selected</h3></div><span className="ml-auto rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[10px] font-semibold text-cyan-900">0 FAMILIES ADOPTED</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-4"><Status label="Core contract" value={`${review.matrix.predictorCount} predictors`} detail="Exact Current Gold order preserved" /><Status label="Contextual candidates" value={contextual ? int(contextual.addedFeatureCount) : "0"} detail={contextual ? `${contextual.totalFeatureCount} total candidate fields` : "No contextual authority registered"} /><Status label="Feature families" value={int(contextual?.families.length ?? 1)} detail="Future chronological ablation candidates" /><Status label="Interactions" value={int(contextual?.interactions.length ?? 0)} detail="Inventory only; no automatic expansion" /></div>
+        <p className="mt-3 text-xs leading-5 text-slate-600">Travel, circadian, holiday, and rivalry fields remain hypotheses. Selection requires chronological validation; this page performs no fit, score, calibration, or promotion.</p>
+      </section>
+    );
+  }
+  return null;
 }

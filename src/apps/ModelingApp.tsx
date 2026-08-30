@@ -36,6 +36,10 @@ import {
   UsersSettingsPage,
 } from "../sports/StudioModules";
 import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
+import {
+  Stage3FocusModeProvider,
+  useProjectStage3FocusPreference,
+} from "../sports/cockpit/stage3FocusMode";
 
 const PaModelingCockpit = lazy(() => import("../sports/cockpit/PaModelingCockpit"));
 const AnalyticsWorkbench = lazy(() => import("../steps/AnalyticsWorkbench"));
@@ -127,9 +131,24 @@ export default function ModelingApp() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const storeProjectId = useWorkflowStore((state) => state.projectId);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const page = useMemo(() => pageLabel(location.pathname), [location.pathname]);
   const inSportsProject = isSportsWorkflow(workflowId) && projectName !== "Untitled Sports Project";
+  const focusRoute = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const projectId = (params.get("projectId") || storeProjectId || "").trim();
+    const stage3Route = (
+      (location.pathname === "/workflows/mlb" && params.get("stage") === "3")
+      || location.pathname === "/pa-modeling-cockpit"
+    );
+    return {
+      projectId,
+      stage3SurfaceActive: Boolean(projectId) && stage3Route,
+    };
+  }, [location.pathname, location.search, storeProjectId]);
+  const stage3Focus = useProjectStage3FocusPreference(focusRoute.projectId);
+  const stage3FocusActive = focusRoute.stage3SurfaceActive && stage3Focus.enabled;
 
   useEffect(() => {
     let cancelled = false;
@@ -178,11 +197,17 @@ export default function ModelingApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3f6f8] text-slate-950">
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">
-          <header className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,.04)] backdrop-blur-xl lg:top-0">
+    <Stage3FocusModeProvider
+      projectId={focusRoute.projectId}
+      stage3SurfaceActive={focusRoute.stage3SurfaceActive}
+      focusModeEnabled={stage3Focus.enabled}
+      setFocusModeEnabled={stage3Focus.setEnabled}
+    >
+      <div className="min-h-screen bg-[#f3f6f8] text-slate-950" data-stage3-focus-mode={stage3FocusActive ? "active" : undefined}>
+        <div className="flex min-h-screen">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">
+          {!stage3FocusActive && <header className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,.04)] backdrop-blur-xl lg:top-0">
             <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 sm:px-6 xl:px-8">
               <div className="min-w-0">
                 <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400" aria-label="Breadcrumb">
@@ -205,11 +230,11 @@ export default function ModelingApp() {
                 />
               </div>
             </div>
-          </header>
+          </header>}
 
-          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
-            <div className="mx-auto w-full max-w-[1880px]">
-              <WorkflowReturnBar />
+          <main className={`min-w-0 flex-1 ${stage3FocusActive ? "px-2 py-2 sm:px-3 sm:py-3 xl:px-4" : "px-3 py-4 sm:px-5 sm:py-6 xl:px-8"}`}>
+            <div className={stage3FocusActive ? "w-full max-w-none" : "mx-auto w-full max-w-[1880px]"}>
+              {!stage3FocusActive && <WorkflowReturnBar />}
               <ErrorBoundary title="This sports modeling surface could not be rendered safely." resetKey={location.pathname}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -272,9 +297,10 @@ export default function ModelingApp() {
               </ErrorBoundary>
             </div>
           </main>
+          </div>
         </div>
       </div>
-    </div>
+    </Stage3FocusModeProvider>
   );
 }
 

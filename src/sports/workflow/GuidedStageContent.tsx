@@ -10,7 +10,6 @@ import {
   Phase4EvaluationSection, Phase4GraphSection, Phase4RegistrySection,
 } from "../Phase4Surfaces";
 import PaModelingCockpit from "../cockpit/PaModelingCockpit";
-import { ProjectBoundStage3Intro } from "../cockpit/ProjectBoundStage3";
 import { CurrentGoldDataReviewPanel } from "./CurrentGoldDataReviewPanel";
 import type { CurrentGoldReviewState } from "./currentGoldDataReview";
 import type { StageResolution, ForecastContract } from "./workflowState";
@@ -118,11 +117,17 @@ export function GuidedStageContent({
   dataset,
   contract,
   currentGoldReview,
+  programStages,
+  onGoProgramStage,
+  projectName,
 }: {
   number: number;
   dataset: ActiveSportsDataset | null;
   contract?: ForecastContract | null;
   currentGoldReview?: CurrentGoldReviewState;
+  programStages?: StageResolution[];
+  onGoProgramStage?: (number: number) => void;
+  projectName?: string;
 }) {
   const p4 = dataset?.phase4;
   switch (number) {
@@ -132,7 +137,7 @@ export function GuidedStageContent({
         : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The project-scoped current Gold review authority is unavailable.</section>;
     case 3:
       return currentGoldReview
-        ? <div className="space-y-4"><ProjectBoundStage3Intro state={currentGoldReview} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} currentGoldReview={currentGoldReview} /></div>
+        ? <PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} currentGoldReview={currentGoldReview} programStages={programStages} onGoProgramStage={onGoProgramStage} projectName={projectName} />
         : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The accepted project-bound Stage 2 authority is required before Stage 3 can open.</section>;
     case 4:
       return <div className="space-y-4"><ParticipationUsageBody study={p4} /></div>;

@@ -60,8 +60,9 @@ test("navigation preserves state — internal step swap, no app reload / externa
   assert.ok(shell.includes("scrollIntoView"));
   assert.ok(!/go = \(id[^}]*window\.location/.test(shell));
   assert.ok(!shell.includes("window.location.reload"));
-  // the left navigator remains for direct expert navigation
-  assert.ok(shell.includes("onClick={() => setActive(s.id)}"));
+  // the merged drawer navigator remains available for direct expert navigation
+  assert.ok(shell.includes("goStep={(id) => { go(id); setWorkflowNavigatorOpen(false); }}"));
+  assert.ok(shell.includes("onClick={() => goStep(candidate.id)}"));
 });
 
 // ---------------------------------------------------------------- population clarity

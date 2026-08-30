@@ -14,14 +14,13 @@ const [workbench, client, cockpit, stage3Shell, panel, persistence, backend] = a
   read("server/sports_current_statcast/stage3_eda.py"),
 ]);
 
-test("the project-bound profile is wrapped by the persistent Stage 3 summary", () => {
-  assert.ok(cockpit.includes("<ProjectBoundStage3ProfileShell state={c.currentGoldReview}>"));
+test("the project-bound profile uses the unified compact Stage 3 shell", () => {
   assert.ok(cockpit.includes("<ProjectBoundDataProfile state={c.currentGoldReview} projectId={c.projectId} go={c.go} />"));
   assert.ok(cockpit.includes(": <ProfileStep />"), "standalone legacy behavior remains isolated");
-  assert.ok(stage3Shell.includes("stage3-eda-persistent-summary"));
-  for (const label of ["Development rows", "Target classes", "Candidate predictors", "Cold-start prevalence", "Final OOT rows", "Identity", "Point in time", "Leakage"]) {
-    assert.ok(stage3Shell.includes(`label="${label}"`), `missing persistent summary item: ${label}`);
-  }
+  assert.ok(cockpit.includes("Stage3CompactHeader"));
+  assert.ok(cockpit.includes("Stage3AuthorityAudit"));
+  assert.ok(cockpit.includes('data-testid="stage3-compact-header"'));
+  assert.ok(!cockpit.includes("ProjectBoundStage3ProfileShell"), "the former permanent summary column must not consume canvas width");
 });
 
 test("Target opens first and exactly five analytical tabs remain primary", () => {

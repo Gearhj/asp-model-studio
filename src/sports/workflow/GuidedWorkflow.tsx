@@ -132,8 +132,8 @@ export default function GuidedWorkflow() {
   }
 
   return (
-    <div className="sports-page-shell space-y-5">
-      <section className="sports-hero-panel p-5 sm:p-7">
+    <div className={`sports-page-shell ${focus.number === 3 ? "space-y-2" : "space-y-5"}`} data-stage3-workspace={focus.number === 3 ? "true" : undefined}>
+      {focus.number !== 3 ? <section className="sports-hero-panel p-5 sm:p-7">
         <div className="relative z-10">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link to={sportsProjectOverviewRoute(projectId)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-white"><ArrowLeft size={16} /> Project Overview</Link>
@@ -153,10 +153,10 @@ export default function GuidedWorkflow() {
             </div>
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <div className={`grid gap-5 ${navCollapsed ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
-        <nav className="lg:sticky lg:top-4 lg:self-start" aria-label="Program stages">
+      <div className={focus.number === 3 ? "min-w-0" : `grid gap-5 ${navCollapsed ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
+        {focus.number !== 3 ? <nav className="lg:sticky lg:top-4 lg:self-start" aria-label="Program stages">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
             <button onClick={() => setNavCollapsed((c) => !c)} className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50" title={navCollapsed ? "Expand stages" : "Collapse stages"}>
               {navCollapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /> Collapse</>}
@@ -186,12 +186,12 @@ export default function GuidedWorkflow() {
               })}
             </ol>
           </div>
-        </nav>
+        </nav> : null}
 
         <div className="min-w-0 space-y-4">
-          <StageWorkspace key={focus.number} focus={focus} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} currentGoldReview={currentGoldReview} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
+          <StageWorkspace key={focus.number} focus={focus} resolutions={resolutions} displayName={displayName} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} currentGoldReview={currentGoldReview} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
 
-          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          {focus.number !== 3 ? <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button onClick={() => goStage(Math.max(1, focus.number - 1))} disabled={focus.number === 1} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ArrowLeft size={15} /> Previous</button>
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stage {focus.number} of {PROGRAM_STAGE_COUNT}</span>
             {focus.number === PROGRAM_STAGE_COUNT ? <span className="text-xs font-semibold text-slate-400">End of workflow</span> : (
@@ -200,7 +200,7 @@ export default function GuidedWorkflow() {
                 {focus.status !== "COMPLETE" && <span className="mt-1 text-[11px] text-slate-400">Complete this stage to continue</span>}
               </div>
             )}
-          </div>
+          </div> : null}
         </div>
       </div>
     </div>
@@ -208,9 +208,11 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, currentGoldReview, justDone, onGoStage, advanceFrom, refresh,
+  focus, resolutions, displayName, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, currentGoldReview, justDone, onGoStage, advanceFrom, refresh,
 }: {
   focus: StageResolution;
+  resolutions: StageResolution[];
+  displayName: string;
   projectId: string;
   metadata: ReturnType<typeof loadSportsProjectMetadata>;
   dataset: ActiveSportsDataset | null;
@@ -260,7 +262,7 @@ function StageWorkspace({
         </div>
       )}
 
-      <section className="sports-panel p-5 sm:p-6">
+      {focus.number !== 3 ? <section className="sports-panel p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700">Stage {focus.number} · {CLASS_LABEL[focus.decisionClass]} · {focus.estMinutes}</div>
           <div className="flex items-center gap-2">
@@ -276,7 +278,7 @@ function StageWorkspace({
             <p className="text-sm leading-6 text-slate-700"><b className="font-semibold text-slate-900">Why this matters.</b> {focus.whyItMatters}</p>
           </div>
         )}
-      </section>
+      </section> : null}
 
       {/* Stage 1 — Forecast contract */}
       {focus.number === 1 && <>
@@ -323,7 +325,7 @@ function StageWorkspace({
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
       {focus.number === 3 && <>
-        <GuidedStageContent number={3} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} />
+        <GuidedStageContent number={3} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} programStages={resolutions} onGoProgramStage={onGoStage} projectName={displayName} />
         <section className="sports-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="stage3-no-champion-gate">
           <div><div className="text-sm font-semibold text-slate-900">Project champion: None yet</div><p className="mt-1 text-sm text-slate-600">Stage 3 remains open until chronological model development produces a separately governed selection decision. This population handoff does not fit, score, promote, or adopt a legacy artifact.</p></div>
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><Lock size={14} /> Legacy modeling execution held closed</span>

@@ -18,7 +18,8 @@ test("Stage 3 inherits the project-scoped Stage 2 authority automatically", () =
   assert.ok(workflow.includes("useProjectStage3DataAuthority"));
   assert.ok(workflow.includes("focus.number === 2"));
   assert.ok(stageContent.includes("currentGoldReview={currentGoldReview}"));
-  assert.ok(stageContent.includes("ProjectBoundStage3Intro"));
+  assert.ok(stageContent.includes("programStages={programStages}"));
+  assert.ok(!stageContent.includes("ProjectBoundStage3Intro"), "the duplicated Stage 3 intro must stay out of the focused cockpit");
   assert.ok(cockpit.includes("currentGoldReview={c.currentGoldReview}"));
   assert.ok(steps.includes("ProjectBoundModelingCharter"));
   assert.ok(steps.includes("ProjectBoundPopulation"));
@@ -70,7 +71,7 @@ test("legacy datasets are absent from the primary page and later legacy executio
   assert.ok(handoff.includes("Advanced authority, manifests, hashes, and identity details"));
   assert.doesNotMatch(handoff, /Show legacy\/reference datasets|MLB_PA_V1 \/ Base-22|INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT/);
   assert.ok(handoff.includes("ProjectBoundLaterStepGate"));
-  assert.ok(cockpit.includes('currentGoldReview ? null : "/cockpit/objective"'));
+  assert.doesNotMatch(cockpit, /\/cockpit\/objective/, "the unified project-bound shell must not fetch the legacy objective endpoint");
   assert.ok(cockpit.includes("ProjectBoundDataProfile"));
   for (const label of [
     "Outliers", "Missing Values", "Feature Engineering",
