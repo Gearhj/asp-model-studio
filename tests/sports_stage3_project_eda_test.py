@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from server.persistence.db import Database
@@ -81,6 +82,107 @@ def _assert_no_model_or_oot_activity(response: dict[str, object]) -> None:
             "promotions": 0,
         },
     }
+
+
+def test_numeric_gallery_target_strata_are_bounded_aggregates_in_governed_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows: list[dict[str, object]] = []
+    for index, outcome in enumerate(stage3_eda.GOLD_CLASS_ORDER):
+        rows.extend(
+            [
+                {"feature": float(index), "game_date": "2026-04-01", "outcome": outcome},
+                {"feature": float(index + 1), "game_date": "2026-04-02", "outcome": outcome},
+                {"feature": None, "game_date": "2026-04-03", "outcome": outcome},
+                {"feature": float(index + 3), "game_date": "2026-04-04", "outcome": outcome},
+            ]
+        )
+    frame = pd.DataFrame(rows)
+    monkeypatch.setattr(stage3_eda, "_scan", lambda *_args, **_kwargs: frame.copy())
+
+    data, represented = stage3_eda._numeric_distribution(
+        object(),
+        "feature",
+        {},
+        {"bins": 12, "stratifyBy": "outcome"},
+    )
+
+    assert represented == 4 * len(stage3_eda.GOLD_CLASS_ORDER)
+    strata = data["stratified"]
+    assert [item["stratum"] for item in strata] == list(stage3_eda.GOLD_CLASS_ORDER)
+    assert all(item["count"] == 4 for item in strata)
+    assert all(item["observedCount"] == 3 for item in strata)
+    assert all(item["missingCount"] == 1 for item in strata)
+    assert all(item["missingPercent"] == 25.0 for item in strata)
+    first = strata[0]
+    assert first["min"] == 0.0
+    assert first["q1"] == 0.5
+    assert first["median"] == 1.0
+    assert first["q3"] == 2.0
+    assert first["max"] == 3.0
+    assert first["lowerFence"] == -1.75
+    assert first["upperFence"] == 4.25
+    assert first["outlierCount"] == 0
+    assert len(first["density"]) == 12
+    assert all(set(point) == {"value", "density"} for point in first["density"])
+    assert set(first) == {
+        "stratum",
+        "count",
+        "observedCount",
+        "missingCount",
+        "mean",
+        "min",
+        "q1",
+        "median",
+        "q3",
+        "max",
+        "lowerFence",
+        "upperFence",
+        "outlierCount",
+        "missingPercent",
+        "density",
+    }
+    assert "rows" not in data
+    json.dumps(data, allow_nan=False)
+
+
+def test_categorical_gallery_keeps_missing_explicit_and_groups_other_with_target_mix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = pd.DataFrame(
+        {
+            "category": ["A", "A", "A", "B", "B", "C", "D", None],
+            "outcome": [
+                "STRIKEOUT",
+                "STRIKEOUT",
+                "SINGLE",
+                "BIP_OUT",
+                "BIP_OUT",
+                "DOUBLE",
+                "HOME_RUN",
+                "WALK_HBP_CI",
+            ],
+        }
+    )
+    monkeypatch.setattr(stage3_eda, "_scan", lambda *_args, **_kwargs: frame.copy())
+
+    data, represented = stage3_eda._category_counts(
+        object(), "category", {}, {"topN": 2}
+    )
+
+    assert represented == 8
+    assert [row["value"] for row in data["categories"]] == ["A", "B", "MISSING"]
+    assert data["missingCount"] == 1
+    assert data["otherCount"] == 2
+    assert data["otherCategory"]["value"] == "Other"
+    assert data["otherCategory"]["count"] == 2
+    assert sum(
+        row["count"] for row in data["otherCategory"]["targetComposition"]
+    ) == 2
+    assert {
+        row["value"] for row in data["otherCategory"]["targetComposition"]
+    } == {"DOUBLE", "HOME_RUN"}
+    json.dumps(data, allow_nan=False)
 
 
 def test_stage3_metadata_is_exact_project_authority_and_redacts_oot_targets() -> None:

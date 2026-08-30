@@ -1570,13 +1570,62 @@ def _numeric_distribution(
     if stratify:
         strata = frame["game_date"].astype(str).str.slice(0, 7) if stratify == "month" else frame[stratify]
         temp = pd.DataFrame({"stratum": strata, "value": values})
-        for stratum, group in temp.groupby("stratum", dropna=False):
-            clean = group["value"].dropna()
+        if stratify == "outcome":
+            # Target-stratified gallery summaries retain the exact governed class order, including
+            # an explicit zero-count row when active development filters omit a class.  This keeps
+            # the visual contract stable without opening final-OOT targets or returning raw PAs.
+            grouped = [
+                (outcome, temp.loc[temp["stratum"].astype(str).eq(outcome)])
+                for outcome in GOLD_CLASS_ORDER
+            ]
+        else:
+            grouped = list(temp.groupby("stratum", dropna=False, sort=True))
+        for stratum, group in grouped:
+            numeric = pd.to_numeric(group["value"], errors="coerce").to_numpy(dtype=float)
+            clean = numeric[np.isfinite(numeric)]
+            count = int(len(group))
+            observed_count = int(clean.size)
+            missing_count = count - observed_count
+            if observed_count:
+                minimum, q1, median, q3, maximum = np.quantile(
+                    clean, [0.0, 0.25, 0.5, 0.75, 1.0]
+                )
+                iqr = q3 - q1
+                lower_fence = q1 - 1.5 * iqr
+                upper_fence = q3 + 1.5 * iqr
+                outlier_count = int(
+                    ((clean < lower_fence) | (clean > upper_fence)).sum()
+                )
+                stratum_density, _ = np.histogram(clean, bins=hist_edges, density=True)
+                stratum_density_rows = [
+                    {
+                        "value": float((hist_edges[index] + hist_edges[index + 1]) / 2.0),
+                        "density": float(density_value),
+                    }
+                    for index, density_value in enumerate(stratum_density)
+                    if np.isfinite(density_value)
+                ]
+            else:
+                minimum = q1 = median = q3 = maximum = None
+                lower_fence = upper_fence = None
+                outlier_count = 0
+                stratum_density_rows = []
             stratified.append({
-                "stratum": str(stratum), "count": int(len(group)),
-                "mean": float(clean.mean()) if len(clean) else None,
-                "median": float(clean.median()) if len(clean) else None,
-                "missingPercent": _percent(int(group["value"].isna().sum()), len(group)),
+                "stratum": str(stratum),
+                "count": count,
+                "observedCount": observed_count,
+                "missingCount": missing_count,
+                "mean": float(np.mean(clean)) if observed_count else None,
+                "min": float(minimum) if minimum is not None else None,
+                "q1": float(q1) if q1 is not None else None,
+                "median": float(median) if median is not None else None,
+                "q3": float(q3) if q3 is not None else None,
+                "max": float(maximum) if maximum is not None else None,
+                "lowerFence": float(lower_fence) if lower_fence is not None else None,
+                "upperFence": float(upper_fence) if upper_fence is not None else None,
+                "outlierCount": outlier_count,
+                "missingPercent": _percent(missing_count, count),
+                "density": stratum_density_rows,
             })
     return {
         "variable": variable,
@@ -1600,7 +1649,13 @@ def _category_counts(
     frame = _scan(authority, [variable, "outcome"], filters)
     values = frame[variable].astype(object).where(frame[variable].notna(), "MISSING").astype(str)
     counts = values.value_counts()
-    selected = list(counts.index[:top_n])
+    # Keep the governed missing level explicit even when it is rarer than the
+    # requested Top-N.  Top-N applies to observed levels; everything else is
+    # represented by one bounded aggregate "Other" row with its own target mix.
+    observed_counts = counts.drop(labels=["MISSING"], errors="ignore")
+    selected = list(observed_counts.index[:top_n])
+    if "MISSING" in counts.index:
+        selected.append("MISSING")
     categories = []
     for value in selected:
         mask = values.eq(value)
@@ -1609,11 +1664,22 @@ def _category_counts(
             "value": value, "count": int(mask.sum()), "percent": _percent(int(mask.sum()), len(frame)),
             "targetComposition": target,
         })
+    other_mask = ~values.isin(selected)
+    other_count = int(other_mask.sum())
+    other_category = None
+    if other_count:
+        other_category = {
+            "value": "Other",
+            "count": other_count,
+            "percent": _percent(other_count, len(frame)),
+            "targetComposition": _counts(frame.loc[other_mask, "outcome"]),
+        }
     return {
         "variable": variable,
         "categories": categories,
         "missingCount": int(frame[variable].isna().sum()),
-        "otherCount": int(counts.iloc[top_n:].sum()) if len(counts) > top_n else 0,
+        "otherCount": other_count,
+        "otherCategory": other_category,
     }, len(frame)
 
 
@@ -2318,7 +2384,14 @@ def stage3_eda_query(database: Database, project_id: str, payload: Any) -> dict[
         variable = variables[0]
         if variable_meta.get(variable, {}).get("dataType") != "numeric":
             data, rows = _category_counts(authority, variable, filters, settings)
-            data = {"variable": variable, "dataType": "categorical", "categories": data["categories"], "missingCount": data["missingCount"], "otherCount": data["otherCount"]}
+            data = {
+                "variable": variable,
+                "dataType": "categorical",
+                "categories": data["categories"],
+                "missingCount": data["missingCount"],
+                "otherCount": data["otherCount"],
+                "otherCategory": data["otherCategory"],
+            }
         else:
             data, rows = _numeric_distribution(authority, variable, filters, settings)
         aggregation = "SERVER_AGGREGATE"

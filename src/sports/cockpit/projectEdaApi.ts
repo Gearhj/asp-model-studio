@@ -270,7 +270,23 @@ export type DistributionData = {
   ecdf: { value: number; cumulativePercent: number }[];
   density: { value: number; density: number }[];
   box: { min: number | null; q1: number | null; median: number | null; q3: number | null; max: number | null; lowerFence: number | null; upperFence: number | null; outlierCount: number };
-  stratified: { stratum: string; count: number; mean: number | null; median: number | null; missingPercent: number }[];
+  stratified: {
+    stratum: string;
+    count: number;
+    observedCount: number;
+    missingCount: number;
+    mean: number | null;
+    min: number | null;
+    q1: number | null;
+    median: number | null;
+    q3: number | null;
+    max: number | null;
+    lowerFence: number | null;
+    upperFence: number | null;
+    outlierCount: number;
+    missingPercent: number;
+    density?: { value: number; density: number }[];
+  }[];
 };
 
 export type CategoryCountsData = {
@@ -278,6 +294,7 @@ export type CategoryCountsData = {
   categories: { value: string; count: number; percent: number; targetComposition: { value: string; count: number; percent: number }[] }[];
   missingCount: number;
   otherCount: number;
+  otherCategory: { value: "Other"; count: number; percent: number; targetComposition: { value: string; count: number; percent: number }[] } | null;
 };
 
 export type AssociationData = {
@@ -443,6 +460,8 @@ export function useProjectEdaQuery<T>(projectId: string, authorityKey: string, q
   const requestKey = query && projectId ? `${projectId}:${authorityKey}:${canonical}` : "";
   const [state, setState] = useState<{ requestKey: string; status: "idle" | "loading" | "ready" | "error"; value: ProjectEdaEnvelope<T> | null; error: string | null }>({ requestKey, status: query ? "loading" : "idle", value: null, error: null });
   const generation = useRef(0);
+  const [retryGeneration, setRetryGeneration] = useState(0);
+  const retry = useCallback(() => setRetryGeneration((value) => value + 1), []);
   useEffect(() => {
     if (!query || !projectId) {
       setState({ requestKey: "", status: "idle", value: null, error: null });
@@ -472,11 +491,11 @@ export function useProjectEdaQuery<T>(projectId: string, authorityKey: string, q
       setState({ requestKey, status: "error", value: null, error: error instanceof Error ? error.message : "The analytical query failed." });
     });
     return () => controller.abort();
-  }, [projectId, authorityKey, canonical, requestKey]); // canonical is the stable query identity; query is deliberately excluded.
+  }, [projectId, authorityKey, canonical, requestKey, retryGeneration]); // canonical is the stable query identity; query is deliberately excluded.
   if (state.requestKey !== requestKey) {
-    return { requestKey, status: query ? "loading" as const : "idle" as const, value: null, error: null };
+    return { requestKey, status: query ? "loading" as const : "idle" as const, value: null, error: null, retry };
   }
-  return state;
+  return { ...state, retry };
 }
 
 export function downloadAggregatedCsv(filename: string, rows: Record<string, unknown>[]) {

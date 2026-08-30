@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import EChartsPanel, { exportChartAsPng } from "../../visual-intelligence/EChartsPanel";
 import { CockpitDrawer } from "./CockpitDrawer";
+import { Stage3DistributionGallery } from "./Stage3DistributionGallery";
 import { useCockpitStore } from "./cockpitApi";
 import type { CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
 import {
@@ -69,6 +70,10 @@ type DistributionMode = "histogram" | "density" | "ecdf" | "box" | "violin";
 type MissingnessMode = "missingness" | "outliers";
 type StratifyBy = "" | "outcome" | "season" | "month";
 type AssociationMethod = "auto" | "pearson" | "spearman";
+type PlayerRole = "both" | "batter" | "pitcher";
+type PairwiseDiagonalMethod = "histogram" | "density";
+type PairwiseCellMethod = "scatter" | "hexbin";
+type TimeGranularity = "month" | "season";
 
 type EdaView = {
   id: string;
@@ -91,6 +96,10 @@ type EdaView = {
     scatterX?: string;
     scatterY?: string;
     scatterTarget?: string;
+    pairwiseDiagonalMethod?: PairwiseDiagonalMethod;
+    pairwiseLowerMethod?: PairwiseCellMethod;
+    pairwiseUpperMethod?: PairwiseCellMethod;
+    timeGranularity?: TimeGranularity;
   };
   notes: string;
   savedAt: string;
@@ -98,12 +107,12 @@ type EdaView = {
 
 type VariableBookmarks = { authorityKey: string; names: string[] };
 
-const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
-  { id: "target", label: "Target & Class Balance", icon: TableProperties },
-  { id: "distributions", label: "Distributions", icon: BarChart3 },
-  { id: "relationships", label: "Relationships", icon: GitCompareArrows },
-  { id: "time", label: "Time & Stability", icon: CalendarRange },
-  { id: "players", label: "Players & Cold Start", icon: Users },
+const TABS: { id: TabId; number: number; label: string; purpose: string; icon: typeof BarChart3 }[] = [
+  { id: "target", number: 1, label: "Target & Class Balance", purpose: "Understand the prediction target and its stability.", icon: TableProperties },
+  { id: "distributions", number: 2, label: "Distributions", purpose: "Review every candidate variable and its outcome-stratified shape.", icon: BarChart3 },
+  { id: "relationships", number: 3, label: "Relationships", purpose: "Inspect associations, interactions, redundancy, and pairwise structure.", icon: GitCompareArrows },
+  { id: "time", number: 4, label: "Time & Stability", purpose: "Identify seasonal patterns, drift, and source-era changes.", icon: CalendarRange },
+  { id: "players", number: 5, label: "Players & Cold Start", purpose: "Understand low-history batters and pitchers.", icon: Users },
 ];
 
 // Saved analyses created by the previous eight-tab workbench remain reopenable.
@@ -124,6 +133,19 @@ const DEFAULT_SEED = 7_310_2026;
 const BOOKMARKS_KEY = "stage3.eda.variableBookmarks";
 const SAVED_VIEWS_KEY = "stage3.eda.savedViews";
 const CURRENT_CONTEXT_KEY = "stage3.eda.currentContext";
+const RELATIONSHIP_DEFAULT_NAMES = ["batter_avg", "batter_obp", "batter_slg", "pitcher_era9", "pitcher_whip", "pitcher_so_per_bfp"] as const;
+const RELATIONSHIP_PRESET_LABELS = [
+  "Batter performance",
+  "Pitcher performance",
+  "Batter versus pitcher",
+  "Recent form",
+  "Simulation state",
+  "Calendar",
+  "Rest and travel",
+  "Circadian",
+  "Division and repeat opponent",
+  "Core Gold-48 subset",
+] as const;
 
 const palette = ["#0891b2", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#059669", "#475569"];
 
@@ -137,6 +159,57 @@ function pct(value: number | null | undefined) {
 
 function isNumericVariable(variable: ProjectEdaVariable | undefined): boolean {
   return Boolean(variable && /numeric|int|float|double|number/i.test(variable.dataType));
+}
+
+function deterministicVariables(variables: ProjectEdaVariable[]): ProjectEdaVariable[] {
+  return [...variables].sort((left, right) => `${left.featureFamily}\u0000${left.role}\u0000${left.name}`.localeCompare(`${right.featureFamily}\u0000${right.role}\u0000${right.name}`));
+}
+
+function relationshipDefaultNames(variables: ProjectEdaVariable[], maxVariables: number): string[] {
+  const eligible = deterministicVariables(variables.filter((variable) => variable.selectable && isNumericVariable(variable)));
+  const byName = new Map(eligible.map((variable) => [variable.name, variable]));
+  const reservedExactNames = new Set<string>(RELATIONSHIP_DEFAULT_NAMES.filter((name) => byName.has(name)));
+  const chosen: ProjectEdaVariable[] = [];
+  const used = new Set<string>();
+  const add = (variable: ProjectEdaVariable | undefined) => {
+    if (!variable || used.has(variable.name) || chosen.length >= maxVariables) return;
+    chosen.push(variable);
+    used.add(variable.name);
+  };
+
+  for (const requested of RELATIONSHIP_DEFAULT_NAMES) {
+    const exact = byName.get(requested);
+    if (exact) {
+      add(exact);
+      continue;
+    }
+    const entity = requested.startsWith("batter_") ? "batter" : "pitcher";
+    add(eligible.find((variable) => !used.has(variable.name) && !reservedExactNames.has(variable.name) && variable.core && variable.role === "PREGAME_FEATURE" && variable.name.startsWith(`${entity}_`)));
+  }
+  for (const variable of eligible.filter((item) => item.role === "PREGAME_FEATURE" && item.core)) add(variable);
+  for (const variable of eligible.filter((item) => item.role === "PREGAME_FEATURE")) add(variable);
+  for (const variable of eligible) add(variable);
+  return chosen.slice(0, Math.min(maxVariables, RELATIONSHIP_DEFAULT_NAMES.length)).map((variable) => variable.name);
+}
+
+function relationshipPresetNames(label: string, variables: ProjectEdaVariable[], maxVariables: number): string[] {
+  const eligible = deterministicVariables(variables.filter((variable) => variable.selectable));
+  const matches = (pattern: RegExp) => eligible.filter((variable) => pattern.test(`${variable.name} ${variable.featureFamily}`));
+  let selected: ProjectEdaVariable[] = [];
+  if (label === "Batter performance") selected = eligible.filter((variable) => variable.name.startsWith("batter_"));
+  else if (label === "Pitcher performance") selected = eligible.filter((variable) => variable.name.startsWith("pitcher_"));
+  else if (label === "Batter versus pitcher") {
+    const batter = eligible.filter((variable) => variable.name.startsWith("batter_")).slice(0, Math.ceil(maxVariables / 2));
+    const pitcher = eligible.filter((variable) => variable.name.startsWith("pitcher_")).slice(0, Math.floor(maxVariables / 2));
+    selected = [...batter, ...pitcher];
+  } else if (label === "Recent form") selected = matches(/recent|last100|last250|rolling|decay/i);
+  else if (label === "Simulation state") selected = eligible.filter((variable) => variable.role === "SIMULATION_GENERATED_STATE");
+  else if (label === "Calendar") selected = matches(/calendar|day_of_week|month|holiday|weekend|start_hour|series_/i);
+  else if (label === "Rest and travel") selected = matches(/rest|travel|road_trip|home_stand|previous_game|games_last|doubleheader/i);
+  else if (label === "Circadian") selected = matches(/circadian|body_clock|time_zone|eastward|westward|morning_/i);
+  else if (label === "Division and repeat opponent") selected = matches(/division|interleague|same_league|repeat_opponent|series_rematch|rivalry/i);
+  else if (label === "Core Gold-48 subset") selected = eligible.filter((variable) => variable.core);
+  return selected.slice(0, maxVariables).map((variable) => variable.name);
 }
 
 function parseStored<T>(raw: string | undefined, fallback: T): T {
@@ -274,6 +347,14 @@ function GlobalFilters({ filters, setFilters, metadata }: { filters: ProjectEdaF
   );
 }
 
+function PlayerColdStartControls({ role, setRole, filters, setFilters, metadata }: { role: PlayerRole; setRole: (next: PlayerRole) => void; filters: ProjectEdaFilters; setFilters: (next: ProjectEdaFilters) => void; metadata: { seasons: number[]; months: number[] } }) {
+  const set = (key: keyof ProjectEdaFilters, value: unknown) => setFilters({ ...filters, [key]: value });
+  return <section className="rounded-xl border border-cyan-200 bg-white p-3 shadow-sm" aria-label="Players and cold-start controls" data-testid="stage3-player-cold-start-controls">
+    <div className="flex flex-wrap items-center gap-2"><Users size={15} className="text-cyan-700" /><span className="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-700">Role and history population</span>{(["both", "batter", "pitcher"] as const).map((value) => <button key={value} type="button" aria-pressed={role === value} onClick={() => setRole(value)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${role === value ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{value === "both" ? "Batters + pitchers" : value === "batter" ? "Batters" : "Pitchers"}</button>)}<span className="ml-auto text-[10px] text-slate-500">Development-only history evidence · cold-start rows are retained</span></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><select aria-label="Player history-sufficiency state" value={filters.historyStatus ?? ""} onChange={(event) => set("historyStatus", event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs"><option value="">All history states</option><option value="COLD_START">No prior history</option><option value="INSUFFICIENT_HISTORY">Insufficient history</option><option value="ESTABLISHED">Established history</option></select><MultiSelect label="Season" values={filters.seasons ?? []} options={metadata.seasons} onChange={(values) => set("seasons", values.map(Number))} /><MultiSelect label="Month" values={filters.months ?? []} options={metadata.months} onChange={(values) => set("months", values.map(Number))} />{role !== "pitcher" ? <input aria-label="Cold-start batting team filter" value={filters.battingTeam ?? ""} onChange={(event) => set("battingTeam", event.target.value)} placeholder="Batting team canonical ID" className="rounded-lg border border-slate-300 px-3 py-2 text-xs" /> : null}{role !== "batter" ? <input aria-label="Cold-start fielding team filter" value={filters.fieldingTeam ?? ""} onChange={(event) => set("fieldingTeam", event.target.value)} placeholder="Fielding team canonical ID" className="rounded-lg border border-slate-300 px-3 py-2 text-xs" /> : null}{role !== "pitcher" ? <input aria-label="Cold-start batter filter" value={filters.batter ?? ""} onChange={(event) => set("batter", event.target.value)} placeholder="Batter canonical ID" className="rounded-lg border border-slate-300 px-3 py-2 text-xs" /> : null}{role !== "batter" ? <input aria-label="Cold-start pitcher filter" value={filters.pitcher ?? ""} onChange={(event) => set("pitcher", event.target.value)} placeholder="Pitcher canonical ID" className="rounded-lg border border-slate-300 px-3 py-2 text-xs" /> : null}</div>
+  </section>;
+}
+
 function VariablePickerDrawer({ open, close, returnFocusRef, variables, selected, setSelected, bookmarked, toggleBookmark, maxVariables }: { open: boolean; close: () => void; returnFocusRef: RefObject<HTMLElement>; variables: ProjectEdaVariable[]; selected: string[]; setSelected: (next: string[]) => void; bookmarked: string[]; toggleBookmark: (name: string) => void; maxVariables: number }) {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
@@ -393,43 +474,68 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 break-words text-slate-200">{value}</dd></div>;
 }
 
-function SelectedVariableTray({ variables, selectedNames, setSelectedNames, maxVariables, bookmarked, toggleBookmark, pickerOpen, openPicker }: { variables: ProjectEdaVariable[]; selectedNames: string[]; setSelectedNames: (next: string[]) => void; maxVariables: number; bookmarked: string[]; toggleBookmark: (name: string) => void; pickerOpen: boolean; openPicker: (trigger: HTMLButtonElement) => void }) {
+function SelectedVariableTray({ section, variables, selectedNames, setSelectedNames, maxVariables, bookmarked, toggleBookmark, pickerOpen, openPicker, restoreDefaults }: { section: "Distribution" | "Relationship" | "Stability"; variables: ProjectEdaVariable[]; selectedNames: string[]; setSelectedNames: (next: string[]) => void; maxVariables: number; bookmarked: string[]; toggleBookmark: (name: string) => void; pickerOpen: boolean; openPicker: (trigger: HTMLButtonElement) => void; restoreDefaults?: () => void }) {
   const [familyPreset, setFamilyPreset] = useState("");
   const selected = selectedNames.map((name) => variables.find((variable) => variable.name === name)).filter((variable): variable is ProjectEdaVariable => Boolean(variable));
   const families = [...new Set(variables.filter((variable) => variable.selectable).map((variable) => variable.featureFamily))].sort();
-  const presets: { label: string; matches: (variable: ProjectEdaVariable) => boolean }[] = [
-    { label: "Core Gold-48", matches: (variable) => variable.core },
-    { label: "Batter performance", matches: (variable) => variable.name.startsWith("batter_") },
-    { label: "Pitcher performance", matches: (variable) => variable.name.startsWith("pitcher_") },
-    { label: "Recent form", matches: (variable) => /recent|last100|last250|rolling|decay/i.test(`${variable.name} ${variable.featureFamily}`) },
-    { label: "Simulation state", matches: (variable) => variable.role === "SIMULATION_GENERATED_STATE" },
-    { label: "Calendar", matches: (variable) => /calendar|day_of_week|month|holiday|weekend|start_hour|series_/i.test(`${variable.name} ${variable.featureFamily}`) },
-    { label: "Rest and travel", matches: (variable) => /rest|travel|road_trip|home_stand|previous_game|games_last|doubleheader/i.test(`${variable.name} ${variable.featureFamily}`) },
-    { label: "Circadian", matches: (variable) => /circadian|body_clock|time_zone|eastward|westward|morning_/i.test(`${variable.name} ${variable.featureFamily}`) },
-    { label: "Division and repeat opponent", matches: (variable) => /division|interleague|same_league|repeat_opponent|series_rematch|rivalry/i.test(`${variable.name} ${variable.featureFamily}`) },
-  ];
   const applyPreset = (label: string) => {
-    const preset = presets.find((item) => item.label === label);
-    if (!preset) return;
-    setSelectedNames(variables.filter((variable) => variable.selectable && preset.matches(variable)).slice(0, maxVariables).map((variable) => variable.name));
+    const next = relationshipPresetNames(label, variables, maxVariables);
+    if (next.length) setSelectedNames(next);
   };
   const applyFamily = () => {
     if (!familyPreset) return;
-    setSelectedNames(variables.filter((variable) => variable.selectable && variable.featureFamily === familyPreset).slice(0, maxVariables).map((variable) => variable.name));
+    setSelectedNames(deterministicVariables(variables.filter((variable) => variable.selectable && variable.featureFamily === familyPreset)).slice(0, maxVariables).map((variable) => variable.name));
+  };
+  const moveSelected = (index: number, direction: -1 | 1) => {
+    const destination = index + direction;
+    if (destination < 0 || destination >= selectedNames.length) return;
+    const reordered = [...selectedNames];
+    [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
+    setSelectedNames(reordered);
   };
   return (
     <section className="rounded-xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-white to-slate-50 p-2.5 shadow-sm" data-testid="stage3-eda-selected-variable-tray">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-800">Selected-variable tray</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-800">{section} variables {section === "Relationship" ? <span className="normal-case tracking-normal text-slate-500">· Selected-variable tray</span> : null}</span>
         <span className="rounded-full bg-cyan-800 px-2 py-0.5 text-[10px] font-semibold text-white">{selected.length}/{maxVariables}</span>
         <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5" role="list" aria-label="Ordered selected variables">
-          {selected.map((variable, index) => { const reason = projectEdaVariableSelection(variable); const bookmarkedVariable = bookmarked.includes(variable.name); return <div role="listitem" key={variable.name} title={`${reason.label}: ${reason.detail}`} className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-200 bg-white px-2 py-1.5 shadow-sm"><span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] font-semibold text-white">{index + 1}</span><span className="font-mono text-[10px] font-semibold text-slate-800">{variable.name}</span><button type="button" aria-label={`${bookmarkedVariable ? "Remove" : "Add"} bookmark for ${variable.name}`} aria-pressed={bookmarkedVariable} onClick={() => toggleBookmark(variable.name)} className={bookmarkedVariable ? "text-amber-500" : "text-slate-300 hover:text-amber-500"}><Star size={11} fill={bookmarkedVariable ? "currentColor" : "none"} /></button><button type="button" aria-label={`Remove ${variable.name} from selected variables`} onClick={() => setSelectedNames(selectedNames.filter((name) => name !== variable.name))} className="text-slate-300 hover:text-rose-600"><X size={11} /></button></div>; })}
+          {selected.map((variable, index) => { const reason = projectEdaVariableSelection(variable); const bookmarkedVariable = bookmarked.includes(variable.name); return <div role="listitem" key={variable.name} title={`${reason.label}: ${reason.detail}`} className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-200 bg-white px-2 py-1.5 shadow-sm"><span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] font-semibold text-white">{index + 1}</span><span className="font-mono text-[10px] font-semibold text-slate-800">{variable.name}</span><button type="button" disabled={index === 0} aria-label={`Move ${variable.name} earlier`} onClick={() => moveSelected(index, -1)} className="text-slate-400 hover:text-cyan-700 disabled:opacity-25">←</button><button type="button" disabled={index === selected.length - 1} aria-label={`Move ${variable.name} later`} onClick={() => moveSelected(index, 1)} className="text-slate-400 hover:text-cyan-700 disabled:opacity-25">→</button><button type="button" aria-label={`${bookmarkedVariable ? "Remove" : "Add"} bookmark for ${variable.name}`} aria-pressed={bookmarkedVariable} onClick={() => toggleBookmark(variable.name)} className={bookmarkedVariable ? "text-amber-500" : "text-slate-300 hover:text-amber-500"}><Star size={11} fill={bookmarkedVariable ? "currentColor" : "none"} /></button><button type="button" aria-label={`Remove ${variable.name} from selected variables`} onClick={() => setSelectedNames(selectedNames.filter((name) => name !== variable.name))} className="text-slate-300 hover:text-rose-600"><X size={11} /></button></div>; })}
           {!selected.length ? <span className="self-center text-[11px] text-slate-500">None selected · Target remains available</span> : null}
         </div>
         <button type="button" aria-haspopup="dialog" aria-expanded={pickerOpen} onClick={(event) => openPicker(event.currentTarget)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cyan-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-cyan-800"><Plus size={13} /> Add variable</button>
+        {restoreDefaults ? <button type="button" onClick={restoreDefaults} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cyan-300 bg-white px-2 py-1.5 text-xs font-semibold text-cyan-800"><RotateCcw size={12} /> Restore default set</button> : null}
         <button type="button" disabled={!selected.length} onClick={() => setSelectedNames([])} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"><X size={13} /> Clear all</button>
       </div>
-      <details className="mt-2 border-t border-cyan-100 pt-2"><summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-slate-500">Feature-family and quick presets · Maximum {maxVariables}</summary><div className="mt-2 flex flex-wrap items-center gap-2"><select aria-label="Feature family preset" value={familyPreset} onChange={(event) => setFamilyPreset(event.target.value)} className="min-w-48 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"><option value="">Feature-family preset…</option>{families.map((family) => <option key={family}>{family}</option>)}</select><button type="button" disabled={!familyPreset} onClick={applyFamily} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40">Apply family</button>{presets.map((preset) => <button key={preset.label} type="button" onClick={() => applyPreset(preset.label)} className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] hover:border-cyan-300 hover:text-cyan-800">{preset.label}</button>)}<span className="ml-auto text-[10px] text-slate-500">Nonselectable metadata is never added.</span></div></details>
+      {section === "Relationship" ? <p className="mt-2 text-[11px] font-medium text-cyan-900">Suggested starting set — customize as needed.</p> : null}
+      <details className="mt-2 border-t border-cyan-100 pt-2"><summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-slate-500">Feature-family and quick presets · Maximum {maxVariables}</summary><div className="mt-2 flex flex-wrap items-center gap-2"><select aria-label="Feature family preset" value={familyPreset} onChange={(event) => setFamilyPreset(event.target.value)} className="min-w-48 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"><option value="">Feature-family preset…</option>{families.map((family) => <option key={family}>{family}</option>)}</select><button type="button" disabled={!familyPreset} onClick={applyFamily} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40">Apply family</button>{RELATIONSHIP_PRESET_LABELS.map((label) => { const enabled = relationshipPresetNames(label, variables, maxVariables).length > 0; return <button key={label} type="button" disabled={!enabled} onClick={() => applyPreset(label)} className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] hover:border-cyan-300 hover:text-cyan-800 disabled:cursor-not-allowed disabled:opacity-40">{label}</button>; })}<span className="ml-auto text-[10px] text-slate-500">Nonselectable metadata is never added.</span></div></details>
+    </section>
+  );
+}
+
+function TimeComparisonControls({ filters, setFilters, granularity, setGranularity }: { filters: ProjectEdaFilters; setFilters: (next: ProjectEdaFilters) => void; granularity: TimeGranularity; setGranularity: (next: TimeGranularity) => void }) {
+  const setStartDate = (startDate: string) => setFilters({
+    ...filters,
+    startDate: startDate || undefined,
+    endDate: startDate && filters.endDate && filters.endDate < startDate ? startDate : filters.endDate,
+  });
+  const setEndDate = (endDate: string) => setFilters({
+    ...filters,
+    startDate: endDate && filters.startDate && filters.startDate > endDate ? endDate : filters.startDate,
+    endDate: endDate || undefined,
+  });
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="Time and stability comparison periods" data-testid="stage3-time-comparison-controls">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-56 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Comparison-period controls</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Compare contiguous development periods using the same project-bound filters. The earliest included period is the baseline; each later period is evaluated through the selected development end date.</p>
+        </div>
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Period grouping<select aria-label="Stability comparison period grouping" value={granularity} onChange={(event) => setGranularity(event.target.value as TimeGranularity)} className="mt-1 block min-w-36 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-normal normal-case text-slate-800"><option value="month">Monthly periods</option><option value="season">Season periods</option></select></label>
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Comparison start<input aria-label="Stability comparison start date" type="date" value={filters.startDate ?? ""} max="2026-08-13" onChange={(event) => setStartDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-normal text-slate-800" /></label>
+        <label className="text-[10px] font-semibold uppercase text-slate-500">Comparison end<input aria-label="Stability comparison end date" type="date" value={filters.endDate ?? ""} max="2026-08-13" onChange={(event) => setEndDate(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-normal text-slate-800" /></label>
+        <button type="button" onClick={() => setFilters({ ...filters, startDate: undefined, endDate: undefined })} disabled={!filters.startDate && !filters.endDate} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-40">Use full development window</button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[10px]"><span className="rounded-full bg-slate-900 px-2 py-1 font-semibold text-white">DEVELOPMENT ONLY</span><span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-cyan-900">PSI + KS remain descriptive</span><span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900">Final OOT locked after 2026-08-13</span></div>
     </section>
   );
 }
@@ -455,12 +561,21 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
   const [scatterX, setScatterX] = useState("");
   const [scatterY, setScatterY] = useState("");
   const [scatterTarget, setScatterTarget] = useState("");
+  const [pairwiseDiagonalMethod, setPairwiseDiagonalMethod] = useState<PairwiseDiagonalMethod>("histogram");
+  const [pairwiseLowerMethod, setPairwiseLowerMethod] = useState<PairwiseCellMethod>("scatter");
+  const [pairwiseUpperMethod, setPairwiseUpperMethod] = useState<PairwiseCellMethod>("hexbin");
+  const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>("month");
+  const [playerRole, setPlayerRole] = useState<PlayerRole>("both");
   const [viewName, setViewName] = useState("");
   const [viewNotes, setViewNotes] = useState("");
   const [activeDrawer, setActiveDrawer] = useState<"variables" | "saved" | null>(null);
   const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const [contextHydratedAuthority, setContextHydratedAuthority] = useState("");
   const previousAuthority = useRef("");
+  const relationshipDefaultsAppliedAuthority = useRef("");
+  const sectionSelectionsAuthority = useRef("");
+  const relationshipSelection = useRef<string[]>([]);
+  const stabilitySelection = useRef<string[]>([]);
   const storedBookmarks = parseStored<VariableBookmarks | string[]>(notes[BOOKMARKS_KEY], { authorityKey, names: [] });
   const bookmarks = !Array.isArray(storedBookmarks) && storedBookmarks.authorityKey === authorityKey ? storedBookmarks.names : [];
   const savedViews = parseStored<EdaView[]>(notes[SAVED_VIEWS_KEY], []).filter((view) => view && typeof view === "object" && typeof view.id === "string");
@@ -498,8 +613,56 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
 
   const selected = selectedVariables.map((name) => variables.find((variable) => variable.name === name)).filter((variable): variable is ProjectEdaVariable => Boolean(variable));
   const primary = selected[0];
-  const numericPrimary = isNumericVariable(primary);
   const selectedNumeric = selected.filter(isNumericVariable);
+  const relationshipDefaults = useMemo(() => relationshipDefaultNames(variables, maxVariables), [maxVariables, variables]);
+  const stabilityDefaults = useMemo(() => (metadata.value?.data.decisionGuidance.defaultStabilityVariables ?? [])
+    .filter((name) => variables.some((variable) => variable.name === name && variable.selectable) && name !== "context_inning")
+    .slice(0, maxVariables), [maxVariables, metadata.value, variables]);
+
+  useEffect(() => {
+    if (!variables.length || sectionSelectionsAuthority.current === authorityKey) return;
+    relationshipSelection.current = relationshipDefaults;
+    stabilitySelection.current = stabilityDefaults;
+    sectionSelectionsAuthority.current = authorityKey;
+  }, [authorityKey, relationshipDefaults, stabilityDefaults, variables.length]);
+
+  const assignRelationshipSelection = useCallback((names: string[]) => {
+    const governed = names.filter((name) => variables.some((variable) => variable.name === name && variable.selectable)).slice(0, maxVariables);
+    const numeric = governed.filter((name) => isNumericVariable(variables.find((variable) => variable.name === name)));
+    setSelectedVariables(governed);
+    setScatterX(numeric[0] ?? "");
+    setScatterY(numeric[1] ?? "");
+    setScatterTarget("");
+  }, [maxVariables, variables]);
+
+  const setSectionVariables = useCallback((names: string[]) => {
+    if (activeTab === "relationships") {
+      relationshipSelection.current = names;
+      assignRelationshipSelection(names);
+    } else {
+      if (activeTab === "time") stabilitySelection.current = names;
+      setSelectedVariables(names);
+    }
+  }, [activeTab, assignRelationshipSelection]);
+
+  const selectAnalyticalTab = (tab: TabId) => {
+    if (activeTab === "relationships") relationshipSelection.current = selectedVariables;
+    if (activeTab === "time") stabilitySelection.current = selectedVariables;
+    if (tab === "relationships") {
+      const firstRelationshipEntry = relationshipDefaultsAppliedAuthority.current !== authorityKey;
+      if (tab === "relationships" && relationshipDefaultsAppliedAuthority.current !== authorityKey) relationshipDefaultsAppliedAuthority.current = authorityKey;
+      assignRelationshipSelection(firstRelationshipEntry ? relationshipDefaults : relationshipSelection.current.length ? relationshipSelection.current : relationshipDefaults);
+    } else if (tab === "time") {
+      setSelectedVariables(stabilitySelection.current.length ? stabilitySelection.current : stabilityDefaults);
+    }
+    setActiveTab(tab);
+  };
+
+  const restoreRelationshipDefaults = () => {
+    relationshipDefaultsAppliedAuthority.current = authorityKey;
+    relationshipSelection.current = relationshipDefaults;
+    assignRelationshipSelection(relationshipDefaults);
+  };
 
   useEffect(() => {
     const numericNames = selectedNumeric.map((variable) => variable.name);
@@ -513,22 +676,31 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
   const relationshipVariables = relationshipMode === "scatter"
     ? [...new Set([scatterX, scatterY, scatterDisplayMode === "scatter" && scatterTarget !== "outcome" ? scatterTarget : ""].filter(Boolean))]
     : selectedVariables.slice(0, maxVariables);
+  const relationshipPreviewVariables = selectedVariables.slice(0, maxVariables);
+  const relationshipPreviewReady = relationshipPreviewVariables.length >= 2;
   const relationshipReady = relationshipMode === "scatter"
     ? Boolean(scatterX && scatterY && scatterX !== scatterY)
     : relationshipVariables.length >= 2;
   const query = useMemo<ProjectEdaQuery | null>(() => {
     if (!metadata.value) return null;
-    const primaryOnly = primary ? [primary.name] : [];
-    if (activeTab === "target") return { queryType: "overview", filters, variables: primaryOnly };
-    if (activeTab === "distributions") return primary ? { filters, variables: primaryOnly, queryType: numericPrimary ? "distribution" : "category_counts", settings: { bins, topN, stratifyBy, logScale } } : null;
-    if (activeTab === "relationships") return relationshipReady ? { filters, variables: relationshipVariables, queryType: relationshipMode === "association" ? "association" : "pairwise_sample", settings: { seed: samplingSeed, sampleSize: Math.min(2500, metadata.value.data.queryLimits.maxSampleRows), mode: relationshipMode, method: associationMethod, scatterX, scatterY, scatterTarget: scatterDisplayMode === "scatter" ? scatterTarget || undefined : undefined, stratifyBy: scatterDisplayMode === "scatter" && scatterTarget === "outcome" ? "outcome" : undefined } } : null;
+    if (activeTab === "target") return { queryType: "overview", filters, variables: [] };
+    if (activeTab === "distributions") return null; // The all-variable gallery owns bounded, lazy per-card queries.
+    if (activeTab === "relationships") return relationshipMode === "scatter" && relationshipReady ? { filters, variables: relationshipVariables, queryType: "pairwise_sample", settings: { seed: samplingSeed, sampleSize: Math.min(2500, metadata.value.data.queryLimits.maxSampleRows), mode: relationshipMode, method: associationMethod, scatterX, scatterY, scatterTarget: scatterDisplayMode === "scatter" ? scatterTarget || undefined : undefined, stratifyBy: scatterDisplayMode === "scatter" && scatterTarget === "outcome" ? "outcome" : undefined } } : null;
     if (activeTab === "time") {
       const requested = selectedVariables.filter((name) => name !== "context_inning").slice(0, maxVariables);
-      return requested.length ? { filters, variables: requested, queryType: "temporal", settings: { granularity: "month", driftMethods: ["PSI", "KS"] } } : null;
+      return requested.length ? { filters, variables: requested, queryType: "temporal", settings: { granularity: timeGranularity, driftMethods: ["PSI", "KS"] } } : null;
     }
-    return { filters, variables: primaryOnly, queryType: "cold_start" };
-  }, [metadata.value, activeTab, filters, primary, numericPrimary, bins, topN, stratifyBy, logScale, relationshipMode, relationshipReady, relationshipVariables, associationMethod, samplingSeed, scatterDisplayMode, scatterX, scatterY, scatterTarget, selectedVariables, maxVariables]);
+    return { filters, variables: [], queryType: "cold_start" };
+  }, [metadata.value, activeTab, filters, relationshipMode, relationshipReady, relationshipVariables, associationMethod, samplingSeed, scatterDisplayMode, scatterX, scatterY, scatterTarget, selectedVariables, maxVariables, timeGranularity]);
   const analytical = useProjectEdaQuery<unknown>(projectId, authorityKey, query);
+  const relationshipAssociationQuery = useMemo<ProjectEdaQuery | null>(() => activeTab === "relationships" && relationshipPreviewReady
+    ? { filters, variables: relationshipPreviewVariables, queryType: "association", settings: { method: associationMethod } }
+    : null, [activeTab, associationMethod, filters, relationshipPreviewReady, relationshipPreviewVariables]);
+  const relationshipPairwiseQuery = useMemo<ProjectEdaQuery | null>(() => activeTab === "relationships" && relationshipPreviewReady && metadata.value
+    ? { filters, variables: relationshipPreviewVariables, queryType: "pairwise_sample", settings: { seed: samplingSeed, sampleSize: Math.min(2500, metadata.value.data.queryLimits.maxSampleRows), mode: "pairwise" } }
+    : null, [activeTab, filters, metadata.value, relationshipPreviewReady, relationshipPreviewVariables, samplingSeed]);
+  const relationshipAssociationPreview = useProjectEdaQuery<AssociationData>(projectId, authorityKey, relationshipAssociationQuery);
+  const relationshipPairwisePreview = useProjectEdaQuery<PairwiseData>(projectId, authorityKey, relationshipPairwiseQuery);
 
   const toggleBookmark = (name: string) => setNote(BOOKMARKS_KEY, JSON.stringify({ authorityKey, names: bookmarks.includes(name) ? bookmarks.filter((item) => item !== name) : [...bookmarks, name] } satisfies VariableBookmarks));
   const persistViews = (next: EdaView[]) => setNote(SAVED_VIEWS_KEY, JSON.stringify(next));
@@ -539,7 +711,7 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
     tab: activeTab,
     selectedVariables,
     filters: compactProjectEdaFilters(filters),
-    settings: { distributionMode, relationshipMode, scatterDisplayMode, bins, topN, logScale, stratifyBy, associationMethod, samplingSeed, scatterX, scatterY, scatterTarget: scatterTarget || undefined },
+    settings: { distributionMode, relationshipMode, scatterDisplayMode, bins, topN, logScale, stratifyBy, associationMethod, samplingSeed, scatterX, scatterY, scatterTarget: scatterTarget || undefined, pairwiseDiagonalMethod, pairwiseLowerMethod, pairwiseUpperMethod, timeGranularity },
     notes: notesValue,
     savedAt: new Date().toISOString(),
   });
@@ -559,10 +731,19 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
     if (view.authorityKey !== authorityKey) return;
     const settings = view.settings ?? {} as EdaView["settings"];
     const selectable = new Set(variables.filter((variable) => variable.selectable).map((variable) => variable.name));
-    setActiveTab(reopenTab(view.tab)); setSelectedVariables((view.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables)); setFilters(view.filters ?? {}); setDistributionMode(settings.distributionMode ?? "histogram"); setRelationshipMode(settings.relationshipMode ?? "association"); setScatterDisplayMode(settings.scatterDisplayMode ?? "scatter"); setBins(settings.bins ?? 30); setTopN(settings.topN ?? 20); setLogScale(settings.logScale ?? false); setStratifyBy(settings.stratifyBy ?? ""); setAssociationMethod(settings.associationMethod ?? "auto"); setSamplingSeed(settings.samplingSeed ?? DEFAULT_SEED); setScatterX(settings.scatterX ?? ""); setScatterY(settings.scatterY ?? ""); setScatterTarget(settings.scatterTarget ?? ""); setActiveDrawer(null);
+    if (reopenTab(view.tab) === "relationships") {
+      relationshipDefaultsAppliedAuthority.current = authorityKey;
+      relationshipSelection.current = (view.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables);
+    }
+    if (reopenTab(view.tab) === "time") stabilitySelection.current = (view.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables);
+    setActiveTab(reopenTab(view.tab)); setSelectedVariables((view.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables)); setFilters(view.filters ?? {}); setDistributionMode(settings.distributionMode ?? "histogram"); setRelationshipMode(settings.relationshipMode ?? "association"); setScatterDisplayMode(settings.scatterDisplayMode ?? "scatter"); setBins(settings.bins ?? 30); setTopN(settings.topN ?? 20); setLogScale(settings.logScale ?? false); setStratifyBy(settings.stratifyBy ?? ""); setAssociationMethod(settings.associationMethod ?? "auto"); setSamplingSeed(settings.samplingSeed ?? DEFAULT_SEED); setScatterX(settings.scatterX ?? ""); setScatterY(settings.scatterY ?? ""); setScatterTarget(settings.scatterTarget ?? ""); setPairwiseDiagonalMethod(settings.pairwiseDiagonalMethod ?? "histogram"); setPairwiseLowerMethod(settings.pairwiseLowerMethod ?? "scatter"); setPairwiseUpperMethod(settings.pairwiseUpperMethod ?? "hexbin"); setTimeGranularity(settings.timeGranularity ?? "month"); setActiveDrawer(null);
   };
   const handoff = (destination: "outliers" | "missing" | "features") => {
     setNote("stage3.eda.handoff", JSON.stringify({ destination, selectedVariables, bookmarkedVariables: bookmarks, filters: compactProjectEdaFilters(filters), authorityKey, sourceTab: activeTab, createdAt: new Date().toISOString() }));
+    go(destination);
+  };
+  const handoffVariable = (name: string, destination: "outliers" | "missing" | "features") => {
+    setNote("stage3.eda.handoff", JSON.stringify({ destination, selectedVariables: [name], bookmarkedVariables: bookmarks, filters: compactProjectEdaFilters(filters), authorityKey, sourceTab: "distributions", createdAt: new Date().toISOString() }));
     go(destination);
   };
 
@@ -573,43 +754,48 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
   const meta = metadata.value.data;
   return (
     <div className="space-y-4" data-testid="stage3-project-bound-eda-workbench">
-      <section className="sticky top-[88px] z-30 max-h-[calc(100vh-104px)] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-100/95 p-1.5 shadow-lg backdrop-blur" data-testid="stage3-eda-sticky-controls">
+      <section className="sticky top-[88px] z-30 space-y-2 rounded-2xl border border-slate-200 bg-slate-100/95 p-1.5 shadow-lg backdrop-blur" data-testid="stage3-eda-sticky-controls">
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-900"><Lock size={12} aria-hidden="true" /> Final OOT locked · Targets excluded from every EDA query <span className="ml-auto font-medium text-slate-600">Development-only EDA; no read can fit or score a model.</span></div>
-        <div className="flex items-center gap-2 rounded-xl bg-white p-1 shadow-sm"><nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label="Data profile workbench tabs">{TABS.map((tab) => <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? "page" : undefined} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${activeTab === tab.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}><tab.icon size={14} className={activeTab === tab.id ? "text-cyan-300" : "text-slate-400"} />{tab.label}</button>)}</nav><button type="button" aria-haspopup="dialog" aria-expanded={activeDrawer === "saved"} onClick={(event) => openDrawer("saved", event.currentTarget)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-900"><Bookmark size={14} /> Saved <span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] text-white">{savedViews.filter((view) => view.authorityKey === authorityKey).length}</span></button></div>
+        <div className="flex items-center gap-2 rounded-xl bg-white p-1 shadow-sm"><nav className="grid min-w-0 flex-1 grid-flow-col auto-cols-[minmax(180px,1fr)] gap-1 overflow-x-auto" aria-label="Stage 3 analytical sections" data-testid="stage3-eda-section-nav">{TABS.map((tab) => <button type="button" key={tab.id} onClick={() => selectAnalyticalTab(tab.id)} aria-current={activeTab === tab.id ? "page" : undefined} aria-controls="stage3-active-analytical-section" aria-description={tab.purpose} title={`${tab.label}: ${tab.purpose}`} className={`group flex min-w-44 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-1 ${activeTab === tab.id ? "bg-slate-900 text-white shadow-sm" : "border border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50"}`}><span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold tabular-nums ${activeTab === tab.id ? "bg-cyan-400/20 text-cyan-200" : "bg-slate-100 text-slate-500 group-hover:bg-cyan-50 group-hover:text-cyan-700"}`}>{tab.number}</span><tab.icon size={15} className={activeTab === tab.id ? "text-cyan-300" : "text-slate-400"} /><span className="min-w-0"><span className="block text-xs font-semibold leading-4">{tab.label}</span><span className={`mt-0.5 hidden text-[9px] leading-3 xl:block ${activeTab === tab.id ? "text-slate-300" : "text-slate-500"}`}>{tab.purpose}</span></span></button>)}</nav><button type="button" aria-haspopup="dialog" aria-expanded={activeDrawer === "saved"} onClick={(event) => openDrawer("saved", event.currentTarget)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-900"><Bookmark size={14} /> Saved <span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] text-white">{savedViews.filter((view) => view.authorityKey === authorityKey).length}</span></button></div>
         <GlobalFilters filters={filters} setFilters={setFilters} metadata={meta.filterOptions} />
-        <SelectedVariableTray variables={variables} selectedNames={selectedVariables} setSelectedNames={setSelectedVariables} maxVariables={maxVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} pickerOpen={activeDrawer === "variables"} openPicker={(trigger) => openDrawer("variables", trigger)} />
-        <WorkbenchControls tab={activeTab} primary={primary} selected={selected} distributionMode={distributionMode} setDistributionMode={setDistributionMode} relationshipMode={relationshipMode} setRelationshipMode={setRelationshipMode} scatterDisplayMode={scatterDisplayMode} setScatterDisplayMode={setScatterDisplayMode} associationMethod={associationMethod} setAssociationMethod={setAssociationMethod} bins={bins} setBins={setBins} topN={topN} setTopN={setTopN} logScale={logScale} setLogScale={setLogScale} stratifyBy={stratifyBy} setStratifyBy={setStratifyBy} seed={samplingSeed} setSeed={setSamplingSeed} limits={meta.queryLimits} scatterX={scatterX} setScatterX={setScatterX} scatterY={scatterY} setScatterY={setScatterY} scatterTarget={scatterTarget} setScatterTarget={setScatterTarget} />
       </section>
 
-      <main className="min-w-0 space-y-4">
-          {(activeTab === "distributions" || activeTab === "time") && !primary ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><BarChart3 size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">Select a primary variable</div><p className="mt-1 text-sm text-slate-600">Use Add Variable or a preset. No analytical request has been sent.</p></div> : null}
-          {activeTab === "relationships" && !relationshipReady ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><GitCompareArrows size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">{relationshipMode === "scatter" ? "Assign distinct numeric X and Y variables" : "Choose 2–6 relationship variables"}</div><p className="mt-1 text-sm text-slate-600">{relationshipMode === "scatter" ? "The optional color / target assignment may be any selected variable. Axes are never inferred from hidden metadata." : "The heatmap and pairwise matrix use exactly the ordered variables shown in the selected-variable tray."} No request has been sent.</p></div> : null}
+      <main id="stage3-active-analytical-section" className="min-w-0 space-y-4">
+          {activeTab === "distributions" ? <Stage3DistributionGallery projectId={projectId} authorityKey={authorityKey} variables={variables} families={meta.families} filters={filters} taxonomy={meta.targetTaxonomy} bookmarks={bookmarks} toggleBookmark={toggleBookmark} handoff={handoffVariable} /> : null}
+          {activeTab === "relationships" ? <section className="space-y-2" aria-label="Relationship controls" data-testid="stage3-relationship-local-selection"><SelectedVariableTray section="Relationship" variables={variables} selectedNames={selectedVariables} setSelectedNames={setSectionVariables} maxVariables={maxVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} pickerOpen={activeDrawer === "variables"} openPicker={(trigger) => openDrawer("variables", trigger)} restoreDefaults={restoreRelationshipDefaults} /><WorkbenchControls tab={activeTab} primary={primary} selected={selected} distributionMode={distributionMode} setDistributionMode={setDistributionMode} relationshipMode={relationshipMode} setRelationshipMode={setRelationshipMode} scatterDisplayMode={scatterDisplayMode} setScatterDisplayMode={setScatterDisplayMode} associationMethod={associationMethod} setAssociationMethod={setAssociationMethod} bins={bins} setBins={setBins} topN={topN} setTopN={setTopN} logScale={logScale} setLogScale={setLogScale} stratifyBy={stratifyBy} setStratifyBy={setStratifyBy} seed={samplingSeed} setSeed={setSamplingSeed} limits={meta.queryLimits} scatterX={scatterX} setScatterX={setScatterX} scatterY={scatterY} setScatterY={setScatterY} scatterTarget={scatterTarget} setScatterTarget={setScatterTarget} pairwiseDiagonalMethod={pairwiseDiagonalMethod} setPairwiseDiagonalMethod={setPairwiseDiagonalMethod} pairwiseLowerMethod={pairwiseLowerMethod} setPairwiseLowerMethod={setPairwiseLowerMethod} pairwiseUpperMethod={pairwiseUpperMethod} setPairwiseUpperMethod={setPairwiseUpperMethod} /></section> : null}
+          {activeTab === "time" ? <section className="space-y-2" aria-label="Time and stability controls"><SelectedVariableTray section="Stability" variables={variables} selectedNames={selectedVariables} setSelectedNames={setSectionVariables} maxVariables={maxVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} pickerOpen={activeDrawer === "variables"} openPicker={(trigger) => openDrawer("variables", trigger)} /><TimeComparisonControls filters={filters} setFilters={setFilters} granularity={timeGranularity} setGranularity={setTimeGranularity} /></section> : null}
+          {activeTab === "players" ? <PlayerColdStartControls role={playerRole} setRole={setPlayerRole} filters={filters} setFilters={setFilters} metadata={meta.filterOptions} /> : null}
+          {activeTab === "time" && !primary ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><BarChart3 size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">Select a stability variable</div><p className="mt-1 text-sm text-slate-600">Use the compact Stability variables control or a feature-family preset. No analytical request has been sent.</p></div> : null}
+          {activeTab === "relationships" && !relationshipPreviewReady ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><GitCompareArrows size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">Choose 2–6 relationship variables</div><p className="mt-1 text-sm text-slate-600">The association heatmap and pairwise matrix use exactly the ordered variables shown in the Relationship variables tray. No request has been sent.</p></div> : null}
+          {activeTab === "relationships" && relationshipMode === "scatter" && relationshipPreviewReady && !relationshipReady ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-6 text-center"><GitCompareArrows size={22} className="mx-auto text-cyan-700" /><div className="mt-2 font-semibold text-slate-900">Assign distinct numeric X and Y variables</div><p className="mt-1 text-xs text-slate-600">The optional color / target assignment may be any selected variable. Axes are never inferred from hidden metadata.</p></div> : null}
           {query && analytical.status !== "ready" ? <QueryStatus status={analytical.status} error={analytical.error} /> : null}
-          {analytical.value ? <TabContent tab={activeTab} relationshipMode={relationshipMode} scatterDisplayMode={scatterDisplayMode} distributionMode={distributionMode} logScale={logScale} envelope={analytical.value} taxonomy={meta.targetTaxonomy} variables={selected} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} handoff={handoff} /> : null}
+          {activeTab === "relationships" && relationshipMode === "scatter" && analytical.value ? <RelationshipsTab envelope={analytical.value as ProjectEdaEnvelope<PairwiseData>} mode="scatter" scatterDisplayMode={scatterDisplayMode} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} /> : null}
+          {activeTab === "relationships" && relationshipPreviewReady ? <section className="space-y-4" aria-label="Immediate relationship previews" data-testid="stage3-relationship-immediate-previews"><div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3"><div className="text-xs font-semibold uppercase tracking-wide text-cyan-900">Immediate governed previews</div><p className="mt-1 text-xs leading-5 text-cyan-900">The selected 2–6 variables populate both the association heatmap and deterministic pairwise matrix. The focused-view control above remains available for scatter or hexbin work.</p></div><div data-testid="stage3-relationship-association-preview">{relationshipAssociationPreview.status !== "ready" ? <QueryStatus status={relationshipAssociationPreview.status} error={relationshipAssociationPreview.error} /> : null}{relationshipAssociationPreview.value ? <RelationshipsTab envelope={relationshipAssociationPreview.value} mode="association" scatterDisplayMode={scatterDisplayMode} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} /> : null}</div><div data-testid="stage3-relationship-pairwise-preview">{relationshipPairwisePreview.status !== "ready" ? <QueryStatus status={relationshipPairwisePreview.status} error={relationshipPairwisePreview.error} /> : null}{relationshipPairwisePreview.value ? <RelationshipsTab envelope={relationshipPairwisePreview.value} mode="pairwise" scatterDisplayMode={scatterDisplayMode} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} pairwiseDiagonalMethod={pairwiseDiagonalMethod} pairwiseLowerMethod={pairwiseLowerMethod} pairwiseUpperMethod={pairwiseUpperMethod} /> : null}</div></section> : null}
+          {activeTab !== "relationships" && analytical.value ? <TabContent tab={activeTab} relationshipMode={relationshipMode} scatterDisplayMode={scatterDisplayMode} distributionMode={distributionMode} logScale={logScale} envelope={analytical.value} taxonomy={meta.targetTaxonomy} variables={selected} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} playerRole={playerRole} handoff={handoff} /> : null}
           <section className="rounded-2xl border border-slate-200 bg-white p-3" data-testid="stage3-eda-chart-toolbar"><div className="flex flex-wrap items-center gap-2"><div><div className="text-xs font-semibold text-slate-800">Save or hand off this analysis</div><p className="mt-0.5 text-[11px] text-slate-500">The compact drawer stores the exact variable order, relationship assignments, filters, settings, seed, and notes.</p></div><button type="button" aria-haspopup="dialog" aria-expanded={activeDrawer === "saved"} onClick={(event) => openDrawer("saved", event.currentTarget)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white"><Save size={13} /> Save analysis</button><button type="button" onClick={() => handoff("outliers")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Open in Outliers</button><button type="button" onClick={() => handoff("missing")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Open in Missing Values</button></div></section>
       </main>
-      <VariablePickerDrawer open={activeDrawer === "variables"} close={() => setActiveDrawer(null)} returnFocusRef={drawerReturnFocusRef} variables={variables} selected={selectedVariables} setSelected={setSelectedVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} maxVariables={maxVariables} />
+      <VariablePickerDrawer open={activeDrawer === "variables"} close={() => setActiveDrawer(null)} returnFocusRef={drawerReturnFocusRef} variables={variables} selected={selectedVariables} setSelected={setSectionVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} maxVariables={maxVariables} />
       <SavedAnalysesDrawer open={activeDrawer === "saved"} close={() => setActiveDrawer(null)} returnFocusRef={drawerReturnFocusRef} views={savedViews} authorityKey={authorityKey} bookmarks={bookmarks} variables={variables} selectedVariables={selectedVariables} setSelectedVariables={setSelectedVariables} maxVariables={maxVariables} viewName={viewName} setViewName={setViewName} viewNotes={viewNotes} setViewNotes={setViewNotes} saveView={saveView} restoreView={restoreView} renameView={renameView} updateView={updateView} removeView={removeView} toggleBookmark={toggleBookmark} handoff={handoff} />
     </div>
   );
 }
 
-function WorkbenchControls({ tab, primary, selected, distributionMode, setDistributionMode, relationshipMode, setRelationshipMode, scatterDisplayMode, setScatterDisplayMode, associationMethod, setAssociationMethod, bins, setBins, topN, setTopN, logScale, setLogScale, stratifyBy, setStratifyBy, seed, setSeed, limits, scatterX, setScatterX, scatterY, setScatterY, scatterTarget, setScatterTarget }: { tab: TabId; primary?: ProjectEdaVariable; selected: ProjectEdaVariable[]; distributionMode: DistributionMode; setDistributionMode: (value: DistributionMode) => void; relationshipMode: RelationshipMode; setRelationshipMode: (value: RelationshipMode) => void; scatterDisplayMode: ScatterDisplayMode; setScatterDisplayMode: (value: ScatterDisplayMode) => void; associationMethod: AssociationMethod; setAssociationMethod: (value: AssociationMethod) => void; bins: number; setBins: (value: number) => void; topN: number; setTopN: (value: number) => void; logScale: boolean; setLogScale: (value: boolean) => void; stratifyBy: StratifyBy; setStratifyBy: (value: StratifyBy) => void; seed: number; setSeed: (value: number) => void; limits: { maxBins: number; maxCategories: number; maxVariables: number; maxSampleRows: number }; scatterX: string; setScatterX: (value: string) => void; scatterY: string; setScatterY: (value: string) => void; scatterTarget: string; setScatterTarget: (value: string) => void }) {
+function WorkbenchControls({ tab, primary, selected, distributionMode, setDistributionMode, relationshipMode, setRelationshipMode, scatterDisplayMode, setScatterDisplayMode, associationMethod, setAssociationMethod, bins, setBins, topN, setTopN, logScale, setLogScale, stratifyBy, setStratifyBy, seed, setSeed, limits, scatterX, setScatterX, scatterY, setScatterY, scatterTarget, setScatterTarget, pairwiseDiagonalMethod, setPairwiseDiagonalMethod, pairwiseLowerMethod, setPairwiseLowerMethod, pairwiseUpperMethod, setPairwiseUpperMethod }: { tab: TabId; primary?: ProjectEdaVariable; selected: ProjectEdaVariable[]; distributionMode: DistributionMode; setDistributionMode: (value: DistributionMode) => void; relationshipMode: RelationshipMode; setRelationshipMode: (value: RelationshipMode) => void; scatterDisplayMode: ScatterDisplayMode; setScatterDisplayMode: (value: ScatterDisplayMode) => void; associationMethod: AssociationMethod; setAssociationMethod: (value: AssociationMethod) => void; bins: number; setBins: (value: number) => void; topN: number; setTopN: (value: number) => void; logScale: boolean; setLogScale: (value: boolean) => void; stratifyBy: StratifyBy; setStratifyBy: (value: StratifyBy) => void; seed: number; setSeed: (value: number) => void; limits: { maxBins: number; maxCategories: number; maxVariables: number; maxSampleRows: number }; scatterX: string; setScatterX: (value: string) => void; scatterY: string; setScatterY: (value: string) => void; scatterTarget: string; setScatterTarget: (value: string) => void; pairwiseDiagonalMethod: PairwiseDiagonalMethod; setPairwiseDiagonalMethod: (value: PairwiseDiagonalMethod) => void; pairwiseLowerMethod: PairwiseCellMethod; setPairwiseLowerMethod: (value: PairwiseCellMethod) => void; pairwiseUpperMethod: PairwiseCellMethod; setPairwiseUpperMethod: (value: PairwiseCellMethod) => void }) {
   if (!["distributions", "relationships", "time"].includes(tab)) return null;
   const numeric = selected.filter(isNumericVariable);
   return <section className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm"><div className="flex flex-wrap items-center gap-2"><SlidersHorizontal size={15} className="text-cyan-700" /><span className="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Chart controls</span>{tab === "distributions" ? <><select aria-label="Distribution chart type" value={distributionMode} onChange={(event) => setDistributionMode(event.target.value as DistributionMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="histogram">Histogram</option><option value="density">Smoothed density</option><option value="ecdf">ECDF</option><option value="box">Box plot</option><option value="violin">Violin plot</option></select><label className="flex items-center gap-1 text-xs">Bins<input type="range" min={10} max={limits.maxBins} value={bins} onChange={(event) => setBins(Number(event.target.value))} />{bins}</label><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={logScale} onChange={(event) => setLogScale(event.target.checked)} /> Log scale</label><label className="flex items-center gap-1 text-xs">Optional stratification variable<select value={stratifyBy} onChange={(event) => setStratifyBy(event.target.value as StratifyBy)} className="rounded border border-slate-200 px-2 py-1"><option value="">None</option><option value="outcome">Outcome</option><option value="season">Season</option><option value="month">Month</option></select></label><label className="flex items-center gap-1 text-xs">Top N<input type="number" min={3} max={limits.maxCategories} value={topN} onChange={(event) => setTopN(Number(event.target.value))} className="w-14 rounded border border-slate-200 px-1 py-1" /></label></> : null}{tab === "relationships" ? <><select aria-label="Relationship view" value={relationshipMode} onChange={(event) => setRelationshipMode(event.target.value as RelationshipMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="association">Association heatmap</option><option value="scatter">Scatter / density</option><option value="pairwise">Pairwise matrix</option></select>{relationshipMode === "association" ? <select aria-label="Association method" value={associationMethod} onChange={(event) => setAssociationMethod(event.target.value as AssociationMethod)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="auto">Method: auto by type</option><option value="pearson">Pearson (numeric)</option><option value="spearman">Spearman (numeric)</option></select> : <label className="flex items-center gap-1 text-xs">Seed<input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} className="w-28 rounded border border-slate-200 px-2 py-1" /></label>}<span className="text-[11px] text-slate-500">{selected.length}/{limits.maxVariables} selected · max {int(limits.maxSampleRows)} sampled rows</span></> : null}{tab === "time" ? <span className="text-xs text-slate-600">Monthly development evidence · PSI and KS are descriptive only</span> : null}<span className="ml-auto truncate text-[11px] text-slate-500">Primary variable: <b className="font-mono text-slate-700">{primary?.name || "select a variable"}</b></span></div>
     {tab === "relationships" ? <div className="mt-3 border-t border-slate-100 pt-3">
-      {relationshipMode === "scatter" ? <div className="grid gap-2 md:grid-cols-4"><label className="text-[10px] font-semibold uppercase text-slate-500">Display<select aria-label="Scatter display" value={scatterDisplayMode} onChange={(event) => setScatterDisplayMode(event.target.value as ScatterDisplayMode)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs normal-case text-slate-800"><option value="scatter">Scatter points</option><option value="hexbin">Hexbin density</option></select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter X<select aria-label="Scatter X variable" value={scatterX} onChange={(event) => setScatterX(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric X…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterY}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter Y<select aria-label="Scatter Y variable" value={scatterY} onChange={(event) => setScatterY(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric Y…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterX}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Optional target stratification<select aria-label="Optional scatter target" value={scatterTarget} onChange={(event) => setScatterTarget(event.target.value)} disabled={scatterDisplayMode === "hexbin"} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800 disabled:bg-slate-100"><option value="">None — single series</option><option value="outcome">Governed outcome · development only</option>{selected.filter((variable) => ![scatterX, scatterY].includes(variable.name) && !isNumericVariable(variable)).map((variable) => <option key={variable.name} value={variable.name}>{variable.name}</option>)}</select></label><p className="md:col-span-4 text-[10px] leading-4 text-slate-500">X and Y are explicit and numeric. Hexbin density aggregates the same deterministic development-only sample and disables target color. Optional outcome stratification is never treated as a predictor; final-OOT targets are never requested.</p></div> : <div className="flex flex-wrap items-center gap-2 text-[11px]"><span className="font-semibold text-slate-700">{relationshipMode === "association" ? "Heatmap rows and columns" : "Pairwise matrix variables"}:</span>{selected.map((variable, index) => <span key={variable.name} className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-mono text-cyan-900">{index + 1}. {variable.name}</span>)}{!selected.length ? <span className="text-slate-500">none selected</span> : null}<span className="ml-auto text-slate-500">Exactly this ordered set is queried (2–6 variables); numeric, categorical, and mixed pairs are rendered explicitly.</span></div>}
+      {relationshipMode === "scatter" ? <div className="grid gap-2 md:grid-cols-4"><label className="text-[10px] font-semibold uppercase text-slate-500">Display<select aria-label="Scatter display" value={scatterDisplayMode} onChange={(event) => setScatterDisplayMode(event.target.value as ScatterDisplayMode)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs normal-case text-slate-800"><option value="scatter">Scatter points</option><option value="hexbin">Hexbin density</option></select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter X<select aria-label="Scatter X variable" value={scatterX} onChange={(event) => setScatterX(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric X…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterY}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter Y<select aria-label="Scatter Y variable" value={scatterY} onChange={(event) => setScatterY(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric Y…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterX}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Optional target stratification<select aria-label="Optional scatter target" value={scatterTarget} onChange={(event) => setScatterTarget(event.target.value)} disabled={scatterDisplayMode === "hexbin"} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800 disabled:bg-slate-100"><option value="">None — single series</option><option value="outcome">Governed outcome · development only</option>{selected.filter((variable) => ![scatterX, scatterY].includes(variable.name) && !isNumericVariable(variable)).map((variable) => <option key={variable.name} value={variable.name}>{variable.name}</option>)}</select></label><p className="md:col-span-4 text-[10px] leading-4 text-slate-500">X and Y are explicit and numeric. Hexbin density aggregates the same deterministic development-only sample and disables target color. Optional outcome stratification is never treated as a predictor; final-OOT targets are never requested.</p></div> : <><div className="flex flex-wrap items-center gap-2 text-[11px]"><span className="font-semibold text-slate-700">{relationshipMode === "association" ? "Heatmap rows and columns" : "Pairwise matrix variables"}:</span>{selected.map((variable, index) => <span key={variable.name} className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-mono text-cyan-900">{index + 1}. {variable.name}</span>)}{!selected.length ? <span className="text-slate-500">none selected</span> : null}<span className="ml-auto text-slate-500">Exactly this ordered set is queried (2–6 variables); numeric, categorical, and mixed pairs are rendered explicitly.</span></div>{relationshipMode === "pairwise" ? <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-3" data-testid="stage3-pairwise-matrix-controls"><label className="text-[10px] font-semibold uppercase text-slate-500">Diagonal distribution method<select aria-label="Pairwise matrix diagonal distribution method" value={pairwiseDiagonalMethod} onChange={(event) => setPairwiseDiagonalMethod(event.target.value as PairwiseDiagonalMethod)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-normal normal-case text-slate-800"><option value="histogram">Histogram</option><option value="density">Smoothed density</option></select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Lower-triangle cell method<select aria-label="Pairwise matrix lower triangle cell method" value={pairwiseLowerMethod} onChange={(event) => setPairwiseLowerMethod(event.target.value as PairwiseCellMethod)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-normal normal-case text-slate-800"><option value="scatter">Scatter points</option><option value="hexbin">Hexbin density</option></select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Upper-triangle cell method<select aria-label="Pairwise matrix upper triangle cell method" value={pairwiseUpperMethod} onChange={(event) => setPairwiseUpperMethod(event.target.value as PairwiseCellMethod)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-normal normal-case text-slate-800"><option value="scatter">Scatter points</option><option value="hexbin">Hexbin density</option></select></label><p className="sm:col-span-3 text-[10px] leading-4 text-slate-500">Numeric cells use the selected triangle method. Categorical and mixed-type cells remain explicit type-aware count or strip views; no incompatible method is silently applied.</p></div> : null}</>}
     </div> : null}
   </section>;
 }
 
-function TabContent({ tab, envelope, distributionMode, logScale, relationshipMode, scatterDisplayMode, taxonomy, variables, scatterX, scatterY, scatterTarget, handoff }: { tab: TabId; envelope: ProjectEdaEnvelope<unknown>; distributionMode: DistributionMode; logScale: boolean; relationshipMode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; taxonomy: string[]; variables: ProjectEdaVariable[]; scatterX: string; scatterY: string; scatterTarget: string; handoff: (destination: "outliers" | "missing" | "features") => void }) {
+function TabContent({ tab, envelope, distributionMode, logScale, relationshipMode, scatterDisplayMode, taxonomy, variables, scatterX, scatterY, scatterTarget, playerRole, handoff }: { tab: TabId; envelope: ProjectEdaEnvelope<unknown>; distributionMode: DistributionMode; logScale: boolean; relationshipMode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; taxonomy: string[]; variables: ProjectEdaVariable[]; scatterX: string; scatterY: string; scatterTarget: string; playerRole: PlayerRole; handoff: (destination: "outliers" | "missing" | "features") => void }) {
   if (tab === "target") return <TargetTab envelope={envelope as ProjectEdaEnvelope<OverviewData>} taxonomy={taxonomy} handoff={handoff} />;
   if (tab === "distributions") return <DistributionTab envelope={envelope as ProjectEdaEnvelope<DistributionData | CategoryCountsData>} mode={distributionMode} logScale={logScale} variable={variables[0]} />;
   if (tab === "relationships") return <RelationshipsTab envelope={envelope as ProjectEdaEnvelope<AssociationData | PairwiseData>} mode={relationshipMode} scatterDisplayMode={scatterDisplayMode} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} />;
   if (tab === "time") return <TemporalTab envelope={envelope as ProjectEdaEnvelope<TemporalData>} />;
-  return <ColdStartTab envelope={envelope as ProjectEdaEnvelope<ColdStartData>} />;
+  return <ColdStartTab envelope={envelope as ProjectEdaEnvelope<ColdStartData>} role={playerRole} />;
 }
 
 function OverviewTab({ envelope, families }: { envelope: ProjectEdaEnvelope<OverviewData>; families: ProjectEdaFamily[] }) {
@@ -662,7 +848,75 @@ function DistributionPrimeSummary({ envelope, variable, mode, statistics, catego
   return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-4" data-testid="stage3-distribution-prime-summary"><div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">Distribution summary</div><h4 className="mt-1 font-semibold text-slate-950">{variable?.name ?? "Selected variable"}</h4></div><span className="ml-auto rounded-full border border-cyan-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-cyan-900">{mode.toUpperCase()}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Variable type" value={variable?.dataType ?? "Unknown"} detail={variable?.featureFamily ?? "Feature family unavailable"} /><Metric label="Development missing" value={pct(variable?.missingPercent)} detail={variable?.role ?? "Role unavailable"} accent={Number(variable?.missingPercent ?? 0) > 0 ? "amber" : "slate"} /><Metric label="Range / cardinality" value={range} detail="Development-only observed evidence" /><Metric label="Approximate shape" value={categoryCount === undefined ? skewLabel : "Categorical"} detail="Pearson median-skew proxy; descriptive only" /><Metric label="Rows represented" value={int(envelope.population.rowsRepresented)} detail={`${activeFilterCount(envelope)} active population filter(s)`} accent="cyan" /></div>{variable?.proxyWarning ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900"><b>Proxy warning:</b> {variable.proxyWarning}</p> : null}</section>;
 }
 
-function RelationshipsTab({ envelope, mode, scatterDisplayMode, scatterX, scatterY, scatterTarget }: { envelope: ProjectEdaEnvelope<AssociationData | PairwiseData>; mode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; scatterX: string; scatterY: string; scatterTarget: string }) {
+type PairwiseCellChart = { option: EChartsOption | null; label: string; rows: number };
+
+function pairwiseDiagonalChart(rows: PairwiseData["rows"], variable: string, method: PairwiseDiagonalMethod): PairwiseCellChart {
+  const observed = rows.map((row) => row[variable]).filter((value) => value !== null && value !== undefined);
+  const numeric = observed.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (!observed.length) return { option: null, label: `${method} · no observed values`, rows: 0 };
+  if (numeric.length !== observed.length) {
+    const counts = new Map<string, number>();
+    observed.forEach((value) => counts.set(String(value), (counts.get(String(value)) ?? 0) + 1));
+    const categories = [...counts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 12);
+    return { option: { grid: { left: 34, right: 8, top: 8, bottom: 42, containLabel: true }, tooltip: { trigger: "axis", confine: true }, xAxis: { type: "category", data: categories.map(([value]) => value), axisLabel: { rotate: 40, hideOverlap: true } }, yAxis: { type: "value", name: "Rows" }, series: [{ type: "bar", data: categories.map(([, count]) => count) }] }, label: "Categorical frequency fallback", rows: observed.length };
+  }
+  const minimum = Math.min(...numeric); const maximum = Math.max(...numeric);
+  if (method === "density") {
+    const mean = numeric.reduce((sum, value) => sum + value, 0) / numeric.length;
+    const deviation = Math.sqrt(numeric.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, numeric.length - 1));
+    const bandwidth = Math.max(Number.EPSILON, 1.06 * (deviation || Math.max(1, maximum - minimum) / 6) * numeric.length ** -0.2);
+    const span = Math.max(Number.EPSILON, maximum - minimum); const points = Array.from({ length: 28 }, (_, index) => minimum + (span * index) / 27);
+    const density = points.map((point) => numeric.reduce((sum, value) => sum + Math.exp(-0.5 * ((point - value) / bandwidth) ** 2), 0) / (numeric.length * bandwidth * Math.sqrt(2 * Math.PI)));
+    return { option: { grid: { left: 36, right: 8, top: 8, bottom: 30, containLabel: true }, tooltip: { trigger: "axis", confine: true }, xAxis: { type: "value", scale: true }, yAxis: { type: "value", name: "Density" }, series: [{ type: "line", smooth: true, symbol: "none", areaStyle: { opacity: 0.22 }, data: points.map((point, index) => [point, density[index]]) }] }, label: "Smoothed density", rows: numeric.length };
+  }
+  const binCount = 14; const width = Math.max(Number.EPSILON, (maximum - minimum) / binCount); const counts = Array.from({ length: binCount }, () => 0);
+  numeric.forEach((value) => { counts[Math.min(binCount - 1, Math.floor((value - minimum) / width))] += 1; });
+  return { option: { grid: { left: 36, right: 8, top: 8, bottom: 38, containLabel: true }, tooltip: { trigger: "axis", confine: true }, xAxis: { type: "category", data: counts.map((_, index) => (minimum + (index + 0.5) * width).toPrecision(3)), axisLabel: { rotate: 40, hideOverlap: true } }, yAxis: { type: "value", name: "Rows" }, series: [{ type: "bar", data: counts }] }, label: "Histogram · 14 bins", rows: numeric.length };
+}
+
+function pairwiseOffDiagonalChart(rows: PairwiseData["rows"], x: string, y: string, method: PairwiseCellMethod): PairwiseCellChart {
+  const complete = rows.filter((row) => row[x] !== null && row[x] !== undefined && row[y] !== null && row[y] !== undefined);
+  if (!complete.length) return { option: null, label: `${method} · no complete pairs`, rows: 0 };
+  const xNumeric = complete.every((row) => typeof row[x] === "number" && Number.isFinite(row[x]));
+  const yNumeric = complete.every((row) => typeof row[y] === "number" && Number.isFinite(row[y]));
+  if (xNumeric && yNumeric) {
+    const points = complete.map((row) => [Number(row[x]), Number(row[y])]);
+    if (method === "hexbin") {
+      const xs = points.map(([value]) => value); const ys = points.map(([, value]) => value);
+      const xMin = Math.min(...xs); const xMax = Math.max(...xs); const yMin = Math.min(...ys); const yMax = Math.max(...ys); const radius = 1 / 20;
+      const bins = new Map<string, number>();
+      points.forEach(([xValue, yValue]) => {
+        const normalizedX = (xValue - xMin) / Math.max(Number.EPSILON, xMax - xMin); const normalizedY = (yValue - yMin) / Math.max(Number.EPSILON, yMax - yMin);
+        const axialQ = ((Math.sqrt(3) / 3) * normalizedX - normalizedY / 3) / radius; const axialR = ((2 / 3) * normalizedY) / radius;
+        let cubeX = Math.round(axialQ); let cubeZ = Math.round(axialR); const cubeY = Math.round(-axialQ - axialR);
+        const xError = Math.abs(cubeX - axialQ); const yError = Math.abs(cubeY + axialQ + axialR); const zError = Math.abs(cubeZ - axialR);
+        if (xError > yError && xError > zError) cubeX = -cubeY - cubeZ; else if (zError > yError) cubeZ = -cubeX - cubeY;
+        const key = `${cubeX}:${cubeZ}`; bins.set(key, (bins.get(key) ?? 0) + 1);
+      });
+      const binned = [...bins.entries()].map(([key, count]) => { const [q, r] = key.split(":").map(Number); return [xMin + radius * Math.sqrt(3) * (q + r / 2) * (xMax - xMin), yMin + radius * 1.5 * r * (yMax - yMin), count]; });
+      const maximumCount = Math.max(1, ...binned.map((value) => value[2]));
+      return { option: { grid: { left: 38, right: 8, top: 8, bottom: 32, containLabel: true }, tooltip: { trigger: "item", confine: true }, visualMap: { show: false, min: 1, max: maximumCount, dimension: 2, inRange: { color: ["#cffafe", "#0891b2", "#164e63"] } }, xAxis: { type: "value", scale: true }, yAxis: { type: "value", scale: true }, series: [{ type: "scatter", symbol: "path://M0,-8 L6.93,-4 L6.93,4 L0,8 L-6.93,4 L-6.93,-4 Z", symbolSize: 10, data: binned }] }, label: `Hexbin density · ${binned.length} occupied bins`, rows: complete.length };
+    }
+    return { option: { grid: { left: 38, right: 8, top: 8, bottom: 32, containLabel: true }, tooltip: { trigger: "item", confine: true }, xAxis: { type: "value", scale: true }, yAxis: { type: "value", scale: true }, series: [{ type: "scatter", symbolSize: 4, large: complete.length > 1000, data: points, itemStyle: { opacity: 0.38 } }] }, label: "Scatter points", rows: complete.length };
+  }
+  if (!xNumeric && !yNumeric) {
+    const xValues = [...new Set(complete.map((row) => String(row[x])))].sort().slice(0, 12); const yValues = [...new Set(complete.map((row) => String(row[y])))].sort().slice(0, 12);
+    const xIndex = new Map(xValues.map((value, index) => [value, index])); const yIndex = new Map(yValues.map((value, index) => [value, index])); const counts = new Map<string, number>();
+    complete.forEach((row) => { const xValue = String(row[x]); const yValue = String(row[y]); if (xIndex.has(xValue) && yIndex.has(yValue)) { const key = `${xValue}\u0000${yValue}`; counts.set(key, (counts.get(key) ?? 0) + 1); } });
+    const cells = [...counts.entries()].map(([key, count]) => { const [xValue, yValue] = key.split("\u0000"); return [xIndex.get(xValue) ?? 0, yIndex.get(yValue) ?? 0, count]; });
+    return { option: { grid: { left: 42, right: 8, top: 8, bottom: 42, containLabel: true }, tooltip: { trigger: "item", confine: true }, visualMap: { show: false, min: 0, max: Math.max(1, ...cells.map((cell) => Number(cell[2]))) }, xAxis: { type: "category", data: xValues, axisLabel: { rotate: 40, hideOverlap: true } }, yAxis: { type: "category", data: yValues, axisLabel: { hideOverlap: true } }, series: [{ type: "heatmap", data: cells }] }, label: "Type-aware categorical count heatmap", rows: complete.length };
+  }
+  const numericName = xNumeric ? x : y; const categoryName = xNumeric ? y : x; const categories = [...new Set(complete.map((row) => String(row[categoryName])))].sort().slice(0, 12);
+  const values = complete.filter((row) => typeof row[numericName] === "number" && categories.includes(String(row[categoryName]))).map((row) => [String(row[categoryName]), Number(row[numericName])]);
+  return { option: { grid: { left: 42, right: 8, top: 8, bottom: 42, containLabel: true }, tooltip: { trigger: "item", confine: true }, xAxis: { type: "category", data: categories, axisLabel: { rotate: 40, hideOverlap: true } }, yAxis: { type: "value", scale: true }, series: [{ type: "scatter", symbolSize: 4, large: values.length > 1000, data: values, itemStyle: { opacity: 0.38 } }] }, label: "Type-aware mixed strip plot", rows: values.length };
+}
+
+function PairwiseMatrix({ envelope, diagonalMethod, lowerMethod, upperMethod }: { envelope: ProjectEdaEnvelope<PairwiseData>; diagonalMethod: PairwiseDiagonalMethod; lowerMethod: PairwiseCellMethod; upperMethod: PairwiseCellMethod }) {
+  const data = envelope.data;
+  return <div className="space-y-4"><RelationshipPrimeSummary envelope={envelope} variables={data.variables} mode="pairwise" method={`diagonal ${diagonalMethod} · lower ${lowerMethod} · upper ${upperMethod}`} strongest={`${data.variables.length} × ${data.variables.length} literal matrix`} sample={`${int(data.sampleSize)} / ${int(data.populationSize)} · seed ${data.seed}`} /><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-900"><b>Literal pairwise-matrix contract:</b> diagonal cells use {diagonalMethod}; lower-triangle numeric cells use {lowerMethod}; upper-triangle numeric cells use {upperMethod}. Categorical and mixed cells disclose their type-aware fallback. Every cell uses the same deterministic development-only sample; final-OOT targets remain locked.</section><section className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3" data-testid="stage3-literal-pairwise-matrix"><EvidenceStrip envelope={envelope} /><table className="border-separate border-spacing-2" style={{ minWidth: `${140 + data.variables.length * 230}px` }}><caption className="sr-only">Pairwise matrix with diagonal distributions, lower-triangle cells, and upper-triangle cells</caption><thead><tr><th scope="col" className="w-32 p-2 text-left text-[10px] uppercase text-slate-500">Y \ X</th>{data.variables.map((variable) => <th key={variable} scope="col" className="w-56 break-all p-2 text-left font-mono text-[10px] text-slate-700">{variable}</th>)}</tr></thead><tbody>{data.variables.map((y, rowIndex) => <tr key={y}><th scope="row" className="w-32 break-all p-2 text-left align-top font-mono text-[10px] text-slate-700">{y}</th>{data.variables.map((x, columnIndex) => { const region = rowIndex === columnIndex ? "Diagonal" : rowIndex > columnIndex ? "Lower triangle" : "Upper triangle"; const chart = rowIndex === columnIndex ? pairwiseDiagonalChart(data.rows, x, diagonalMethod) : pairwiseOffDiagonalChart(data.rows, x, y, rowIndex > columnIndex ? lowerMethod : upperMethod); return <td key={`${y}:${x}`} className="w-56 rounded-xl border border-slate-200 bg-slate-50 p-2 align-top"><div className="flex items-start justify-between gap-2"><span className="text-[9px] font-semibold uppercase tracking-wide text-cyan-800">{region}</span><span className="text-[9px] tabular-nums text-slate-500">n={int(chart.rows)}</span></div><div className="mt-1 min-h-8 text-[10px] font-medium leading-4 text-slate-700">{chart.label}</div><EChartsPanel option={chart.option} state={chart.option ? "ready" : "empty"} height={170} ariaLabel={`${region} pairwise cell, ${x} by ${y}, ${chart.label}`} /></td>; })}</tr>)}</tbody></table></section></div>;
+}
+
+function RelationshipsTab({ envelope, mode, scatterDisplayMode, scatterX, scatterY, scatterTarget, pairwiseDiagonalMethod = "histogram", pairwiseLowerMethod = "scatter", pairwiseUpperMethod = "hexbin" }: { envelope: ProjectEdaEnvelope<AssociationData | PairwiseData>; mode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; scatterX: string; scatterY: string; scatterTarget: string; pairwiseDiagonalMethod?: PairwiseDiagonalMethod; pairwiseLowerMethod?: PairwiseCellMethod; pairwiseUpperMethod?: PairwiseCellMethod }) {
   if ("cells" in envelope.data) {
     const data = envelope.data;
     const index = new Map(data.variables.map((name, i) => [name, i]));
@@ -672,10 +926,10 @@ function RelationshipsTab({ envelope, mode, scatterDisplayMode, scatterX, scatte
     return <div className="space-y-4"><RelationshipPrimeSummary envelope={envelope} variables={data.variables} mode={mode} method={data.methods.join(" · ")} strongest={strongest ? `${strongest.x} × ${strongest.y} · ${strongest.value.toFixed(3)}` : "No estimable non-diagonal pair"} /><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-900"><b>Methods remain explicit:</b> Pearson for numeric linear, Spearman for numeric monotonic, Cramér’s V for categorical pairs, and correlation ratio for numeric–categorical relationships. Unlike measures are labeled and are not presented as interchangeable. Degenerate pairs are left blank as not estimable; they are never rendered as zero.</section><ChartCard title="Correlation / association heatmap" description={`Methods present: ${data.methods.join(" · ")}. Values are descriptive, not automatic feature selection.`} option={option} ariaLabel="Project-bound association heatmap" envelope={envelope} exportRows={rowsFrom(data.cells)} /></div>;
   }
   const data = envelope.data;
+  if (mode === "pairwise") return <PairwiseMatrix envelope={envelope as ProjectEdaEnvelope<PairwiseData>} diagonalMethod={pairwiseDiagonalMethod} lowerMethod={pairwiseLowerMethod} upperMethod={pairwiseUpperMethod} />;
   const pairs: [string, string][] = [];
   if (mode === "scatter" && data.variables.includes(scatterX) && data.variables.includes(scatterY) && scatterX !== scatterY) pairs.push([scatterX, scatterY]);
-  if (mode === "pairwise") for (let i = 0; i < data.variables.length; i += 1) for (let j = i + 1; j < data.variables.length; j += 1) pairs.push([data.variables[i], data.variables[j]]);
-  return <div className="space-y-4"><RelationshipPrimeSummary envelope={envelope} variables={data.variables} mode={mode} method={data.method} strongest={mode === "scatter" ? `${scatterX || "X not assigned"} × ${scatterY || "Y not assigned"}` : `${pairs.length} explicit pair(s)`} sample={`${int(data.sampleSize)} / ${int(data.populationSize)} · seed ${data.seed}${scatterTarget ? ` · target ${scatterTarget}` : ""}`} /><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900"><b>Deterministic point sample:</b> {int(data.sampleSize)} of {int(data.populationSize)} rows · seed {data.seed} · {data.method}. {data.stratifyBy === "outcome" ? "Color uses the governed development-only outcome; it is not a predictor. " : ""}The full population never enters the browser, and point-level sample download is disabled by default.</section>{!pairs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Select two numeric variables for scatter/hexbin, or 2–6 variables for a pairwise matrix.</div> : <div className={mode === "pairwise" ? "grid gap-4 xl:grid-cols-2" : "space-y-4"}>{pairs.map(([x, y]) => {
+  return <div className="space-y-4"><RelationshipPrimeSummary envelope={envelope} variables={data.variables} mode={mode} method={data.method} strongest={mode === "scatter" ? `${scatterX || "X not assigned"} × ${scatterY || "Y not assigned"}` : `${pairs.length} explicit pair(s)`} sample={`${int(data.sampleSize)} / ${int(data.populationSize)} · seed ${data.seed}${scatterTarget ? ` · target ${scatterTarget}` : ""}`} /><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900"><b>Deterministic point sample:</b> {int(data.sampleSize)} of {int(data.populationSize)} rows · seed {data.seed} · {data.method}. {data.stratifyBy === "outcome" ? "Color uses the governed development-only outcome; it is not a predictor. " : ""}The full population never enters the browser, and point-level sample download is disabled by default.</section>{!pairs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Select two numeric variables for scatter/hexbin, or 2–6 variables for a pairwise matrix.</div> : <div className="space-y-4">{pairs.map(([x, y]) => {
     const complete = data.rows.filter((row) => row[x] !== null && row[x] !== undefined && row[y] !== null && row[y] !== undefined);
     const xNumeric = complete.some((row) => typeof row[x] === "number");
     const yNumeric = complete.some((row) => typeof row[y] === "number");
@@ -832,13 +1086,18 @@ function TemporalTab({ envelope }: { envelope: ProjectEdaEnvelope<TemporalData> 
   return <div className="space-y-4"><section className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>Descriptive stability diagnostics only.</b> PSI and KS highlight changing distributions and source eras; they do not select a feature, threshold, or model. The 2026 comparison stops on 2026-08-13.</section><section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="stage3-stability-assessment"><div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Stability Assessment</div><h4 className="mt-1 font-semibold text-slate-950">Written development-only takeaway</h4></div><span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-900">{assessment.overallStatus.replaceAll("_", " ")}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><Metric label="Target mix" value={assessment.targetMix.status.replaceAll("_", " ")} detail={`${assessment.targetMix.maxClassShareRangePct?.toFixed(3) ?? "—"} pp max range`} /><Metric label="Stable features" value={int(assessment.featureCounts.stable)} detail={assessment.featureCounts.scope.replaceAll("_", " ")} /><Metric label="Moderate review" value={int(assessment.featureCounts.moderateReview)} detail="descriptive review only" accent="amber" /><Metric label="High review" value={int(assessment.featureCounts.highReview)} detail="material diagnostic shift" accent="amber" /><Metric label="Source-era changes" value={int(assessment.featureCounts.sourceEraChange)} detail={assessment.sourceEraEvidenceStatus.replaceAll("_", " ").toLowerCase()} /><Metric label="Cold-start shift" value={assessment.coldStartShift.status.replaceAll("_", " ")} detail={`${assessment.coldStartShift.maxRangePct.toFixed(2)} pp range`} /></div><p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-700">{assessment.recommendedNextAction}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{assessment.rowVolumeNote}</p><div className="mt-3 overflow-auto"><table className="w-full min-w-[980px] text-xs"><thead><tr className="text-left text-slate-500">{["Variable", "Status", "Direction / magnitude", "Periods affected", "PSI / KS", "Coverage shift", "Likely cause", "Next action"].map((label) => <th key={label} className="border-b px-2 py-2">{label}</th>)}</tr></thead><tbody>{assessment.selectedVariables.map((item) => <tr key={item.variable}><td className="border-b px-2 py-2 font-mono font-semibold">{item.variable}</td><td className="border-b px-2 py-2">{item.status.replaceAll("_", " ")}</td><td className="border-b px-2 py-2">{item.direction.replaceAll("_", " ")} · {item.magnitude === null ? "—" : item.magnitude.toFixed(4)}{item.relativeMagnitudePct === null ? "" : ` (${item.relativeMagnitudePct.toFixed(1)}%)`}</td><td className="border-b px-2 py-2">{item.affectedPeriods.length ? item.affectedPeriods.join(", ") : "none flagged"}</td><td className="border-b px-2 py-2">{item.methods.join(" + ")} · {item.psiMax.toFixed(3)} / {item.ksMax?.toFixed(3) ?? "NA"}</td><td className="border-b px-2 py-2">{item.coverageShiftPct.toFixed(2)} pp ({item.coverageRangePct.toFixed(2)} pp range)</td><td className="border-b px-2 py-2">{item.likelyCause.replaceAll("_", " ").toLowerCase()}</td><td className="border-b px-2 py-2">{item.recommendedNextAction}</td></tr>)}</tbody></table></div></section><div className="grid gap-4 xl:grid-cols-2"><ChartCard title={`${data.variable} through time`} description={`${data.granularity} development aggregates; mean and median.`} option={main} ariaLabel={`${data.variable} monthly stability`} envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Coverage and row volume" description="Missingness and available evidence through time." option={missing} ariaLabel="Feature coverage through time" envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Target mix through time" description="Development-only class composition; final-OOT outcomes are not materialized." option={targetMix} ariaLabel="Target mix through development time" envelope={envelope} exportRows={rowsFrom(targetRows)} /><ChartCard title="Distribution drift" description="PSI and KS against each documented baseline period; source-era shifts remain visible." option={drift} ariaLabel="Feature distribution drift" envelope={envelope} exportRows={rowsFrom(data.drift)} /></div></div>;
 }
 
-function ColdStartTab({ envelope }: { envelope: ProjectEdaEnvelope<ColdStartData> }) {
+function ColdStartTab({ envelope, role }: { envelope: ProjectEdaEnvelope<ColdStartData>; role: PlayerRole }) {
   const data = envelope.data;
-  const bars: EChartsOption = { ...chartBase(), legend: { top: 0 }, xAxis: { type: "category", data: ["Batter", "Pitcher"] }, yAxis: { type: "value", name: "Rows" }, series: [{ name: "No prior history", type: "bar", data: [data.batter.noPriorRows, data.pitcher.noPriorRows] }, { name: "Insufficient history", type: "bar", data: [data.batter.insufficientRows, data.pitcher.insufficientRows] }] };
+  const entities = role === "batter" ? [{ label: "Batter", data: data.batter }] : role === "pitcher" ? [{ label: "Pitcher", data: data.pitcher }] : [{ label: "Batter", data: data.batter }, { label: "Pitcher", data: data.pitcher }];
+  const bars: EChartsOption = { ...chartBase(), legend: { top: 0 }, xAxis: { type: "category", data: entities.map((entity) => entity.label) }, yAxis: { type: "value", name: "Rows" }, series: [{ name: "No prior history", type: "bar", data: entities.map((entity) => entity.data.noPriorRows) }, { name: "Insufficient history", type: "bar", data: entities.map((entity) => entity.data.insufficientRows) }] };
   const periods = [...new Set([...data.batter.byPeriod.map((row) => row.period), ...data.pitcher.byPeriod.map((row) => row.period)])].sort();
-  const time = lineOption(periods, [{ name: "Batter no history", values: periods.map((period) => data.batter.byPeriod.find((row) => row.period === period)?.noPriorRows ?? 0) }, { name: "Pitcher no history", values: periods.map((period) => data.pitcher.byPeriod.find((row) => row.period === period)?.noPriorRows ?? 0) }], "Rows");
-  const composition: EChartsOption = { ...chartBase(), legend: { type: "scroll", top: 0 }, xAxis: { type: "category", data: [...new Set(data.targetComposition.map((row) => row.scope))] }, yAxis: { type: "value", max: 100, name: "Share (%)" }, series: TARGET_ORDER.map((target) => ({ name: target, type: "bar", stack: "target", data: [...new Set(data.targetComposition.map((row) => row.scope))].map((scope) => data.targetComposition.find((row) => row.scope === scope && row.value === target)?.percent ?? 0) })) };
-  return <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Cold-start rows" value={int(data.summary.coldStartRows)} detail={`${pct(data.summary.coldStartPercent)} of development`} accent="amber" /><Metric label="Affected games" value={int(data.summary.affectedGames)} detail="canonical development games" /><Metric label="Affected teams" value={int(data.summary.affectedTeams)} detail="exact canonical teams" /><Metric label="Affected batters" value={int(data.batter.affectedPlayers)} detail={`${int(data.batter.affectedGames)} games · ${int(data.batter.affectedTeams)} teams`} /><Metric label="Affected pitchers" value={int(data.pitcher.affectedPlayers)} detail={`${int(data.pitcher.affectedGames)} games · ${int(data.pitcher.affectedTeams)} teams`} /></div><div className="grid gap-4 xl:grid-cols-2"><ChartCard title="Batter and pitcher history sufficiency" description="Cold-start rows are retained; this view informs later fold-local priors or imputation." option={bars} ariaLabel="Batter pitcher cold start counts" envelope={envelope} exportRows={[{ entity: "Batter", noPrior: data.batter.noPriorRows, insufficient: data.batter.insufficientRows }, { entity: "Pitcher", noPrior: data.pitcher.noPriorRows, insufficient: data.pitcher.insufficientRows }]} /><ChartCard title="Cold-start prevalence through time" description="Unseen players by development season/month." option={time} ariaLabel="Cold start over time" envelope={envelope} exportRows={rowsFrom([...data.batter.byPeriod, ...data.pitcher.byPeriod])} /><div className="xl:col-span-2"><ChartCard title="Cold-start target composition" description="Development-only target mix for established versus low-history players." option={composition} ariaLabel="Cold start target composition" envelope={envelope} exportRows={rowsFrom(data.targetComposition)} /></div></div></div>;
+  const time = lineOption(periods, entities.map((entity) => ({ name: `${entity.label} no history`, values: periods.map((period) => entity.data.byPeriod.find((row) => row.period === period)?.noPriorRows ?? 0) })), "Rows");
+  const allScopes = [...new Set(data.targetComposition.map((row) => row.scope))];
+  const scopes = role === "both" ? allScopes : allScopes.filter((scope) => scope.toLowerCase().includes(role));
+  const displayedScopes = scopes.length ? scopes : allScopes;
+  const composition: EChartsOption = { ...chartBase(), legend: { type: "scroll", top: 0 }, xAxis: { type: "category", data: displayedScopes }, yAxis: { type: "value", max: 100, name: "Share (%)" }, series: TARGET_ORDER.map((target) => ({ name: target, type: "bar", stack: "target", data: displayedScopes.map((scope) => data.targetComposition.find((row) => row.scope === scope && row.value === target)?.percent ?? 0) })) };
+  const exportRows = entities.map((entity) => ({ entity: entity.label, noPrior: entity.data.noPriorRows, insufficient: entity.data.insufficientRows }));
+  return <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric label="Cold-start rows" value={int(data.summary.coldStartRows)} detail={`${pct(data.summary.coldStartPercent)} of development`} accent="amber" /><Metric label="Affected games" value={int(data.summary.affectedGames)} detail="canonical development games" /><Metric label="Affected teams" value={int(data.summary.affectedTeams)} detail="exact canonical teams" />{role !== "pitcher" ? <Metric label="Affected batters" value={int(data.batter.affectedPlayers)} detail={`${int(data.batter.affectedGames)} games · ${int(data.batter.affectedTeams)} teams`} /> : null}{role !== "batter" ? <Metric label="Affected pitchers" value={int(data.pitcher.affectedPlayers)} detail={`${int(data.pitcher.affectedGames)} games · ${int(data.pitcher.affectedTeams)} teams`} /> : null}</div><div className="grid gap-4 xl:grid-cols-2"><ChartCard title="Batter and pitcher history sufficiency" description="Cold-start rows are retained; this view informs later fold-local priors or imputation." option={bars} ariaLabel="Batter pitcher cold start counts" envelope={envelope} exportRows={exportRows} /><ChartCard title="Cold-start prevalence through time" description="Unseen players by development season/month." option={time} ariaLabel="Cold start over time" envelope={envelope} exportRows={rowsFrom(entities.flatMap((entity) => entity.data.byPeriod))} /><div className="xl:col-span-2"><ChartCard title="Cold-start target composition" description="Development-only target mix for established versus low-history players." option={composition} ariaLabel="Cold start target composition" envelope={envelope} exportRows={rowsFrom(data.targetComposition.filter((row) => displayedScopes.includes(row.scope)))} /></div></div></div>;
 }
 
 function HandoffActions({ handoff, selected }: { handoff: (destination: "outliers" | "missing" | "features") => void; selected: "missing" | "outliers" }) {
