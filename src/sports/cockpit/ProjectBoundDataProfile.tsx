@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EChartsOption, ECharts } from "echarts";
 import {
   AlertTriangle,
@@ -12,11 +12,14 @@ import {
   Database,
   Download,
   Filter,
+  FolderOpen,
   GitCompareArrows,
   ImageDown,
   LineChart,
   Loader2,
   Lock,
+  Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -37,6 +40,7 @@ import type { CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
 import {
   compactProjectEdaFilters,
   downloadAggregatedCsv,
+  projectEdaVariableSelection,
   useProjectEdaMetadata,
   useProjectEdaQuery,
   type AssociationData,
@@ -55,8 +59,10 @@ import {
   type TemporalData,
 } from "./projectEdaApi";
 
-type TabId = "overview" | "distributions" | "relationships" | "target" | "missingness" | "time" | "players" | "saved";
+type TabId = "target" | "distributions" | "relationships" | "time" | "players";
+type LegacyTabId = TabId | "overview" | "missingness" | "saved";
 type RelationshipMode = "association" | "scatter" | "pairwise";
+type ScatterDisplayMode = "scatter" | "hexbin";
 type DistributionMode = "histogram" | "density" | "ecdf" | "box" | "violin";
 type MissingnessMode = "missingness" | "outliers";
 type StratifyBy = "" | "outcome" | "season" | "month";
@@ -66,19 +72,23 @@ type EdaView = {
   id: string;
   authorityKey: string;
   name: string;
-  tab: TabId;
+  tab: LegacyTabId;
   selectedVariables: string[];
   filters: ProjectEdaFilters;
   settings: {
     distributionMode: DistributionMode;
     relationshipMode: RelationshipMode;
-    missingnessMode: MissingnessMode;
+    scatterDisplayMode?: ScatterDisplayMode;
+    missingnessMode?: MissingnessMode;
     bins: number;
     topN: number;
     logScale: boolean;
     stratifyBy: StratifyBy;
     associationMethod: AssociationMethod;
     samplingSeed: number;
+    scatterX?: string;
+    scatterY?: string;
+    scatterTarget?: string;
   };
   notes: string;
   savedAt: string;
@@ -87,20 +97,31 @@ type EdaView = {
 type VariableBookmarks = { authorityKey: string; names: string[] };
 
 const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
-  { id: "overview", label: "Overview", icon: Sparkles },
+  { id: "target", label: "Target & Class Balance", icon: TableProperties },
   { id: "distributions", label: "Distributions", icon: BarChart3 },
   { id: "relationships", label: "Relationships", icon: GitCompareArrows },
-  { id: "target", label: "Target & Class Balance", icon: TableProperties },
-  { id: "missingness", label: "Missingness & Outliers", icon: CircleOff },
   { id: "time", label: "Time & Stability", icon: CalendarRange },
   { id: "players", label: "Players & Cold Start", icon: Users },
-  { id: "saved", label: "Saved Views", icon: Bookmark },
 ];
+
+// Saved analyses created by the previous eight-tab workbench remain reopenable.
+// These labels are migration metadata, not primary navigation.
+const LEGACY_TABS: { id: LegacyTabId; label: string; reopenAs: TabId }[] = [
+  { id: "overview", label: "Overview", reopenAs: "target" },
+  { id: "missingness", label: "Missingness & Outliers", reopenAs: "distributions" },
+  { id: "saved", label: "Saved Views", reopenAs: "target" },
+];
+
+function reopenTab(tab: LegacyTabId | string): TabId {
+  if (TABS.some((item) => item.id === tab)) return tab as TabId;
+  return LEGACY_TABS.find((item) => item.id === tab)?.reopenAs ?? "target";
+}
 
 const TARGET_ORDER = ["STRIKEOUT", "WALK_HBP_CI", "HOME_RUN", "SINGLE", "DOUBLE", "TRIPLE", "BIP_OUT", "OTHER_REACH"];
 const DEFAULT_SEED = 7_310_2026;
 const BOOKMARKS_KEY = "stage3.eda.variableBookmarks";
 const SAVED_VIEWS_KEY = "stage3.eda.savedViews";
+const CURRENT_CONTEXT_KEY = "stage3.eda.currentContext";
 
 const palette = ["#0891b2", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#059669", "#475569"];
 
@@ -110,6 +131,10 @@ function int(value: number | null | undefined) {
 
 function pct(value: number | null | undefined) {
   return `${Number(value ?? 0).toFixed(1)}%`;
+}
+
+function isNumericVariable(variable: ProjectEdaVariable | undefined): boolean {
+  return Boolean(variable && /numeric|int|float|double|number/i.test(variable.dataType));
 }
 
 function parseStored<T>(raw: string | undefined, fallback: T): T {
@@ -212,7 +237,7 @@ function GlobalFilters({ filters, setFilters, metadata }: { filters: ProjectEdaF
   const set = (key: keyof ProjectEdaFilters, value: unknown) => setFilters({ ...filters, [key]: value });
   const active = Object.keys(compactProjectEdaFilters(filters)).length;
   return (
-    <details open className="sticky top-2 z-20 rounded-2xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur" data-testid="stage3-eda-global-filters">
+    <details open className="relative rounded-2xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur lg:sticky lg:top-2 lg:z-20" data-testid="stage3-eda-global-filters">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-900"><Filter size={15} className="text-cyan-700" /> Development-only filters <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] text-cyan-800">{active} active</span><span className="ml-auto text-[11px] font-normal text-slate-500">Final OOT is never filterable</span><ChevronDown size={14} /></summary>
       <div className="grid gap-2 border-t border-slate-100 p-3 sm:grid-cols-2 xl:grid-cols-5">
         <MultiSelect label="Season" values={filters.seasons ?? []} options={metadata.seasons} onChange={(value) => set("seasons", value.map(Number))} />
@@ -237,7 +262,7 @@ function GlobalFilters({ filters, setFilters, metadata }: { filters: ProjectEdaF
   );
 }
 
-function VariableExplorer({ variables, selected, setSelected, bookmarked, toggleBookmark }: { variables: ProjectEdaVariable[]; selected: string[]; setSelected: (next: string[]) => void; bookmarked: string[]; toggleBookmark: (name: string) => void }) {
+function VariableExplorer({ variables, selected, setSelected, bookmarked, toggleBookmark, maxVariables }: { variables: ProjectEdaVariable[]; selected: string[]; setSelected: (next: string[]) => void; bookmarked: string[]; toggleBookmark: (name: string) => void; maxVariables: number }) {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [family, setFamily] = useState("");
@@ -245,42 +270,45 @@ function VariableExplorer({ variables, selected, setSelected, bookmarked, toggle
   const [dataType, setDataType] = useState("");
   const [category, setCategory] = useState("");
   const [missingness, setMissingness] = useState("");
-  const [selectability, setSelectability] = useState("");
+  const [showNonselectable, setShowNonselectable] = useState(false);
   const families = [...new Set(variables.map((variable) => variable.featureFamily))].sort();
   const roles = [...new Set(variables.map((variable) => variable.role))].sort();
   const dataTypes = [...new Set(variables.map((variable) => variable.dataType))].sort();
   const categories = [...new Set(variables.map((variable) => variable.category))].sort();
   const filtered = variables.filter((variable) =>
+    (showNonselectable || variable.selectable) &&
     (!search || `${variable.name} ${variable.label} ${variable.definition}`.toLowerCase().includes(search.toLowerCase())) &&
     (!role || variable.role === role) && (!family || variable.featureFamily === family) &&
     (!source || (source === "CORE" ? variable.core : !variable.core)) &&
     (!dataType || variable.dataType === dataType) && (!category || variable.category === category) &&
-    (!missingness || (missingness === "MISSING" ? variable.missingPercent > 0 : variable.missingPercent === 0)) &&
-    (!selectability || (selectability === "SELECTABLE" ? variable.selectable : !variable.selectable)),
+    (!missingness || (missingness === "MISSING" ? variable.missingPercent > 0 : variable.missingPercent === 0)),
   );
   const primary = variables.find((variable) => variable.name === selected[0]);
   const choose = (name: string) => {
     if (selected.includes(name)) setSelected(selected.filter((item) => item !== name));
-    else setSelected([...selected, name].slice(-6));
+    else if (selected.length < maxVariables) setSelected([...selected, name]);
   };
   return (
     <aside className="space-y-3 lg:sticky lg:top-2 lg:max-h-[calc(100vh-1rem)] lg:overflow-auto" data-testid="stage3-eda-variable-explorer">
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-700"><Search size={14} /> Variable explorer</div>
-        <div className="relative mt-3"><Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search 254 candidates" className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-xs" /></div>
-        <div className="mt-2 grid grid-cols-2 gap-2"><select value={role} onChange={(event) => setRole(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All roles</option>{roles.map((item) => <option key={item}>{item}</option>)}</select><select value={source} onChange={(event) => setSource(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">Core + context</option><option value="CORE">Core Gold-48</option><option value="CONTEXT">Contextual</option></select><select value={dataType} onChange={(event) => setDataType(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All data types</option>{dataTypes.map((item) => <option key={item}>{item}</option>)}</select><select value={selectability} onChange={(event) => setSelectability(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">Selectable + locked</option><option value="SELECTABLE">Selectable only</option><option value="LOCKED">Nonselectable only</option></select><select value={missingness} onChange={(event) => setMissingness(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">Any missingness</option><option value="MISSING">Has missing values</option><option value="COMPLETE">Physically complete</option></select><select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All entity/categories</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="relative mt-3"><Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" /><input id="stage3-variable-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search 254 candidates" className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-xs" /></div>
+        <div className="mt-2 grid grid-cols-2 gap-2"><select value={role} onChange={(event) => setRole(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All roles</option>{roles.map((item) => <option key={item}>{item}</option>)}</select><select value={source} onChange={(event) => setSource(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">Core + context</option><option value="CORE">Core Gold-48</option><option value="CONTEXT">Contextual</option></select><select value={dataType} onChange={(event) => setDataType(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All data types</option>{dataTypes.map((item) => <option key={item}>{item}</option>)}</select><select value={missingness} onChange={(event) => setMissingness(event.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">Any missingness</option><option value="MISSING">Has missing values</option><option value="COMPLETE">Physically complete</option></select><select value={category} onChange={(event) => setCategory(event.target.value)} className="col-span-2 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All entity/categories</option>{categories.map((item) => <option key={item}>{item}</option>)}</select></div>
         <select value={family} onChange={(event) => setFamily(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"><option value="">All feature families</option>{families.map((item) => <option key={item}>{item}</option>)}</select>
-        <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase text-slate-400"><span>{filtered.length} variables</span><span>{selected.length}/6 selected</span></div>
+        <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10px] leading-4 text-slate-600"><input type="checkbox" checked={showNonselectable} onChange={(event) => setShowNonselectable(event.target.checked)} className="mt-0.5" /><span><b>Show nonselectable metadata</b><br />Hidden by default because identifiers, targets, grouping fields, and lineage columns cannot enter analytical variable queries.</span></label>
+        <div className="mt-3 flex items-center justify-between text-[10px] font-semibold uppercase text-slate-400"><span>{filtered.length} variables</span><span>{selected.length}/{maxVariables} selected</span></div>
         <div className="mt-1 max-h-[410px] space-y-1 overflow-auto pr-1">
           {filtered.map((variable) => {
             const on = selected.includes(variable.name);
+            const reason = projectEdaVariableSelection(variable);
+            const atLimit = !on && selected.length >= maxVariables;
             return <div key={variable.name} className={`rounded-lg border p-2 ${on ? "border-cyan-300 bg-cyan-50" : "border-slate-100 hover:border-slate-200"}`}>
-              <div className="flex items-start gap-2"><input aria-label={`Select ${variable.name}`} type="checkbox" checked={on} disabled={!variable.selectable} onChange={() => choose(variable.name)} className="mt-0.5" /><button type="button" disabled={!variable.selectable} onClick={() => choose(variable.name)} className={`min-w-0 flex-1 text-left ${variable.selectable ? "" : "cursor-not-allowed opacity-60"}`}><div className="truncate font-mono text-[11px] font-semibold text-slate-800">{variable.name}</div><div className="mt-0.5 flex flex-wrap gap-1"><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{variable.dataType}</span><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{variable.role}</span><span className="rounded bg-cyan-50 px-1.5 py-0.5 text-[9px] text-cyan-700">{variable.core ? "CORE" : "CONTEXT"}</span>{!variable.selectable ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[9px] text-rose-700">NONSELECTABLE</span> : null}{variable.missingPercent > 0 ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">{pct(variable.missingPercent)} missing</span> : null}</div></button><button type="button" title="Bookmark variable for review" onClick={() => toggleBookmark(variable.name)} className={bookmarked.includes(variable.name) ? "text-amber-500" : "text-slate-300 hover:text-amber-500"}>{bookmarked.includes(variable.name) ? <Star size={14} fill="currentColor" /> : <Star size={14} />}</button></div>
+              <div className="flex items-start gap-2"><input aria-label={`Select ${variable.name}`} type="checkbox" checked={on} disabled={!variable.selectable || atLimit} onChange={() => choose(variable.name)} className="mt-0.5" /><button type="button" disabled={!variable.selectable || atLimit} onClick={() => choose(variable.name)} className={`min-w-0 flex-1 text-left ${variable.selectable && !atLimit ? "" : "cursor-not-allowed opacity-60"}`}><div className="truncate font-mono text-[11px] font-semibold text-slate-800">{variable.name}</div><div className="mt-0.5 flex flex-wrap gap-1"><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{variable.dataType}</span><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-600">{variable.role}</span><span className="rounded bg-cyan-50 px-1.5 py-0.5 text-[9px] text-cyan-700">{variable.core ? "CORE" : "CONTEXT"}</span>{!variable.selectable ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[9px] text-rose-700">NONSELECTABLE</span> : null}{variable.missingPercent > 0 ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700">{pct(variable.missingPercent)} missing</span> : null}</div><p className={`mt-1 text-[9px] leading-3 ${reason.selectable ? "text-emerald-700" : "text-rose-700"}`}>{reason.label} · {reason.detail}</p></button><button type="button" title="Bookmark variable for review" onClick={() => toggleBookmark(variable.name)} className={bookmarked.includes(variable.name) ? "text-amber-500" : "text-slate-300 hover:text-amber-500"}>{bookmarked.includes(variable.name) ? <Star size={14} fill="currentColor" /> : <Star size={14} />}</button></div>
             </div>;
           })}
         </div>
       </section>
-      {primary ? <section className="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-white"><div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">Selected variable</div><div className="mt-1 break-all font-mono text-sm font-semibold">{primary.name}</div><p className="mt-2 text-xs leading-5 text-slate-300">{primary.definition}</p><dl className="mt-3 space-y-2 text-[11px]"><Info label="Family" value={primary.featureFamily} /><Info label="Source lineage" value={primary.sourceLineage} /><Info label="Point-in-time" value={primary.pointInTimeTreatment} /><Info label="Availability era" value={primary.availabilityEra} /><Info label="Unique values" value={primary.uniqueCount === null ? "Not reported" : int(primary.uniqueCount)} /><Info label="Selectable" value={primary.selectable ? "Yes — review only" : "No"} /></dl>{primary.proxyWarning ? <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100"><AlertTriangle size={12} className="mr-1 inline" />{primary.proxyWarning}</div> : null}</section> : null}
+      {primary ? <section className="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-white"><div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">Selection detail</div><div className="mt-1 break-all font-mono text-sm font-semibold">{primary.name}</div><p className="mt-2 text-xs leading-5 text-slate-300">{primary.definition}</p><dl className="mt-3 space-y-2 text-[11px]"><Info label="Selection reason" value={projectEdaVariableSelection(primary).detail} /><Info label="Family" value={primary.featureFamily} /><Info label="Source lineage" value={primary.sourceLineage} /><Info label="Point-in-time" value={primary.pointInTimeTreatment} /><Info label="Availability era" value={primary.availabilityEra} /><Info label="Unique values" value={primary.uniqueCount === null ? "Not reported" : int(primary.uniqueCount)} /><Info label="Selectable" value={primary.selectable ? "Yes — descriptive review only" : "No"} /></dl>{primary.proxyWarning ? <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-300/10 p-2 text-[11px] leading-4 text-amber-100"><AlertTriangle size={12} className="mr-1 inline" />{primary.proxyWarning}</div> : null}</section> : null}
     </aside>
   );
 }
@@ -289,67 +317,182 @@ function Info({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 break-words text-slate-200">{value}</dd></div>;
 }
 
+function SelectedVariableTray({ variables, selectedNames, setSelectedNames, maxVariables, bookmarked, toggleBookmark }: { variables: ProjectEdaVariable[]; selectedNames: string[]; setSelectedNames: (next: string[]) => void; maxVariables: number; bookmarked: string[]; toggleBookmark: (name: string) => void }) {
+  const [candidate, setCandidate] = useState("");
+  const [familyPreset, setFamilyPreset] = useState("");
+  const selected = selectedNames.map((name) => variables.find((variable) => variable.name === name)).filter((variable): variable is ProjectEdaVariable => Boolean(variable));
+  const available = variables.filter((variable) => variable.selectable && !selectedNames.includes(variable.name));
+  const families = [...new Set(variables.filter((variable) => variable.selectable).map((variable) => variable.featureFamily))].sort();
+  const presets: { label: string; matches: (variable: ProjectEdaVariable) => boolean }[] = [
+    { label: "Core Gold-48", matches: (variable) => variable.core },
+    { label: "Batter performance", matches: (variable) => variable.name.startsWith("batter_") },
+    { label: "Pitcher performance", matches: (variable) => variable.name.startsWith("pitcher_") },
+    { label: "Recent form", matches: (variable) => /recent|last100|last250|rolling|decay/i.test(`${variable.name} ${variable.featureFamily}`) },
+    { label: "Simulation state", matches: (variable) => variable.role === "SIMULATION_GENERATED_STATE" },
+    { label: "Calendar", matches: (variable) => /calendar|day_of_week|month|holiday|weekend|start_hour|series_/i.test(`${variable.name} ${variable.featureFamily}`) },
+    { label: "Rest and travel", matches: (variable) => /rest|travel|road_trip|home_stand|previous_game|games_last|doubleheader/i.test(`${variable.name} ${variable.featureFamily}`) },
+    { label: "Circadian", matches: (variable) => /circadian|body_clock|time_zone|eastward|westward|morning_/i.test(`${variable.name} ${variable.featureFamily}`) },
+    { label: "Division and repeat opponent", matches: (variable) => /division|interleague|same_league|repeat_opponent|series_rematch|rivalry/i.test(`${variable.name} ${variable.featureFamily}`) },
+  ];
+  const applyPreset = (label: string) => {
+    const preset = presets.find((item) => item.label === label);
+    if (!preset) return;
+    setSelectedNames(variables.filter((variable) => variable.selectable && preset.matches(variable)).slice(0, maxVariables).map((variable) => variable.name));
+  };
+  const applyFamily = () => {
+    if (!familyPreset) return;
+    setSelectedNames(variables.filter((variable) => variable.selectable && variable.featureFamily === familyPreset).slice(0, maxVariables).map((variable) => variable.name));
+  };
+  const add = () => {
+    if (!candidate || selectedNames.includes(candidate) || selectedNames.length >= maxVariables) return;
+    setSelectedNames([...selectedNames, candidate]);
+    setCandidate("");
+  };
+  return (
+    <section className="rounded-2xl border-2 border-cyan-200 bg-gradient-to-r from-cyan-50 via-white to-slate-50 p-4 shadow-sm" data-testid="stage3-eda-selected-variable-tray">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-cyan-800">Selected-variable tray</div><h4 className="mt-1 font-semibold text-slate-950">{selected.length ? `${selected.length} analytical variable${selected.length === 1 ? "" : "s"}` : "No variables selected"}</h4><p className="mt-1 text-[11px] text-slate-600">Order is explicit and saved with the analysis. Selection is descriptive; it does not adopt a model feature.</p></div>
+        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => globalThis.document?.getElementById("stage3-variable-search")?.focus()} className="inline-flex items-center gap-1 rounded-lg border border-cyan-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-cyan-800"><Plus size={13} /> Add variable</button><button type="button" disabled={!selected.length} onClick={() => setSelectedNames([])} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-40"><X size={13} /> Clear all</button></div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {selected.map((variable, index) => { const reason = projectEdaVariableSelection(variable); return <div key={variable.name} title={`${reason.label}: ${reason.detail}`} className="group flex items-center gap-2 rounded-xl border border-cyan-200 bg-white px-2.5 py-2 shadow-sm"><span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] font-semibold text-white">{index + 1}</span><span className="font-mono text-[11px] font-semibold text-slate-800">{variable.name}</span><span className="hidden rounded bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500 xl:inline">{reason.label}</span><button type="button" title="Bookmark variable for review" onClick={() => toggleBookmark(variable.name)} className={bookmarked.includes(variable.name) ? "text-amber-500" : "text-slate-300 hover:text-amber-500"}><Star size={12} fill={bookmarked.includes(variable.name) ? "currentColor" : "none"} /></button><button type="button" title={`Remove ${variable.name}`} onClick={() => setSelectedNames(selectedNames.filter((name) => name !== variable.name))} className="text-slate-300 hover:text-rose-600"><X size={12} /></button></div>; })}
+        {!selected.length ? <div className="w-full rounded-xl border border-dashed border-cyan-300 bg-white/70 p-4 text-center text-xs text-slate-600">Add a variable or apply a preset. Target & Class Balance remains available without selecting a predictor.</div> : null}
+      </div>
+      <div className="mt-3 grid gap-2 border-t border-cyan-100 pt-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto]">
+        <select aria-label="Variable to add" value={candidate} onChange={(event) => setCandidate(event.target.value)} disabled={selected.length >= maxVariables} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"><option value="">Choose a variable to add…</option>{available.map((variable) => <option key={variable.name} value={variable.name}>{variable.name} · {projectEdaVariableSelection(variable).label}</option>)}</select>
+        <button type="button" disabled={!candidate || selected.length >= maxVariables} onClick={add} className="rounded-lg bg-cyan-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">Add</button>
+        <select aria-label="Feature family preset" value={familyPreset} onChange={(event) => setFamilyPreset(event.target.value)} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs"><option value="">Feature-family preset…</option>{families.map((family) => <option key={family}>{family}</option>)}</select>
+        <button type="button" disabled={!familyPreset} onClick={applyFamily} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40">Apply family</button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-500"><span className="font-semibold uppercase">Quick presets</span>{presets.map((preset) => <button key={preset.label} type="button" onClick={() => applyPreset(preset.label)} className="rounded-full border border-slate-200 bg-white px-2 py-1 hover:border-cyan-300 hover:text-cyan-800">{preset.label}</button>)}<span className="ml-auto">Maximum {maxVariables}; nonselectable metadata is never added.</span></div>
+    </section>
+  );
+}
+
 export function ProjectBoundDataProfile({ state, projectId, go }: { state: CurrentGoldReviewState; projectId: string; go: (id: string) => void }) {
   const { notes, setNote } = useCockpitStore();
   const authorityKey = state.review
     ? [state.review.sourceAuthority.manifestSha, state.review.goldAuthority.manifestSha, state.review.contextualFeaturePack?.manifestSha256 ?? "no-context", state.review.reviewDigest].join(":")
     : "authority-pending";
   const metadata = useProjectEdaMetadata(projectId, authorityKey, state.status === "ready" && Boolean(state.review));
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activeTab, setActiveTab] = useState<TabId>("target");
   const [selectedVariables, setSelectedVariables] = useState<string[]>([]);
   const [filters, setFilters] = useState<ProjectEdaFilters>({});
   const [distributionMode, setDistributionMode] = useState<DistributionMode>("histogram");
   const [relationshipMode, setRelationshipMode] = useState<RelationshipMode>("association");
-  const [missingnessMode, setMissingnessMode] = useState<MissingnessMode>("missingness");
+  const [scatterDisplayMode, setScatterDisplayMode] = useState<ScatterDisplayMode>("scatter");
   const [bins, setBins] = useState(30);
   const [topN, setTopN] = useState(20);
   const [logScale, setLogScale] = useState(false);
   const [stratifyBy, setStratifyBy] = useState<StratifyBy>("");
   const [associationMethod, setAssociationMethod] = useState<AssociationMethod>("auto");
   const [samplingSeed, setSamplingSeed] = useState(DEFAULT_SEED);
+  const [scatterX, setScatterX] = useState("");
+  const [scatterY, setScatterY] = useState("");
+  const [scatterTarget, setScatterTarget] = useState("");
   const [viewName, setViewName] = useState("");
   const [viewNotes, setViewNotes] = useState("");
+  const [savedDrawerOpen, setSavedDrawerOpen] = useState(false);
+  const [contextHydratedAuthority, setContextHydratedAuthority] = useState("");
+  const previousAuthority = useRef("");
   const storedBookmarks = parseStored<VariableBookmarks | string[]>(notes[BOOKMARKS_KEY], { authorityKey, names: [] });
   const bookmarks = !Array.isArray(storedBookmarks) && storedBookmarks.authorityKey === authorityKey ? storedBookmarks.names : [];
-  const savedViews = parseStored<EdaView[]>(notes[SAVED_VIEWS_KEY], []);
+  const savedViews = parseStored<EdaView[]>(notes[SAVED_VIEWS_KEY], []).filter((view) => view && typeof view === "object" && typeof view.id === "string");
   const variables = metadata.value?.data.variables ?? [];
+  const maxVariables = metadata.value?.data.queryLimits.maxVariables ?? 6;
 
   useEffect(() => {
-    if (!selectedVariables.length && variables.length) {
-      const initial = variables.find((variable) => variable.selectable && variable.dataType.toLowerCase().match(/int|float|double|number|numeric/)) ?? variables.find((variable) => variable.selectable);
-      if (initial) setSelectedVariables([initial.name]);
+    if (!variables.length || contextHydratedAuthority === authorityKey) return;
+    const stored = parseStored<{ authorityKey: string; activeTab: LegacyTabId; selectedVariables: string[]; filters: ProjectEdaFilters } | null>(notes[CURRENT_CONTEXT_KEY], null);
+    const selectable = new Set(variables.filter((variable) => variable.selectable).map((variable) => variable.name));
+    if (stored?.authorityKey === authorityKey) {
+      // Ordinary entry always begins with the decision-oriented target review.
+      // Explicit saved-analysis reopen is the only action that restores another tab.
+      setActiveTab("target");
+      setSelectedVariables((stored.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables));
+      setFilters(stored.filters ?? {});
+    } else {
+      const defaults = (metadata.value?.data.decisionGuidance?.defaultStabilityVariables ?? [])
+        .filter((name) => selectable.has(name) && name !== "context_inning")
+        .slice(0, maxVariables);
+      const initial = variables.find((variable) => variable.selectable && isNumericVariable(variable) && variable.name !== "context_inning") ?? variables.find((variable) => variable.selectable);
+      setActiveTab("target");
+      setSelectedVariables(defaults.length ? defaults : initial ? [initial.name] : []);
+      setFilters({});
     }
-  }, [variables, selectedVariables.length]);
+    previousAuthority.current = authorityKey;
+    setContextHydratedAuthority(authorityKey);
+  }, [authorityKey, contextHydratedAuthority, maxVariables, metadata.value, notes, variables]);
 
-  const selected = variables.filter((variable) => selectedVariables.includes(variable.name));
+  useEffect(() => {
+    if (contextHydratedAuthority !== authorityKey || previousAuthority.current !== authorityKey) return;
+    const value = JSON.stringify({ authorityKey, activeTab, selectedVariables, filters: compactProjectEdaFilters(filters) });
+    if (notes[CURRENT_CONTEXT_KEY] !== value) setNote(CURRENT_CONTEXT_KEY, value);
+  }, [activeTab, authorityKey, contextHydratedAuthority, filters, notes, selectedVariables, setNote]);
+
+  const selected = selectedVariables.map((name) => variables.find((variable) => variable.name === name)).filter((variable): variable is ProjectEdaVariable => Boolean(variable));
   const primary = selected[0];
-  const numericPrimary = primary && /int|float|double|number|numeric/i.test(primary.dataType);
+  const numericPrimary = isNumericVariable(primary);
+  const selectedNumeric = selected.filter(isNumericVariable);
+
+  useEffect(() => {
+    const numericNames = selectedNumeric.map((variable) => variable.name);
+    const nextX = numericNames.includes(scatterX) ? scatterX : numericNames[0] ?? "";
+    const nextY = numericNames.includes(scatterY) && scatterY !== nextX ? scatterY : numericNames.find((name) => name !== nextX) ?? "";
+    if (nextX !== scatterX) setScatterX(nextX);
+    if (nextY !== scatterY) setScatterY(nextY);
+    if (scatterTarget && scatterTarget !== "outcome" && !selectedVariables.includes(scatterTarget)) setScatterTarget("");
+  }, [scatterTarget, scatterX, scatterY, selectedNumeric, selectedVariables]);
+
+  const relationshipVariables = relationshipMode === "scatter"
+    ? [...new Set([scatterX, scatterY, scatterDisplayMode === "scatter" && scatterTarget !== "outcome" ? scatterTarget : ""].filter(Boolean))]
+    : selectedVariables.slice(0, maxVariables);
+  const relationshipReady = relationshipMode === "scatter"
+    ? Boolean(scatterX && scatterY && scatterX !== scatterY)
+    : relationshipVariables.length >= 2;
   const query = useMemo<ProjectEdaQuery | null>(() => {
-    if (!metadata.value || activeTab === "saved") return null;
+    if (!metadata.value) return null;
     const primaryOnly = primary ? [primary.name] : [];
-    const selectedUpToLimit = selectedVariables.slice(0, 6);
-    if (activeTab === "overview" || activeTab === "target") return { queryType: "overview", filters, variables: primaryOnly };
-    if (activeTab === "distributions") return { filters, variables: primaryOnly, queryType: numericPrimary ? "distribution" : "category_counts", settings: { bins, topN, stratifyBy, logScale } };
-    if (activeTab === "relationships") return selectedVariables.length < 2 ? null : { filters, variables: selectedUpToLimit, queryType: relationshipMode === "association" ? "association" : "pairwise_sample", settings: { seed: samplingSeed, sampleSize: Math.min(2500, metadata.value.data.queryLimits.maxSampleRows), mode: relationshipMode, method: associationMethod } };
-    if (activeTab === "missingness") return missingnessMode === "outliers" && !numericPrimary ? null : { filters, variables: missingnessMode === "outliers" ? primaryOnly : selectedUpToLimit, queryType: missingnessMode, settings: { method: "IQR", limit: 50 } };
-    if (activeTab === "time") return { filters, variables: primaryOnly, queryType: "temporal", settings: { granularity: "month", driftMethods: ["PSI", "KS"] } };
+    if (activeTab === "target") return { queryType: "overview", filters, variables: primaryOnly };
+    if (activeTab === "distributions") return primary ? { filters, variables: primaryOnly, queryType: numericPrimary ? "distribution" : "category_counts", settings: { bins, topN, stratifyBy, logScale } } : null;
+    if (activeTab === "relationships") return relationshipReady ? { filters, variables: relationshipVariables, queryType: relationshipMode === "association" ? "association" : "pairwise_sample", settings: { seed: samplingSeed, sampleSize: Math.min(2500, metadata.value.data.queryLimits.maxSampleRows), mode: relationshipMode, method: associationMethod, scatterX, scatterY, scatterTarget: scatterDisplayMode === "scatter" ? scatterTarget || undefined : undefined, stratifyBy: scatterDisplayMode === "scatter" && scatterTarget === "outcome" ? "outcome" : undefined } } : null;
+    if (activeTab === "time") {
+      const requested = selectedVariables.filter((name) => name !== "context_inning").slice(0, maxVariables);
+      return requested.length ? { filters, variables: requested, queryType: "temporal", settings: { granularity: "month", driftMethods: ["PSI", "KS"] } } : null;
+    }
     return { filters, variables: primaryOnly, queryType: "cold_start" };
-  }, [metadata.value, activeTab, filters, selectedVariables, numericPrimary, bins, topN, stratifyBy, logScale, relationshipMode, associationMethod, samplingSeed, missingnessMode]);
+  }, [metadata.value, activeTab, filters, primary, numericPrimary, bins, topN, stratifyBy, logScale, relationshipMode, relationshipReady, relationshipVariables, associationMethod, samplingSeed, scatterDisplayMode, scatterX, scatterY, scatterTarget, selectedVariables, maxVariables]);
   const analytical = useProjectEdaQuery<unknown>(projectId, authorityKey, query);
 
   const toggleBookmark = (name: string) => setNote(BOOKMARKS_KEY, JSON.stringify({ authorityKey, names: bookmarks.includes(name) ? bookmarks.filter((item) => item !== name) : [...bookmarks, name] } satisfies VariableBookmarks));
+  const persistViews = (next: EdaView[]) => setNote(SAVED_VIEWS_KEY, JSON.stringify(next));
+  const snapshotView = (id: string, name: string, notesValue: string): EdaView => ({
+    id,
+    authorityKey,
+    name,
+    tab: activeTab,
+    selectedVariables,
+    filters: compactProjectEdaFilters(filters),
+    settings: { distributionMode, relationshipMode, scatterDisplayMode, bins, topN, logScale, stratifyBy, associationMethod, samplingSeed, scatterX, scatterY, scatterTarget: scatterTarget || undefined },
+    notes: notesValue,
+    savedAt: new Date().toISOString(),
+  });
   const saveView = () => {
     const name = viewName.trim() || `${TABS.find((tab) => tab.id === activeTab)?.label} · ${new Date().toLocaleDateString()}`;
-    const view: EdaView = { id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`, authorityKey, name, tab: activeTab, selectedVariables, filters: compactProjectEdaFilters(filters), settings: { distributionMode, relationshipMode, missingnessMode, bins, topN, logScale, stratifyBy, associationMethod, samplingSeed }, notes: viewNotes.trim(), savedAt: new Date().toISOString() };
-    setNote(SAVED_VIEWS_KEY, JSON.stringify([...savedViews, view]));
+    persistViews([...savedViews, snapshotView(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`, name, viewNotes.trim())]);
     setViewName(""); setViewNotes("");
   };
+  const updateView = (id: string) => persistViews(savedViews.map((view) => view.id === id ? snapshotView(id, view.name, view.notes) : view));
+  const renameView = (id: string, name: string) => persistViews(savedViews.map((view) => view.id === id ? { ...view, name: name.trim() || view.name, savedAt: new Date().toISOString() } : view));
+  const removeView = (id: string) => persistViews(savedViews.filter((view) => view.id !== id));
   const restoreView = (view: EdaView) => {
     if (view.authorityKey !== authorityKey) return;
-    setActiveTab(view.tab); setSelectedVariables(view.selectedVariables); setFilters(view.filters); setDistributionMode(view.settings.distributionMode); setRelationshipMode(view.settings.relationshipMode); setMissingnessMode(view.settings.missingnessMode); setBins(view.settings.bins); setTopN(view.settings.topN); setLogScale(view.settings.logScale); setStratifyBy(view.settings.stratifyBy ?? ""); setAssociationMethod(view.settings.associationMethod ?? "auto"); setSamplingSeed(view.settings.samplingSeed);
+    const settings = view.settings ?? {} as EdaView["settings"];
+    const selectable = new Set(variables.filter((variable) => variable.selectable).map((variable) => variable.name));
+    setActiveTab(reopenTab(view.tab)); setSelectedVariables((view.selectedVariables ?? []).filter((name) => selectable.has(name)).slice(0, maxVariables)); setFilters(view.filters ?? {}); setDistributionMode(settings.distributionMode ?? "histogram"); setRelationshipMode(settings.relationshipMode ?? "association"); setScatterDisplayMode(settings.scatterDisplayMode ?? "scatter"); setBins(settings.bins ?? 30); setTopN(settings.topN ?? 20); setLogScale(settings.logScale ?? false); setStratifyBy(settings.stratifyBy ?? ""); setAssociationMethod(settings.associationMethod ?? "auto"); setSamplingSeed(settings.samplingSeed ?? DEFAULT_SEED); setScatterX(settings.scatterX ?? ""); setScatterY(settings.scatterY ?? ""); setScatterTarget(settings.scatterTarget ?? ""); setSavedDrawerOpen(false);
   };
   const handoff = (destination: "outliers" | "missing" | "features") => {
-    setNote("stage3.eda.handoff", JSON.stringify({ destination, selectedVariables, filters: compactProjectEdaFilters(filters), authorityKey, createdAt: new Date().toISOString() }));
+    setNote("stage3.eda.handoff", JSON.stringify({ destination, selectedVariables, bookmarkedVariables: bookmarks, filters: compactProjectEdaFilters(filters), authorityKey, sourceTab: activeTab, createdAt: new Date().toISOString() }));
     go(destination);
   };
 
@@ -374,22 +517,23 @@ export function ProjectBoundDataProfile({ state, projectId, go }: { state: Curre
         <Readiness label="Model activity" status="PASS" detail="0 fits · 0 scores · 0 selections · 0 promotions" />
       </section>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"><nav className="flex min-w-max gap-1" aria-label="Data profile workbench tabs">{TABS.map((tab) => <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? "page" : undefined} className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold ${activeTab === tab.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}><tab.icon size={14} className={activeTab === tab.id ? "text-cyan-300" : "text-slate-400"} />{tab.label}</button>)}</nav></div>
+      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"><nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label="Data profile workbench tabs">{TABS.map((tab) => <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? "page" : undefined} className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold ${activeTab === tab.id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}><tab.icon size={14} className={activeTab === tab.id ? "text-cyan-300" : "text-slate-400"} />{tab.label}</button>)}</nav><button type="button" onClick={() => setSavedDrawerOpen(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-xs font-semibold text-cyan-900"><Bookmark size={14} /> Saved analyses <span className="rounded-full bg-cyan-800 px-1.5 py-0.5 text-[9px] text-white">{savedViews.filter((view) => view.authorityKey === authorityKey).length}</span></button></div>
 
-      {activeTab !== "saved" ? <GlobalFilters filters={filters} setFilters={setFilters} metadata={meta.filterOptions} /> : null}
+      <GlobalFilters filters={filters} setFilters={setFilters} metadata={meta.filterOptions} />
+      <SelectedVariableTray variables={variables} selectedNames={selectedVariables} setSelectedNames={setSelectedVariables} maxVariables={maxVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} />
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[270px_minmax(0,1fr)]">
-        <VariableExplorer variables={variables} selected={selectedVariables} setSelected={setSelectedVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} />
-        <main className="min-w-0 space-y-4">
-          {activeTab !== "saved" ? <WorkbenchControls tab={activeTab} primary={primary} selectedCount={selectedVariables.length} distributionMode={distributionMode} setDistributionMode={setDistributionMode} relationshipMode={relationshipMode} setRelationshipMode={setRelationshipMode} associationMethod={associationMethod} setAssociationMethod={setAssociationMethod} missingnessMode={missingnessMode} setMissingnessMode={setMissingnessMode} bins={bins} setBins={setBins} topN={topN} setTopN={setTopN} logScale={logScale} setLogScale={setLogScale} stratifyBy={stratifyBy} setStratifyBy={setStratifyBy} seed={samplingSeed} setSeed={setSamplingSeed} limits={meta.queryLimits} /> : null}
-          {activeTab === "relationships" && selectedVariables.length < 2 ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><GitCompareArrows size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">Select at least two variables</div><p className="mt-1 text-sm text-slate-600">The association and pairwise endpoints require 2–6 variables. Choose them in the variable explorer; no request has been sent.</p></div> : null}
-          {activeTab === "missingness" && missingnessMode === "outliers" && !numericPrimary ? <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/40 p-10 text-center"><Box size={24} className="mx-auto text-amber-700" /><div className="mt-3 font-semibold text-slate-900">Select one numeric variable</div><p className="mt-1 text-sm text-slate-600">Descriptive IQR and robust-z diagnostics require a numeric primary variable. No invalid request has been sent.</p></div> : null}
-          {activeTab !== "saved" && !(activeTab === "relationships" && selectedVariables.length < 2) && !(activeTab === "missingness" && missingnessMode === "outliers" && !numericPrimary) && analytical.status !== "ready" ? <QueryStatus status={analytical.status} error={analytical.error} /> : null}
-          {activeTab !== "saved" && analytical.value ? <TabContent tab={activeTab} relationshipMode={relationshipMode} distributionMode={distributionMode} logScale={logScale} missingnessMode={missingnessMode} envelope={analytical.value} taxonomy={meta.targetTaxonomy} families={meta.families} variables={selected} handoff={handoff} /> : null}
-          {activeTab === "saved" ? <SavedViewsPanel views={savedViews} authorityKey={authorityKey} bookmarks={bookmarks} variables={variables} viewName={viewName} setViewName={setViewName} viewNotes={viewNotes} setViewNotes={setViewNotes} saveView={saveView} restoreView={restoreView} removeView={(id) => setNote(SAVED_VIEWS_KEY, JSON.stringify(savedViews.filter((view) => view.id !== id)))} handoff={handoff} /> : null}
-          {activeTab !== "saved" ? <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4"><div className="flex flex-wrap items-center gap-3"><div><div className="text-xs font-semibold uppercase text-cyan-800"><Save size={14} className="mr-1 inline" /> Save this analytical view</div><p className="mt-1 text-xs text-cyan-900">Stores filters, variables, chart settings, deterministic seed, and notes in the existing project-scoped cockpit autosave.</p></div><input value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="View name" className="ml-auto rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs text-slate-800" /><input value={viewNotes} onChange={(event) => setViewNotes(event.target.value)} placeholder="Scientist notes (optional)" className="min-w-56 flex-1 rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs text-slate-800" /><button type="button" onClick={saveView} className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white"><BookmarkCheck size={14} /> Save view</button></div></section> : null}
+        <div className="order-2 lg:order-1"><VariableExplorer variables={variables} selected={selectedVariables} setSelected={setSelectedVariables} bookmarked={bookmarks} toggleBookmark={toggleBookmark} maxVariables={maxVariables} /></div>
+        <main className="order-1 min-w-0 space-y-4 lg:order-2">
+          <WorkbenchControls tab={activeTab} primary={primary} selected={selected} distributionMode={distributionMode} setDistributionMode={setDistributionMode} relationshipMode={relationshipMode} setRelationshipMode={setRelationshipMode} scatterDisplayMode={scatterDisplayMode} setScatterDisplayMode={setScatterDisplayMode} associationMethod={associationMethod} setAssociationMethod={setAssociationMethod} bins={bins} setBins={setBins} topN={topN} setTopN={setTopN} logScale={logScale} setLogScale={setLogScale} stratifyBy={stratifyBy} setStratifyBy={setStratifyBy} seed={samplingSeed} setSeed={setSamplingSeed} limits={meta.queryLimits} scatterX={scatterX} setScatterX={setScatterX} scatterY={scatterY} setScatterY={setScatterY} scatterTarget={scatterTarget} setScatterTarget={setScatterTarget} />
+          {(activeTab === "distributions" || activeTab === "time") && !primary ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><BarChart3 size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">Select a primary variable</div><p className="mt-1 text-sm text-slate-600">Use Add, a preset, or the variable explorer. No analytical request has been sent.</p></div> : null}
+          {activeTab === "relationships" && !relationshipReady ? <div className="rounded-2xl border border-dashed border-cyan-300 bg-cyan-50/40 p-10 text-center"><GitCompareArrows size={24} className="mx-auto text-cyan-700" /><div className="mt-3 font-semibold text-slate-900">{relationshipMode === "scatter" ? "Assign distinct numeric X and Y variables" : "Choose 2–6 relationship variables"}</div><p className="mt-1 text-sm text-slate-600">{relationshipMode === "scatter" ? "The optional color / target assignment may be any selected variable. Axes are never inferred from hidden metadata." : "The heatmap and pairwise matrix use exactly the ordered variables shown in the selected-variable tray."} No request has been sent.</p></div> : null}
+          {query && analytical.status !== "ready" ? <QueryStatus status={analytical.status} error={analytical.error} /> : null}
+          {analytical.value ? <TabContent tab={activeTab} relationshipMode={relationshipMode} scatterDisplayMode={scatterDisplayMode} distributionMode={distributionMode} logScale={logScale} envelope={analytical.value} taxonomy={meta.targetTaxonomy} variables={selected} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} handoff={handoff} /> : null}
+          <section className="rounded-2xl border border-slate-200 bg-white p-3" data-testid="stage3-eda-chart-toolbar"><div className="flex flex-wrap items-center gap-2"><div><div className="text-xs font-semibold text-slate-800">Save or hand off this analysis</div><p className="mt-0.5 text-[11px] text-slate-500">The compact drawer stores the exact variable order, relationship assignments, filters, settings, seed, and notes.</p></div><button type="button" onClick={() => setSavedDrawerOpen(true)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white"><Save size={13} /> Save analysis</button><button type="button" onClick={() => handoff("outliers")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Open in Outliers</button><button type="button" onClick={() => handoff("missing")} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Open in Missing Values</button></div></section>
         </main>
       </div>
+      <SavedAnalysesDrawer open={savedDrawerOpen} close={() => setSavedDrawerOpen(false)} views={savedViews} authorityKey={authorityKey} bookmarks={bookmarks} variables={variables} selectedVariables={selectedVariables} setSelectedVariables={setSelectedVariables} maxVariables={maxVariables} viewName={viewName} setViewName={setViewName} viewNotes={viewNotes} setViewNotes={setViewNotes} saveView={saveView} restoreView={restoreView} renameView={renameView} updateView={updateView} removeView={removeView} toggleBookmark={toggleBookmark} handoff={handoff} />
     </div>
   );
 }
@@ -400,17 +544,20 @@ function Readiness({ label, status, detail }: { label: string; status: string; d
   return <div className={`rounded-xl border p-3 ${blocked ? "border-rose-200 bg-rose-50" : warning ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className={`mt-1 text-xs font-semibold ${blocked ? "text-rose-800" : warning ? "text-amber-800" : "text-emerald-800"}`}>{status.replaceAll("_", " ")}</div><p className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-600">{detail}</p></div>;
 }
 
-function WorkbenchControls({ tab, primary, selectedCount, distributionMode, setDistributionMode, relationshipMode, setRelationshipMode, associationMethod, setAssociationMethod, missingnessMode, setMissingnessMode, bins, setBins, topN, setTopN, logScale, setLogScale, stratifyBy, setStratifyBy, seed, setSeed, limits }: { tab: TabId; primary?: ProjectEdaVariable; selectedCount: number; distributionMode: DistributionMode; setDistributionMode: (value: DistributionMode) => void; relationshipMode: RelationshipMode; setRelationshipMode: (value: RelationshipMode) => void; associationMethod: AssociationMethod; setAssociationMethod: (value: AssociationMethod) => void; missingnessMode: MissingnessMode; setMissingnessMode: (value: MissingnessMode) => void; bins: number; setBins: (value: number) => void; topN: number; setTopN: (value: number) => void; logScale: boolean; setLogScale: (value: boolean) => void; stratifyBy: StratifyBy; setStratifyBy: (value: StratifyBy) => void; seed: number; setSeed: (value: number) => void; limits: { maxBins: number; maxCategories: number; maxVariables: number; maxSampleRows: number } }) {
-  if (!["distributions", "relationships", "missingness", "time"].includes(tab)) return null;
-  return <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-center gap-2"><SlidersHorizontal size={15} className="text-cyan-700" /><span className="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Chart controls</span>{tab === "distributions" ? <><select value={distributionMode} onChange={(event) => setDistributionMode(event.target.value as DistributionMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="histogram">Histogram</option><option value="density">Smoothed density</option><option value="ecdf">ECDF</option><option value="box">Box plot</option><option value="violin">Violin plot</option></select><label className="flex items-center gap-1 text-xs">Bins<input type="range" min={10} max={limits.maxBins} value={bins} onChange={(event) => setBins(Number(event.target.value))} />{bins}</label><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={logScale} onChange={(event) => setLogScale(event.target.checked)} /> Log scale</label><label className="flex items-center gap-1 text-xs">Stratify by<select value={stratifyBy} onChange={(event) => setStratifyBy(event.target.value as StratifyBy)} className="rounded border border-slate-200 px-2 py-1"><option value="">None</option><option value="outcome">Outcome</option><option value="season">Season</option><option value="month">Month</option></select></label><label className="flex items-center gap-1 text-xs">Top N<input type="number" min={3} max={limits.maxCategories} value={topN} onChange={(event) => setTopN(Number(event.target.value))} className="w-14 rounded border border-slate-200 px-1 py-1" /></label></> : null}{tab === "relationships" ? <><select value={relationshipMode} onChange={(event) => setRelationshipMode(event.target.value as RelationshipMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="association">Association heatmap</option><option value="scatter">Scatter / density</option><option value="pairwise">Pairwise matrix</option></select>{relationshipMode === "association" ? <select aria-label="Association method" value={associationMethod} onChange={(event) => setAssociationMethod(event.target.value as AssociationMethod)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="auto">Method: auto by type</option><option value="pearson">Pearson (numeric)</option><option value="spearman">Spearman (numeric)</option></select> : <label className="flex items-center gap-1 text-xs">Seed<input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} className="w-28 rounded border border-slate-200 px-2 py-1" /></label>}<span className="text-[11px] text-slate-500">{selectedCount}/{limits.maxVariables} variables · max {int(limits.maxSampleRows)} sampled rows</span></> : null}{tab === "missingness" ? <select value={missingnessMode} onChange={(event) => setMissingnessMode(event.target.value as MissingnessMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="missingness">Missingness diagnostics</option><option value="outliers">Descriptive outliers</option></select> : null}{tab === "time" ? <span className="text-xs text-slate-600">Monthly development evidence · PSI and KS are descriptive only</span> : null}<span className="ml-auto truncate text-[11px] text-slate-500">Primary: <b className="font-mono text-slate-700">{primary?.name || "select a variable"}</b></span></div></section>;
+function WorkbenchControls({ tab, primary, selected, distributionMode, setDistributionMode, relationshipMode, setRelationshipMode, scatterDisplayMode, setScatterDisplayMode, associationMethod, setAssociationMethod, bins, setBins, topN, setTopN, logScale, setLogScale, stratifyBy, setStratifyBy, seed, setSeed, limits, scatterX, setScatterX, scatterY, setScatterY, scatterTarget, setScatterTarget }: { tab: TabId; primary?: ProjectEdaVariable; selected: ProjectEdaVariable[]; distributionMode: DistributionMode; setDistributionMode: (value: DistributionMode) => void; relationshipMode: RelationshipMode; setRelationshipMode: (value: RelationshipMode) => void; scatterDisplayMode: ScatterDisplayMode; setScatterDisplayMode: (value: ScatterDisplayMode) => void; associationMethod: AssociationMethod; setAssociationMethod: (value: AssociationMethod) => void; bins: number; setBins: (value: number) => void; topN: number; setTopN: (value: number) => void; logScale: boolean; setLogScale: (value: boolean) => void; stratifyBy: StratifyBy; setStratifyBy: (value: StratifyBy) => void; seed: number; setSeed: (value: number) => void; limits: { maxBins: number; maxCategories: number; maxVariables: number; maxSampleRows: number }; scatterX: string; setScatterX: (value: string) => void; scatterY: string; setScatterY: (value: string) => void; scatterTarget: string; setScatterTarget: (value: string) => void }) {
+  if (!["distributions", "relationships", "time"].includes(tab)) return null;
+  const numeric = selected.filter(isNumericVariable);
+  return <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"><div className="flex flex-wrap items-center gap-2"><SlidersHorizontal size={15} className="text-cyan-700" /><span className="mr-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Chart controls</span>{tab === "distributions" ? <><select value={distributionMode} onChange={(event) => setDistributionMode(event.target.value as DistributionMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="histogram">Histogram</option><option value="density">Smoothed density</option><option value="ecdf">ECDF</option><option value="box">Box plot</option><option value="violin">Violin plot</option></select><label className="flex items-center gap-1 text-xs">Bins<input type="range" min={10} max={limits.maxBins} value={bins} onChange={(event) => setBins(Number(event.target.value))} />{bins}</label><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={logScale} onChange={(event) => setLogScale(event.target.checked)} /> Log scale</label><label className="flex items-center gap-1 text-xs">Stratify by<select value={stratifyBy} onChange={(event) => setStratifyBy(event.target.value as StratifyBy)} className="rounded border border-slate-200 px-2 py-1"><option value="">None</option><option value="outcome">Outcome</option><option value="season">Season</option><option value="month">Month</option></select></label><label className="flex items-center gap-1 text-xs">Top N<input type="number" min={3} max={limits.maxCategories} value={topN} onChange={(event) => setTopN(Number(event.target.value))} className="w-14 rounded border border-slate-200 px-1 py-1" /></label></> : null}{tab === "relationships" ? <><select aria-label="Relationship view" value={relationshipMode} onChange={(event) => setRelationshipMode(event.target.value as RelationshipMode)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="association">Association heatmap</option><option value="scatter">Scatter / density</option><option value="pairwise">Pairwise matrix</option></select>{relationshipMode === "association" ? <select aria-label="Association method" value={associationMethod} onChange={(event) => setAssociationMethod(event.target.value as AssociationMethod)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"><option value="auto">Method: auto by type</option><option value="pearson">Pearson (numeric)</option><option value="spearman">Spearman (numeric)</option></select> : <label className="flex items-center gap-1 text-xs">Seed<input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} className="w-28 rounded border border-slate-200 px-2 py-1" /></label>}<span className="text-[11px] text-slate-500">{selected.length}/{limits.maxVariables} selected · max {int(limits.maxSampleRows)} sampled rows</span></> : null}{tab === "time" ? <span className="text-xs text-slate-600">Monthly development evidence · PSI and KS are descriptive only</span> : null}<span className="ml-auto truncate text-[11px] text-slate-500">Primary: <b className="font-mono text-slate-700">{primary?.name || "select a variable"}</b></span></div>
+    {tab === "relationships" ? <div className="mt-3 border-t border-slate-100 pt-3">
+      {relationshipMode === "scatter" ? <div className="grid gap-2 md:grid-cols-4"><label className="text-[10px] font-semibold uppercase text-slate-500">Display<select aria-label="Scatter display" value={scatterDisplayMode} onChange={(event) => setScatterDisplayMode(event.target.value as ScatterDisplayMode)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs normal-case text-slate-800"><option value="scatter">Scatter points</option><option value="hexbin">Hexbin density</option></select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter X<select aria-label="Scatter X variable" value={scatterX} onChange={(event) => setScatterX(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric X…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterY}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Scatter Y<select aria-label="Scatter Y variable" value={scatterY} onChange={(event) => setScatterY(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800"><option value="">Choose numeric Y…</option>{numeric.map((variable) => <option key={variable.name} value={variable.name} disabled={variable.name === scatterX}>{variable.name}</option>)}</select></label><label className="text-[10px] font-semibold uppercase text-slate-500">Optional target stratification<select aria-label="Optional scatter target" value={scatterTarget} onChange={(event) => setScatterTarget(event.target.value)} disabled={scatterDisplayMode === "hexbin"} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-xs normal-case text-slate-800 disabled:bg-slate-100"><option value="">None — single series</option><option value="outcome">Governed outcome · development only</option>{selected.filter((variable) => ![scatterX, scatterY].includes(variable.name) && !isNumericVariable(variable)).map((variable) => <option key={variable.name} value={variable.name}>{variable.name}</option>)}</select></label><p className="md:col-span-4 text-[10px] leading-4 text-slate-500">X and Y are explicit and numeric. Hexbin density aggregates the same deterministic development-only sample and disables target color. Optional outcome stratification is never treated as a predictor; final-OOT targets are never requested.</p></div> : <div className="flex flex-wrap items-center gap-2 text-[11px]"><span className="font-semibold text-slate-700">{relationshipMode === "association" ? "Heatmap rows and columns" : "Pairwise matrix variables"}:</span>{selected.map((variable, index) => <span key={variable.name} className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-mono text-cyan-900">{index + 1}. {variable.name}</span>)}{!selected.length ? <span className="text-slate-500">none selected</span> : null}<span className="ml-auto text-slate-500">Exactly this ordered set is queried (2–6 variables); numeric, categorical, and mixed pairs are rendered explicitly.</span></div>}
+    </div> : null}
+  </section>;
 }
 
-function TabContent({ tab, envelope, distributionMode, logScale, relationshipMode, missingnessMode, taxonomy, families, variables, handoff }: { tab: TabId; envelope: ProjectEdaEnvelope<unknown>; distributionMode: DistributionMode; logScale: boolean; relationshipMode: RelationshipMode; missingnessMode: MissingnessMode; taxonomy: string[]; families: ProjectEdaFamily[]; variables: ProjectEdaVariable[]; handoff: (destination: "outliers" | "missing" | "features") => void }) {
-  if (tab === "overview") return <OverviewTab envelope={envelope as ProjectEdaEnvelope<OverviewData>} families={families} />;
-  if (tab === "target") return <TargetTab envelope={envelope as ProjectEdaEnvelope<OverviewData>} taxonomy={taxonomy} />;
+function TabContent({ tab, envelope, distributionMode, logScale, relationshipMode, scatterDisplayMode, taxonomy, variables, scatterX, scatterY, scatterTarget, handoff }: { tab: TabId; envelope: ProjectEdaEnvelope<unknown>; distributionMode: DistributionMode; logScale: boolean; relationshipMode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; taxonomy: string[]; variables: ProjectEdaVariable[]; scatterX: string; scatterY: string; scatterTarget: string; handoff: (destination: "outliers" | "missing" | "features") => void }) {
+  if (tab === "target") return <TargetTab envelope={envelope as ProjectEdaEnvelope<OverviewData>} taxonomy={taxonomy} handoff={handoff} />;
   if (tab === "distributions") return <DistributionTab envelope={envelope as ProjectEdaEnvelope<DistributionData | CategoryCountsData>} mode={distributionMode} logScale={logScale} variable={variables[0]} />;
-  if (tab === "relationships") return <RelationshipsTab envelope={envelope as ProjectEdaEnvelope<AssociationData | PairwiseData>} mode={relationshipMode} />;
-  if (tab === "missingness") return <MissingOutlierTab envelope={envelope as ProjectEdaEnvelope<MissingnessData | OutliersData>} mode={missingnessMode} handoff={handoff} />;
+  if (tab === "relationships") return <RelationshipsTab envelope={envelope as ProjectEdaEnvelope<AssociationData | PairwiseData>} mode={relationshipMode} scatterDisplayMode={scatterDisplayMode} scatterX={scatterX} scatterY={scatterY} scatterTarget={scatterTarget} />;
   if (tab === "time") return <TemporalTab envelope={envelope as ProjectEdaEnvelope<TemporalData>} />;
   return <ColdStartTab envelope={envelope as ProjectEdaEnvelope<ColdStartData>} />;
 }
@@ -455,7 +602,7 @@ function DistributionTab({ envelope, mode, logScale, variable }: { envelope: Pro
   return <div className="space-y-4"><ChartCard title={`${mode === "violin" ? "Violin" : mode[0].toUpperCase() + mode.slice(1)} · ${data.variable}`} description={`${variable?.definition || "Selected numeric variable"} Tooltips, zoom, brush/reset, image and aggregated-data export are available.`} option={option} ariaLabel={`${mode} distribution of ${data.variable}`} envelope={envelope} exportRows={exportRows} /><section className="rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-semibold text-slate-950">Summary statistics and percentiles</h4><div className="mt-3 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">{stats.map(([name, value]) => <div key={name} className="rounded-lg bg-slate-50 p-2"><div className="text-[10px] uppercase text-slate-500">{name}</div><div className="mt-1 font-mono text-xs font-semibold text-slate-800">{value === null ? "NA" : Number(value).toLocaleString(undefined, { maximumFractionDigits: 5 })}</div></div>)}</div></section>{data.stratified.length ? <section className="overflow-auto rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-semibold text-slate-950">Target / season strata</h4><table className="mt-3 w-full min-w-[600px] text-xs"><thead><tr className="text-left text-slate-500">{["Stratum", "Rows", "Mean", "Median", "Missing %"].map((label) => <th key={label} className="border-b px-2 py-2">{label}</th>)}</tr></thead><tbody>{data.stratified.map((row) => <tr key={row.stratum}><td className="border-b px-2 py-2 font-semibold">{row.stratum}</td><td className="border-b px-2 py-2">{int(row.count)}</td><td className="border-b px-2 py-2">{row.mean ?? "—"}</td><td className="border-b px-2 py-2">{row.median ?? "—"}</td><td className="border-b px-2 py-2">{pct(row.missingPercent)}</td></tr>)}</tbody></table></section> : null}</div>;
 }
 
-function RelationshipsTab({ envelope, mode }: { envelope: ProjectEdaEnvelope<AssociationData | PairwiseData>; mode: RelationshipMode }) {
+function RelationshipsTab({ envelope, mode, scatterDisplayMode, scatterX, scatterY, scatterTarget }: { envelope: ProjectEdaEnvelope<AssociationData | PairwiseData>; mode: RelationshipMode; scatterDisplayMode: ScatterDisplayMode; scatterX: string; scatterY: string; scatterTarget: string }) {
   if ("cells" in envelope.data) {
     const data = envelope.data;
     const index = new Map(data.variables.map((name, i) => [name, i]));
@@ -464,13 +611,77 @@ function RelationshipsTab({ envelope, mode }: { envelope: ProjectEdaEnvelope<Ass
     return <div className="space-y-4"><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-900"><b>Methods remain explicit:</b> Pearson for numeric linear, Spearman for numeric monotonic, Cramér’s V for categorical pairs, and correlation ratio for numeric–categorical relationships. Unlike measures are labeled and are not presented as interchangeable. Degenerate pairs are left blank as not estimable; they are never rendered as zero.</section><ChartCard title="Correlation / association heatmap" description={`Methods present: ${data.methods.join(" · ")}. Values are descriptive, not automatic feature selection.`} option={option} ariaLabel="Project-bound association heatmap" envelope={envelope} exportRows={rowsFrom(data.cells)} /></div>;
   }
   const data = envelope.data;
-  const numeric = data.variables.filter((name) => data.rows.some((row) => typeof row[name] === "number"));
   const pairs: [string, string][] = [];
-  for (let i = 0; i < numeric.length; i += 1) for (let j = i + 1; j < numeric.length; j += 1) if (pairs.length < (mode === "pairwise" ? 9 : 1)) pairs.push([numeric[i], numeric[j]]);
-  return <div className="space-y-4"><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900"><b>Deterministic point sample:</b> {int(data.sampleSize)} of {int(data.populationSize)} rows · seed {data.seed} · {data.method}. The full population never enters the browser, and point-level sample download is disabled by default.</section>{!pairs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Select at least two numeric variables for a scatter or pairwise view.</div> : <div className={mode === "pairwise" ? "grid gap-4 xl:grid-cols-2" : "space-y-4"}>{pairs.map(([x, y]) => { const rows = data.rows.filter((row) => typeof row[x] === "number" && typeof row[y] === "number"); const option: EChartsOption = { ...chartBase(), tooltip: { trigger: "item" }, brush: { toolbox: ["rect", "polygon", "clear"], xAxisIndex: 0, yAxisIndex: 0 }, xAxis: { type: "value", name: x, scale: true }, yAxis: { type: "value", name: y, scale: true }, series: [{ type: "scatter", large: rows.length > 1000, symbolSize: 5, data: rows.map((row) => [row[x], row[y]]), itemStyle: { opacity: 0.42 } }] }; return <ChartCard key={`${x}:${y}`} title={`${x} × ${y}`} description="Scatter/density view with tooltip, zoom and rectangular brushing. Trend is descriptive only." option={option} ariaLabel={`Scatter plot ${x} by ${y}`} envelope={envelope} />; })}</div>}</div>;
+  if (mode === "scatter" && data.variables.includes(scatterX) && data.variables.includes(scatterY) && scatterX !== scatterY) pairs.push([scatterX, scatterY]);
+  if (mode === "pairwise") for (let i = 0; i < data.variables.length; i += 1) for (let j = i + 1; j < data.variables.length; j += 1) pairs.push([data.variables[i], data.variables[j]]);
+  return <div className="space-y-4"><section className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-900"><b>Deterministic point sample:</b> {int(data.sampleSize)} of {int(data.populationSize)} rows · seed {data.seed} · {data.method}. {data.stratifyBy === "outcome" ? "Color uses the governed development-only outcome; it is not a predictor. " : ""}The full population never enters the browser, and point-level sample download is disabled by default.</section>{!pairs.length ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Select two numeric variables for scatter/hexbin, or 2–6 variables for a pairwise matrix.</div> : <div className={mode === "pairwise" ? "grid gap-4 xl:grid-cols-2" : "space-y-4"}>{pairs.map(([x, y]) => {
+    const complete = data.rows.filter((row) => row[x] !== null && row[x] !== undefined && row[y] !== null && row[y] !== undefined);
+    const xNumeric = complete.some((row) => typeof row[x] === "number");
+    const yNumeric = complete.some((row) => typeof row[y] === "number");
+    if (!complete.length) return <div key={`${x}:${y}`} className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500">{x} × {y}: no complete sampled pairs.</div>;
+
+    let option: EChartsOption;
+    let description: string;
+    let ariaLabel: string;
+    if (xNumeric && yNumeric) {
+      const rows = complete.filter((row) => typeof row[x] === "number" && typeof row[y] === "number");
+      if (mode === "scatter" && scatterDisplayMode === "hexbin") {
+        const xs = rows.map((row) => Number(row[x])); const ys = rows.map((row) => Number(row[y]));
+        const xMin = Math.min(...xs); const xMax = Math.max(...xs); const yMin = Math.min(...ys); const yMax = Math.max(...ys);
+        const hexRadius = 1 / 28;
+        const roundedAxial = (q: number, r: number): [number, number] => {
+          let cubeX = Math.round(q); let cubeZ = Math.round(r); const cubeY = Math.round(-q - r);
+          const xError = Math.abs(cubeX - q); const yError = Math.abs(cubeY + q + r); const zError = Math.abs(cubeZ - r);
+          if (xError > yError && xError > zError) cubeX = -cubeY - cubeZ;
+          else if (zError > yError) cubeZ = -cubeX - cubeY;
+          return [cubeX, cubeZ];
+        };
+        const counts = new Map<string, number>();
+        for (const row of rows) {
+          const normalizedX = (Number(row[x]) - xMin) / Math.max(Number.EPSILON, xMax - xMin);
+          const normalizedY = (Number(row[y]) - yMin) / Math.max(Number.EPSILON, yMax - yMin);
+          const [q, r] = roundedAxial(((Math.sqrt(3) / 3) * normalizedX - normalizedY / 3) / hexRadius, ((2 / 3) * normalizedY) / hexRadius);
+          const key = `${q}:${r}`; counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        const binned = [...counts.entries()].map(([key, count]) => {
+          const [q, r] = key.split(":").map(Number);
+          const centerX = hexRadius * Math.sqrt(3) * (q + r / 2);
+          const centerY = hexRadius * 1.5 * r;
+          return [xMin + centerX * (xMax - xMin), yMin + centerY * (yMax - yMin), count];
+        });
+        const maxCount = Math.max(1, ...binned.map((row) => row[2]));
+        option = { ...chartBase(), tooltip: { trigger: "item", formatter: (params: unknown) => { const value = (params as { value?: number[] }).value ?? []; return `${x}: ${Number(value[0]).toPrecision(5)}<br/>${y}: ${Number(value[1]).toPrecision(5)}<br/><b>${int(value[2])} sampled rows</b>`; } }, visualMap: { min: 1, max: maxCount, dimension: 2, calculable: true, orient: "horizontal", left: "center", bottom: 0, inRange: { color: ["#cffafe", "#0891b2", "#164e63"] } }, xAxis: { type: "value", name: x, scale: true }, yAxis: { type: "value", name: y, scale: true }, series: [{ name: "Hexbin density", type: "scatter", symbol: "path://M0,-8 L6.93,-4 L6.93,4 L0,8 L-6.93,4 L-6.93,-4 Z", symbolSize: (value: number[]) => 8 + Math.sqrt(Number(value[2]) / maxCount) * 18, data: binned }] } as EChartsOption;
+        description = `Hexbin density over the deterministic sample (${binned.length} occupied bins); target color is disabled.`;
+        ariaLabel = `Hexbin density plot ${x} by ${y}`;
+      } else {
+        const strata = mode === "scatter" && scatterTarget ? [...new Set(rows.map((row) => String(row[scatterTarget] ?? "MISSING")))] : [];
+        const series = strata.length
+          ? strata.map((stratum) => ({ name: stratum, type: "scatter" as const, large: rows.length > 1000, symbolSize: 5, data: rows.filter((row) => String(row[scatterTarget] ?? "MISSING") === stratum).map((row) => [row[x], row[y]]), itemStyle: { opacity: 0.48 } }))
+          : [{ name: `${x} × ${y}`, type: "scatter" as const, large: rows.length > 1000, symbolSize: 5, data: rows.map((row) => [row[x], row[y]]), itemStyle: { opacity: 0.42 } }];
+        option = { ...chartBase(), legend: strata.length ? { type: "scroll", top: 0 } : undefined, tooltip: { trigger: "item" }, brush: { toolbox: ["rect", "polygon", "clear"], xAxisIndex: 0, yAxisIndex: 0 }, xAxis: { type: "value", name: x, scale: true }, yAxis: { type: "value", name: y, scale: true }, series };
+        description = `${mode === "scatter" ? "Explicit X/Y" : "Pairwise numeric"} view${strata.length ? ` stratified by ${scatterTarget}` : ""}; trend is descriptive only.`;
+        ariaLabel = `Scatter plot ${x} by ${y}`;
+      }
+    } else if (!xNumeric && !yNumeric) {
+      const xValues = [...new Set(complete.map((row) => String(row[x])))].sort().slice(0, 20);
+      const yValues = [...new Set(complete.map((row) => String(row[y])))].sort().slice(0, 20);
+      const xIndex = new Map(xValues.map((value, index) => [value, index])); const yIndex = new Map(yValues.map((value, index) => [value, index]));
+      const counts = new Map<string, number>(); for (const row of complete) { const xv = String(row[x]); const yv = String(row[y]); if (!xIndex.has(xv) || !yIndex.has(yv)) continue; const key = `${xv}\u0000${yv}`; counts.set(key, (counts.get(key) ?? 0) + 1); }
+      const cells = [...counts.entries()].map(([key, count]) => { const [xv, yv] = key.split("\u0000"); return [xIndex.get(xv) ?? 0, yIndex.get(yv) ?? 0, count]; });
+      option = { ...chartBase(), tooltip: { trigger: "item" }, visualMap: { min: 0, max: Math.max(1, ...cells.map((row) => Number(row[2]))), calculable: true, orient: "horizontal", left: "center", bottom: 0 }, xAxis: { type: "category", name: x, data: xValues, axisLabel: { rotate: 35 } }, yAxis: { type: "category", name: y, data: yValues }, series: [{ type: "heatmap", data: cells }] } as EChartsOption;
+      description = "Pairwise categorical count heatmap over the deterministic sample; top 20 observed levels per axis."; ariaLabel = `Categorical pairwise heatmap ${x} by ${y}`;
+    } else {
+      const numericName = xNumeric ? x : y; const categoryName = xNumeric ? y : x;
+      const categories = [...new Set(complete.map((row) => String(row[categoryName])))].sort().slice(0, 20);
+      const rows = complete.filter((row) => typeof row[numericName] === "number" && categories.includes(String(row[categoryName])));
+      option = { ...chartBase(), tooltip: { trigger: "item" }, xAxis: { type: "category", name: categoryName, data: categories, axisLabel: { rotate: 35 } }, yAxis: { type: "value", name: numericName, scale: true }, series: [{ name: `${numericName} by ${categoryName}`, type: "scatter", symbolSize: 5, large: rows.length > 1000, data: rows.map((row) => [String(row[categoryName]), row[numericName]]), itemStyle: { opacity: 0.42 } }] } as EChartsOption;
+      description = "Pairwise mixed-type strip plot over the deterministic sample; top 20 observed categories."; ariaLabel = `Mixed pairwise plot ${x} by ${y}`;
+    }
+    return <ChartCard key={`${x}:${y}`} title={`${x} × ${y}`} description={description} option={option} ariaLabel={ariaLabel} envelope={envelope} />;
+  })}</div>}</div>;
 }
 
-function TargetTab({ envelope, taxonomy }: { envelope: ProjectEdaEnvelope<OverviewData>; taxonomy: string[] }) {
+function TargetTab({ envelope, taxonomy, handoff }: { envelope: ProjectEdaEnvelope<OverviewData>; taxonomy: string[]; handoff: (destination: "outliers" | "missing" | "features") => void }) {
   const data = envelope.data;
   const classes = taxonomy.length ? taxonomy : TARGET_ORDER;
   const seasons = [...new Set(data.targetBySeason.map((row) => row.season))].sort();
@@ -490,7 +701,40 @@ function TargetTab({ envelope, taxonomy }: { envelope: ProjectEdaEnvelope<Overvi
     const half = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * Math.max(total, 1))) / Math.max(total, 1)) / denominator;
     return { ...row, lower95: 100 * Math.max(0, center - half), upper95: 100 * Math.min(1, center + half) };
   });
-  return <div className="space-y-4"><section className="rounded-2xl border border-slate-200 bg-white p-4"><div className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Exact governed taxonomy</div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{classes.map((name, index) => <div key={name} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs"><span className="mr-2 text-slate-400">{index + 1}</span><b>{name}</b></div>)}</div><p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>Probability calibration is primary;</b> class imbalance is a property of baseball and is not automatically corrected. This workbench makes no oversampling or class-weight recommendation.</p><p className="mt-2 text-xs text-slate-600">Use outcome stratification on the Distributions tab for one-feature class comparisons, or the global history and simulator-state filters for governed development-only slices.</p></section><div className="grid gap-4 xl:grid-cols-2"><ChartCard title="Class counts and proportions" description="Development base rates, including rare-class sample sizes." option={barOption(data.targetDistribution.map((row) => row.value), data.targetDistribution.map((row) => row.percent), "Share (%)")} ariaLabel="Eight class balance" envelope={envelope} exportRows={rowsFrom(confidenceRows)} /><ChartCard title="Class balance by season" description="Development seasons only; final-OOT class composition is inaccessible." option={bySeason} ariaLabel="Class distribution by development season" envelope={envelope} exportRows={rowsFrom(data.targetBySeason)} /><ChartCard title="Class balance by month" description="Monthly development-only target composition through 2026-08-13." option={byMonth} ariaLabel="Class distribution by development month" envelope={envelope} exportRows={rowsFrom(data.targetByMonth)} /><ChartCard title="Class balance by simulator state" description="Outcome composition by outs-before; other simulator states remain available through the global exact state filter." option={byState} ariaLabel="Class distribution by simulation state" envelope={envelope} exportRows={rowsFrom(stateRows)} /></div><section className="overflow-auto rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-semibold text-slate-950">Rare-class evidence and 95% binomial intervals</h4><p className="mt-1 text-xs text-slate-500">Wilson intervals describe development base-rate precision; they are not model-selection thresholds.</p><table className="mt-3 w-full min-w-[620px] text-xs"><thead><tr className="text-left text-slate-500">{["Class", "Rows", "Share", "95% interval"].map((label) => <th key={label} className="border-b px-2 py-2">{label}</th>)}</tr></thead><tbody>{confidenceRows.map((row) => <tr key={row.value}><td className="border-b px-2 py-2 font-mono font-semibold">{row.value}</td><td className="border-b px-2 py-2">{int(row.count)}</td><td className="border-b px-2 py-2">{pct(row.percent)}</td><td className="border-b px-2 py-2">{row.lower95.toFixed(3)}% – {row.upper95.toFixed(3)}%</td></tr>)}</tbody></table></section></div>;
+  const summary = data.targetSummary;
+  const quality = data.dataQualitySnapshot;
+  return (
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4" data-testid="stage3-target-decision-summary">
+        <div className="flex flex-wrap items-center gap-2"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">Target decision summary</div><h4 className="mt-1 font-semibold text-slate-950">What the development evidence says</h4></div><span className="ml-auto rounded-full border border-cyan-300 bg-white px-2.5 py-1 text-[10px] font-semibold text-cyan-900">{summary.status.replaceAll("_", " ")}</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          <Metric label="Dominant class" value={summary.dominantClass?.value ?? "—"} detail={summary.dominantClass ? `${int(summary.dominantClass.count)} · ${pct(summary.dominantClass.percent)}` : "not represented"} />
+          <Metric label="Rarest class" value={summary.rarestClass?.value ?? "—"} detail={summary.rarestClass ? `${int(summary.rarestClass.count)} · ${pct(summary.rarestClass.percent)}` : "not represented"} accent="amber" />
+          <Metric label="Imbalance ratio" value={summary.imbalanceRatio === null ? "—" : `${summary.imbalanceRatio.toFixed(2)}×`} detail="dominant / rarest" />
+          <Metric label="Season stability" value={summary.seasonToSeasonStability.status.replaceAll("_", " ")} detail={`${summary.seasonToSeasonStability.maxClassShareRangePct?.toFixed(3) ?? "—"} pp max range`} />
+          <Metric label="Smallest rare sample" value={int(summary.minimumRareClassSampleSize)} detail={summary.minimumRareClassSeason ? `season ${summary.minimumRareClassSeason}` : "no cross-season sample"} />
+          <Metric label="Decision" value="NO AUTO REBALANCING" detail="no automatic weighting or oversampling" />
+        </div>
+        <p className="mt-3 text-xs leading-5 text-cyan-950">{summary.conclusion} This is descriptive guidance only; chronological validation remains authoritative.</p>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="stage3-eda-data-quality-snapshot">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Data Quality Snapshot</div><h4 className="mt-1 font-semibold text-slate-950">Signals to carry into the dedicated preparation steps</h4><p className="mt-1 text-xs text-slate-500">No treatment is applied here. Counts are scoped to the current development-only evidence.</p></div><span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{quality.decision.replaceAll("_", " ")}</span></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <Metric label="Physical missingness" value={pct(quality.overallPhysicalMissingPercent)} detail="macro predictor-cell rate" />
+          <Metric label="Cold-start prevalence" value={pct(quality.coldStartPercent)} detail={`${int(quality.coldStartRows)} development rows`} accent="amber" />
+          <Metric label="Material missingness" value={int(quality.featuresWithMaterialMissingness)} detail={`features at ≥${quality.materialMissingnessThresholdPct}%`} />
+          <Metric label="Source / computation failures" value={int(quality.failureReasonRows.sourceMissingRows + quality.failureReasonRows.sourceNotAvailableForEraRows + quality.failureReasonRows.computationFailureRows)} detail={`${int(quality.failureReasonRows.computationFailureRows)} computation failures`} />
+          <Metric label="Potential descriptive outliers" value={int(quality.potentialDescriptiveOutliers.count)} detail={`${quality.potentialDescriptiveOutliers.variable} · ${quality.potentialDescriptiveOutliers.method}`} accent="amber" />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><p className="mr-auto max-w-3xl text-[10px] leading-4 text-slate-500">{quality.failureReasonRows.note} The outlier count is representative-feature evidence, not a cross-feature treatment decision.</p><button type="button" onClick={() => handoff("missing")} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Open Missing Values</button><button type="button" onClick={() => handoff("outliers")} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white">Open Outliers</button></div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4"><div className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Exact governed taxonomy</div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{classes.map((name, index) => <div key={name} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs"><span className="mr-2 text-slate-400">{index + 1}</span><b>{name}</b></div>)}</div><p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>Probability calibration is primary;</b> class imbalance is a property of baseball and is not automatically corrected. This workbench makes no oversampling or class-weight recommendation.</p><p className="mt-2 text-xs text-slate-600">Use outcome stratification on the Distributions tab for one-feature class comparisons, or the global history and simulator-state filters for governed development-only slices.</p></section>
+      <div className="grid gap-4 xl:grid-cols-2"><ChartCard title="Class counts and proportions" description="Development base rates, including rare-class sample sizes." option={barOption(data.targetDistribution.map((row) => row.value), data.targetDistribution.map((row) => row.percent), "Share (%)")} ariaLabel="Eight class balance" envelope={envelope} exportRows={rowsFrom(confidenceRows)} /><ChartCard title="Class balance by season" description="Development seasons only; final-OOT class composition is inaccessible." option={bySeason} ariaLabel="Class distribution by development season" envelope={envelope} exportRows={rowsFrom(data.targetBySeason)} /><ChartCard title="Class balance by month" description="Monthly development-only target composition through 2026-08-13." option={byMonth} ariaLabel="Class distribution by development month" envelope={envelope} exportRows={rowsFrom(data.targetByMonth)} /><ChartCard title="Class balance by simulator state" description="Outcome composition by outs-before; other simulator states remain available through the global exact state filter." option={byState} ariaLabel="Class distribution by simulation state" envelope={envelope} exportRows={rowsFrom(stateRows)} /></div>
+      <section className="overflow-auto rounded-2xl border border-slate-200 bg-white p-4"><h4 className="font-semibold text-slate-950">Rare-class evidence and 95% binomial intervals</h4><p className="mt-1 text-xs text-slate-500">Wilson intervals describe development base-rate precision; they are not model-selection thresholds.</p><table className="mt-3 w-full min-w-[620px] text-xs"><thead><tr className="text-left text-slate-500">{["Class", "Rows", "Share", "95% interval"].map((label) => <th key={label} className="border-b px-2 py-2">{label}</th>)}</tr></thead><tbody>{confidenceRows.map((row) => <tr key={row.value}><td className="border-b px-2 py-2 font-mono font-semibold">{row.value}</td><td className="border-b px-2 py-2">{int(row.count)}</td><td className="border-b px-2 py-2">{pct(row.percent)}</td><td className="border-b px-2 py-2">{row.lower95.toFixed(3)}% – {row.upper95.toFixed(3)}%</td></tr>)}</tbody></table></section>
+    </div>
+  );
 }
 
 function MissingOutlierTab({ envelope, mode, handoff }: { envelope: ProjectEdaEnvelope<MissingnessData | OutliersData>; mode: MissingnessMode; handoff: (destination: "outliers" | "missing" | "features") => void }) {
@@ -509,13 +753,14 @@ function MissingOutlierTab({ envelope, mode, handoff }: { envelope: ProjectEdaEn
 
 function TemporalTab({ envelope }: { envelope: ProjectEdaEnvelope<TemporalData> }) {
   const data = envelope.data;
+  const assessment = data.stabilityAssessment;
   const main = lineOption(data.series.map((row) => row.period), [{ name: "Mean", values: data.series.map((row) => row.mean) }, { name: "Median", values: data.series.map((row) => row.median) }], data.variable);
   const missing = lineOption(data.series.map((row) => row.period), [{ name: "Missing %", values: data.series.map((row) => row.missingPercent) }, { name: "Rows (scaled)", values: data.series.map((row) => row.count) }], "Value");
   const drift = lineOption(data.drift.map((row) => row.period), [{ name: "PSI", values: data.drift.map((row) => row.psi) }, { name: "KS", values: data.drift.map((row) => row.ks) }], "Drift diagnostic");
   const periods = data.series.map((row) => row.period);
   const targetMix: EChartsOption = { ...chartBase(), legend: { type: "scroll", top: 0 }, xAxis: { type: "category", data: periods }, yAxis: { type: "value", max: 100, name: "Share (%)" }, series: TARGET_ORDER.map((target) => ({ name: target, type: "line", stack: "target", areaStyle: { opacity: 0.2 }, showSymbol: false, data: data.series.map((row) => row.targetComposition.find((item) => item.value === target)?.percent ?? 0) })) };
   const targetRows = data.series.flatMap((row) => row.targetComposition.map((item) => ({ period: row.period, ...item })));
-  return <div className="space-y-4"><section className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>Descriptive stability diagnostics only.</b> PSI and KS highlight changing distributions and source eras; they do not select a feature, threshold, or model. The 2026 comparison stops on 2026-08-13.</section><div className="grid gap-4 xl:grid-cols-2"><ChartCard title={`${data.variable} through time`} description={`${data.granularity} development aggregates; mean and median.`} option={main} ariaLabel={`${data.variable} monthly stability`} envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Coverage and row volume" description="Missingness and available evidence through time." option={missing} ariaLabel="Feature coverage through time" envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Target mix through time" description="Development-only class composition; final-OOT outcomes are not materialized." option={targetMix} ariaLabel="Target mix through development time" envelope={envelope} exportRows={rowsFrom(targetRows)} /><ChartCard title="Distribution drift" description="PSI and KS against each documented baseline period; source-era shifts remain visible." option={drift} ariaLabel="Feature distribution drift" envelope={envelope} exportRows={rowsFrom(data.drift)} /></div></div>;
+  return <div className="space-y-4"><section className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>Descriptive stability diagnostics only.</b> PSI and KS highlight changing distributions and source eras; they do not select a feature, threshold, or model. The 2026 comparison stops on 2026-08-13.</section><section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="stage3-stability-assessment"><div className="flex flex-wrap items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Stability Assessment</div><h4 className="mt-1 font-semibold text-slate-950">Written development-only takeaway</h4></div><span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-900">{assessment.overallStatus.replaceAll("_", " ")}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6"><Metric label="Target mix" value={assessment.targetMix.status.replaceAll("_", " ")} detail={`${assessment.targetMix.maxClassShareRangePct?.toFixed(3) ?? "—"} pp max range`} /><Metric label="Stable features" value={int(assessment.featureCounts.stable)} detail={assessment.featureCounts.scope.replaceAll("_", " ")} /><Metric label="Moderate review" value={int(assessment.featureCounts.moderateReview)} detail="descriptive review only" accent="amber" /><Metric label="High review" value={int(assessment.featureCounts.highReview)} detail="material diagnostic shift" accent="amber" /><Metric label="Source-era changes" value={int(assessment.featureCounts.sourceEraChange)} detail={assessment.sourceEraEvidenceStatus.replaceAll("_", " ").toLowerCase()} /><Metric label="Cold-start shift" value={assessment.coldStartShift.status.replaceAll("_", " ")} detail={`${assessment.coldStartShift.maxRangePct.toFixed(2)} pp range`} /></div><p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-700">{assessment.recommendedNextAction}</p><p className="mt-2 text-[11px] leading-5 text-slate-500">{assessment.rowVolumeNote}</p><div className="mt-3 overflow-auto"><table className="w-full min-w-[980px] text-xs"><thead><tr className="text-left text-slate-500">{["Variable", "Status", "Direction / magnitude", "Periods affected", "PSI / KS", "Coverage shift", "Likely cause", "Next action"].map((label) => <th key={label} className="border-b px-2 py-2">{label}</th>)}</tr></thead><tbody>{assessment.selectedVariables.map((item) => <tr key={item.variable}><td className="border-b px-2 py-2 font-mono font-semibold">{item.variable}</td><td className="border-b px-2 py-2">{item.status.replaceAll("_", " ")}</td><td className="border-b px-2 py-2">{item.direction.replaceAll("_", " ")} · {item.magnitude === null ? "—" : item.magnitude.toFixed(4)}{item.relativeMagnitudePct === null ? "" : ` (${item.relativeMagnitudePct.toFixed(1)}%)`}</td><td className="border-b px-2 py-2">{item.affectedPeriods.length ? item.affectedPeriods.join(", ") : "none flagged"}</td><td className="border-b px-2 py-2">{item.methods.join(" + ")} · {item.psiMax.toFixed(3)} / {item.ksMax?.toFixed(3) ?? "NA"}</td><td className="border-b px-2 py-2">{item.coverageShiftPct.toFixed(2)} pp ({item.coverageRangePct.toFixed(2)} pp range)</td><td className="border-b px-2 py-2">{item.likelyCause.replaceAll("_", " ").toLowerCase()}</td><td className="border-b px-2 py-2">{item.recommendedNextAction}</td></tr>)}</tbody></table></div></section><div className="grid gap-4 xl:grid-cols-2"><ChartCard title={`${data.variable} through time`} description={`${data.granularity} development aggregates; mean and median.`} option={main} ariaLabel={`${data.variable} monthly stability`} envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Coverage and row volume" description="Missingness and available evidence through time." option={missing} ariaLabel="Feature coverage through time" envelope={envelope} exportRows={rowsFrom(data.series)} /><ChartCard title="Target mix through time" description="Development-only class composition; final-OOT outcomes are not materialized." option={targetMix} ariaLabel="Target mix through development time" envelope={envelope} exportRows={rowsFrom(targetRows)} /><ChartCard title="Distribution drift" description="PSI and KS against each documented baseline period; source-era shifts remain visible." option={drift} ariaLabel="Feature distribution drift" envelope={envelope} exportRows={rowsFrom(data.drift)} /></div></div>;
 }
 
 function ColdStartTab({ envelope }: { envelope: ProjectEdaEnvelope<ColdStartData> }) {
@@ -529,6 +774,18 @@ function ColdStartTab({ envelope }: { envelope: ProjectEdaEnvelope<ColdStartData
 
 function HandoffActions({ handoff, selected }: { handoff: (destination: "outliers" | "missing" | "features") => void; selected: "missing" | "outliers" }) {
   return <section className="rounded-2xl border border-slate-200 bg-white p-4"><div className="text-xs font-semibold uppercase text-slate-500">Analytical handoff · no automatic treatment</div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => handoff("outliers")} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${selected === "outliers" ? "bg-amber-700 text-white" : "border border-slate-200 text-slate-700"}`}><Box size={14} /> Open in Outliers</button><button type="button" onClick={() => handoff("missing")} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold ${selected === "missing" ? "bg-amber-700 text-white" : "border border-slate-200 text-slate-700"}`}><CircleOff size={14} /> Open in Missing Values</button><button type="button" onClick={() => handoff("features")} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><Wand2 size={14} /> Bookmark for Feature Engineering</button></div><p className="mt-2 text-[11px] text-slate-500">Selected variables, filters, and exact data authority are persisted in the project-scoped workbench draft before navigation; later steps remain governed independently.</p></section>;
+}
+
+function SavedAnalysesDrawer({ open, close, views, authorityKey, bookmarks, variables, selectedVariables, setSelectedVariables, maxVariables, viewName, setViewName, viewNotes, setViewNotes, saveView, restoreView, renameView, updateView, removeView, toggleBookmark, handoff }: { open: boolean; close: () => void; views: EdaView[]; authorityKey: string; bookmarks: string[]; variables: ProjectEdaVariable[]; selectedVariables: string[]; setSelectedVariables: (next: string[]) => void; maxVariables: number; viewName: string; setViewName: (value: string) => void; viewNotes: string; setViewNotes: (value: string) => void; saveView: () => void; restoreView: (view: EdaView) => void; renameView: (id: string, name: string) => void; updateView: (id: string) => void; removeView: (id: string) => void; toggleBookmark: (name: string) => void; handoff: (destination: "outliers" | "missing" | "features") => void }) {
+  if (!open) return null;
+  const currentViews = views.filter((view) => view.authorityKey === authorityKey);
+  const staleViews = views.filter((view) => view.authorityKey !== authorityKey);
+  const addBookmark = (name: string) => {
+    if (selectedVariables.includes(name) || selectedVariables.length >= maxVariables) return;
+    const variable = variables.find((item) => item.name === name);
+    if (variable?.selectable) setSelectedVariables([...selectedVariables, name]);
+  };
+  return <div className="fixed inset-0 z-[90] flex justify-end bg-slate-950/40 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Saved analyses drawer"><button type="button" aria-label="Close saved analyses" onClick={close} className="min-w-0 flex-1" /><aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-2xl"><div className="flex items-start gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-700">Saved analyses ({currentViews.length})</div><h3 className="mt-1 text-xl font-semibold text-slate-950">Analytical bookmarks</h3><p className="mt-1 text-xs leading-5 text-slate-600">Saved analyses are analytical bookmarks, not modeling decisions.</p></div><button type="button" onClick={close} className="ml-auto rounded-lg border border-slate-200 p-2 text-slate-500"><X size={16} /></button></div><section className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50/50 p-3"><div className="text-xs font-semibold text-cyan-900">Save analysis</div><div className="mt-2 grid gap-2 sm:grid-cols-2"><input value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Analysis name" className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs" /><input value={viewNotes} onChange={(event) => setViewNotes(event.target.value)} placeholder="Scientist notes" className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs" /></div><button type="button" onClick={saveView} className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white"><Save size={13} /> Save current analysis</button></section><section className="mt-4"><h4 className="text-sm font-semibold text-slate-900">Current-authority analyses</h4>{currentViews.length ? <div className="mt-2 space-y-2">{currentViews.map((view) => <article key={view.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><input aria-label={`Rename ${view.name}`} defaultValue={view.name} onBlur={(event) => renameView(view.id, event.target.value)} className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold text-slate-900 hover:border-slate-200 focus:border-cyan-300 focus:bg-white" /><div className="mt-1 text-[10px] uppercase text-slate-500">{TABS.find((tab) => tab.id === reopenTab(view.tab))?.label} · {new Date(view.savedAt).toLocaleString()}</div><p className="mt-1 text-xs text-slate-600">{view.notes || "No scientist note."}</p><div className="mt-1 text-[10px] text-slate-500">{view.selectedVariables.length} variables · {Object.keys(view.filters).length} filters · seed {view.settings.samplingSeed}</div></div><Pencil size={13} className="mt-1 text-slate-400" /></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => restoreView(view)} className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"><FolderOpen size={13} /> Reopen</button><button type="button" onClick={() => updateView(view.id)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700">Update from current</button><button type="button" onClick={() => removeView(view.id)} className="ml-auto inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700"><Trash2 size={12} /> Delete</button></div></article>)}</div> : <p className="mt-2 rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500">No saved analysis for this authority yet. Save the current chart state above.</p>}{staleViews.length ? <p className="mt-2 text-[10px] text-amber-700">{staleViews.length} saved analysis{staleViews.length === 1 ? " is" : "es are"} retained under an older authority and cannot be reopened here.</p> : null}</section><section className="mt-4 border-t border-slate-200 pt-4"><h4 className="text-sm font-semibold text-slate-900">Bookmarked variables</h4><p className="mt-1 text-[11px] text-slate-500">Add governed bookmarks to the selected-variable tray or remove the bookmark.</p>{bookmarks.length ? <div className="mt-2 space-y-2">{bookmarks.map((name) => { const variable = variables.find((item) => item.name === name); return <div key={name} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2"><Star size={12} fill="currentColor" className="text-amber-500" /><span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold text-amber-950">{name}</span><button type="button" disabled={!variable?.selectable || selectedVariables.includes(name) || selectedVariables.length >= maxVariables} onClick={() => addBookmark(name)} className="rounded border border-amber-300 bg-white px-2 py-1 text-[10px] font-semibold text-amber-900 disabled:opacity-40">Add to tray</button><button type="button" onClick={() => toggleBookmark(name)} className="text-amber-700" title={`Remove bookmark ${name}`}><X size={12} /></button></div>; })}</div> : <p className="mt-2 text-xs text-slate-500">No bookmarked variables.</p>}<div className="mt-3 flex gap-2"><button type="button" onClick={() => handoff("missing")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700">Open Missing Values</button><button type="button" onClick={() => handoff("outliers")} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700">Open Outliers</button></div></section></aside></div>;
 }
 
 function SavedViewsPanel({ views, authorityKey, bookmarks, variables, viewName, setViewName, viewNotes, setViewNotes, saveView, restoreView, removeView, handoff }: { views: EdaView[]; authorityKey: string; bookmarks: string[]; variables: ProjectEdaVariable[]; viewName: string; setViewName: (value: string) => void; viewNotes: string; setViewNotes: (value: string) => void; saveView: () => void; restoreView: (view: EdaView) => void; removeView: (id: string) => void; handoff: (destination: "outliers" | "missing" | "features") => void }) {

@@ -890,6 +890,8 @@ def _stage3_handoff(authority: _Authority) -> dict[str, Any]:
         "leakageGate": checks[3],
         "modelingTreatment": {
             "coldStartRows": "RETAIN",
+            "coldStartRowCount": 178_400,
+            "coldStartPercent": 26.094766127121297,
             "imputation": "TRAINING_FOLD_ONLY_OR_HIERARCHICAL_LEAGUE_PRIORS",
             "missingFlags": "RETAIN",
             "globalImputation": "PROHIBITED",
@@ -940,6 +942,19 @@ def _metadata_data(authority: _Authority) -> dict[str, Any]:
             "The exact canonical-PA membership anti-join supplies season, month, batting-team, governed-target-or-unmapped, identity-condition, and final-OOT concentrations; causal exclusion reasons and feature-construction cause remain unrecorded and are not inferred.",
             "No EDA action fits, scores, tunes, calibrates, selects, or promotes a model.",
         ],
+        "decisionGuidance": {
+            "defaultAnalyticalTab": "TARGET_AND_CLASS_BALANCE",
+            "defaultStabilityVariables": [
+                "batter_last100_contact_rate",
+                "pitcher_last250_strikeout_rate",
+                "batter_avg",
+                "pitcher_era9",
+                "batting_games_last_7_days",
+                "batting_travel_distance_miles",
+            ],
+            "defaultStabilityVariableExcluded": "context_inning",
+            "selectionAuthority": "NONE_DESCRIPTIVE_EDA_ONLY",
+        },
     }
 
 
@@ -1196,18 +1211,122 @@ def _counts(series: pd.Series) -> list[dict[str, Any]]:
     ]
 
 
+def _target_mix_assessment(
+    distribution: Sequence[Mapping[str, Any]],
+    by_season: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    observed = [item for item in distribution if int(item.get("count") or 0) > 0]
+    if not observed:
+        return {
+            "dominantClass": None,
+            "rarestClass": None,
+            "imbalanceRatio": None,
+            "seasonToSeasonStability": {
+                "status": "REVIEW",
+                "method": "MAX_CLASS_SHARE_RANGE_PERCENTAGE_POINTS",
+                "maxClassShareRangePct": None,
+                "mostVariableClass": None,
+                "representedSeasons": [],
+                "thresholdsPct": {
+                    "stableMax": 0.75,
+                    "expectedSeasonalMax": 1.5,
+                    "reviewMax": 3.0,
+                },
+            },
+            "minimumRareClassSampleSize": 0,
+            "minimumRareClassSeason": None,
+            "status": "REVIEW",
+            "conclusion": "No represented development target rows are available under the active filters.",
+            "decision": "DESCRIPTIVE_ONLY_NO_CLASS_REBALANCING_DECISION",
+            "finalOotTargetsAccessed": False,
+        }
+    dominant = max(observed, key=lambda item: int(item["count"]))
+    rarest = min(observed, key=lambda item: int(item["count"]))
+    by_class: dict[str, list[Mapping[str, Any]]] = {}
+    for item in by_season:
+        by_class.setdefault(str(item["value"]), []).append(item)
+    ranges = {
+        name: max(float(item["percent"]) for item in rows)
+        - min(float(item["percent"]) for item in rows)
+        for name, rows in by_class.items()
+        if len(rows) > 1
+    }
+    represented_seasons = sorted({int(item["season"]) for item in by_season})
+    most_variable = max(ranges, key=ranges.get) if ranges else None
+    maximum_range = float(ranges[most_variable]) if most_variable else None
+    if len(represented_seasons) < 2:
+        status = "REVIEW"
+    elif maximum_range is not None and maximum_range <= 0.75:
+        status = "STABLE"
+    elif maximum_range is not None and maximum_range <= 1.5:
+        status = "EXPECTED_SEASONAL_PATTERN"
+    elif maximum_range is not None and maximum_range <= 3.0:
+        status = "REVIEW"
+    else:
+        status = "MATERIAL_SHIFT"
+    rare_seasons = by_class.get(str(rarest["value"])) or []
+    minimum_rare = min(rare_seasons, key=lambda item: int(item["count"])) if rare_seasons else None
+    conclusion = {
+        "STABLE": "Development class shares are stable across represented seasons.",
+        "EXPECTED_SEASONAL_PATTERN": "Class-share movement is small and consistent with bounded season-to-season variation; retain it for chronological validation.",
+        "REVIEW": (
+            "At least two represented seasons are required to assess season-to-season target stability."
+            if len(represented_seasons) < 2
+            else "At least one class share varies enough across seasons to merit descriptive review before modeling."
+        ),
+        "MATERIAL_SHIFT": "A material development-period class-mix shift is present and requires review before modeling.",
+    }[status]
+    return {
+        "dominantClass": {
+            "value": str(dominant["value"]),
+            "count": int(dominant["count"]),
+            "percent": float(dominant["percent"]),
+        },
+        "rarestClass": {
+            "value": str(rarest["value"]),
+            "count": int(rarest["count"]),
+            "percent": float(rarest["percent"]),
+        },
+        "imbalanceRatio": float(int(dominant["count"]) / int(rarest["count"])),
+        "seasonToSeasonStability": {
+            "status": status,
+            "method": "MAX_CLASS_SHARE_RANGE_PERCENTAGE_POINTS",
+            "maxClassShareRangePct": maximum_range,
+            "mostVariableClass": most_variable,
+            "representedSeasons": represented_seasons,
+            "thresholdsPct": {
+                "stableMax": 0.75,
+                "expectedSeasonalMax": 1.5,
+                "reviewMax": 3.0,
+            },
+        },
+        "minimumRareClassSampleSize": int(minimum_rare["count"]) if minimum_rare else 0,
+        "minimumRareClassSeason": int(minimum_rare["season"]) if minimum_rare else None,
+        "status": status,
+        "conclusion": conclusion,
+        "decision": "DESCRIPTIVE_ONLY_NO_CLASS_REBALANCING_DECISION",
+        "finalOotTargetsAccessed": False,
+    }
+
+
 def _overview(authority: _Authority, filters: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
     columns = [
         "canonicalGameId", "batterCanonicalPlayerId", "pitcherCanonicalPlayerId",
         "game_date", "season", "outcome", "batter_prior_missing",
-        "pitcher_prior_missing", "batter_prior_pa_count", *SIMULATION_STATE_FIELDS,
+        "pitcher_prior_missing", "batter_last100_insufficient",
+        "pitcher_last250_insufficient", "batter_prior_pa_count",
+        "pitcher_era9", "batting_missing_reason", "fielding_missing_reason",
+        *SIMULATION_STATE_FIELDS,
     ]
     frame = _scan(authority, columns, filters)
     rows = len(frame)
     dates = frame["game_date"].astype(str)
-    cold = pd.to_numeric(frame["batter_prior_missing"], errors="coerce").fillna(0).gt(0) | pd.to_numeric(
-        frame["pitcher_prior_missing"], errors="coerce"
-    ).fillna(0).gt(0)
+    cold = (
+        pd.to_numeric(frame["batter_prior_missing"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["pitcher_prior_missing"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["batter_last100_insufficient"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["pitcher_last250_insufficient"], errors="coerce").fillna(0).gt(0)
+    )
     target_distribution = _counts(frame["outcome"])
     target_by_season = []
     season_totals = frame["season"].value_counts(dropna=False).to_dict()
@@ -1260,6 +1379,43 @@ def _overview(authority: _Authority, filters: Mapping[str, Any]) -> tuple[dict[s
         }
         for item in metadata["families"]
     ]
+    candidate_variables = [
+        item
+        for item in metadata["variables"]
+        if item["role"]
+        in {"PREGAME_FEATURE", "SIMULATION_GENERATED_STATE", "MISSINGNESS_INDICATOR"}
+    ]
+    material_missing_threshold = 10.0
+    material_missing = [
+        item for item in candidate_variables
+        if float(item["missingPercent"]) >= material_missing_threshold
+    ]
+    reason_text = (
+        frame["batting_missing_reason"].fillna("").astype(str)
+        + "|"
+        + frame["fielding_missing_reason"].fillna("").astype(str)
+    ).str.upper()
+
+    def reason_rows(reason: str) -> int:
+        return int(
+            reason_text.str.contains(
+                rf"(?:^|[|,]){reason}(?:$|[|,])",
+                regex=True,
+            ).sum()
+        )
+
+    outlier_values = pd.to_numeric(frame["pitcher_era9"], errors="coerce").dropna()
+    if len(outlier_values):
+        outlier_q1, outlier_q3 = outlier_values.quantile([0.25, 0.75])
+        outlier_iqr = float(outlier_q3 - outlier_q1)
+        outlier_lower = float(outlier_q1 - 1.5 * outlier_iqr)
+        outlier_upper = float(outlier_q3 + 1.5 * outlier_iqr)
+        outlier_count = int(
+            (outlier_values.lt(outlier_lower) | outlier_values.gt(outlier_upper)).sum()
+        )
+    else:
+        outlier_lower = outlier_upper = None
+        outlier_count = 0
     source_rows = 702_326
     gold_rows = 697_729
     return {
@@ -1273,6 +1429,7 @@ def _overview(authority: _Authority, filters: Mapping[str, Any]) -> tuple[dict[s
             "targetClasses": len(GOLD_CLASS_ORDER),
             "coreFeatures": 48,
             "contextualCandidates": 206,
+            "candidatePredictors": len(candidate_variables),
             "overallMissingPercent": float(np.mean([item["missingPercent"] for item in metadata["variables"] if item["role"] in {"PREGAME_FEATURE", "SIMULATION_GENERATED_STATE", "MISSINGNESS_INDICATOR"}])),
             "coldStartPercent": _percent(int(cold.sum()), rows),
             "rowExclusions": {
@@ -1296,9 +1453,55 @@ def _overview(authority: _Authority, filters: Mapping[str, Any]) -> tuple[dict[s
             },
         },
         "targetDistribution": target_distribution,
+        "targetSummary": _target_mix_assessment(
+            target_distribution,
+            target_by_season,
+        ),
         "targetBySeason": sorted(target_by_season, key=lambda item: (item["season"], item["value"])),
         "targetByMonth": sorted(target_by_month, key=lambda item: (item["period"], item["value"])),
         "targetBySimulationState": target_by_simulation_state,
+        "dataQualitySnapshot": {
+            "scope": "DEVELOPMENT_ONLY_WITH_EXPLICIT_SUBSCOPES",
+            "overallPhysicalMissingPercent": float(np.mean([
+                item["missingPercent"] for item in candidate_variables
+            ])) if candidate_variables else 0.0,
+            "overallPhysicalMissingnessScope": "ALL_REGISTERED_DEVELOPMENT_PREDICTOR_CELLS",
+            "overallPhysicalMissingnessMethod": "MEAN_PER_PREDICTOR_MISSING_PERCENT",
+            "predictorCount": len(candidate_variables),
+            "coldStartRows": int(cold.sum()),
+            "coldStartPercent": _percent(int(cold.sum()), rows),
+            "coldStartScope": "ACTIVE_DEVELOPMENT_FILTERS",
+            "materialMissingnessThresholdPct": material_missing_threshold,
+            "materialMissingnessScope": "ALL_REGISTERED_DEVELOPMENT_PREDICTORS",
+            "featuresWithMaterialMissingness": len(material_missing),
+            "materialMissingFeatures": [
+                {"name": item["name"], "missingPercent": item["missingPercent"]}
+                for item in sorted(
+                    material_missing,
+                    key=lambda item: float(item["missingPercent"]),
+                    reverse=True,
+                )
+            ],
+            "failureReasonRows": {
+                "scope": "TEAM_GAME_CONTEXT_ROW_REASON_ANY_SIDE",
+                "computationFailureRows": reason_rows("COMPUTATION_FAILURE"),
+                "sourceMissingRows": reason_rows("SOURCE_MISSING"),
+                "sourceNotAvailableForEraRows": reason_rows("SOURCE_NOT_AVAILABLE_FOR_ERA"),
+                "note": "Exact row-union counts for the registered batting/fielding team-game missing-reason fields; not a per-feature causal ledger.",
+            },
+            "potentialDescriptiveOutliers": {
+                "scope": "REPRESENTATIVE_NUMERIC_FEATURE_ONLY",
+                "variable": "pitcher_era9",
+                "method": "IQR_1_5",
+                "count": outlier_count,
+                "lowerThreshold": outlier_lower,
+                "upperThreshold": outlier_upper,
+                "treatmentApplied": False,
+            },
+            "actions": ["OPEN_MISSING_VALUES", "OPEN_OUTLIERS"],
+            "decision": "NO_TREATMENT_APPLIED",
+            "finalOotTargetsAccessed": False,
+        },
         "rowsByMonth": [{"period": str(period), "count": int(count)} for period, count in month_counts.items()],
         "featureFamilyCoverage": family_coverage,
         "historyDepth": history_depth,
@@ -1487,7 +1690,14 @@ def _pairwise_sample(
 ) -> tuple[dict[str, Any], int, dict[str, Any]]:
     size = max(1, min(int(settings.get("sampleSize") or 2_000), MAX_SAMPLE_ROWS))
     seed = int(settings.get("seed") or 20260830)
-    frame = _scan(authority, ["canonicalPaId", *variables], filters)
+    stratify_by = str(settings.get("stratifyBy") or "")
+    if stratify_by not in {"", "outcome"}:
+        raise Stage3EdaError(
+            "EDA_STRATIFICATION_INVALID",
+            "Pairwise sampling supports only development-target outcome stratification.",
+        )
+    output_columns = [*variables, *(["outcome"] if stratify_by == "outcome" else [])]
+    frame = _scan(authority, ["canonicalPaId", *output_columns], filters)
     population = len(frame)
     if population > size:
         identifiers = frame["canonicalPaId"].fillna("").astype(str).to_numpy()
@@ -1508,7 +1718,7 @@ def _pairwise_sample(
     # receives only the explicitly selected analytical variables.
     rows = [
         _json_safe(row)
-        for row in sampled[list(variables)].to_dict(orient="records")
+        for row in sampled[output_columns].to_dict(orient="records")
     ]
     sampling = {
         "method": "HASH_SMALLEST_CANONICAL_PA_V1",
@@ -1518,7 +1728,8 @@ def _pairwise_sample(
     }
     return {
         "variables": list(variables), "populationSize": population, "sampleSize": len(sampled),
-        "seed": seed, "method": "HASH_SMALLEST_CANONICAL_PA_V1", "rows": rows,
+        "seed": seed, "method": "HASH_SMALLEST_CANONICAL_PA_V1",
+        "stratifyBy": stratify_by or None, "rows": rows,
     }, population, sampling
 
 
@@ -1677,47 +1888,242 @@ def _ks(base: np.ndarray, current: np.ndarray) -> float | None:
     return float(np.max(np.abs(left - right)))
 
 
+def _feature_stability_assessment(
+    variable: str,
+    series: Sequence[Mapping[str, Any]],
+    drift: Sequence[Mapping[str, Any]],
+    *,
+    numeric: bool,
+) -> dict[str, Any]:
+    baseline = series[0] if series else None
+    latest = series[-1] if series else None
+    psi_values = [float(item["psi"]) for item in drift if item.get("psi") is not None]
+    ks_values = [float(item["ks"]) for item in drift if item.get("ks") is not None]
+    psi_max = max(psi_values, default=0.0)
+    ks_max = max(ks_values, default=0.0) if numeric else None
+    coverage = [100.0 - float(item["missingPercent"]) for item in series]
+    coverage_shift = (
+        (100.0 - float(latest["missingPercent"]))
+        - (100.0 - float(baseline["missingPercent"]))
+        if baseline and latest
+        else 0.0
+    )
+    coverage_range = max(coverage) - min(coverage) if coverage else 0.0
+    if psi_max >= 0.25 or (ks_max is not None and ks_max >= 0.20) or coverage_range >= 20.0:
+        status = "MATERIAL_SHIFT"
+    elif psi_max >= 0.10 or (ks_max is not None and ks_max >= 0.10) or coverage_range >= 10.0:
+        status = "REVIEW"
+    else:
+        status = "STABLE"
+    drift_by_period = {str(item["period"]): item for item in drift}
+    baseline_coverage = coverage[0] if coverage else 0.0
+    affected = []
+    for item in series:
+        period = str(item["period"])
+        diagnostic = drift_by_period.get(period) or {}
+        if (
+            float(diagnostic.get("psi") or 0.0) >= 0.10
+            or float(diagnostic.get("ks") or 0.0) >= 0.10
+            or abs((100.0 - float(item["missingPercent"])) - baseline_coverage) >= 10.0
+        ):
+            affected.append(period)
+    baseline_mean = baseline.get("mean") if baseline else None
+    latest_mean = latest.get("mean") if latest else None
+    if numeric and baseline_mean is not None and latest_mean is not None:
+        magnitude = float(latest_mean) - float(baseline_mean)
+        direction = "INCREASE" if magnitude > 0 else "DECREASE" if magnitude < 0 else "UNCHANGED"
+        relative = (
+            float(100.0 * magnitude / abs(float(baseline_mean)))
+            if float(baseline_mean) != 0.0
+            else None
+        )
+    else:
+        magnitude = psi_max
+        direction = "DISTRIBUTION_CHANGE" if psi_max >= 0.10 else "NO_MATERIAL_DIRECTION"
+        relative = None
+    action = (
+        "Inspect the affected development periods and source/coverage lineage before later chronological validation; do not include or exclude the feature from this diagnostic alone."
+        if status != "STABLE"
+        else "Retain as an undecided candidate and confirm stability within later chronological folds."
+    )
+    return {
+        "variable": variable,
+        "status": status,
+        "direction": direction,
+        "magnitude": magnitude,
+        "relativeMagnitudePct": relative,
+        "baselinePeriod": str(baseline["period"]) if baseline else None,
+        "latestPeriod": str(latest["period"]) if latest else None,
+        "affectedPeriods": affected,
+        "psiMax": psi_max,
+        "ksMax": ks_max,
+        "methods": ["PSI", "KS"] if numeric else ["CATEGORICAL_PSI"],
+        "coverageShiftPct": coverage_shift,
+        "coverageRangePct": coverage_range,
+        "likelyCause": (
+            "NO_MATERIAL_SHIFT_DETECTED"
+            if status == "STABLE"
+            else "UNEXPLAINED_DESCRIPTIVE_SHIFT_REQUIRES_REVIEW"
+        ),
+        "recommendedNextAction": action,
+        "decision": "NO_AUTOMATIC_FEATURE_SELECTION_OR_REJECTION",
+    }
+
+
 def _temporal(
     authority: _Authority,
-    variable: str,
+    variables: Sequence[str],
     filters: Mapping[str, Any],
     settings: Mapping[str, Any],
-    data_type: str,
+    data_types: Mapping[str, str],
 ) -> tuple[dict[str, Any], int]:
     granularity = str(settings.get("granularity") or "month").lower()
     if granularity not in {"month", "season"}:
         raise Stage3EdaError("EDA_TEMPORAL_GRANULARITY_INVALID", "Temporal granularity must be month or season.")
-    frame = _scan(authority, ["game_date", "season", "outcome", variable], filters)
+    frame = _scan(
+        authority,
+        [
+            "game_date", "season", "outcome", *variables,
+            "batter_prior_missing", "batter_last100_insufficient",
+            "pitcher_prior_missing", "pitcher_last250_insufficient",
+        ],
+        filters,
+    )
     period = frame["season"].astype(str) if granularity == "season" else frame["game_date"].astype(str).str.slice(0, 7)
-    work = pd.DataFrame({"period": period, "value": frame[variable], "outcome": frame["outcome"]})
-    series = []
-    grouped_values: dict[str, np.ndarray] = {}
-    for label, group in work.groupby("period", sort=True):
-        observed = group["value"].dropna()
-        grouped_values[str(label)] = observed.to_numpy()
-        numeric = pd.to_numeric(observed, errors="coerce").dropna() if data_type == "numeric" else pd.Series(dtype=float)
-        series.append({
-            "period": str(label), "count": int(len(group)),
-            "mean": float(numeric.mean()) if len(numeric) else None,
-            "median": float(numeric.median()) if len(numeric) else None,
-            "missingPercent": _percent(int(group["value"].isna().sum()), len(group)),
-            "targetComposition": _counts(group["outcome"]),
-        })
-    drift = []
-    labels = sorted(grouped_values)
-    if labels:
-        baseline_label = labels[0]
-        baseline = grouped_values[baseline_label]
-        for label in labels:
-            current = grouped_values[label]
-            numeric = data_type == "numeric"
-            drift.append({
-                "period": label, "baselinePeriod": baseline_label,
-                "psi": _psi(baseline, current, not numeric),
-                "ks": _ks(baseline.astype(float), current.astype(float)) if numeric and len(baseline) and len(current) else None,
-                "method": "PSI_AND_KS" if numeric else "CATEGORICAL_PSI",
+    assessment_rows: list[dict[str, Any]] = []
+    series_by_variable: dict[str, list[dict[str, Any]]] = {}
+    drift_by_variable: dict[str, list[dict[str, Any]]] = {}
+    for variable in variables:
+        work = pd.DataFrame(
+            {"period": period, "value": frame[variable], "outcome": frame["outcome"]}
+        )
+        series: list[dict[str, Any]] = []
+        grouped_values: dict[str, np.ndarray] = {}
+        numeric_type = data_types.get(variable) == "numeric"
+        for label, group in work.groupby("period", sort=True):
+            observed = group["value"].dropna()
+            grouped_values[str(label)] = observed.to_numpy()
+            numeric = (
+                pd.to_numeric(observed, errors="coerce").dropna()
+                if numeric_type
+                else pd.Series(dtype=float)
+            )
+            series.append({
+                "period": str(label), "count": int(len(group)),
+                "mean": float(numeric.mean()) if len(numeric) else None,
+                "median": float(numeric.median()) if len(numeric) else None,
+                "missingPercent": _percent(int(group["value"].isna().sum()), len(group)),
+                "targetComposition": _counts(group["outcome"]),
             })
-    return {"variable": variable, "granularity": granularity, "series": series, "drift": drift}, len(frame)
+        drift: list[dict[str, Any]] = []
+        labels = sorted(grouped_values)
+        if labels:
+            baseline_label = labels[0]
+            baseline = grouped_values[baseline_label]
+            for label in labels:
+                current = grouped_values[label]
+                drift.append({
+                    "period": label, "baselinePeriod": baseline_label,
+                    "psi": _psi(baseline, current, not numeric_type),
+                    "ks": (
+                        _ks(baseline.astype(float), current.astype(float))
+                        if numeric_type and len(baseline) and len(current)
+                        else None
+                    ),
+                    "method": "PSI_AND_KS" if numeric_type else "CATEGORICAL_PSI",
+                })
+        series_by_variable[variable] = series
+        drift_by_variable[variable] = drift
+        assessment_rows.append(
+            _feature_stability_assessment(
+                variable,
+                series,
+                drift,
+                numeric=numeric_type,
+            )
+        )
+
+    season_target = []
+    for (season, outcome), count in frame.groupby(["season", "outcome"], dropna=False).size().items():
+        season_rows = int(frame["season"].eq(season).sum())
+        season_target.append({
+            "season": int(season),
+            "value": str(outcome),
+            "count": int(count),
+            "percent": _percent(int(count), season_rows),
+        })
+    target_assessment = _target_mix_assessment(_counts(frame["outcome"]), season_target)[
+        "seasonToSeasonStability"
+    ]
+    cold = (
+        pd.to_numeric(frame["batter_prior_missing"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["batter_last100_insufficient"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["pitcher_prior_missing"], errors="coerce").fillna(0).gt(0)
+        | pd.to_numeric(frame["pitcher_last250_insufficient"], errors="coerce").fillna(0).gt(0)
+    )
+    cold_by_period = [
+        {
+            "period": str(label),
+            "coldStartPercent": _percent(int(cold.loc[index].sum()), len(index)),
+        }
+        for label, index in pd.Series(frame.index, index=period).groupby(level=0).apply(list).items()
+    ]
+    cold_values = [float(item["coldStartPercent"]) for item in cold_by_period]
+    cold_range = max(cold_values) - min(cold_values) if cold_values else 0.0
+    cold_status = (
+        "STABLE" if cold_range <= 5.0
+        else "EXPECTED_SEASONAL_PATTERN" if cold_range <= 10.0
+        else "REVIEW" if cold_range <= 20.0
+        else "MATERIAL_SHIFT"
+    )
+    feature_counts = {
+        "stable": sum(item["status"] == "STABLE" for item in assessment_rows),
+        "moderateReview": sum(item["status"] == "REVIEW" for item in assessment_rows),
+        "highReview": sum(item["status"] == "MATERIAL_SHIFT" for item in assessment_rows),
+        "sourceEraChange": 0,
+    }
+    if feature_counts["highReview"] or target_assessment["status"] == "MATERIAL_SHIFT" or cold_status == "MATERIAL_SHIFT":
+        overall_status = "MATERIAL_SHIFT"
+    elif feature_counts["moderateReview"] or target_assessment["status"] == "REVIEW" or cold_status == "REVIEW":
+        overall_status = "REVIEW"
+    elif target_assessment["status"] == "EXPECTED_SEASONAL_PATTERN" or cold_status == "EXPECTED_SEASONAL_PATTERN":
+        overall_status = "EXPECTED_SEASONAL_PATTERN"
+    else:
+        overall_status = "STABLE"
+    first = variables[0]
+    return {
+        "variable": first,
+        "variables": list(variables),
+        "granularity": granularity,
+        "series": series_by_variable[first],
+        "drift": drift_by_variable[first],
+        "seriesByVariable": series_by_variable,
+        "driftByVariable": drift_by_variable,
+        "stabilityAssessment": {
+            "overallStatus": overall_status,
+            "targetMix": target_assessment,
+            "featureCounts": {"scope": "SELECTED_VARIABLES", **feature_counts},
+            "selectedVariables": assessment_rows,
+            "coldStartShift": {
+                "status": cold_status,
+                "baselinePct": cold_values[0] if cold_values else None,
+                "latestPct": cold_values[-1] if cold_values else None,
+                "maxRangePct": cold_range,
+                "byPeriod": cold_by_period,
+            },
+            "sourceEraChanges": [],
+            "sourceEraEvidenceStatus": "NO_EXACT_SOURCE_ERA_CHANGE_REGISTERED_FOR_SELECTED_VARIABLES",
+            "rowVolumeNote": "Row-volume troughs at season and offseason boundaries are expected schedule structure; they are not feature drift without separate evidence.",
+            "recommendedNextAction": "Review marked variables and their exact coverage/source lineage, then carry all inclusion decisions into chronological validation; this panel does not select or reject features.",
+            "thresholds": {
+                "psiReview": 0.10, "psiMaterial": 0.25,
+                "ksReview": 0.10, "ksMaterial": 0.20,
+                "coverageReviewPct": 10.0, "coverageMaterialPct": 20.0,
+            },
+            "decision": "NO_MODEL_OR_FEATURE_DECISION_MADE",
+            "finalOotTargetsAccessed": False,
+        },
+    }, len(frame)
 
 
 def _cold_start(authority: _Authority, filters: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
@@ -1945,11 +2351,19 @@ def stage3_eda_query(database: Database, project_id: str, payload: Any) -> dict[
         data, rows = _outliers(authority, variables[0], filters, settings)
         aggregation = "SERVER_AGGREGATE_WITH_BOUNDED_EXTREMES"
     elif query_type == "temporal":
-        if len(variables) != 1:
-            raise Stage3EdaError("EDA_VARIABLE_REQUIRED", "temporal requires exactly one variable.")
+        if not 1 <= len(variables) <= MAX_VARIABLES:
+            raise Stage3EdaError("EDA_VARIABLE_REQUIRED", "temporal requires one to six variables.")
         data, rows = _temporal(
-            authority, variables[0], filters, settings,
-            str(variable_meta.get(variables[0], {}).get("dataType") or "categorical"),
+            authority,
+            variables,
+            filters,
+            settings,
+            {
+                variable: str(
+                    variable_meta.get(variable, {}).get("dataType") or "categorical"
+                )
+                for variable in variables
+            },
         )
         aggregation = "SERVER_AGGREGATE"
     else:

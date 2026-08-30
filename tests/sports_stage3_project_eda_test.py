@@ -106,6 +106,8 @@ def test_stage3_metadata_is_exact_project_authority_and_redacts_oot_targets() ->
     assert len([item for item in data["variables"] if item["role"] == "SIMULATION_GENERATED_STATE"]) == 5
     assert len(data["families"]) == 7
     handoff = data["stage3Handoff"]
+    assert handoff["modelingTreatment"]["coldStartRowCount"] == 178_400
+    assert handoff["modelingTreatment"]["coldStartPercent"] == pytest.approx(26.094766127121297)
     assert handoff["sourceAuthority"]["manifestSha"] == SOURCE_MANIFEST_SHA
     assert handoff["goldAuthority"]["manifestSha"] == GOLD_MANIFEST_SHA
     assert handoff["contextualFeaturePack"]["manifestSha256"] == CONTEXT_MANIFEST_SHA
@@ -164,6 +166,23 @@ def test_stage3_metadata_is_exact_project_authority_and_redacts_oot_targets() ->
         "finalOotFeatureCoverage": "OMITTED",
         "previewRows": "OMITTED",
     }
+    guidance = data["decisionGuidance"]
+    assert guidance["defaultAnalyticalTab"] == "TARGET_AND_CLASS_BALANCE"
+    assert guidance["defaultStabilityVariableExcluded"] == "context_inning"
+    assert "context_inning" not in guidance["defaultStabilityVariables"]
+    assert guidance["defaultStabilityVariables"] == [
+        "batter_last100_contact_rate",
+        "pitcher_last250_strikeout_rate",
+        "batter_avg",
+        "pitcher_era9",
+        "batting_games_last_7_days",
+        "batting_travel_distance_miles",
+    ]
+    selectable_names = {
+        item["name"] for item in data["variables"] if item["selectable"]
+    }
+    assert set(guidance["defaultStabilityVariables"]) <= selectable_names
+    assert guidance["selectionAuthority"] == "NONE_DESCRIPTIVE_EDA_ONLY"
     json.dumps(response, allow_nan=False)
 
 
@@ -180,7 +199,7 @@ def test_stage3_filters_are_real_and_pairwise_sampling_is_deterministic() -> Non
             "simulationState": {"field": "context_outs_before", "value": 2},
             "minimumSampleSize": 1,
         },
-        "settings": {"sampleSize": 25, "seed": 42},
+        "settings": {"sampleSize": 25, "seed": 42, "stratifyBy": "outcome"},
     }
 
     first = stage3_eda.stage3_eda_query(database, PROJECT_ID, payload)
@@ -205,6 +224,8 @@ def test_stage3_filters_are_real_and_pairwise_sampling_is_deterministic() -> Non
     assert first["data"]["rows"] == second["data"]["rows"]
     assert len(first["data"]["rows"]) == 25
     assert all("canonicalPaId" not in row for row in first["data"]["rows"])
+    assert first["data"]["stratifyBy"] == "outcome"
+    assert all(row["outcome"] in stage3_eda.GOLD_CLASS_ORDER for row in first["data"]["rows"])
     assert second["cacheStatus"] == "HIT"
     json.dumps(first, allow_nan=False)
 
@@ -278,7 +299,7 @@ def test_stage3_overview_and_cold_start_are_development_only() -> None:
         {
             "queryType": "overview",
             "variables": [],
-            "filters": {"seasons": [2026]},
+            "filters": {},
             "settings": {},
         },
     )
@@ -292,6 +313,62 @@ def test_stage3_overview_and_cold_start_are_development_only() -> None:
     assert overview_membership["finalOotExcludedRows"] == 0
     assert overview["data"]["targetByMonth"]
     assert overview["data"]["targetBySimulationState"]
+    target = overview["data"]["targetSummary"]
+    assert target["dominantClass"] == {
+        "value": "BIP_OUT",
+        "count": 308_513,
+        "percent": pytest.approx(45.12653913776106),
+    }
+    assert target["rarestClass"] == {
+        "value": "TRIPLE",
+        "count": 2_519,
+        "percent": pytest.approx(0.36845692754606807),
+    }
+    assert target["imbalanceRatio"] == pytest.approx(122.47439460103216)
+    assert target["seasonToSeasonStability"] == {
+        "status": "EXPECTED_SEASONAL_PATTERN",
+        "method": "MAX_CLASS_SHARE_RANGE_PERCENTAGE_POINTS",
+        "maxClassShareRangePct": pytest.approx(1.2114918702795734),
+        "mostVariableClass": "BIP_OUT",
+        "representedSeasons": [2023, 2024, 2025, 2026],
+        "thresholdsPct": {
+            "stableMax": 0.75,
+            "expectedSeasonalMax": 1.5,
+            "reviewMax": 3.0,
+        },
+    }
+    assert target["minimumRareClassSampleSize"] == 494
+    assert target["minimumRareClassSeason"] == 2026
+    assert target["decision"] == "DESCRIPTIVE_ONLY_NO_CLASS_REBALANCING_DECISION"
+    assert target["finalOotTargetsAccessed"] is False
+
+    quality = overview["data"]["dataQualitySnapshot"]
+    assert quality["overallPhysicalMissingPercent"] == pytest.approx(
+        8.125505887849862
+    )
+    assert quality["scope"] == "DEVELOPMENT_ONLY_WITH_EXPLICIT_SUBSCOPES"
+    assert quality["overallPhysicalMissingnessScope"] == (
+        "ALL_REGISTERED_DEVELOPMENT_PREDICTOR_CELLS"
+    )
+    assert quality["predictorCount"] == 254
+    assert quality["coldStartRows"] == 178_400
+    assert quality["coldStartPercent"] == pytest.approx(26.094766127121297)
+    assert quality["materialMissingnessThresholdPct"] == 10.0
+    assert quality["featuresWithMaterialMissingness"] == 28
+    assert quality["failureReasonRows"] == {
+        "scope": "TEAM_GAME_CONTEXT_ROW_REASON_ANY_SIDE",
+        "computationFailureRows": 0,
+        "sourceMissingRows": 679_292,
+        "sourceNotAvailableForEraRows": 0,
+        "note": "Exact row-union counts for the registered batting/fielding team-game missing-reason fields; not a per-feature causal ledger.",
+    }
+    assert quality["potentialDescriptiveOutliers"]["variable"] == "pitcher_era9"
+    assert quality["potentialDescriptiveOutliers"]["method"] == "IQR_1_5"
+    assert quality["potentialDescriptiveOutliers"]["count"] == 31_793
+    assert quality["potentialDescriptiveOutliers"]["treatmentApplied"] is False
+    assert quality["actions"] == ["OPEN_MISSING_VALUES", "OPEN_OUTLIERS"]
+    assert quality["decision"] == "NO_TREATMENT_APPLIED"
+    assert quality["finalOotTargetsAccessed"] is False
 
     cold = stage3_eda.stage3_eda_query(
         database,
@@ -311,3 +388,62 @@ def test_stage3_overview_and_cold_start_are_development_only() -> None:
     assert cold["data"]["pitcher"]["affectedGames"] > 0
     assert cold["data"]["pitcher"]["affectedTeams"] == 30
     json.dumps(cold, allow_nan=False)
+
+
+def test_stage3_temporal_returns_written_multi_variable_stability_without_deciding() -> None:
+    response = stage3_eda.stage3_eda_query(
+        _require_current_authority(),
+        PROJECT_ID,
+        {
+            "queryType": "temporal",
+            "variables": [
+                "batter_last100_contact_rate",
+                "pitcher_last250_strikeout_rate",
+            ],
+            "filters": {"seasons": [2026]},
+            "settings": {"granularity": "month"},
+        },
+    )
+
+    _assert_no_model_or_oot_activity(response)
+    data = response["data"]
+    assert data["variable"] == "batter_last100_contact_rate"
+    assert data["variables"] == [
+        "batter_last100_contact_rate",
+        "pitcher_last250_strikeout_rate",
+    ]
+    assert set(data["seriesByVariable"]) == set(data["variables"])
+    assert set(data["driftByVariable"]) == set(data["variables"])
+    assert data["series"] == data["seriesByVariable"][data["variable"]]
+    assert data["drift"] == data["driftByVariable"][data["variable"]]
+
+    assessment = data["stabilityAssessment"]
+    assert assessment["overallStatus"] in {
+        "STABLE", "EXPECTED_SEASONAL_PATTERN", "REVIEW", "MATERIAL_SHIFT"
+    }
+    assert assessment["targetMix"]["status"] == "REVIEW"
+    assert assessment["targetMix"]["representedSeasons"] == [2026]
+    counts = assessment["featureCounts"]
+    assert counts["scope"] == "SELECTED_VARIABLES"
+    assert (
+        counts["stable"]
+        + counts["moderateReview"]
+        + counts["highReview"]
+        + counts["sourceEraChange"]
+    ) == 2
+    assert [item["variable"] for item in assessment["selectedVariables"]] == data[
+        "variables"
+    ]
+    assert all(
+        item["decision"] == "NO_AUTOMATIC_FEATURE_SELECTION_OR_REJECTION"
+        for item in assessment["selectedVariables"]
+    )
+    assert assessment["coldStartShift"]["byPeriod"]
+    assert assessment["sourceEraChanges"] == []
+    assert assessment["sourceEraEvidenceStatus"] == (
+        "NO_EXACT_SOURCE_ERA_CHANGE_REGISTERED_FOR_SELECTED_VARIABLES"
+    )
+    assert "offseason" in assessment["rowVolumeNote"].lower()
+    assert assessment["decision"] == "NO_MODEL_OR_FEATURE_DECISION_MADE"
+    assert assessment["finalOotTargetsAccessed"] is False
+    json.dumps(response, allow_nan=False)

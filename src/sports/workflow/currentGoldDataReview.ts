@@ -177,6 +177,8 @@ export type CurrentGoldDataReview = {
   leakageGate: Stage2Check;
   modelingTreatment: {
     coldStartRows: string;
+    coldStartRowCount?: number;
+    coldStartPercent?: number;
     imputation: string;
     missingFlags: string;
     globalImputation: string;

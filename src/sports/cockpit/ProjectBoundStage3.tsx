@@ -174,6 +174,61 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-1 text-lg font-semibold tabular-nums text-slate-950">{value}</div><div className="mt-0.5 text-[11px] text-slate-500">{detail}</div></div>;
 }
 
+export function ProjectBoundStage3ProfileShell({
+  state,
+  children,
+}: {
+  state: CurrentGoldReviewState;
+  children: ReactNode;
+}) {
+  return (
+    <ReviewGate state={state}>{(review) => {
+      const candidateCount = review.contextualFeaturePack?.totalFeatureCount ?? review.matrix.predictorCount;
+      const identityIssues =
+        review.identity.unresolvedPlayerIdentities
+        + review.identity.ambiguousPlayerIdentities
+        + review.identity.unresolvedGameIdentities
+        + review.identity.ambiguousGameIdentities
+        + review.identity.duplicateCanonicalPaIdentities
+        + review.identity.duplicatePlateAppearanceIdentities
+        + review.identity.nullIdentityRows;
+
+      return (
+        <div className="space-y-4" data-testid="stage3-project-bound-profile-shell">
+          <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="stage3-eda-persistent-summary">
+            <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-700"><Layers size={13} /> Analysis summary</div>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">DEVELOPMENT ONLY</span>
+              <span className="ml-auto text-[10px] text-slate-500">Project-bound authority · {shortSha(review.reviewDigest)}</span>
+            </div>
+            <dl className="grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+              <SummaryDatum label="Development rows" value={int(review.matrix.development.rows)} />
+              <SummaryDatum label="Target classes" value={int(review.targetTaxonomy.classOrder.length)} />
+              <SummaryDatum label="Candidate predictors" value={int(candidateCount)} />
+              <SummaryDatum
+                label="Cold-start prevalence"
+                value={review.modelingTreatment.coldStartPercent === undefined
+                  ? review.modelingTreatment.coldStartRows
+                  : `${review.modelingTreatment.coldStartPercent.toFixed(1)}% · ${int(review.modelingTreatment.coldStartRowCount ?? 0)} rows`}
+              />
+              <SummaryDatum label="Final OOT rows" value={`${int(review.matrix.finalOot.rows)} · LOCKED`} accent />
+              <SummaryDatum label="Identity" value={identityIssues === 0 ? "PASS" : `${int(identityIssues)} ISSUES`} accent={identityIssues > 0} />
+              <SummaryDatum label="Point in time" value={review.pointInTimeReview.status} accent={review.pointInTimeReview.status !== "PASS"} />
+              <SummaryDatum label="Leakage" value={review.leakageGate.status} accent={review.leakageGate.status !== "PASS"} />
+            </dl>
+          </section>
+
+          {children}
+        </div>
+      );
+    }}</ReviewGate>
+  );
+}
+
+function SummaryDatum({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return <div className={accent ? "bg-amber-50 px-3 py-2" : "bg-white px-3 py-2"}><dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt><dd className={`mt-0.5 break-words text-xs font-semibold tabular-nums ${accent ? "text-amber-900" : "text-slate-900"}`}>{value}</dd></div>;
+}
+
 export function ProjectBoundPopulation({ state, go }: { state: CurrentGoldReviewState; go?: (id: string) => void }) {
   const { markSaved, savedSteps } = useCockpitStore();
   return (
@@ -323,8 +378,10 @@ export function ProjectBoundLaterStepGate({
   let handoff: null | {
     destination?: string;
     selectedVariables?: string[];
+    bookmarkedVariables?: string[];
     filters?: Record<string, unknown>;
     authorityKey?: string;
+    sourceTab?: string;
     createdAt?: string;
   } = null;
   try {
@@ -359,10 +416,11 @@ export function ProjectBoundLaterStepGate({
           <div className="mt-4 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-slate-700" data-testid="stage3-eda-handoff-acknowledgment">
             <div className="font-semibold text-cyan-900">Data Profile handoff acknowledged</div>
             <p className="mt-1">
-              {int(acceptedHandoff.selectedVariables?.length ?? 0)} selected variable(s) and {int(Object.keys(acceptedHandoff.filters ?? {}).length)} active filter(s) are preserved for this step.
+              {int(acceptedHandoff.selectedVariables?.length ?? 0)} selected variable(s), {int(acceptedHandoff.bookmarkedVariables?.length ?? 0)} bookmarked variable(s), and {int(Object.keys(acceptedHandoff.filters ?? {}).length)} active filter(s) are preserved from {acceptedHandoff.sourceTab?.replaceAll("_", " ") ?? "Data Profile"}.
               Authority <span className="font-mono">{review.reviewDigest.slice(0, 14)}…</span> matches the current project binding.
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">{(acceptedHandoff.selectedVariables ?? []).map((name) => <span key={name} className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 font-mono text-[10px] text-cyan-900">{name}</span>)}</div>
+            {(acceptedHandoff.bookmarkedVariables ?? []).length ? <div className="mt-2 flex flex-wrap gap-1.5">{(acceptedHandoff.bookmarkedVariables ?? []).map((name) => <span key={name} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-mono text-[10px] text-amber-900">★ {name}</span>)}</div> : null}
             {Object.keys(acceptedHandoff.filters ?? {}).length ? <pre className="mt-2 max-h-36 overflow-auto rounded-lg bg-slate-950 p-2 font-mono text-[10px] leading-4 text-slate-200">{JSON.stringify(acceptedHandoff.filters, null, 2)}</pre> : null}
             <p className="mt-1 text-[11px] text-slate-500">The handoff is a bookmark only. This downstream step remains held closed and makes no analytical or model request.</p>
           </div>

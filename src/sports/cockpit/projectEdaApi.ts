@@ -49,7 +49,78 @@ export type ProjectEdaVariable = {
   selectable: boolean;
   core: boolean;
   proxyWarning: string | null;
+  /** Optional server-authored rationale. Older metadata falls back to the governed client rationale below. */
+  selectionReason?: string | null;
 };
+
+export type ProjectEdaVariableSelection = {
+  code: "CORE_PREDICTOR" | "CONTEXTUAL_CANDIDATE" | "SIMULATOR_STATE" | "MISSINGNESS_INDICATOR" | "TARGET_STRATIFICATION_ONLY" | "FILTER_OR_LINEAGE_ONLY" | "GOVERNANCE_LOCKED";
+  selectable: boolean;
+  label: string;
+  detail: string;
+};
+
+/**
+ * Explain why a metadata field can or cannot enter an analytical variable set.
+ * This never changes server selectability and never promotes a variable into a
+ * model; it only makes the existing governed metadata decision visible.
+ */
+export function projectEdaVariableSelection(variable: ProjectEdaVariable): ProjectEdaVariableSelection {
+  if (variable.selectable) {
+    if (variable.role === "SIMULATION_GENERATED_STATE") {
+      return {
+        code: "SIMULATOR_STATE",
+        selectable: true,
+        label: "Selectable simulator state",
+        detail: variable.selectionReason || "Supplied by the simulator at forecast time; available for descriptive development-only analysis.",
+      };
+    }
+    if (variable.role === "MISSINGNESS_INDICATOR") {
+      return {
+        code: "MISSINGNESS_INDICATOR",
+        selectable: true,
+        label: "Selectable missingness indicator",
+        detail: variable.selectionReason || "May be explored as an explicit indicator; selection here is not a feature-adoption decision.",
+      };
+    }
+    if (variable.core) {
+      return {
+        code: "CORE_PREDICTOR",
+        selectable: true,
+        label: "Selectable Core Gold predictor",
+        detail: variable.selectionReason || "Registered Core Gold-48 predictor with reviewed point-in-time treatment.",
+      };
+    }
+    return {
+      code: "CONTEXTUAL_CANDIDATE",
+      selectable: true,
+      label: "Selectable contextual candidate",
+      detail: variable.selectionReason || "Registered contextual candidate available for descriptive review; not automatically adopted for modeling.",
+    };
+  }
+  if (variable.role === "TARGET") {
+    return {
+      code: "TARGET_STRATIFICATION_ONLY",
+      selectable: false,
+      label: "Target is stratification-only",
+      detail: variable.selectionReason || "The governed outcome may be used only through development-safe target controls, never as an input variable.",
+    };
+  }
+  if (["IDENTIFIER", "GROUPING", "TIME", "RESEARCH_ONLY"].includes(variable.role)) {
+    return {
+      code: "FILTER_OR_LINEAGE_ONLY",
+      selectable: false,
+      label: "Metadata / filter only",
+      detail: variable.selectionReason || "Retained for lineage, grouping, or filtering and hidden from analytical variable choices by default.",
+    };
+  }
+  return {
+    code: "GOVERNANCE_LOCKED",
+    selectable: false,
+    label: "Not selectable",
+    detail: variable.selectionReason || variable.proxyWarning || "The registered variable contract does not authorize analytical selection.",
+  };
+}
 
 export type ProjectEdaFamily = {
   name: string;
@@ -92,6 +163,12 @@ export type ProjectEdaMetadata = {
   filterOptions: { seasons: number[]; months: number[]; outcomes: string[] };
   queryLimits: { maxVariables: number; maxSampleRows: number; maxBins: number; maxCategories: number };
   notices: string[];
+  decisionGuidance: {
+    defaultAnalyticalTab: "TARGET_AND_CLASS_BALANCE";
+    defaultStabilityVariables: string[];
+    defaultStabilityVariableExcluded: "context_inning";
+    selectionAuthority: "NONE_DESCRIPTIVE_EDA_ONLY";
+  };
 };
 
 export type ProjectEdaEnvelope<T> = {
@@ -130,6 +207,51 @@ export type OverviewData = {
       reasonStatus: string;
       unsupportedConcentrations: string[];
     };
+  };
+  targetSummary: {
+    dominantClass: { value: string; count: number; percent: number } | null;
+    rarestClass: { value: string; count: number; percent: number } | null;
+    imbalanceRatio: number | null;
+    seasonToSeasonStability: {
+      status: string;
+      method: string;
+      maxClassShareRangePct: number | null;
+      mostVariableClass: string | null;
+      thresholdsPct?: Record<string, number>;
+    };
+    minimumRareClassSampleSize: number;
+    minimumRareClassSeason: number | null;
+    status: string;
+    conclusion: string;
+    decision: string;
+    finalOotTargetsAccessed: false;
+  };
+  dataQualitySnapshot: {
+    overallPhysicalMissingPercent: number;
+    coldStartRows: number;
+    coldStartPercent: number;
+    materialMissingnessThresholdPct: number;
+    featuresWithMaterialMissingness: number;
+    materialMissingFeatures: { name: string; missingPercent: number }[];
+    failureReasonRows: {
+      scope: string;
+      computationFailureRows: number;
+      sourceMissingRows: number;
+      sourceNotAvailableForEraRows: number;
+      note: string;
+    };
+    potentialDescriptiveOutliers: {
+      scope: string;
+      variable: string;
+      method: string;
+      count: number;
+      lowerThreshold: number | null;
+      upperThreshold: number | null;
+      treatmentApplied: false;
+    };
+    actions: string[];
+    decision: string;
+    finalOotTargetsAccessed: false;
   };
   targetDistribution: { value: string; count: number; percent: number }[];
   targetBySeason: { season: number; value: string; count: number; percent: number }[];
@@ -170,6 +292,7 @@ export type PairwiseData = {
   sampleSize: number;
   seed: number;
   method: "HASH_SMALLEST_CANONICAL_PA_V1";
+  stratifyBy?: "outcome" | null;
   rows: Record<string, string | number | null>[];
 };
 
@@ -191,9 +314,43 @@ export type OutliersData = {
 
 export type TemporalData = {
   variable: string;
+  variables: string[];
   granularity: string;
   series: { period: string; count: number; mean: number | null; median: number | null; missingPercent: number; targetComposition: { value: string; count: number; percent: number }[] }[];
   drift: { period: string; baselinePeriod: string; psi: number | null; ks: number | null; method: string }[];
+  seriesByVariable: Record<string, { period: string; count: number; mean: number | null; median: number | null; missingPercent: number; targetComposition: { value: string; count: number; percent: number }[] }[]>;
+  driftByVariable: Record<string, { period: string; baselinePeriod: string; psi: number | null; ks: number | null; method: string }[]>;
+  stabilityAssessment: {
+    overallStatus: string;
+    targetMix: { status: string; method: string; maxClassShareRangePct: number | null; mostVariableClass: string | null };
+    featureCounts: { scope: string; stable: number; moderateReview: number; highReview: number; sourceEraChange: number };
+    selectedVariables: {
+      variable: string;
+      status: string;
+      direction: string;
+      magnitude: number | null;
+      relativeMagnitudePct: number | null;
+      baselinePeriod: string | null;
+      latestPeriod: string | null;
+      affectedPeriods: string[];
+      psiMax: number;
+      ksMax: number | null;
+      methods: string[];
+      coverageShiftPct: number;
+      coverageRangePct: number;
+      likelyCause: string;
+      recommendedNextAction: string;
+      decision: string;
+    }[];
+    coldStartShift: { status: string; baselinePct: number | null; latestPct: number | null; maxRangePct: number; byPeriod: { period: string; coldStartPercent: number }[] };
+    sourceEraChanges: unknown[];
+    sourceEraEvidenceStatus: string;
+    rowVolumeNote: string;
+    recommendedNextAction: string;
+    thresholds: Record<string, number>;
+    decision: string;
+    finalOotTargetsAccessed: false;
+  };
 };
 
 export type ColdStartData = {
