@@ -63,11 +63,12 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             assert all(record["promotionStatus"] == "NOT_PROMOTED" for record in verified.record["forecasts"])
             assert all(record["executionStatus"] == "NOT_EXECUTABLE" for record in verified.record["forecasts"])
         locator = X.verify_nfl_2026_research_shadow_locator(exchange)
-        assert locator["schemaVersion"] == "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1"
-        assert locator["bundleCount"] == first["bundleCount"]
-        assert locator["bundleSha256s"] == sorted(item["bundleSha256"] for item in first["bundles"])
-        assert locator["bundleListSha256"] == hashlib.sha256(
-            canonical_json_bytes(locator["bundleSha256s"])
+        assert locator["schemaVersion"] == "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2"
+        assert locator["currentBundleCount"] == first["bundleCount"]
+        assert locator["currentBundleSha256s"] == sorted(item["bundleSha256"] for item in first["bundles"])
+        assert locator["historicalBundleSha256s"] == []
+        assert locator["currentBundleListSha256"] == hashlib.sha256(
+            canonical_json_bytes(locator["currentBundleSha256s"])
         ).hexdigest()
         feature_objects_before = sorted((publication / "feature-vectors" / "sha256").iterdir())
         second = P.activate_2026_shadow(
@@ -78,8 +79,10 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         )
         assert second["forecastsCreated"] == 0
         assert second["bundleCount"] == 0
-        assert second["exchangeLocatorBundleCount"] == first["bundleCount"]
-        assert X.verify_nfl_2026_research_shadow_locator(exchange)["bundleSha256s"] == locator["bundleSha256s"]
+        assert second["exchangeLocatorCurrentBundleCount"] == first["bundleCount"]
+        second_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert second_locator["currentBundleListSha256"] == locator["currentBundleListSha256"]
+        assert second_locator["historicalBundleListSha256"] == locator["historicalBundleListSha256"]
         assert sorted((publication / "feature-vectors" / "sha256").iterdir()) == feature_objects_before
         revised = P.activate_2026_shadow(
             publication_root=publication,
@@ -94,6 +97,19 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             value["CURRENT"][-1]["producerRevision"] == "1111111111111111111111111111111111111111"
             for value in index["events"].values()
         )
+        revised_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert revised_locator["currentBundleCount"] == first["bundleCount"]
+        assert revised_locator["historicalBundleCount"] == first["bundleCount"]
+        assert not set(revised_locator["currentBundleSha256s"]) & set(revised_locator["historicalBundleSha256s"])
+        current_records = [
+            child
+            for digest in revised_locator["currentBundleSha256s"]
+            for child in X.verify_sports_forecast_bundle(exchange, digest).record["forecasts"]
+        ]
+        assert len(current_records) == 4
+        assert len({(child["eventId"], child["snapshotType"]) for child in current_records}) == 4
+        assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "EARLY"} == {1}
+        assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "CURRENT"} == {2}
         first_target = bounded_targets(P.load_foundation_runtime(), as_of=cutoff)[0][0]
         final_cutoff = first_target["scheduled_start_utc"] - timedelta(minutes=25)
         final = P.activate_2026_shadow(
@@ -104,20 +120,30 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             producer_revision="1111111111111111111111111111111111111111",
         )
         assert final["forecastsCreated"] == 1
-        assert P.activate_2026_shadow(
+        final_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert final["exchangeLocatorCurrentForecastCount"] == 5
+        repeat_final = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
             as_of=final_cutoff + timedelta(minutes=5),
             snapshot_types=("FINAL_PREGAME",),
             producer_revision="1111111111111111111111111111111111111111",
-        )["forecastsCreated"] == 0
-        assert P.activate_2026_shadow(
+        )
+        assert repeat_final["forecastsCreated"] == 0
+        repeat_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert repeat_locator["currentBundleListSha256"] == final_locator["currentBundleListSha256"]
+        assert repeat_locator["historicalBundleListSha256"] == final_locator["historicalBundleListSha256"]
+        late_final = P.activate_2026_shadow(
             publication_root=publication,
             exchange_root=exchange,
             as_of=final_cutoff + timedelta(minutes=11),
             snapshot_types=("FINAL_PREGAME",),
             producer_revision="1111111111111111111111111111111111111111",
-        )["forecastsCreated"] == 0
+        )
+        assert late_final["forecastsCreated"] == 0
+        late_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
+        assert late_locator["currentBundleListSha256"] == final_locator["currentBundleListSha256"]
+        assert late_locator["historicalBundleListSha256"] == final_locator["historicalBundleListSha256"]
         index = json.loads((publication / "prospective-index.json").read_text(encoding="utf-8"))
         assert len(index["events"]) == 2
         assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 2 for value in index["events"].values())

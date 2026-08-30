@@ -26,7 +26,7 @@ from ..sports_cockpit.path_containment import ContainmentError, contained_no_rep
 ASP_SPORTS_FORECAST_EXCHANGE_V1 = "ASP_SPORTS_FORECAST_EXCHANGE_V1"
 ASP_SPORTS_GAME_FORECAST_V1 = "ASP_SPORTS_GAME_FORECAST_V1"
 ASP_SPORTS_FORECAST_IMPORT_FIXTURE_V1 = "ASP_SPORTS_FORECAST_IMPORT_FIXTURE_V1"
-ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1 = "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1"
+ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2 = "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2"
 BUNDLE_OBJECT_FAMILY = "aisp-daily-forecast-bundles"
 NFL_2026_RESEARCH_SHADOW_INDEX_NAME = "nfl-2026-research-shadow-index.json"
 FORECAST_ID_PREFIX = "asp-sports-game-forecast:sha256:"
@@ -490,8 +490,9 @@ def write_sports_forecast_bundle(external_root: Path, value: Mapping[str, Any]) 
 _NFL_INDEX_FIELDS = {
     "schemaVersion", "sport", "league", "season", "status", "researchShadowOnly",
     "bundleContractVersion", "forecastContractVersion", "modelManifestSha256",
-    "modelBinarySha256", "featureContractSha256", "updatedAtUtc", "bundleCount",
-    "bundleSha256s", "bundleListSha256",
+    "modelBinarySha256", "featureContractSha256", "updatedAtUtc",
+    "currentBundleCount", "currentBundleSha256s", "currentBundleListSha256",
+    "historicalBundleCount", "historicalBundleSha256s", "historicalBundleListSha256",
 }
 
 
@@ -500,7 +501,7 @@ def _validate_nfl_2026_locator(value: Mapping[str, Any]) -> dict[str, Any]:
 
     item = _exact(value, _NFL_INDEX_FIELDS, "NFL 2026 research-shadow locator")
     if (
-        item["schemaVersion"] != ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1
+        item["schemaVersion"] != ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2
         or item["sport"] != "NFL"
         or item["league"] != "NFL"
         or item["season"] != 2026
@@ -510,22 +511,33 @@ def _validate_nfl_2026_locator(value: Mapping[str, Any]) -> dict[str, Any]:
         or item["forecastContractVersion"] != ASP_SPORTS_GAME_FORECAST_V1
     ):
         raise SportsForecastExchangeError("NFL 2026 locator identity/disposition differs")
-    if not isinstance(item["bundleSha256s"], list) or not item["bundleSha256s"]:
-        raise SportsForecastExchangeError("NFL 2026 locator bundle list must be non-empty")
-    bundle_shas = [_sha(value, "bundleSha256s[]") for value in item["bundleSha256s"]]
-    if bundle_shas != sorted(set(bundle_shas)):
-        raise SportsForecastExchangeError("NFL 2026 locator bundle list must be sorted and unique")
-    if _integer(item["bundleCount"], "bundleCount", minimum=1) != len(bundle_shas):
-        raise SportsForecastExchangeError("NFL 2026 locator bundle count differs")
-    list_sha = hashlib.sha256(canonical_json_bytes(bundle_shas)).hexdigest()
-    if _sha(item["bundleListSha256"], "bundleListSha256") != list_sha:
-        raise SportsForecastExchangeError("NFL 2026 locator bundle-list hash differs")
+    if not isinstance(item["currentBundleSha256s"], list) or not item["currentBundleSha256s"]:
+        raise SportsForecastExchangeError("NFL 2026 locator current bundle list must be non-empty")
+    if not isinstance(item["historicalBundleSha256s"], list):
+        raise SportsForecastExchangeError("NFL 2026 locator historical bundle list must be a list")
+    current_shas = [_sha(value, "currentBundleSha256s[]") for value in item["currentBundleSha256s"]]
+    historical_shas = [_sha(value, "historicalBundleSha256s[]") for value in item["historicalBundleSha256s"]]
+    for label, values in (("current", current_shas), ("historical", historical_shas)):
+        if values != sorted(set(values)):
+            raise SportsForecastExchangeError(f"NFL 2026 locator {label} bundle list must be sorted and unique")
+    if set(current_shas) & set(historical_shas):
+        raise SportsForecastExchangeError("NFL 2026 locator current and historical bundle lists overlap")
+    if _integer(item["currentBundleCount"], "currentBundleCount", minimum=1) != len(current_shas):
+        raise SportsForecastExchangeError("NFL 2026 locator current bundle count differs")
+    if _integer(item["historicalBundleCount"], "historicalBundleCount") != len(historical_shas):
+        raise SportsForecastExchangeError("NFL 2026 locator historical bundle count differs")
+    current_list_sha = hashlib.sha256(canonical_json_bytes(current_shas)).hexdigest()
+    historical_list_sha = hashlib.sha256(canonical_json_bytes(historical_shas)).hexdigest()
+    if _sha(item["currentBundleListSha256"], "currentBundleListSha256") != current_list_sha:
+        raise SportsForecastExchangeError("NFL 2026 locator current bundle-list hash differs")
+    if _sha(item["historicalBundleListSha256"], "historicalBundleListSha256") != historical_list_sha:
+        raise SportsForecastExchangeError("NFL 2026 locator historical bundle-list hash differs")
     model_manifest = _sha(item["modelManifestSha256"], "modelManifestSha256")
     model_binary = _sha(item["modelBinarySha256"], "modelBinarySha256")
     if model_manifest != PINNED_NFL_M1_MANIFEST_SHA256 or model_binary != PINNED_NFL_M1_BINARY_SHA256:
         raise SportsForecastExchangeError("NFL 2026 locator pinned model identity differs")
     return {
-        "schemaVersion": ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1,
+        "schemaVersion": ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2,
         "sport": "NFL", "league": "NFL", "season": 2026,
         "status": "RESEARCH_SHADOW", "researchShadowOnly": True,
         "bundleContractVersion": ASP_SPORTS_FORECAST_EXCHANGE_V1,
@@ -534,9 +546,12 @@ def _validate_nfl_2026_locator(value: Mapping[str, Any]) -> dict[str, Any]:
         "modelBinarySha256": model_binary,
         "featureContractSha256": _sha(item["featureContractSha256"], "featureContractSha256"),
         "updatedAtUtc": _utc(item["updatedAtUtc"], "updatedAtUtc"),
-        "bundleCount": len(bundle_shas),
-        "bundleSha256s": bundle_shas,
-        "bundleListSha256": list_sha,
+        "currentBundleCount": len(current_shas),
+        "currentBundleSha256s": current_shas,
+        "currentBundleListSha256": current_list_sha,
+        "historicalBundleCount": len(historical_shas),
+        "historicalBundleSha256s": historical_shas,
+        "historicalBundleListSha256": historical_list_sha,
     }
 
 
@@ -556,7 +571,7 @@ def verify_nfl_2026_research_shadow_locator(external_root: Path) -> Mapping[str,
     record = _validate_nfl_2026_locator(_strict_json(payload, "NFL 2026 locator"))
     if payload != canonical_json_bytes(record):
         raise SportsForecastExchangeError("NFL 2026 locator is not canonical JSON")
-    for digest in record["bundleSha256s"]:
+    for digest in (*record["currentBundleSha256s"], *record["historicalBundleSha256s"]):
         verified = verify_sports_forecast_bundle(root, digest)
         if verified.record["sport"] != "NFL" or verified.record["season"] != 2026:
             raise SportsForecastExchangeError("NFL 2026 locator named a non-NFL/2026 bundle")
@@ -566,20 +581,24 @@ def verify_nfl_2026_research_shadow_locator(external_root: Path) -> Mapping[str,
 def write_nfl_2026_research_shadow_locator(
     external_root: Path,
     *,
-    bundle_sha256s: Sequence[str],
+    current_bundle_sha256s: Sequence[str],
+    historical_bundle_sha256s: Sequence[str],
     feature_contract_sha256: str,
     updated_at_utc: str,
 ) -> Mapping[str, Any]:
     """Atomically replace only the locator after every listed object verifies."""
 
     root = _root(external_root)
-    bundle_shas = sorted({_sha(value, "bundle_sha256s[]") for value in bundle_sha256s})
-    if not bundle_shas:
-        raise SportsForecastExchangeError("cannot publish an empty NFL 2026 locator")
-    for digest in bundle_shas:
+    current_shas = sorted({_sha(value, "current_bundle_sha256s[]") for value in current_bundle_sha256s})
+    historical_shas = sorted({_sha(value, "historical_bundle_sha256s[]") for value in historical_bundle_sha256s})
+    if not current_shas:
+        raise SportsForecastExchangeError("cannot publish an empty NFL 2026 current locator")
+    if set(current_shas) & set(historical_shas):
+        raise SportsForecastExchangeError("current and historical locator inputs overlap")
+    for digest in (*current_shas, *historical_shas):
         verify_sports_forecast_bundle(root, digest)
     record = _validate_nfl_2026_locator({
-        "schemaVersion": ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1,
+        "schemaVersion": ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2,
         "sport": "NFL", "league": "NFL", "season": 2026,
         "status": "RESEARCH_SHADOW", "researchShadowOnly": True,
         "bundleContractVersion": ASP_SPORTS_FORECAST_EXCHANGE_V1,
@@ -588,9 +607,12 @@ def write_nfl_2026_research_shadow_locator(
         "modelBinarySha256": PINNED_NFL_M1_BINARY_SHA256,
         "featureContractSha256": feature_contract_sha256,
         "updatedAtUtc": updated_at_utc,
-        "bundleCount": len(bundle_shas),
-        "bundleSha256s": bundle_shas,
-        "bundleListSha256": hashlib.sha256(canonical_json_bytes(bundle_shas)).hexdigest(),
+        "currentBundleCount": len(current_shas),
+        "currentBundleSha256s": current_shas,
+        "currentBundleListSha256": hashlib.sha256(canonical_json_bytes(current_shas)).hexdigest(),
+        "historicalBundleCount": len(historical_shas),
+        "historicalBundleSha256s": historical_shas,
+        "historicalBundleListSha256": hashlib.sha256(canonical_json_bytes(historical_shas)).hexdigest(),
     })
     family = root / BUNDLE_OBJECT_FAMILY
     family.mkdir(parents=True, exist_ok=True)
@@ -612,4 +634,4 @@ def write_nfl_2026_research_shadow_locator(
     return verify_nfl_2026_research_shadow_locator(root)
 
 
-__all__ = ["ASP_SPORTS_FORECAST_EXCHANGE_V1", "ASP_SPORTS_GAME_FORECAST_V1", "ASP_SPORTS_FORECAST_IMPORT_FIXTURE_V1", "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1", "BUNDLE_OBJECT_FAMILY", "NFL_2026_RESEARCH_SHADOW_INDEX_NAME", "SportsForecastExchangeError", "PublishedSportsForecastBundle", "derive_sports_game_forecast_id", "derive_sports_forecast_bundle_id", "validate_sports_game_forecast", "validate_sports_forecast_bundle", "verify_sports_forecast_bundle", "write_sports_forecast_bundle", "verify_nfl_2026_research_shadow_locator", "write_nfl_2026_research_shadow_locator"]
+__all__ = ["ASP_SPORTS_FORECAST_EXCHANGE_V1", "ASP_SPORTS_GAME_FORECAST_V1", "ASP_SPORTS_FORECAST_IMPORT_FIXTURE_V1", "ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2", "BUNDLE_OBJECT_FAMILY", "NFL_2026_RESEARCH_SHADOW_INDEX_NAME", "SportsForecastExchangeError", "PublishedSportsForecastBundle", "derive_sports_game_forecast_id", "derive_sports_forecast_bundle_id", "validate_sports_game_forecast", "validate_sports_forecast_bundle", "verify_sports_forecast_bundle", "write_sports_forecast_bundle", "verify_nfl_2026_research_shadow_locator", "write_nfl_2026_research_shadow_locator"]

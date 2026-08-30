@@ -101,15 +101,21 @@ with an independently checked consumer fixture and validation instructions.
 
 - Producer inventory: `C:\Users\james\asp-data-staging\nfl\m1-prospective-shadow-v1\prospective-index.json`
 - Consumer locator: `C:\Users\james\asp-model-exchange\aisp-daily-forecast-bundles\nfl-2026-research-shadow-index.json`
-- Locator schema: `ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V1`
-- Locator bundle count: 57
-- Canonical bundle-list SHA-256: `ca8be97635b61f4bf21689c4956a6968f28f53bc837f25c99cdb398ee8090e4b`
+- Locator schema: `ASP_NFL_2026_RESEARCH_SHADOW_INDEX_V2`
+- Current-authority bundle count: 57 (544 records: 272 EARLY + 272 latest CURRENT)
+- Current-authority list SHA-256: `7ac7fe691bdaf5022c94f01939694ef1476d169a3ecbc09fafb897af745ad809`
+- Historical bundle count: 57 (the superseded CURRENT v1 remains discoverable)
+- Historical list SHA-256: `ca8be97635b61f4bf21689c4956a6968f28f53bc837f25c99cdb398ee8090e4b`
 - First slate bundle (2026-09-09): `c1eaa2f3d3c9734699e59def34ef8d8e0dee21e0cb1ba427c6833650381fa84f`
 - Final regular-season slate bundle (2027-01-10): `11018e67797870acc3d5d9aec5d70a63d12d9c624ce084e6cf59efb7abe5289b`
 
-The small mutable locator is navigation only. Its bundle list is sorted and unique;
-its list hash is `SHA256(canonical_json_bytes(bundleSha256s))`. The producer verifies
-all 57 named immutable bundles before atomically replacing the locator. A consumer must
+The small mutable locator is navigation only. Its current and historical bundle lists
+are sorted, unique, and disjoint; each list hash is
+`SHA256(canonical_json_bytes(bundleSha256s))`. Current slate bundles deterministically
+compose the immutable first EARLY plus the latest CURRENT and, when available, latest
+valid FINAL_PREGAME record for every event. Superseded versions remain discoverable
+through the historical list, and every underlying object stays immutable. The producer
+verifies every named bundle before atomically replacing the locator. A consumer must
 still independently hash and validate every selected bundle. This avoids unsafe
 enumeration of an unrelated ACL-protected legacy object in the same established
 exchange family.

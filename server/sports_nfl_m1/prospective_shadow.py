@@ -426,6 +426,99 @@ def _write_index(root: Path, value: Mapping[str, Any]) -> None:
     os.replace(temporary, root / "prospective-index.json")
 
 
+def _publish_current_authority_bundles(
+    index: Mapping[str, Any],
+    exchange_root: Path,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Compose one authoritative bundle per slate without erasing history.
+
+    The first EARLY and latest CURRENT/FINAL_PREGAME records are copied byte-for-
+    byte as child records into deterministic current-authority bundles. Bundles
+    referenced by superseded snapshots remain discoverable as historical objects.
+    """
+
+    events = index.get("events")
+    if not isinstance(events, Mapping) or not events:
+        raise NflProspectiveShadowError("prospective index has no event authority")
+    verified_cache: dict[str, Mapping[str, Any]] = {}
+    selected_by_date: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    historical_shas: set[str] = set()
+
+    def version(entry: Mapping[str, Any]) -> int:
+        value = entry.get("snapshotVersion")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise NflProspectiveShadowError("indexed snapshot version differs")
+        return value
+
+    def resolve(entry: Mapping[str, Any], event_id: str, snapshot: str) -> Mapping[str, Any]:
+        digest = str(entry.get("bundleSha256") or "")
+        if digest not in verified_cache:
+            verified_cache[digest] = verify_sports_forecast_bundle(exchange_root, digest).record
+        candidates = [
+            child for child in verified_cache[digest]["forecasts"]
+            if child["forecastId"] == entry.get("forecastId")
+        ]
+        if len(candidates) != 1:
+            raise NflProspectiveShadowError("indexed forecast does not resolve exactly once")
+        child = candidates[0]
+        if child["eventId"] != event_id or child["snapshotType"] != snapshot:
+            raise NflProspectiveShadowError("indexed forecast event/snapshot identity differs")
+        return child
+
+    for event_id, event_value in sorted(events.items()):
+        if not isinstance(event_value, Mapping):
+            raise NflProspectiveShadowError("prospective event index differs")
+        for snapshot in ("EARLY", "CURRENT", "FINAL_PREGAME"):
+            entries = event_value.get(snapshot)
+            if not isinstance(entries, list):
+                raise NflProspectiveShadowError("prospective snapshot index differs")
+            if snapshot in {"EARLY", "CURRENT"} and not entries:
+                raise NflProspectiveShadowError(f"{event_id} lacks required {snapshot} authority")
+            if not entries:
+                continue
+            ordered = sorted(entries, key=version)
+            versions = [version(entry) for entry in ordered]
+            if len(versions) != len(set(versions)):
+                raise NflProspectiveShadowError("prospective snapshot versions are not unique")
+            if snapshot == "EARLY" and len(ordered) != 1:
+                raise NflProspectiveShadowError("EARLY authority must be immutable and singular")
+            selected = ordered[0] if snapshot == "EARLY" else ordered[-1]
+            for superseded in (() if snapshot == "EARLY" else ordered[:-1]):
+                historical_shas.add(str(superseded.get("bundleSha256") or ""))
+            child = resolve(selected, str(event_id), snapshot)
+            selected_by_date[child["eventDate"]].append(child)
+
+    current_bundles: list[dict[str, Any]] = []
+    for slate_date, forecasts in sorted(selected_by_date.items()):
+        generated = max(str(child["availableAsOfUtc"]) for child in forecasts)
+        bundle = {
+            "schemaVersion": ASP_SPORTS_FORECAST_EXCHANGE_V1,
+            "bundleId": "PENDING",
+            "sport": "NFL", "league": "NFL", "season": 2026,
+            "slateDate": slate_date,
+            "generatedAtUtc": generated,
+            "status": "RESEARCH_SHADOW",
+            "researchShadowOnly": True,
+            "modelPromotionAllowed": False,
+            "executionAllowed": False,
+            "parlaysAllowed": False,
+            "forecasts": forecasts,
+        }
+        bundle["bundleId"] = derive_sports_forecast_bundle_id(bundle)
+        published = write_sports_forecast_bundle(exchange_root, bundle)
+        verified = verify_sports_forecast_bundle(exchange_root, published.bundle_sha256)
+        current_bundles.append({
+            "slateDate": slate_date,
+            "bundleSha256": published.bundle_sha256,
+            "bundleLogicalUri": f"asp-model-exchange://{BUNDLE_OBJECT_FAMILY}/sha256/{published.bundle_sha256}/bundle.json",
+            "forecastCount": len(verified.record["forecasts"]),
+            "forecastIds": [child["forecastId"] for child in verified.record["forecasts"]],
+        })
+    current_shas = {item["bundleSha256"] for item in current_bundles}
+    historical_shas -= current_shas
+    return current_bundles, sorted(historical_shas)
+
+
 def activate_2026_shadow(
     *, publication_root: Path = DEFAULT_PUBLICATION_ROOT, exchange_root: Path = DEFAULT_EXCHANGE_ROOT,
     artifact_root: Path = ARTIFACT_ROOT, foundation_root: Path = DEFAULT_NFL_STAGING_ROOT / "foundation-v1",
@@ -531,15 +624,21 @@ def activate_2026_shadow(
         if not fixture_path.exists(): fixture_path.write_bytes(fixture_payload)
         verify_activation_reload_fixture(publication_root, fixture_sha, frozen)
     index["reloadFixtureSha256"] = fixture_sha; index["sourceFoundationManifestSha256"] = runtime.paths.foundation_manifest_sha256; index["sourceDatasetVersionId"] = runtime.paths.dataset_version_id
+    current_authority_bundles, historical_bundle_shas = _publish_current_authority_bundles(
+        index, exchange_root
+    )
+    index["currentAuthorityBundles"] = current_authority_bundles
+    index["historicalAuthorityBundleSha256s"] = historical_bundle_shas
     _write_index(publication_root, index)
     locator = write_nfl_2026_research_shadow_locator(
         exchange_root,
-        bundle_sha256s=[entry["bundleSha256"] for entry in index["bundles"]],
+        current_bundle_sha256s=[entry["bundleSha256"] for entry in current_authority_bundles],
+        historical_bundle_sha256s=historical_bundle_shas,
         feature_contract_sha256=frozen.feature_contract_sha256,
         updated_at_utc=generated,
     )
     locator_path = exchange_root / BUNDLE_OBJECT_FAMILY / "nfl-2026-research-shadow-index.json"
-    return {"status": "ACTIVE", "games": len(targets), "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorBundleCount": locator["bundleCount"], "exchangeLocatorBundleListSha256": locator["bundleListSha256"], "producerRevision": revision}
+    return {"status": "ACTIVE", "games": len(targets), "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
 
 
 __all__ = ["activate_2026_shadow", "historical_feature_parity", "load_foundation_runtime", "materialize_feature_vector", "verify_activation_reload_fixture", "verify_frozen_m1", "NflProspectiveShadowError"]
