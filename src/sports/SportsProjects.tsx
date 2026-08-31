@@ -9,6 +9,8 @@ import { sportsPaDecisionStatus, type RegisteredSportsProject, type SportsPaTerm
 import { sportsProjectOverviewRoute } from "./sportsProjectRoutes";
 import { loadPersistedSportsProject, persistedSportsProjectSnapshot, sportsMetadataFromPersistedProject } from "./sportsProjectPersistence";
 import { sanitizeSportsAuthorityMessage } from "./workflow/sportsAuthorityErrors";
+import { LIVE_PROJECT_FILTER_LEAGUES, type LiveProjectLeagueFilter } from "./shared/sportRegistry";
+import { projectMatchesLeagueFilter } from "./shared/workflowRouteGuard";
 
 export default function SportsProjects() {
   const navigate = useNavigate();
@@ -19,6 +21,7 @@ export default function SportsProjects() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [openError, setOpenError] = useState("");
   const [registryLoading, setRegistryLoading] = useState(true);
+  const [sportFilter, setSportFilter] = useState<LiveProjectLeagueFilter>("ALL");
   const datasetEvidence = useActiveSportsDataset();
   const governedProject = datasetEvidence.status === "ready" ? datasetEvidence.data.project ?? null : null;
   const terminalStatus = datasetEvidence.status === "ready"
@@ -37,6 +40,8 @@ export default function SportsProjects() {
   const localProjects = governedProject
     ? projects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name)
     : projects;
+  const filteredLocalProjects = localProjects.filter((project) => projectMatchesLeagueFilter(sportFilter, project.workflowId, loadSportsProjectMetadata(project.projectId)));
+  const showGovernedProject = Boolean(governedProject && (sportFilter === "ALL" || sportFilter === "MLB"));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -189,6 +194,11 @@ export default function SportsProjects() {
 
       {openError ? <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900" role="alert">{openError}</section> : null}
 
+      <section className="sports-panel flex flex-wrap items-center justify-between gap-3 p-4" aria-label="Project sport filters">
+        <div><p className="text-sm font-semibold text-slate-950">Project sport</p><p className="mt-0.5 text-xs text-slate-500">Filters do not change project registrations.</p></div>
+        <div className="flex flex-wrap gap-2">{LIVE_PROJECT_FILTER_LEAGUES.map((filter) => <button key={filter} type="button" aria-pressed={sportFilter === filter} onClick={() => setSportFilter(filter)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${sportFilter === filter ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-600"}`}>{filter === "ALL" ? "All Sports" : filter}</button>)}</div>
+      </section>
+
       {(registryLoading || datasetEvidence.status === "loading") && localProjects.length === 0 ? (
         <section className="sports-panel grid min-h-[260px] place-items-center p-8 text-center" role="status"><div><FolderKanban size={26} className="mx-auto animate-pulse text-cyan-700" /><h2 className="mt-4 text-xl font-semibold text-slate-950">Loading governed project registry</h2><p className="mt-2 text-sm text-slate-600">Checking the active sports dataset registration.</p></div></section>
       ) : datasetEvidence.status === "error" && localProjects.length === 0 ? (
@@ -204,8 +214,8 @@ export default function SportsProjects() {
         </section>
       ) : (
         <section className="grid gap-4 lg:grid-cols-2">
-          {governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount + phase4EvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
-          {localProjects.map((project) => {
+          {showGovernedProject && governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount + phase4EvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
+          {filteredLocalProjects.map((project) => {
             const workflow = sportsWorkflowForId(project.workflowId);
             const metadata = loadSportsProjectMetadata(project.projectId);
             const complete = project.snapshot.workflowSteps.filter((step) => step.status === "complete").length;
@@ -220,9 +230,13 @@ export default function SportsProjects() {
                   <span className="sports-status sports-status--amber">NOT CONFIGURED</span>
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3">
+                  <Fact label="Sport" value={metadata?.sportCode || workflow.sportCode} />
+                  <Fact label="League" value={metadata?.leagueCode || workflow.leagueCode} />
+                  <Fact label="Workflow" value={metadata?.workflowCode || workflow.manifestCode} />
                   <Fact label="Lifecycle" value={metadata?.lifecycle || "Not configured"} />
                   <Fact label="Primary target" value={metadata?.primaryTarget || "Not configured"} />
-                  <Fact label="Workflow" value={`${complete} / ${project.snapshot.workflowSteps.length}`} />
+                  <Fact label="Evidence status" value={metadata?.evidenceStatus || "UNBOUND"} />
+                  <Fact label="Workflow completion" value={`${complete} / ${project.snapshot.workflowSteps.length}`} />
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <button disabled={openingId === project.projectId} onClick={() => void openProject(project.projectId)} className="sports-secondary-button disabled:cursor-wait disabled:opacity-60">{openingId === project.projectId ? "Reopening…" : "Open project"} <ArrowRight size={16} /></button>
@@ -261,7 +275,7 @@ function GovernedProjectCard({ project, terminalStatus, baselineEvidenceCount, o
     : (project.status || "").toLowerCase().includes("blocked");
   return <article className={`sports-panel ${projectBlocked ? "border-amber-200" : "border-emerald-200"} p-5 sm:p-6`} data-governed-sports-project={project.projectId}>
     <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><span className="sports-status sports-status--teal">{project.league || "MLB"}</span><h2 className="mt-3 break-words text-xl font-semibold text-slate-950">{project.name}</h2><p className="mt-1 text-sm text-slate-500">Governed project bound to the active immutable dataset registration · {project.developmentPeriod || "development period not recorded"}</p></div><span className={`sports-status ${projectBlocked ? "sports-status--amber" : terminalStatus ? "sports-status--teal" : "sports-status--green"} max-w-full whitespace-normal break-words text-center leading-4`}>{terminalStatus || project.status || "REGISTERED"}</span></div>
-    <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3"><Fact label="Lifecycle" value={project.forecastLifecycle || "Not recorded"} /><Fact label="Primary target" value={project.primaryTarget || "Not recorded"} /><Fact label="Workflow evidence" value={`${evidencedStages} / 12`} /></div>
+    <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3"><Fact label="Sport" value="BASEBALL" /><Fact label="League" value="MLB" /><Fact label="Workflow" value="MLB_GAME_FORECAST_WORKFLOW_V1" /><Fact label="Lifecycle" value={project.forecastLifecycle || "Not recorded"} /><Fact label="Primary target" value={project.primaryTarget || "Not recorded"} /><Fact label="Evidence status" value="BOUND" /><Fact label="Workflow evidence" value={`${evidencedStages} / 12`} /></div>
     <div className="mt-5"><button type="button" onClick={onOpen} className="sports-secondary-button">Open governed project <ArrowRight size={16} /></button></div>
     <details className="mt-4 text-xs text-slate-500"><summary className="cursor-pointer font-semibold">Technical details</summary><div className="mt-2 break-all rounded-lg bg-slate-50 p-3">Project ID: {project.projectId}</div></details>
   </article>;

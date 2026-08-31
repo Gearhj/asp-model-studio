@@ -18,6 +18,7 @@ import GuidedWorkflow from "../sports/workflow/GuidedWorkflow";
 import WorkflowReturnBar from "../sports/workflow/WorkflowReturnBar";
 import NewSportsProject from "../sports/NewSportsProject";
 import SportsProjects from "../sports/SportsProjects";
+import SportAwareWorkflowRoute from "../sports/shared/SportAwareWorkflowRoute";
 import SportsProjectOverview from "../sports/SportsProjectOverview";
 import {
   AdministrationPage,
@@ -247,9 +248,9 @@ export default function ModelingApp() {
                   <Route path="/project-overview" element={<SportsProjectOverview />} />
                   <Route path="/templates" element={<WorkflowLibrary />} />
                   <Route path="/workflows" element={<Navigate to="/templates" replace />} />
-                  <Route path="/workflows/mlb" element={<GuidedWorkflow />} />
+                  <Route path="/workflows/mlb" element={<SportAwareWorkflowRoute requestedLeagueCode="MLB"><GuidedWorkflow /></SportAwareWorkflowRoute>} />
                   <Route path="/workflows/mlb-spec" element={<ForecastWorkflow workflowKey="mlb" />} />
-                  <Route path="/workflows/nfl" element={<ForecastWorkflow workflowKey="nfl" />} />
+                  <Route path="/workflows/nfl" element={<SportAwareWorkflowRoute requestedLeagueCode="NFL" allowReadinessWithoutProject><ForecastWorkflow workflowKey="nfl" /></SportAwareWorkflowRoute>} />
                   <Route path="/data-warehouse" element={<DataWarehousePage />} />
                   <Route path="/datasets" element={<Navigate to="/data-warehouse" replace />} />
                   <Route path="/datasets/*" element={<Navigate to="/data-warehouse" replace />} />

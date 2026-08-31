@@ -196,7 +196,7 @@ test("no functional regression: standalone modules and routes preserved", () => 
   for (const mod of ["/data-warehouse", "/pa-modeling-cockpit", "/simulation-studio", "/model-laboratory", "/model-graph", "/registry-deployment", "/participation-usage", "/player-team-state"]) {
     assert.ok(sidebar.includes(mod), `sidebar missing ${mod}`);
   }
-  assert.match(modelingApp, /path="\/workflows\/mlb"\s+element=\{<GuidedWorkflow/);
+  assert.match(modelingApp, /path="\/workflows\/mlb"\s+element=\{<SportAwareWorkflowRoute requestedLeagueCode="MLB"><GuidedWorkflow \/><\/SportAwareWorkflowRoute>\}/);
   // migration preserves the legacy adoption key
   assert.ok(wfState.includes("LEGACY_ADOPTION_PREFIX") && wfState.includes("never destroys the"));
 });

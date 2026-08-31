@@ -31,6 +31,7 @@ import {
 import BrandLogo from "./BrandLogo";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
+import { sportWorkflowRoute } from "../sports/sportsProjectRoutes";
 import { useStage3FocusMode } from "../sports/cockpit/stage3FocusMode";
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
@@ -81,6 +82,7 @@ export default function Sidebar() {
   const effectiveCompact = compact || focusModeActive;
   const projectName = useWorkflowStore((state) => state.projectName);
   const workflowId = useWorkflowStore((state) => state.workflowId);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const hasSportsProject = isSportsWorkflow(workflowId) && projectName !== "Untitled Sports Project";
   const workflow = sportsWorkflowForId(workflowId);
 
@@ -120,7 +122,7 @@ export default function Sidebar() {
                 <div className="mt-0.5 text-xs text-cyan-200">{workflow.league} · {workflow.status === "ACTIVE WORKFLOW" ? "Active" : "Foundation"}</div>
               </div>
               <NavigationLink item={{ to: "/project-overview", label: "Project Overview", icon: Network }} compact={effectiveCompact} />
-              <NavigationLink item={{ to: `/workflows/${workflow.key}`, label: `${workflow.league} Workflow`, icon: Workflow }} compact={effectiveCompact} />
+              <NavigationLink item={{ to: sportWorkflowRoute(workflow.leagueCode as "MLB" | "NFL", projectId), label: `${workflow.league} Workflow`, icon: Workflow }} compact={effectiveCompact} />
             </NavSection>
           )}
 

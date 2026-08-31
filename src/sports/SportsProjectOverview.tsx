@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
 import { sportsPaDecisionStatus, useSportsDatasetCatalog } from "./sportsEvidenceApi";
-import { canonicalSportsProjectId, mlbWorkflowRoute, SPORTS_PROJECT_ID_PARAM } from "./sportsProjectRoutes";
+import { canonicalSportsProjectId, mlbWorkflowRoute, sportWorkflowRoute, SPORTS_PROJECT_ID_PARAM } from "./sportsProjectRoutes";
 import {
   resolveStages, firstActionableStage, completionSummary,
   temporalPolicyLabel,
@@ -99,7 +99,7 @@ export default function SportsProjectOverview() {
                   <PlayCircle size={18} /> {isNew ? "Start Stage 1" : `Continue Stage ${nextStep}`} <ArrowRight size={17} />
                 </Link>
               ) : (
-                <Link to={`/workflows/${workflow.key}`} className="sports-primary-button">Open {workflow.league} workflow <ArrowRight size={17} /></Link>
+                <Link to={sportWorkflowRoute(workflow.leagueCode as "MLB" | "NFL", projectId)} className="sports-primary-button">Open {workflow.league} workflow <ArrowRight size={17} /></Link>
               )}
               <Link to="/data-warehouse" className="sports-dark-button"><Database size={17} /> Data evidence</Link>
             </div>

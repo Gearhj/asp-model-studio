@@ -64,7 +64,7 @@ export default function WorkflowLibrary() {
           <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.045] p-3 backdrop-blur">
             <HeroStat value="2" label="Workflow shells" />
             <HeroStat value="12" label="Stages each" />
-            <HeroStat value="5" label="Planned sports" />
+            <HeroStat value="3" label="Planned leagues" />
           </div>
         </div>
       </section>
@@ -120,7 +120,7 @@ export default function WorkflowLibrary() {
                       <span className="h-1 w-1 rounded-full bg-slate-600" aria-hidden="true" />
                       <span>Not configured</span>
                     </div>
-                    <Link to={`/workflows/${workflow.key}`} className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${workflow.key === "mlb" ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200" : "border border-blue-300/25 bg-blue-300/10 text-blue-200 hover:bg-blue-300/15"}`}>
+                    <Link to={workflow.key === "mlb" ? "/workflows/mlb-spec" : "/workflows/nfl"} className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${workflow.key === "mlb" ? "bg-cyan-300 text-slate-950 hover:bg-cyan-200" : "border border-blue-300/25 bg-blue-300/10 text-blue-200 hover:bg-blue-300/15"}`}>
                       Explore {workflow.league} workflow <ArrowRight size={16} aria-hidden="true" />
                     </Link>
                   </div>
