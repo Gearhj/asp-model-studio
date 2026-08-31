@@ -67,15 +67,18 @@ test("the active population and governed target are exact and final OOT stays lo
   assert.ok(handoff.includes("No final-OOT outcome counts are exposed"));
 });
 
-test("legacy datasets are absent from the primary page and later legacy execution paths fail closed", () => {
+test("legacy datasets are absent; project-bound treatment studios replace only steps 04 and 05", () => {
   assert.ok(handoff.includes("Advanced authority, manifests, hashes, and identity details"));
   assert.doesNotMatch(handoff, /Show legacy\/reference datasets|MLB_PA_V1 \/ Base-22|INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT/);
   assert.ok(handoff.includes("ProjectBoundLaterStepGate"));
   assert.doesNotMatch(cockpit, /\/cockpit\/objective/, "the unified project-bound shell must not fetch the legacy objective endpoint");
   assert.ok(cockpit.includes("ProjectBoundDataProfile"));
+  assert.ok(cockpit.includes("ProjectBoundOutlierStudio"));
+  assert.ok(cockpit.includes("ProjectBoundMissingStudio"));
+  assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Outliers"/);
+  assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Missing Values"/);
   for (const label of [
-    "Outliers", "Missing Values", "Feature Engineering",
-    "Player Segmentation", "Temporal Split", "Model Laboratory", "Hyperparameter Tuning",
+    "Feature Engineering", "Player Segmentation", "Temporal Split", "Model Laboratory", "Hyperparameter Tuning",
     "Evaluation", "Calibration", "Simulation Impact", "Champion / Challenger", "Registry & Evidence",
   ]) assert.ok(cockpit.includes(`stepLabel="${label}"`), `legacy fallback remains for ${label}`);
   assert.ok(workflow.includes("Legacy modeling execution held closed"));

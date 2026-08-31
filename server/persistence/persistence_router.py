@@ -6,7 +6,7 @@ import sqlite3
 import uuid
 from typing import Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from ..security.security_store import (
     AUDIT_ROLES,
@@ -44,6 +44,21 @@ from ..sports_current_statcast.stage3_eda import (
     Stage3EdaError,
     stage3_eda_metadata,
     stage3_eda_query,
+)
+from ..sports_current_statcast.stage3_treatments import (
+    Stage3TreatmentError,
+    adopt_treatment_policy,
+    missing_detail,
+    missing_preview,
+    missing_summary,
+    missing_table,
+    outlier_detail,
+    outlier_preview,
+    outlier_summary,
+    outlier_table,
+    predicted_imputation_preview,
+    save_treatment_policy_draft,
+    treatment_policy,
 )
 
 
@@ -559,6 +574,159 @@ def post_sports_stage3_eda_query(
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
     except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
         _raise_sports_backend_unavailable(exc)
+
+
+def _run_stage3_treatment(operation: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3TreatmentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/summary")
+def get_sports_stage3_treatment_summary(
+    project_id: str,
+    kind: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return evaluated project-bound development-only treatment counts."""
+
+    _authorize_sports_project(project_id, user, "view")
+    normalized = kind.lower()
+    if normalized not in {"outliers", "missing"}:
+        raise HTTPException(status_code=404, detail="Unknown Stage 3 treatment studio.")
+    operation = outlier_summary if normalized == "outliers" else missing_summary
+    return _run_stage3_treatment(
+        lambda: operation(
+            _service().database,
+            project_id,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/policy")
+def get_sports_stage3_treatment_policy(
+    project_id: str,
+    kind: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return immutable draft/adopted versions for the exact current authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_treatment(
+        lambda: treatment_policy(
+            _service().database,
+            project_id,
+            kind,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/missing/predicted-preview")
+def post_sports_stage3_predicted_imputation_preview(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one explicit bounded cross-fitted preprocessing preview."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: predicted_imputation_preview(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/draft")
+def post_sports_stage3_treatment_policy_draft(
+    project_id: str,
+    kind: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Append one immutable preprocessing-policy draft version."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: save_treatment_policy_draft(
+            _service().database,
+            project_id,
+            kind,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/adopt")
+def post_sports_stage3_treatment_policy_adopt(
+    project_id: str,
+    kind: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Append an adopted version copied from one exact immutable draft."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: adopt_treatment_policy(
+            _service().database,
+            project_id,
+            kind,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/{action}")
+def post_sports_stage3_treatment_query(
+    project_id: str,
+    kind: str,
+    action: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one bounded aggregate table, detail, or treatment preview."""
+
+    _authorize_sports_project(project_id, user, "view")
+    handlers: Dict[tuple[str, str], Callable[[Any, str, Any], Dict[str, Any]]] = {
+        ("outliers", "table"): outlier_table,
+        ("outliers", "detail"): outlier_detail,
+        ("outliers", "preview"): outlier_preview,
+        ("missing", "table"): missing_table,
+        ("missing", "detail"): missing_detail,
+        ("missing", "preview"): missing_preview,
+    }
+    handler = handlers.get((kind.lower(), action.lower()))
+    if handler is None:
+        raise HTTPException(status_code=404, detail="Unknown Stage 3 treatment operation.")
+    return _run_stage3_treatment(
+        lambda: handler(_service().database, project_id, payload)
+    )
 
 
 @router.put("/projects/{project_id}/sports/evidence-dataset")

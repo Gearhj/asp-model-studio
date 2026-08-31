@@ -12,6 +12,8 @@ import type { CurrentGoldDataReview, CurrentGoldReviewState } from "../workflow/
 import type { StageResolution } from "../workflow/workflowState";
 import { ProjectBoundLaterStepGate } from "./ProjectBoundStage3";
 import { ProjectBoundDataProfile } from "./ProjectBoundDataProfile";
+import { ProjectBoundOutlierStudio } from "./ProjectBoundOutlierStudio";
+import { ProjectBoundMissingStudio } from "./ProjectBoundMissingStudio";
 import { CockpitDrawer } from "./CockpitDrawer";
 import { useStage3FocusMode } from "./stage3FocusMode";
 import {
@@ -30,8 +32,8 @@ const STEPS: Step[] = [
   { id: "objective", n: "01", label: "Objective", icon: Target, group: "Frame", render: (c) => <ObjectiveStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} /> },
   { id: "population", n: "02", label: "Data & Population", icon: Database, group: "Frame", render: (c) => <DataPopulationStep projectId={c.projectId} go={c.go} currentGoldReview={c.currentGoldReview} /> },
   { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: (c) => c.currentGoldReview ? <ProjectBoundDataProfile state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <ProfileStep /> },
-  { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Outliers" /> : <OutliersStep /> },
-  { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Missing Values" /> : <MissingStep /> },
+  { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundOutlierStudio state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <OutliersStep /> },
+  { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundMissingStudio state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <MissingStep /> },
   { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Feature Engineering" /> : <FeatureEngineeringStep /> },
   { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Player Segmentation" /> : <SegmentationStep /> },
   { id: "split", n: "08", label: "Temporal Split", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Temporal Split" /> : <TemporalSplitStep /> },
