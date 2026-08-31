@@ -60,6 +60,25 @@ from ..sports_current_statcast.stage3_treatments import (
     save_treatment_policy_draft,
     treatment_policy,
 )
+from ..sports_current_statcast.stage3_feature_engineering import (
+    Stage3FeatureEngineeringError,
+    feature_detail,
+    feature_inventory,
+    feature_set_state,
+    feature_studio_summary,
+    register_feature_set,
+    retire_feature_set,
+    save_feature_set_draft,
+)
+from ..sports_current_statcast.stage3_split_balance import (
+    Stage3SplitBalanceError,
+    generate_automatic_split,
+    register_split_contract,
+    save_split_draft,
+    split_balance_summary,
+    split_contract_state,
+    validate_manual_split,
+)
 
 
 router = APIRouter()
@@ -726,6 +745,197 @@ def post_sports_stage3_treatment_query(
         raise HTTPException(status_code=404, detail="Unknown Stage 3 treatment operation.")
     return _run_stage3_treatment(
         lambda: handler(_service().database, project_id, payload)
+    )
+
+
+def _run_stage3_prepare(operation: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    """Translate bounded Feature/Split authority errors without hiding blockers."""
+
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except (Stage3FeatureEngineeringError, Stage3SplitBalanceError) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3TreatmentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/summary")
+def get_sports_stage3_feature_engineering_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_studio_summary(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/inventory")
+def post_sports_stage3_feature_inventory(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_inventory(project_id, _service().database, payload)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature/{feature_name}")
+def get_sports_stage3_feature_detail(
+    project_id: str,
+    feature_name: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_detail(project_id, _service().database, feature_name)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets")
+def get_sports_stage3_feature_sets(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_set_state(project_id, _service().database)
+    )
+
+
+def _stage3_actor(user: Dict[str, Any]) -> str:
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return actor
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/draft")
+def post_sports_stage3_feature_set_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_feature_set_draft(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/register")
+def post_sports_stage3_feature_set_register(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_feature_set(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/retire")
+def post_sports_stage3_feature_set_retire(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: retire_feature_set(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-split-balance/summary")
+def get_sports_stage3_split_balance_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: split_balance_summary(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/automatic")
+def post_sports_stage3_automatic_split(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: generate_automatic_split(project_id, _service().database, payload)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/manual/validate")
+def post_sports_stage3_manual_split_validation(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: validate_manual_split(project_id, _service().database, payload)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-split-balance/contracts")
+def get_sports_stage3_split_contracts(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: split_contract_state(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/draft")
+def post_sports_stage3_split_contract_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_split_draft(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/register")
+def post_sports_stage3_split_contract_register(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_split_contract(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
     )
 
 
