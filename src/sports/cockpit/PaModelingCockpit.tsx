@@ -14,6 +14,8 @@ import { ProjectBoundLaterStepGate } from "./ProjectBoundStage3";
 import { ProjectBoundDataProfile } from "./ProjectBoundDataProfile";
 import { ProjectBoundOutlierStudio } from "./ProjectBoundOutlierStudio";
 import { ProjectBoundMissingStudio } from "./ProjectBoundMissingStudio";
+import { ProjectBoundFeatureEngineering } from "./ProjectBoundFeatureEngineering";
+import { ProjectBoundSplitBalance } from "./ProjectBoundSplitBalance";
 import { CockpitDrawer } from "./CockpitDrawer";
 import { useStage3FocusMode } from "./stage3FocusMode";
 import {
@@ -34,9 +36,9 @@ const STEPS: Step[] = [
   { id: "profile", n: "03", label: "Data Profile", icon: ScanSearch, group: "Understand", render: (c) => c.currentGoldReview ? <ProjectBoundDataProfile state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <ProfileStep /> },
   { id: "outliers", n: "04", label: "Outliers", icon: TriangleAlert, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundOutlierStudio state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <OutliersStep /> },
   { id: "missing", n: "05", label: "Missing Values", icon: CircleSlash, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundMissingStudio state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <MissingStep /> },
-  { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Feature Engineering" /> : <FeatureEngineeringStep /> },
+  { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundFeatureEngineering state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <FeatureEngineeringStep /> },
   { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Player Segmentation" /> : <SegmentationStep /> },
-  { id: "split", n: "08", label: "Temporal Split", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Temporal Split" /> : <TemporalSplitStep /> },
+  { id: "split", n: "08", label: "Split & Balance", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundSplitBalance state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <TemporalSplitStep /> },
   { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Model Laboratory" /> : <ModelLabStep projectId={c.projectId} /> },
   { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Hyperparameter Tuning" /> : <TuningStep /> },
   { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Evaluation" /> : <EvaluationStep projectId={c.projectId} /> },

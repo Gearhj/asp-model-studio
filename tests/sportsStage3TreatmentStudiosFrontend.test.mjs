@@ -17,10 +17,10 @@ function includesAll(source, values, label) {
     assert.ok(source.includes(value), `${label} missing: ${value}`);
 }
 
-test("project-bound steps 04 and 05 use treatment studios while steps 06-15 remain held closed", () => {
+test("project-bound steps 04-06 and 08 use governed studios while only unimplemented downstream steps remain held closed", () => {
   includesAll(
     cockpit,
-    ["ProjectBoundOutlierStudio", "ProjectBoundMissingStudio"],
+    ["ProjectBoundOutlierStudio", "ProjectBoundMissingStudio", "ProjectBoundFeatureEngineering", "ProjectBoundSplitBalance"],
     "project-bound treatment routing",
   );
   assert.doesNotMatch(
@@ -31,10 +31,16 @@ test("project-bound steps 04 and 05 use treatment studios while steps 06-15 rema
     cockpit,
     /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Missing Values"/,
   );
+  assert.doesNotMatch(
+    cockpit,
+    /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Feature Engineering"/,
+  );
+  assert.doesNotMatch(
+    cockpit,
+    /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Temporal Split"/,
+  );
   for (const label of [
-    "Feature Engineering",
     "Player Segmentation",
-    "Temporal Split",
     "Model Laboratory",
     "Hyperparameter Tuning",
     "Evaluation",

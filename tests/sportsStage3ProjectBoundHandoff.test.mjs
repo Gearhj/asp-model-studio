@@ -67,7 +67,7 @@ test("the active population and governed target are exact and final OOT stays lo
   assert.ok(handoff.includes("No final-OOT outcome counts are exposed"));
 });
 
-test("legacy datasets are absent; project-bound treatment studios replace only steps 04 and 05", () => {
+test("legacy datasets are absent; project-bound preparation studios replace steps 04, 05, 06, and 08", () => {
   assert.ok(handoff.includes("Advanced authority, manifests, hashes, and identity details"));
   assert.doesNotMatch(handoff, /Show legacy\/reference datasets|MLB_PA_V1 \/ Base-22|INCOMPATIBLE_WITH_CURRENT_PROJECT_CONTRACT/);
   assert.ok(handoff.includes("ProjectBoundLaterStepGate"));
@@ -75,10 +75,14 @@ test("legacy datasets are absent; project-bound treatment studios replace only s
   assert.ok(cockpit.includes("ProjectBoundDataProfile"));
   assert.ok(cockpit.includes("ProjectBoundOutlierStudio"));
   assert.ok(cockpit.includes("ProjectBoundMissingStudio"));
+  assert.ok(cockpit.includes("ProjectBoundFeatureEngineering"));
+  assert.ok(cockpit.includes("ProjectBoundSplitBalance"));
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Outliers"/);
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Missing Values"/);
+  assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Feature Engineering"/);
+  assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Split & Balance"/);
   for (const label of [
-    "Feature Engineering", "Player Segmentation", "Temporal Split", "Model Laboratory", "Hyperparameter Tuning",
+    "Player Segmentation", "Model Laboratory", "Hyperparameter Tuning",
     "Evaluation", "Calibration", "Simulation Impact", "Champion / Challenger", "Registry & Evidence",
   ]) assert.ok(cockpit.includes(`stepLabel="${label}"`), `legacy fallback remains for ${label}`);
   assert.ok(workflow.includes("Legacy modeling execution held closed"));
