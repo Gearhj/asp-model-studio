@@ -18,6 +18,8 @@ test("workflow manifests are sport-native and planned leagues are non-selectable
   assert.match(manifest, /WEEKLY_SLATE_GROUPED/);
   assert.match(manifest, /Player Segmentation/);
   assert.match(manifest, /Team \/ Quarterback Segmentation/);
+  assert.doesNotMatch(manifest, /HYPERPARAMETER_TUNING/);
+  assert.match(manifest, /MODEL_LABORATORY[\s\S]*EVALUATION/);
   assert.match(registry, /workflowAvailability: "PLANNED"[\s\S]*projectCreationEnabled: false/g);
 });
 

@@ -73,7 +73,7 @@ test("Stage 3 removes duplicate permanent rails and the generic hero while retai
   includesAll(cockpit, [
     "Workflow navigator",
     "All nine program stages",
-    "all fifteen Stage 3 steps",
+    "all fourteen Stage 3 steps",
     "programStages.map",
     "STEPS.map",
     "goProgram",

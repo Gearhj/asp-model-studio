@@ -12,7 +12,7 @@ const [steps1, panel, router, shell] = await Promise.all([
   read("server/sports_cockpit/router.py"),
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
 ]);
-const temporal = steps1.slice(steps1.indexOf("08 Temporal Split"), steps1.indexOf("09 Model Laboratory"));
+const temporal = steps1.slice(steps1.indexOf("08 Temporal Split"));
 const seg = steps1.slice(steps1.indexOf("const SEG_METHODS"), steps1.indexOf("08 Temporal Split"));
 
 // ------------------------------------------------------------- Temporal Split (was non-interactive)
@@ -75,9 +75,9 @@ test("revised temporal experiment is honestly labelled not-executable (matrix is
   assert.ok(panel.includes("does not fabricate the modeling rows") || panel.includes("not fabricate"));
 });
 
-test("bottom navigation footer + 15-step order intact", () => {
+test("bottom navigation footer + 14-step order intact", () => {
   const order = [...shell.matchAll(/id:\s*"([a-z]+)",\s*n:\s*"(\d\d)"/g)].map((m) => m[1]);
-  assert.equal(order.length, 15);
+  assert.equal(order.length, 14);
   assert.equal(order[order.indexOf("split") - 1], "segmentation"); // 07 -> 08
   assert.equal(order[order.indexOf("split") + 1], "modellab");     // 08 -> 09
   assert.ok(shell.includes("function StepFooter"));

@@ -85,6 +85,12 @@ from ..sports_current_statcast.stage3_model_laboratory import (
     model_laboratory_summary,
     run_model_laboratory,
 )
+from ..sports_current_statcast.stage3_model_jobs import (
+    enqueue_model_development_job,
+    get_model_development_job,
+    list_model_development_jobs,
+    plan_model_development_queue,
+)
 
 
 router = APIRouter()
@@ -972,6 +978,77 @@ def get_sports_stage3_model_laboratory_runs(
     _authorize_sports_project(project_id, user, "view")
     return _run_stage3_prepare(
         lambda: list_model_laboratory_runs(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/plan")
+def post_sports_stage3_model_laboratory_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Validate and count a development queue without fitting anything."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    return _run_stage3_prepare(
+        lambda: {
+            "ok": True,
+            "plan": plan_model_development_queue(
+                _service().database, project_id, payload
+            ),
+        }
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs")
+def get_sports_stage3_model_laboratory_jobs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List project-scoped model-development jobs and persisted progress."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_model_development_jobs(_service().database, project_id)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}")
+def get_sports_stage3_model_laboratory_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read one persisted job without touching providers or scientific data."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_model_development_job(
+            _service().database, project_id, job_id
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-model-laboratory/jobs",
+    status_code=202,
+)
+def post_sports_stage3_model_laboratory_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly enqueue one bounded, single-worker development plan."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_model_development_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
     )
 
 

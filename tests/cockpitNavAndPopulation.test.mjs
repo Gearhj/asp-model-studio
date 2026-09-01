@@ -15,13 +15,13 @@ const STEPS = [...shell.matchAll(/\{\s*id:\s*"([^"]+)",\s*n:\s*"(\d\d)",\s*label
   .map((m) => ({ id: m[1], n: m[2], label: m[3] }));
 
 // ---------------------------------------------------------------- navigation
-test("all 15 cockpit steps are present in canonical order", () => {
-  assert.equal(STEPS.length, 15);
+test("all 14 cockpit steps are present in canonical order", () => {
+  assert.equal(STEPS.length, 14);
   assert.deepEqual(STEPS.map((s) => s.id), [
     "objective", "population", "profile", "outliers", "missing", "features", "segmentation",
-    "split", "modellab", "tuning", "evaluation", "calibration", "simulation", "champion", "registry",
+    "split", "modellab", "evaluation", "calibration", "simulation", "champion", "registry",
   ]);
-  assert.deepEqual(STEPS.map((s) => s.n), Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(2, "0")));
+  assert.deepEqual(STEPS.map((s) => s.n), Array.from({ length: 14 }, (_, i) => String(i + 1).padStart(2, "0")));
 });
 
 test("adjacent Previous/Next destinations are correct (index ± 1)", () => {
@@ -34,11 +34,11 @@ test("adjacent Previous/Next destinations are correct (index ± 1)", () => {
   assert.equal(nextOf("outliers").id, "missing");       // 04 Outliers → 05 Missing Values
   assert.equal(STEPS[idx("outliers")].label, "Outliers");
   assert.equal(STEPS[idx("missing")].label, "Missing Values");
-  assert.equal(nextOf("champion").id, "registry");      // 14 → 15
-  assert.equal(prevOf("registry").id, "champion");      // 15 ← 14
+  assert.equal(nextOf("champion").id, "registry");      // 13 → 14
+  assert.equal(prevOf("registry").id, "champion");      // 14 ← 13
 });
 
-test("Step 1 has no Previous; Step 15 has no Next", () => {
+test("Step 1 has no Previous; Step 14 has no Next", () => {
   assert.equal(STEPS[0].id, "objective");
   assert.equal(STEPS[STEPS.length - 1].id, "registry");
   // footer computes prev/next with end guards
@@ -50,7 +50,7 @@ test("a Previous/Next footer renders on every step, after the step content", () 
   assert.ok(shell.includes("function StepFooter"));
   // rendered immediately after the active step body
   assert.ok(/\{step\.render\(\{ projectId, go, currentGoldReview \}\)\}\s*<StepFooter active=\{active\} go=\{go\} \/>/.test(shell));
-  // shows position "Step X of 15"
+  // shows the position from the canonical 14-step array
   assert.ok(shell.includes("Step {idx + 1} of {STEPS.length}"));
 });
 

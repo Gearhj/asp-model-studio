@@ -103,7 +103,9 @@ def test_mlb_manifest_is_exact_enabled_reference_package():
         "TOTAL_RUNS",
     )
     assert len(manifest.workflowStages) == 9
-    assert len(manifest.developmentSteps) == 15
+    assert len(manifest.developmentSteps) == 14
+    model_lab_index = manifest.developmentSteps.index("MODEL_LAB")
+    assert manifest.developmentSteps[model_lab_index + 1] == "EVALUATION"
     assert manifest.validationTemplates[0].rules == (
         "CHRONOLOGICAL",
         "DATE_ATOMIC",

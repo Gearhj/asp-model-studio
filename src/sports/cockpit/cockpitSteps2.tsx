@@ -1,8 +1,8 @@
-// Cockpit workflow steps 09–15: Model Laboratory, Hyperparameter Tuning, Evaluation,
+// Cockpit workflow steps 09–14: Model Development Laboratory, Evaluation,
 // Calibration, Simulation Impact, Champion/Challenger, Registry.
 import { useMemo, useState } from "react";
 import {
-  FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, Boxes, Rocket, Check, X, TriangleAlert,
+  FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, Boxes, Rocket, X, TriangleAlert, Check,
 } from "lucide-react";
 import { useEffect } from "react";
 import {
@@ -152,9 +152,7 @@ export function ModelLabStep({ projectId = "mlb-cockpit" }: { projectId?: string
           {/* Live candidate status + leaderboard */}
           {candidates.length > 0 && (
             <Leaderboard candidates={candidates} ranked={ranked} championVal={championVal}
-              onDetail={setDetail} tuneSelected={store.labTuneSelected} onToggleTune={(k) => {
-                const t = store.labTuneSelected; store.setLabTuneSelected(t.includes(k) ? t.filter((x) => x !== k) : [...t, k]);
-              }} />
+              onDetail={setDetail} />
           )}
           {ranked.length >= 2 && <LeaderboardVisuals ranked={ranked} championVal={championVal} />}
 
@@ -225,23 +223,23 @@ function PlanItem({ label, value, sub, tone }: { label: string; value: string; s
 }
 
 const STATUS_TONE: Record<string, any> = { queued: "slate", training: "amber", complete: "emerald", failed: "rose" };
-function Leaderboard({ candidates, ranked, championVal, onDetail, tuneSelected, onToggleTune }:
-  { candidates: any[]; ranked: any[]; championVal?: number; onDetail: (k: string) => void; tuneSelected: string[]; onToggleTune: (k: string) => void }) {
+function Leaderboard({ candidates, ranked, championVal, onDetail }:
+  { candidates: any[]; ranked: any[]; championVal?: number; onDetail: (k: string) => void }) {
   const pending = candidates.filter((c) => c.status !== "complete");
   return (
     <Card title="Model leaderboard" icon={Trophy}
       description="Ranked by 2024 validation log loss (the champion criterion). The registered champion is shown for reference and is not displaced automatically."
-      action={tuneSelected.length ? <Pill label={`${tuneSelected.length} sent to tuning`} tone="violet" /> : undefined}>
+      action={<Pill label="Historical development evidence" tone="slate" />}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-left text-xs">
-          <thead><tr className="text-slate-500">{["#", "Model", "Status", "Val log loss", "Δ vs champ", "Brier", "ECE", "Top-1 acc", "Macro-F1", "Train", "Features", "Tune", ""].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
+          <thead><tr className="text-slate-500">{["#", "Model", "Status", "Val log loss", "Δ vs champ", "Brier", "ECE", "Top-1 acc", "Macro-F1", "Train", "Features", ""].map((h) => <th key={h} className="border-b border-slate-200 px-2 py-1.5 font-semibold uppercase">{h}</th>)}</tr></thead>
           <tbody>
             <tr className="bg-slate-50">
               <td className="border-b border-slate-100 px-2 py-1.5 text-slate-400">★</td>
               <td className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-700">Champion D3 · C4</td>
               <td className="border-b border-slate-100 px-2 py-1.5"><Pill label="registered" tone="cyan" /></td>
               <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums font-semibold">{championVal != null ? fmt.n(championVal) : "—"}</td>
-              <td className="border-b border-slate-100 px-2 py-1.5 text-slate-400" colSpan={9}>reference line — not a candidate</td>
+              <td className="border-b border-slate-100 px-2 py-1.5 text-slate-400" colSpan={8}>reference line — not a candidate</td>
             </tr>
             {ranked.map((c, i) => {
               const delta = championVal != null && c.val ? c.val.logLoss - championVal : null;
@@ -258,7 +256,6 @@ function Leaderboard({ candidates, ranked, championVal, onDetail, tuneSelected, 
                   <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums">{c.val?.macroF1 != null ? fmt.n(c.val.macroF1, 3) : "—"}</td>
                   <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.fitSeconds != null ? `${fmt.n(c.fitSeconds, 1)}s` : "—"}</td>
                   <td className="border-b border-slate-100 px-2 py-1.5 tabular-nums text-slate-500">{c.expandedFeatureCount ?? c.featureCount ?? "—"}</td>
-                  <td className="border-b border-slate-100 px-2 py-1.5">{c.status === "complete" && <button onClick={() => onToggleTune(c.key)} className={`inline-flex h-4 w-4 items-center justify-center rounded border ${tuneSelected.includes(c.key) ? "border-violet-600 bg-violet-600 text-white" : "border-slate-300"}`}>{tuneSelected.includes(c.key) ? <Check size={10} /> : null}</button>}</td>
                   <td className="border-b border-slate-100 px-2 py-1.5">{c.error ? <span className="text-[10px] text-rose-500" title={c.error}>error</span> : null}</td>
                 </tr>
               );
@@ -267,7 +264,7 @@ function Leaderboard({ candidates, ranked, championVal, onDetail, tuneSelected, 
         </table>
       </div>
       {pending.length > 0 && <p className="mt-2 text-xs text-slate-500">{pending.map((c) => `${c.label}: ${c.status}`).join(" · ")}</p>}
-      {ranked.length > 0 && <p className="mt-2 text-[11px] text-slate-500">#1 best validation candidate: <b>{ranked[0].label}</b>. Check models and open Hyperparameter Tuning to carry them forward. Deltas are descriptive, not a significance claim.</p>}
+      {ranked.length > 0 && <p className="mt-2 text-[11px] text-slate-500">#1 development result: <b>{ranked[0].label}</b>. Tuning and queue planning now live inside Model Development Laboratory; this historical surface is read-only evidence. Deltas are descriptive, not a significance claim.</p>}
     </Card>
   );
 }
@@ -401,40 +398,6 @@ function AutopilotPanel({ projectId }: { projectId: string }) {
   );
 }
 
-// ============================================================ 10 Hyperparameter Tuning
-export function TuningStep() {
-  const store = useCockpitStore();
-  const tuneSelected = store.labTuneSelected;
-  // Gate 6 — the legacy binding-free C-grid posted configs to the D3/C4 /cockpit/experiment/run path and
-  // returned 2025 metrics; it is disabled. There is no authorized per-trial grid endpoint yet, so tuning
-  // is presented as an explicit unavailable state that routes the scientist to the authorized bounded
-  // search (Autopilot · Standard), which fits its candidates through the server-authorized run path.
-  return (
-    <div className="space-y-4">
-      {tuneSelected.length > 0 && (
-        <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm text-slate-700">
-          <span className="font-semibold text-violet-700">Sent from the Model Laboratory:</span> {tuneSelected.join(", ")} — these candidates were checked for tuning and carried over (selection persists across navigation).
-        </div>
-      )}
-      <Card title="Hyperparameter search" description="A dedicated per-trial grid over the server-authorized run path is not wired in this slice." icon={SlidersHorizontal}
-        action={<Pill label="AUTHORIZED PATH ONLY" tone="amber" />}>
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="flex items-center gap-2 font-semibold text-amber-800"><TriangleAlert size={15} /> Legacy grid disabled</div>
-          <p className="mt-1.5">
-            The previous C-grid trained directly on the champion D3/C4 pipeline and reported the sealed 2025 season.
-            That binding-free path is disabled. Tuning must run through the same server-authorized execution as every
-            other candidate: an active dataset binding → run authority → authorized fit, validated on 2024 with 2025 sealed.
-          </p>
-          <p className="mt-2">
-            Use <b>Model Laboratory → Autopilot → Standard</b> to run a bounded, server-authorized candidate search
-            (Governed HGB + Governed logistic). A dedicated hyperparameter grid over the authorized path is a future increment.
-          </p>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 // Gate 7 — Evaluation resolves the ACTIVE CANDIDATE from the backend by run id (not lastResult / local
 // state / config hash). Shows the immutable candidate identity; no 2025 payload.
 function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
@@ -471,7 +434,7 @@ function Gen3ActiveCandidateCard({ projectId }: { projectId: string }) {
   );
 }
 
-// ============================================================ 11 Evaluation & Diagnostics
+// ============================================================ 10 Evaluation & Diagnostics
 export function EvaluationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const ev = useActiveEvaluation(projectId);   // Gate 18 — active candidate's immutable 2024 evidence bundle
   if (ev.state === "LOADING") return <div className="space-y-4"><Gen3ActiveCandidateCard projectId={projectId} /><p className="text-sm text-slate-500">Resolving the active candidate's evidence…</p></div>;
@@ -576,7 +539,7 @@ function useActiveRegistryEvidence(projectId: string) {
   return useActiveV2<ModelRegistryEvidenceResponseV2>(gen3V2Paths.registryEvidence(projectId), projectId);
 }
 
-// ============================================================ 12 Calibration
+// ============================================================ 11 Calibration
 export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const ev = useActiveCalibration(projectId);   // Gate 9/19 — the active candidate's raw 2024 calibration evidence
   const [cls, setCls] = useState<string>("STRIKEOUT");
@@ -623,8 +586,7 @@ export function CalibrationStep({ projectId = "mlb-cockpit" }: { projectId?: str
   );
 }
 
-// ============================================================ 13 Simulation Impact
-// ============================================================ 13 Simulation Impact
+// ============================================================ 12 Simulation Impact
 export function SimulationStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   // Gate 20 — the legacy binding-free whole-game simulator (which accepted the sealed 2025 season and ran
   // on a local browser config) was retired by the Phase 7C cutover. An authoritative simulation bound to the
@@ -649,7 +611,7 @@ export function SimulationStep({ projectId = "mlb-cockpit" }: { projectId?: stri
   );
 }
 
-// ============================================================ 14 Champion / Challenger
+// ============================================================ 13 Champion / Challenger
 export function ChampionChallengerStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   // Gate 30 — the registered D3/C4 champion is a READ-ONLY reference; it is never overwritten, retrained,
   // or promoted, and its historical 2025 metric is not exposed in the ordinary workflow. The challenger is
@@ -684,7 +646,7 @@ export function ChampionChallengerStep({ projectId = "mlb-cockpit" }: { projectI
   );
 }
 
-// ============================================================ 15 Registry & Evidence
+// ============================================================ 14 Registry & Evidence
 export function RegistryStep({ projectId = "mlb-cockpit" }: { projectId?: string } = {}) {
   const ev = useActiveRegistryEvidence(projectId);   // Gate 9 — the active candidate's immutable registry-evidence bundle
   if (ev.state !== "ACTIVE" || !ev.data) return (

@@ -25,19 +25,29 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 from sklearn import __version__ as sklearn_version
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.metrics import f1_score, log_loss
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder
+from sklearn.svm import LinearSVC
+from sklearn.tree import DecisionTreeClassifier
 from threadpoolctl import threadpool_limits
 
 from ..persistence.db import Database, json_dumps, now_iso
@@ -55,10 +65,13 @@ from ..sports_datasets.consumer import canonical_json_bytes
 from ..sports_gold.contracts import GOLD_CLASS_ORDER
 from . import stage3_eda as eda
 from .gold import CURRENT_GOLD_DATASET_ID
+from .stage3_model_catalog import catalog_public, model_catalog
+from .stage3_model_eligibility import assess_feature_set, build_model_eligibility
 
 
 MODEL_LAB_SCHEMA_VERSION = "SPORTS_STAGE3_PROJECT_MODEL_LAB_V1"
 RUN_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_LAB_RUN_RECEIPT_V1"
+RUN_RECEIPT_SCHEMA_VERSION_V2 = "SPORTS_STAGE3_MODEL_DEVELOPMENT_RUN_RECEIPT_V2"
 
 EXPECTED_PROJECT_ID = "asp-mtddc6pw"
 EXPECTED_SOURCE_DATASET_ID = "asp.mlb.statcast.current-pa.v1"
@@ -462,10 +475,8 @@ def _model_families() -> list[dict[str, Any]]:
 
 
 def _fixed_hyperparameters(model_family: str) -> dict[str, Any]:
-    family = next(
-        (item for item in _model_families() if item["id"] == model_family), None
-    )
-    return dict((family or {}).get("hyperparameters") or {})
+    family = next((item for item in model_catalog() if item["id"] == model_family), None)
+    return dict((family or {}).get("fixedHyperparameters") or {})
 
 
 def _policy_ref(policy: Mapping[str, Any]) -> dict[str, Any]:
@@ -552,13 +563,20 @@ def _candidate_matrix(
         "xgboost",
     ):
         for feature_set in feature_sets:
+            feature_executable = feature_set.get("executable", True) is True
             output.append(
                 {
                     "candidateKey": f"{family}:{feature_set['featureSetId']}",
                     "modelFamily": family,
                     "featureSetId": feature_set["featureSetId"],
                     "featureSetName": feature_set["name"],
-                    "status": "READY" if available.get(family) else "NOT_INSTALLED",
+                    "status": (
+                        "NOT_INSTALLED"
+                        if not available.get(family)
+                        else "READY"
+                        if feature_executable
+                        else str(feature_set.get("executionStatus") or "NON_EXECUTABLE")
+                    ),
                 }
             )
     return output
@@ -567,8 +585,18 @@ def _candidate_matrix(
 def model_laboratory_summary(database: Database, project_id: str) -> dict[str, Any]:
     resolved = resolve_model_lab_authority(database, project_id)
     authority = resolved.eda_authority
-    feature_sets = [_feature_ref(item) for item in resolved.feature_sets]
+    eligibility = build_model_eligibility(resolved)
+    feature_sets = []
+    for item in resolved.feature_sets:
+        feature_sets.append(
+            {
+                **_feature_ref(item),
+                **assess_feature_set(item, eligibility),
+                "workflowRole": "ABLATION_RESEARCH_PRESET",
+            }
+        )
     families = _model_families()
+    historical_runs = _read_runs(project_id, resolved)
     return {
         "ok": True,
         "schemaVersion": MODEL_LAB_SCHEMA_VERSION,
@@ -609,7 +637,47 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
         },
         "split": _split_ref(resolved.split),
         "featureSets": feature_sets,
+        "featureUniverse": eligibility,
+        "featureUniverseChoices": [
+            {
+                "id": eligibility["featureSetId"],
+                "key": "FULL_ELIGIBLE",
+                "label": "Full Eligible Feature Set",
+                "featureCount": eligibility["featureCount"],
+                "status": "RECOMMENDED",
+                "default": True,
+                "executable": True,
+            },
+            {
+                "id": EXPECTED_FEATURE_SET_IDS[0],
+                "key": "CORE_GOLD_48",
+                "label": "Core Gold 48",
+                "featureCount": len(resolved.feature_sets[0].get("orderedFeatures") or []),
+                "status": "BENCHMARK",
+                "default": False,
+                "executable": True,
+            },
+            {
+                "id": "CUSTOM_SUBSET",
+                "key": "CUSTOM_SUBSET",
+                "label": "Custom eligible subset",
+                "featureCount": None,
+                "status": "SCIENTIST_DEFINED_DEVELOPMENT_ONLY",
+                "default": False,
+                "executable": True,
+            },
+            {
+                "id": "SAVED_GOVERNED_FEATURE_SET",
+                "key": "SAVED_GOVERNED_FEATURE_SET",
+                "label": "Saved governed feature set",
+                "featureCount": None,
+                "status": "SELECT_FROM_PROJECT_REGISTRATIONS",
+                "default": False,
+                "executable": True,
+            },
+        ],
         "modelFamilies": families,
+        "modelCatalog": catalog_public(),
         "candidateMatrix": _candidate_matrix(feature_sets, families),
         "readiness": {
             "ready": True,
@@ -617,6 +685,13 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
             "status": "READY_FOR_FIRST_CHALLENGER_COMPETITION",
         },
         "latestRun": _latest_run(project_id, resolved),
+        "historicalEvidence": {
+            "label": "INITIAL BASELINE / ABLATION EVIDENCE",
+            "immutable": True,
+            "runCount": len(historical_runs),
+            "runs": historical_runs,
+            "failedCandidatesRemainVisible": True,
+        },
         "audit": {
             "legacyGlobalMatrixUsed": False,
             "base22FallbackAvailable": False,
@@ -658,6 +733,7 @@ def _validate_run_request(
     feature_by_id = {
         str(item.get("featureSetId")): item for item in resolved.feature_sets
     }
+    eligibility = build_model_eligibility(resolved)
     model_families = _model_families()
     availability = {str(item["id"]): bool(item["available"]) for item in model_families}
     allowed_candidates = {
@@ -707,6 +783,8 @@ def _validate_run_request(
                 }
             )
     seen: set[tuple[str, str]] = set()
+    raw_overrides = payload.get("eligibilityOverrides") or {}
+    overrides = raw_overrides if isinstance(raw_overrides, Mapping) else {}
     for item in requested:
         family = item["modelFamily"]
         feature_set_id = item["featureSetId"]
@@ -745,6 +823,29 @@ def _validate_run_request(
                 "MODEL_LAB_CANDIDATE_DUPLICATE", f"Duplicate candidate: {family}/{feature_set_id}."
             )
         seen.add(key)
+        if family != "class_frequency_null":
+            assessment = assess_feature_set(feature_by_id[feature_set_id], eligibility)
+            if assessment["blockingFeatures"]:
+                names = ", ".join(
+                    str(feature["name"]) for feature in assessment["blockingFeatures"]
+                )
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_FEATURE_SET_NON_EXECUTABLE",
+                    f"Feature set {feature_set_id} is preserved historical evidence but is not executable under the current source authority; blocking features: {names}.",
+                    status_code=409,
+                )
+            if assessment["reviewRequiredFeatures"]:
+                rationale = str(overrides.get(feature_set_id) or "").strip()
+                if len(rationale) < 20:
+                    names = ", ".join(
+                        str(feature["name"])
+                        for feature in assessment["reviewRequiredFeatures"]
+                    )
+                    raise Stage3ModelLaboratoryError(
+                        "MODEL_LAB_FEATURE_SET_REVIEW_REQUIRED",
+                        f"Feature set {feature_set_id} contains default-excluded semantic-sparse features ({names}); a written prospective-semantics rationale is required.",
+                        status_code=409,
+                    )
     return requested, int(seed)
 
 
@@ -984,20 +1085,67 @@ def _preprocessor(
     )
 
 
-def _model(family: str, seed: int) -> Any:
+def _model(
+    family: str, seed: int, hyperparameters: Mapping[str, Any] | None = None
+) -> Any:
+    parameters = _fixed_hyperparameters(family)
+    parameters.update(dict(hyperparameters or {}))
     if family == "multinomial_logistic":
         return LogisticRegression(
-            C=1.0,
-            max_iter=300,
-            solver="lbfgs",
+            C=float(parameters["C"]),
+            max_iter=int(parameters["max_iter"]),
+            solver=str(parameters["solver"]),
+            class_weight=parameters.get("class_weight"),
+            random_state=seed,
+        )
+    if family == "elastic_net_logistic":
+        return LogisticRegression(
+            C=float(parameters["C"]),
+            l1_ratio=float(parameters["l1_ratio"]),
+            penalty="elasticnet",
+            max_iter=int(parameters["max_iter"]),
+            solver="saga",
+            class_weight=parameters.get("class_weight"),
+            random_state=seed,
+        )
+    if family == "decision_tree":
+        return DecisionTreeClassifier(
+            max_depth=parameters.get("max_depth"),
+            min_samples_split=int(parameters["min_samples_split"]),
+            min_samples_leaf=int(parameters["min_samples_leaf"]),
+            criterion=str(parameters["criterion"]),
+            class_weight=parameters.get("class_weight"),
+            random_state=seed,
+        )
+    if family == "random_forest":
+        return RandomForestClassifier(
+            n_estimators=int(parameters["n_estimators"]),
+            max_depth=parameters.get("max_depth"),
+            min_samples_leaf=int(parameters["min_samples_leaf"]),
+            max_features=parameters.get("max_features"),
+            bootstrap=bool(parameters["bootstrap"]),
+            class_weight=parameters.get("class_weight"),
+            n_jobs=1,
+            random_state=seed,
+        )
+    if family == "extra_trees":
+        return ExtraTreesClassifier(
+            n_estimators=int(parameters["n_estimators"]),
+            max_depth=parameters.get("max_depth"),
+            min_samples_leaf=int(parameters["min_samples_leaf"]),
+            max_features=parameters.get("max_features"),
+            class_weight=parameters.get("class_weight"),
+            n_jobs=1,
             random_state=seed,
         )
     if family == "histogram_gradient_boosting":
         return HistGradientBoostingClassifier(
-            learning_rate=0.07,
-            max_iter=150,
-            max_leaf_nodes=31,
-            l2_regularization=1.0,
+            learning_rate=float(parameters["learning_rate"]),
+            max_iter=int(parameters["max_iter"]),
+            max_leaf_nodes=int(parameters["max_leaf_nodes"]),
+            max_depth=parameters.get("max_depth"),
+            min_samples_leaf=int(parameters["min_samples_leaf"]),
+            l2_regularization=float(parameters["l2_regularization"]),
             early_stopping=False,
             random_state=seed,
         )
@@ -1013,15 +1161,75 @@ def _model(family: str, seed: int) -> Any:
         return XGBClassifier(
             objective="multi:softprob",
             num_class=len(GOLD_CLASS_ORDER),
-            n_estimators=200,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.9,
-            colsample_bytree=0.9,
+            n_estimators=int(parameters["n_estimators"]),
+            max_depth=int(parameters["max_depth"]),
+            learning_rate=float(parameters["learning_rate"]),
+            min_child_weight=float(parameters["min_child_weight"]),
+            subsample=float(parameters["subsample"]),
+            colsample_bytree=float(parameters["colsample_bytree"]),
+            gamma=float(parameters["gamma"]),
+            reg_alpha=float(parameters["reg_alpha"]),
+            reg_lambda=float(parameters["reg_lambda"]),
             random_state=seed,
             n_jobs=1,
             eval_metric="mlogloss",
         )
+    if family == "lightgbm":
+        try:
+            from lightgbm import LGBMClassifier
+        except ImportError as exc:  # pragma: no cover - guarded by catalog
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_MODEL_FAMILY_UNAVAILABLE", "LightGBM is not installed.", status_code=409
+            ) from exc
+        parameters["n_jobs"] = 1
+        return LGBMClassifier(
+            objective="multiclass",
+            num_class=len(GOLD_CLASS_ORDER),
+            random_state=seed,
+            verbosity=-1,
+            **parameters,
+        )
+    if family == "catboost":
+        try:
+            from catboost import CatBoostClassifier
+        except ImportError as exc:  # pragma: no cover - guarded by catalog
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_MODEL_FAMILY_UNAVAILABLE", "CatBoost is not installed.", status_code=409
+            ) from exc
+        parameters["thread_count"] = 1
+        return CatBoostClassifier(
+            loss_function="MultiClass",
+            random_seed=seed,
+            allow_writing_files=False,
+            **parameters,
+        )
+    if family == "linear_svm":
+        calibration_cv = int(parameters.pop("calibration_cv", 3))
+        return CalibratedClassifierCV(
+            estimator=LinearSVC(random_state=seed, **parameters),
+            method="sigmoid",
+            cv=calibration_cv,
+            n_jobs=1,
+        )
+    if family == "sgd_classifier":
+        loss = str(parameters.get("loss") or "log_loss")
+        estimator = SGDClassifier(random_state=seed, **parameters)
+        if loss == "hinge":
+            return CalibratedClassifierCV(
+                estimator=estimator, method="sigmoid", cv=3, n_jobs=1
+            )
+        return estimator
+    if family == "knn":
+        parameters["n_jobs"] = 1
+        return KNeighborsClassifier(**parameters)
+    if family == "gaussian_naive_bayes":
+        return GaussianNB(**parameters)
+    if family == "mlp":
+        hidden = parameters.get("hidden_layer_sizes")
+        if isinstance(hidden, list):
+            parameters["hidden_layer_sizes"] = tuple(int(value) for value in hidden)
+        parameters["early_stopping"] = True
+        return MLPClassifier(random_state=seed, **parameters)
     raise Stage3ModelLaboratoryError(
         "MODEL_LAB_MODEL_FAMILY_UNSUPPORTED", f"Unsupported model family: {family}."
     )
@@ -1117,6 +1325,139 @@ def _model_complexity(estimator: Any, transformed_values: Any) -> dict[str, Any]
     return result
 
 
+def _native_interpretability(
+    estimator: Any, preprocessor: ColumnTransformer
+) -> dict[str, Any]:
+    """Persist bounded fold evidence that Evaluation can inspect later.
+
+    This is deliberately diagnostic evidence, not a feature-selection
+    authority.  The complete coefficient/importance vector is content hashed;
+    the review payload keeps only the strongest effects so receipts stay
+    bounded even when categorical expansion is large.  Permutation importance
+    remains an Evaluation-stage calculation on governed validation rows.
+    """
+
+    feature_names = [str(value) for value in preprocessor.get_feature_names_out()]
+    selection_constraint = (
+        "DIAGNOSTIC_ONLY_NATIVE_IMPORTANCE_IS_NEVER_SOLE_FEATURE_SELECTION_AUTHORITY"
+    )
+    coefficients = getattr(estimator, "coef_", None)
+    if coefficients is not None:
+        matrix = np.asarray(coefficients, dtype=float)
+        if matrix.ndim == 1:
+            matrix = matrix.reshape(1, -1)
+        if matrix.shape[1] != len(feature_names) or not np.isfinite(matrix).all():
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_INTERPRETABILITY_RECONCILIATION_FAILED",
+                "The fitted coefficient matrix did not reconcile to transformed features.",
+            )
+        magnitudes = np.mean(np.abs(matrix), axis=0)
+        order = np.argsort(-magnitudes, kind="stable")[:50]
+        class_names = (
+            list(GOLD_CLASS_ORDER)
+            if matrix.shape[0] == len(GOLD_CLASS_ORDER)
+            else [f"COEFFICIENT_ROW_{index + 1}" for index in range(matrix.shape[0])]
+        )
+        full_evidence = {
+            "featureNames": feature_names,
+            "coefficientRows": class_names,
+            "coefficients": matrix.tolist(),
+        }
+        return {
+            "status": "AVAILABLE_NATIVE",
+            "method": "COEFFICIENT_ABSOLUTE_MEAN",
+            "transformedFeatureCount": len(feature_names),
+            "completeEvidenceSha256": hashlib.sha256(
+                canonical_json_bytes(full_evidence)
+            ).hexdigest(),
+            "topFeatures": [
+                {
+                    "feature": feature_names[int(index)],
+                    "meanAbsoluteCoefficient": float(magnitudes[int(index)]),
+                }
+                for index in order
+            ],
+            "coefficientRows": class_names,
+            "permutationImportance": "DEFERRED_TO_GOVERNED_EVALUATION",
+            "selectionConstraint": selection_constraint,
+        }
+
+    native = getattr(estimator, "feature_importances_", None)
+    if native is not None:
+        importance = np.asarray(native, dtype=float).reshape(-1)
+        if importance.size != len(feature_names) or not np.isfinite(importance).all():
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_INTERPRETABILITY_RECONCILIATION_FAILED",
+                "The fitted native-importance vector did not reconcile to transformed features.",
+            )
+        order = np.argsort(-importance, kind="stable")[:50]
+        full_evidence = {
+            "featureNames": feature_names,
+            "nativeImportance": importance.tolist(),
+        }
+        return {
+            "status": "AVAILABLE_NATIVE",
+            "method": "NATIVE_TREE_IMPORTANCE",
+            "transformedFeatureCount": len(feature_names),
+            "completeEvidenceSha256": hashlib.sha256(
+                canonical_json_bytes(full_evidence)
+            ).hexdigest(),
+            "topFeatures": [
+                {
+                    "feature": feature_names[int(index)],
+                    "nativeImportance": float(importance[int(index)]),
+                }
+                for index in order
+            ],
+            "permutationImportance": "DEFERRED_TO_GOVERNED_EVALUATION",
+            "selectionConstraint": selection_constraint,
+        }
+
+    return {
+        "status": "DEFERRED_TO_EVALUATION",
+        "method": "PERMUTATION_IMPORTANCE_REQUIRED",
+        "transformedFeatureCount": len(feature_names),
+        "completeEvidenceSha256": None,
+        "topFeatures": [],
+        "permutationImportance": "REQUIRED_IN_GOVERNED_EVALUATION",
+        "selectionConstraint": selection_constraint,
+    }
+
+
+def _interpretability_stability(folds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    evidence = [dict(fold.get("interpretabilityEvidence") or {}) for fold in folds]
+    appearances: dict[str, list[float]] = {}
+    for fold_evidence in evidence:
+        for item in fold_evidence.get("topFeatures") or []:
+            feature = str(item.get("feature") or "")
+            if not feature:
+                continue
+            value = item.get("nativeImportance", item.get("meanAbsoluteCoefficient"))
+            if value is not None:
+                appearances.setdefault(feature, []).append(float(value))
+    stable = sorted(
+        (
+            {
+                "feature": feature,
+                "topFoldAppearances": len(values),
+                "meanNativeMagnitude": float(np.mean(values)),
+                "nativeMagnitudeStdDev": float(np.std(values, ddof=0)),
+            }
+            for feature, values in appearances.items()
+        ),
+        key=lambda item: (-item["topFoldAppearances"], -item["meanNativeMagnitude"], item["feature"]),
+    )[:50]
+    return {
+        "foldStatuses": [item.get("status") for item in evidence],
+        "foldMethods": [item.get("method") for item in evidence],
+        "nativeTopFeatureStability": stable,
+        "permutationImportance": "DEFERRED_TO_GOVERNED_EVALUATION",
+        "selectionConstraint": (
+            "DIAGNOSTIC_ONLY_NATIVE_IMPORTANCE_IS_NEVER_SOLE_FEATURE_SELECTION_AUTHORITY"
+        ),
+    }
+
+
 def _evaluate_candidate(
     frame: pd.DataFrame,
     *,
@@ -1124,6 +1465,8 @@ def _evaluate_candidate(
     feature_set: Mapping[str, Any] | None,
     split: Mapping[str, Any],
     seed: int,
+    hyperparameters: Mapping[str, Any] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     features = list((feature_set or {}).get("orderedFeatures") or [])
@@ -1138,6 +1481,17 @@ def _evaluate_candidate(
     all_labels: list[np.ndarray] = []
     contract_folds = list((split.get("contract") or {}).get("folds") or [])
     for fold in contract_folds:
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "state": "RUNNING",
+                    "modelFamily": model_family,
+                    "hyperparameters": dict(hyperparameters or _fixed_hyperparameters(model_family)),
+                    "fold": int(fold["foldNumber"]),
+                    "foldCount": len(contract_folds),
+                    "event": "FOLD_STARTED",
+                }
+            )
         train_mask = _date_mask(frame, str(fold["trainStart"]), str(fold["trainEnd"]))
         validation_mask = _date_mask(
             frame, str(fold["validationStart"]), str(fold["validationEnd"])
@@ -1172,8 +1526,22 @@ def _evaluate_candidate(
                 "transformedFeatureCount": 0,
                 "parameterCount": len(GOLD_CLASS_ORDER),
             }
+            interpretability = {
+                "status": "NOT_APPLICABLE_REFERENCE",
+                "method": "NONE",
+                "transformedFeatureCount": 0,
+                "completeEvidenceSha256": None,
+                "topFeatures": [],
+                "permutationImportance": "NOT_APPLICABLE_REFERENCE",
+                "selectionConstraint": "REFERENCE_MODEL_NOT_A_FEATURE_SELECTION_AUTHORITY",
+            }
         else:
-            dense = model_family in {"histogram_gradient_boosting", "xgboost"}
+            dense = model_family in {
+                "histogram_gradient_boosting",
+                "gaussian_naive_bayes",
+                "mlp",
+                "catboost",
+            }
             preprocessor, transformation_groups = _preprocessor(
                 frame.loc[train_mask, features],
                 feature_set or {},
@@ -1181,13 +1549,18 @@ def _evaluate_candidate(
             )
             train_values = preprocessor.fit_transform(frame.loc[train_mask, features])
             validation_values = preprocessor.transform(frame.loc[validation_mask, features])
-            estimator = _model(model_family, seed + int(fold["foldNumber"]))
+            estimator = _model(
+                model_family,
+                seed + int(fold["foldNumber"]),
+                hyperparameters=hyperparameters,
+            )
             # Keep native numerical libraries bounded and reproducible; HGB
             # otherwise chooses an environment-sized thread pool internally.
             with threadpool_limits(limits=1):
                 estimator.fit(train_values, train_labels)
                 probabilities = _aligned_probabilities(estimator, validation_values)
             complexity = _model_complexity(estimator, train_values)
+            interpretability = _native_interpretability(estimator, preprocessor)
             numeric_medians: dict[str, float] = {}
             if transformation_groups["numeric"]:
                 statistics = preprocessor.named_transformers_["numeric"].named_steps[
@@ -1257,16 +1630,29 @@ def _evaluate_candidate(
                 "metrics": metrics,
                 "preprocessing": preprocessing,
                 "modelComplexity": complexity,
+                "interpretabilityEvidence": interpretability,
                 "runtimeMs": int((time.perf_counter() - fold_started) * 1000),
             }
         )
         all_probabilities.append(probabilities)
         all_labels.append(validation_labels)
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "state": "RUNNING",
+                    "modelFamily": model_family,
+                    "hyperparameters": dict(hyperparameters or _fixed_hyperparameters(model_family)),
+                    "fold": int(fold["foldNumber"]),
+                    "foldCount": len(contract_folds),
+                    "event": "FOLD_COMPLETED",
+                    "foldLogLoss": metrics["multiclassLogLoss"],
+                }
+            )
     combined = _metrics(np.vstack(all_probabilities), np.concatenate(all_labels))
     return {
         "candidateId": "stage3-candidate-" + uuid.uuid4().hex,
         "modelFamily": model_family,
-        "hyperparameters": _fixed_hyperparameters(model_family),
+        "hyperparameters": dict(hyperparameters or _fixed_hyperparameters(model_family)),
         "featureSetId": (feature_set or {}).get("featureSetId"),
         "featureSetName": (feature_set or {}).get("name") or "Feature-independent null reference",
         "featureSetVersion": int((feature_set or {}).get("version") or 0) or None,
@@ -1308,6 +1694,7 @@ def _evaluate_candidate(
             ),
         },
         "modelComplexity": fold_results[-1]["modelComplexity"],
+        "interpretabilityEvidence": _interpretability_stability(fold_results),
         "folds": fold_results,
         "runtimeMs": int((time.perf_counter() - started) * 1000),
         "errorReason": None,
@@ -1392,7 +1779,29 @@ def _receipt_matches_current_authority(
     if list(identity.get("targetOrder") or []) != list(GOLD_CLASS_ORDER):
         return False
     feature_ids = set(identity.get("featureSetIds") or [])
-    return feature_ids.issubset(set(EXPECTED_FEATURE_SET_IDS))
+    if data.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION:
+        return feature_ids.issubset(set(EXPECTED_FEATURE_SET_IDS))
+    if data.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION_V2:
+        eligibility = build_model_eligibility(resolved)
+        if (
+            identity.get("featureUniverseId") != eligibility["featureSetId"]
+            or identity.get("featureUniverseChecksum") != eligibility["checksum"]
+            or (data.get("population") or {}).get("finalOotTargetAccessed") is not False
+            or (data.get("population") or {}).get("finalOotScored") is not False
+            or data.get("finalOotAccessed") is not False
+            or data.get("finalOotTargetsMaterialized") is not False
+            or data.get("autoPromoted") is not False
+            or data.get("promotionStatus") != "NOT_PROMOTED"
+            or data.get("providerCalls") != 0
+            or data.get("legacyGlobalMatrixUsed") is not False
+        ):
+            return False
+        allowed = set(EXPECTED_FEATURE_SET_IDS) | {eligibility["featureSetId"]}
+        return all(
+            item in allowed or str(item).startswith("stage3-custom-modeling-subset-")
+            for item in feature_ids
+        )
+    return False
 
 
 def _read_runs(
@@ -1408,7 +1817,8 @@ def _read_runs(
         except (OSError, json.JSONDecodeError):
             continue
         if (
-            data.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION
+            data.get("schemaVersion")
+            in {RUN_RECEIPT_SCHEMA_VERSION, RUN_RECEIPT_SCHEMA_VERSION_V2}
             and (data.get("identity") or {}).get("projectId") == project_id
             and _receipt_matches_current_authority(data, resolved)
             and hashlib.sha256(canonical_json_bytes(data)).hexdigest() == path.stem

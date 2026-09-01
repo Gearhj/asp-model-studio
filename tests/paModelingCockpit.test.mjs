@@ -5,25 +5,26 @@ import test from "node:test";
 const ROOT = new URL("..", import.meta.url);
 const read = (p) => readFile(new URL(p, ROOT), "utf8");
 
-const [shell, steps1, steps2, api, ui, modelingApp, sidebar] = await Promise.all([
+const [shell, steps1, steps2, projectLab, api, ui, modelingApp, sidebar] = await Promise.all([
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
   read("src/sports/cockpit/cockpitSteps1.tsx"),
   read("src/sports/cockpit/cockpitSteps2.tsx"),
+  read("src/sports/cockpit/ProjectBoundModelLab.tsx"),
   read("src/sports/cockpit/cockpitApi.ts"),
   read("src/sports/cockpit/cockpitUi.tsx"),
   read("src/apps/ModelingApp.tsx"),
   read("src/components/Sidebar.tsx"),
 ]);
 
-test("workflow exposes all fifteen steps in canonical order", () => {
+test("workflow exposes all fourteen steps in canonical order", () => {
   const order = [...shell.matchAll(/id:\s*"([a-z]+)",\s*n:\s*"(\d\d)"/g)].map((m) => [m[2], m[1]]);
   const ids = order.map((o) => o[1]);
   assert.deepEqual(ids, [
     "objective", "population", "profile", "outliers", "missing", "features", "segmentation",
-    "split", "modellab", "tuning", "evaluation", "calibration", "simulation", "champion", "registry",
+    "split", "modellab", "evaluation", "calibration", "simulation", "champion", "registry",
   ]);
-  // numbering is sequential 01..15
-  assert.deepEqual(order.map((o) => o[0]), Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(2, "0")));
+  // numbering is sequential 01..14
+  assert.deepEqual(order.map((o) => o[0]), Array.from({ length: 14 }, (_, i) => String(i + 1).padStart(2, "0")));
 });
 
 test("OUTLIERS come strictly before MISSING VALUES", () => {
@@ -94,8 +95,9 @@ test("honest unavailable states — nothing faked", () => {
   // model family cards disable uninstalled libraries and surface honest availability
   assert.ok(steps2.includes("disabled={!f.available}"));
   assert.ok(steps2.includes("dependency unavailable"));
-  // hyperparameter tuning honestly presents an unavailable state routed to the authorized path
-  assert.ok(steps2.includes("future increment"));
+  // tuning is integrated into the project-bound Model Development Laboratory
+  for (const label of ["Inline hyperparameter strategy", "Compact Grid", "Full Grid", "Custom Grid", "Review Queue Plan", "Run Experiment Queue"])
+    assert.ok(projectLab.includes(label), `integrated tuning control missing: ${label}`);
   // feature catalog labels roadmap availability rather than fabricating unavailable families
   assert.ok(steps1.includes("roadmap"));
 });

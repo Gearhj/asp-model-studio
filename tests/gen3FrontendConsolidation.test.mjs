@@ -7,12 +7,13 @@ import test from "node:test";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (p) => readFile(new URL(p, ROOT), "utf8");
-const [api, persist, catalog, dataPop, modelLab] = await Promise.all([
+const [api, persist, catalog, dataPop, modelLab, projectModelLab] = await Promise.all([
   read("src/sports/cockpit/cockpitApi.ts"),
   read("src/sports/cockpit/cockpitPersistence.ts"),
   read("src/sports/cockpit/Gen3CatalogSection.tsx"),
   read("src/sports/cockpit/cockpitSteps1.tsx"),
   read("src/sports/cockpit/cockpitSteps2.tsx"),
+  read("src/sports/cockpit/ProjectBoundModelLab.tsx"),
 ]);
 
 // ---------------- Gate 6: project hydration isolation ----------------
@@ -73,12 +74,13 @@ test("Autopilot posts to the authorized run-suite and is blocked without an acti
   assert.ok(!modelLab.includes('"/cockpit/autopilot"'));
 });
 
-// ---------------- Gate 6: Tuning is an explicit unavailable state, not a legacy grid ----------------
-test("Hyperparameter Tuning presents an explicit unavailable state routed to the authorized path", () => {
-  assert.ok(modelLab.includes("Legacy grid disabled"));
-  assert.ok(modelLab.includes("Autopilot"));
-  // the removed grid no longer scores 2025 anywhere in tuning
+// ---------------- Gate 6: tuning is integrated into the project-bound laboratory ----------------
+test("project-bound Model Development Laboratory owns tuning and queue execution", () => {
+  for (const value of ["FIXED", "GRID", "RANDOM", "Compact Grid", "Full Grid", "Custom Grid", "Review Queue Plan", "Run Experiment Queue"])
+    assert.ok(projectModelLab.includes(value), `integrated laboratory missing ${value}`);
+  assert.ok(!modelLab.includes("Legacy grid disabled"));
   assert.ok(!modelLab.includes("ll2025"));
+  assert.ok(!projectModelLab.includes("ll2025"));
 });
 
 // ---------------- Gate 7/8/12: downstream stages consume the active candidate; 2025 is never scored ----------------

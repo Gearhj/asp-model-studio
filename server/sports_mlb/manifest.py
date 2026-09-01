@@ -92,7 +92,6 @@ MLB_WORKFLOW_MANIFEST = SportWorkflowManifest(
         "PLAYER_SEGMENTATION",
         "SPLIT_AND_BALANCE",
         "MODEL_LAB",
-        "TUNING",
         "EVALUATION",
         "CALIBRATION",
         "SIMULATION_IMPACT",

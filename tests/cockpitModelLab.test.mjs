@@ -32,7 +32,7 @@ const [steps1, steps2, ui] = await Promise.all([
   read("src/sports/cockpit/cockpitSteps2.tsx"),
   read("src/sports/cockpit/cockpitUi.tsx"),
 ]);
-const lab = steps2.slice(steps2.indexOf("09 Model Laboratory"), steps2.indexOf("10 Hyperparameter Tuning"));
+const lab = steps2.slice(steps2.indexOf("09 Model Laboratory"), steps2.indexOf("export function EvaluationStep"));
 
 // ---------------- Model Laboratory (multi-model) ----------------
 test("model lab is a multi-model suite: grouped gallery, multi-select, recommended/clear, run-N", () => {
@@ -58,11 +58,12 @@ test("leaderboard ranks by validation log loss, shows champion reference and rea
   assert.ok(!lab.includes("Top-2 acc")); // not invented — backend doesn't return it
 });
 
-test("cross-model visuals + model detail drawer + send-to-tuning", () => {
+test("cross-model visuals + model detail drawer + integrated-tuning handoff", () => {
   assert.ok(lab.includes("<ModelScatter") && ui.includes("export function ModelScatter"));
   assert.ok(lab.includes("Validation log loss by candidate")); // comparison chart
   assert.ok(lab.includes("function ModelDetailDrawer") && lab.includes("experimentId"));
-  assert.ok(lab.includes("onToggleTune") && lab.includes("setLabTuneSelected"));
+  assert.ok(lab.includes("Tuning and queue planning now live inside Model Development Laboratory"));
+  assert.ok(lab.includes("this historical surface is read-only evidence"));
 });
 
 test("autopilot is repositioned and feeds the same leaderboard, tagged AUTOPILOT", () => {
@@ -70,7 +71,7 @@ test("autopilot is repositioned and feeds the same leaderboard, tagged AUTOPILOT
   assert.ok(lab.includes('source: "autopilot"') && lab.includes("upsertLabCandidate"));
   // Phase 7A.5 — autopilot now runs through the single server-authorized suite path
   assert.ok(lab.includes('"/cockpit/gen3/run-suite"'));
-  assert.ok(steps2.includes("Sent from the Model Laboratory")); // tuning inherits selection
+  assert.ok(steps2.includes("Tuning and queue planning now live inside Model Development Laboratory"));
 });
 
 test("champion reference is prominent and never auto-displaced", () => {

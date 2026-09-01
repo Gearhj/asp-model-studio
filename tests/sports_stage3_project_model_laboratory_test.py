@@ -18,14 +18,20 @@ PROJECT_ID = lab.EXPECTED_PROJECT_ID
 
 
 def test_model_laboratory_routes_require_authenticated_users() -> None:
-    routes = {route.path: route for route in persistence_router.router.routes}
     for method, path in (
         ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/summary"),
         ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/runs"),
+        ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/plan"),
+        ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/jobs"),
+        ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}"),
+        ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/jobs"),
         ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/run"),
     ):
-        route = routes[path]
-        assert method in route.methods
+        route = next(
+            route
+            for route in persistence_router.router.routes
+            if route.path == path and method in route.methods
+        )
         assert any(
             dependency.call is persistence_router.require_user
             for dependency in route.dependant.dependencies
@@ -172,6 +178,38 @@ def _split(authority: SimpleNamespace) -> dict[str, object]:
     }
 
 
+def _synthetic_eligibility(current: lab.ModelLabAuthority) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schemaVersion": "SPORTS_STAGE3_MODEL_ELIGIBILITY_V1",
+        "ruleVersion": "TEST_EXACT_AUTHORITY",
+        "featureSetId": "stage3-full-eligible-modeling-set-test",
+        "featureSetKey": "FULL_ELIGIBLE_MODELING_SET",
+        "name": "Full Eligible Feature Set",
+        "version": 1,
+        "status": "GOVERNED_DERIVED_AUTHORITY",
+        "checksum": "e" * 64,
+        "featureCount": 2,
+        "orderedFeatures": ["feature_numeric", "feature_category"],
+        "exclusions": [],
+        "reconciliation": {
+            "physicalCandidateCount": 2,
+            "eligiblePredictorCount": 2,
+            "excludedPredictorCount": 0,
+            "sourceUnavailable": 0,
+            "missingness": 0,
+            "pitLeakage": 0,
+            "identity": 0,
+            "computationFailure": 0,
+            "other": 0,
+        },
+        "transformationContracts": current.feature_sets[0]["transformationContracts"],
+        "simulatorGeneratedStateFeatures": [],
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+    }
+    return payload
+
+
 @pytest.fixture()
 def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database, lab.ModelLabAuthority]:
     authority = _authority()
@@ -233,6 +271,7 @@ def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database,
     monkeypatch.setattr(lab, "_runtime_root", lambda: tmp_path / "runs")
     database = Database(tmp_path / "unused.db")
     current = lab.resolve_model_lab_authority(database, PROJECT_ID)
+    monkeypatch.setattr(lab, "build_model_eligibility", lambda _resolved: _synthetic_eligibility(current))
     return database, current
 
 
@@ -269,6 +308,9 @@ def test_summary_uses_exact_stage3_authorities_and_does_not_fit_or_open_oot(
     assert summary["split"]["folds"][0]["trainRows"] == lab.EXPECTED_FOLDS[0][3]
     assert "trainingRows" not in summary["split"]["folds"][0]
     assert len(summary["candidateMatrix"]) == (10 if summary["modelFamilies"][-1]["available"] else 7)
+    assert summary["featureUniverse"]["featureSetKey"] == "FULL_ELIGIBLE_MODELING_SET"
+    assert summary["featureUniverse"]["featureCount"] == 2
+    assert summary["featureUniverseChoices"][0]["default"] is True
     null = summary["candidateMatrix"][0]
     assert null["modelFamily"] == "class_frequency_null"
     assert null["featureSetId"] is None
@@ -417,6 +459,23 @@ def test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing(
     assert len(result["classCalibration"]) == 8
     assert result["rareClassStability"]["totalOofSupport"] == 5
     assert result["modelComplexity"]["parameterCount"] is not None or family == "histogram_gradient_boosting"
+    assert len(result["interpretabilityEvidence"]["foldStatuses"]) == 5
+    if family == "multinomial_logistic":
+        assert set(result["interpretabilityEvidence"]["foldMethods"]) == {
+            "COEFFICIENT_ABSOLUTE_MEAN"
+        }
+        assert all(
+            fold["interpretabilityEvidence"]["completeEvidenceSha256"]
+            for fold in result["folds"]
+        )
+    elif family == "histogram_gradient_boosting":
+        assert set(result["interpretabilityEvidence"]["foldStatuses"]) == {
+            "DEFERRED_TO_EVALUATION"
+        }
+    else:
+        assert set(result["interpretabilityEvidence"]["foldStatuses"]) == {
+            "NOT_APPLICABLE_REFERENCE"
+        }
     assert all(fold["preprocessing"]["validationRowsUsedForParameters"] == 0 for fold in result["folds"])
     assert all(fold["preprocessing"]["finalOotRowsUsedForParameters"] == 0 for fold in result["folds"])
     if family != "class_frequency_null":

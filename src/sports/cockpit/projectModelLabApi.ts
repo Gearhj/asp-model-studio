@@ -26,6 +26,82 @@ export type ModelLabFeatureSet = {
   orderedFeatures: string[];
   status: string;
   checksum: string;
+  workflowRole?: string;
+  executionStatus?: string;
+  executable?: boolean;
+  defaultEligible?: boolean;
+  blockingFeatures?: ModelEligibilityDecision[];
+  reviewRequiredFeatures?: ModelEligibilityDecision[];
+  overrideEligible?: boolean;
+};
+
+export type ModelEligibilityDecision = {
+  name: string;
+  classification: string;
+  status: string;
+  reason: string;
+  missingPercentDevelopment: number;
+  overrideAllowed: boolean;
+};
+
+export type FullEligibleFeatureUniverse = {
+  featureSetId: string;
+  featureSetKey: "FULL_ELIGIBLE_MODELING_SET";
+  name: string;
+  version: number;
+  status: string;
+  checksum: string;
+  featureCount: number;
+  orderedFeatures: string[];
+  exclusions: ModelEligibilityDecision[];
+  reconciliation: {
+    physicalCandidateCount: number;
+    eligiblePredictorCount: number;
+    excludedPredictorCount: number;
+    sourceUnavailable: number;
+    missingness: number;
+    pitLeakage: number;
+    identity: number;
+    computationFailure: number;
+    other: number;
+  };
+  simulatorGeneratedStateFeatures: string[];
+  finalOotLocked: true;
+  finalOotTargetAccessed: false;
+};
+
+export type ModelAlgorithm = {
+  id: string;
+  label: string;
+  family: string;
+  available: boolean;
+  status: string;
+  unavailableReason?: string | null;
+  supportedTuningModes: ("FIXED" | "GRID" | "RANDOM")[];
+  defaultTuningMode: "FIXED" | "GRID" | "RANDOM";
+  defaultGridPreset: "COMPACT" | "FULL" | "CUSTOM";
+  fixedHyperparameters: Record<string, unknown>;
+  compactGrid: Record<string, unknown>[];
+  fullGrid: Record<string, unknown[]>;
+  allowedHyperparameters: string[];
+  computeIntensity: string;
+  probabilityTreatment: string;
+  interpretabilitySupport: string[];
+  computeGuard: Record<string, unknown>;
+};
+
+export type ModelCatalog = {
+  algorithms: ModelAlgorithm[];
+  families: { id: string; label: string; algorithms: string[] }[];
+  tuning: {
+    modes: ("FIXED" | "GRID" | "RANDOM")[];
+    gridPresets: ("COMPACT" | "FULL" | "CUSTOM")[];
+    warningFitThreshold: number;
+    hardFitLimit: number;
+    foldCount: number;
+  };
+  anomalyAnalytics: { status: string; algorithms: string[]; purposes: string[] };
+  interpretabilityRoadmap: Record<string, unknown>;
 };
 
 export type ModelLabFamily = {
@@ -77,7 +153,9 @@ export type ModelLabRun = {
     missingPolicyId: string;
     featureSetIds: string[];
     targetOrder: string[];
-    seed: number;
+    seed?: number;
+    featureUniverseId?: string;
+    featureUniverseChecksum?: string;
   };
   candidates: ModelLabCandidateResult[];
   autoPromoted: false;
@@ -124,10 +202,28 @@ export type ProjectModelLabSummary = {
     folds: ModelLabFold[];
   };
   featureSets: ModelLabFeatureSet[];
+  featureUniverse: FullEligibleFeatureUniverse;
+  featureUniverseChoices: {
+    id: string;
+    key: string;
+    label: string;
+    featureCount: number | null;
+    status: string;
+    default: boolean;
+    executable: boolean;
+  }[];
   modelFamilies: ModelLabFamily[];
+  modelCatalog: ModelCatalog;
   candidateMatrix: ModelLabCandidatePlan[];
   readiness: { ready: boolean; blockers: string[] };
   latestRun: ModelLabRun | null;
+  historicalEvidence: {
+    label: string;
+    immutable: boolean;
+    runCount: number;
+    runs: ModelLabRun[];
+    failedCandidatesRemainVisible: boolean;
+  };
   audit?: {
     legacyGlobalMatrixUsed: boolean;
     base22FallbackAvailable: boolean;
@@ -139,9 +235,91 @@ export type ProjectModelLabSummary = {
   };
 };
 
+export type ModelExperimentDraft = {
+  algorithmId: string;
+  featureUniverseId: string;
+  tuningMode: "FIXED" | "GRID" | "RANDOM";
+  gridPreset: "COMPACT" | "FULL" | "CUSTOM";
+  fixedHyperparameters?: Record<string, unknown>;
+  customGrid?: Record<string, unknown[]>;
+  compactGrid?: Record<string, unknown>[];
+  randomIterations?: number;
+  orderedFeatures?: string[];
+  eligibilityOverrideRationale?: string;
+  prospectiveSemanticCompatibilityAcknowledged?: boolean;
+  foldLocalTreatmentAcknowledged?: boolean;
+  seed?: number;
+};
+
+export type ModelDevelopmentPlan = {
+  planId: string;
+  checksum: string;
+  totalExperiments: number;
+  totalConfigurations: number;
+  totalFits: number;
+  requiresAcknowledgement: boolean;
+  acknowledged: boolean;
+  hardFitLimit: number;
+  executable: boolean;
+  executionBlocker: string | null;
+  finalOotLocked: true;
+  finalOotTargetAccessed: false;
+  experiments: Array<{
+    experimentId: string;
+    modelFamily: string;
+    algorithmId: string;
+    algorithmLabel: string;
+    featureUniverseId: string | null;
+    featureUniverseName: string;
+    featureUniverseChecksum: string | null;
+    featureCount: number;
+    computeIntensity: string;
+    tuning: {
+      tuningMode: string;
+      gridPreset: string;
+      configurationCount: number;
+      foldCount: number;
+      totalFits: number;
+      requiresAcknowledgement: boolean;
+      exceedsHardLimit: boolean;
+    };
+  }>;
+};
+
+export type ModelDevelopmentJob = {
+  jobId: string;
+  projectId: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  plan: ModelDevelopmentPlan;
+  progress: {
+    state: string;
+    completedFits: number;
+    failedFits: number;
+    totalFits: number;
+    currentAlgorithm?: string;
+    currentFeatureUniverse?: string;
+    currentConfiguration?: number;
+    currentHyperparameters?: Record<string, unknown>;
+    configurationCount?: number;
+    currentFold?: number;
+    foldCount?: number;
+    elapsedSeconds: number;
+    estimatedRemainingSeconds: number | null;
+    message: string;
+    failures?: unknown[];
+  };
+  artifacts: { runId?: string; runReceiptSha256?: string; promotionStatus?: string };
+  error: { code?: string; message?: string };
+};
+
 type SummaryEnvelope = { ok: true } & ProjectModelLabSummary;
 type RunEnvelope = { ok: true; run: ModelLabRun };
 type RunsEnvelope = { ok: true; runs: ModelLabRun[] };
+type PlanEnvelope = { ok: true; plan: ModelDevelopmentPlan };
+type JobEnvelope = { ok: true; job: ModelDevelopmentJob };
+type JobsEnvelope = { ok: true; jobs: ModelDevelopmentJob[] };
 
 const prefix = (projectId: string) =>
   `/projects/${encodeURIComponent(projectId)}/sports/stage3-model-laboratory`;
@@ -188,6 +366,15 @@ function assertSummary(value: SummaryEnvelope, projectId: string): SummaryEnvelo
     || value.split?.status !== "REGISTERED"
     || !Array.isArray(value.featureSets)
     || !Array.isArray(value.modelFamilies)
+    || !Array.isArray(value.modelCatalog?.algorithms)
+    || !value.featureUniverse?.featureSetId
+    || !value.featureUniverse?.checksum
+    || value.featureUniverse?.finalOotLocked !== true
+    || value.featureUniverse?.finalOotTargetAccessed !== false
+    || value.featureUniverse?.featureCount !== value.featureUniverse?.orderedFeatures?.length
+    || value.featureUniverse?.reconciliation?.physicalCandidateCount
+      !== value.featureUniverse?.reconciliation?.eligiblePredictorCount
+        + value.featureUniverse?.reconciliation?.excludedPredictorCount
     || !Array.isArray(value.candidateMatrix)
     || value.authority?.legacyGlobalMatrixUsed !== false
     || value.audit?.legacyGlobalMatrixUsed !== false
@@ -279,6 +466,10 @@ function normalizedSummary(raw: SummaryEnvelope): SummaryEnvelope {
       })),
     },
     latestRun: raw.latestRun ? normalizedRun(raw.latestRun) : null,
+    historicalEvidence: {
+      ...raw.historicalEvidence,
+      runs: (raw.historicalEvidence?.runs ?? []).map(normalizedRun),
+    },
   };
 }
 
@@ -306,7 +497,14 @@ function assertRun(run: ModelLabRun, summary: ProjectModelLabSummary): ModelLabR
     || summary.target.orderedClasses.some((target, index) => run.identity.targetOrder[index] !== target)
     || runFeatureIds.length !== identityFeatureIds.length
     || runFeatureIds.some((id, index) => identityFeatureIds[index] !== id)
-    || run.candidates.some((item) => !summary.modelFamilies.some((family) => family.id === item.modelFamily) || (item.featureSetId != null && !summary.featureSets.some((featureSet) => featureSet.featureSetId === item.featureSetId)))
+    || run.candidates.some((item) => {
+      const algorithmKnown = summary.modelCatalog.algorithms.some((algorithm) => algorithm.id === item.modelFamily);
+      const featureKnown = item.featureSetId == null
+        || item.featureSetId === summary.featureUniverse.featureSetId
+        || item.featureSetId.startsWith("stage3-custom-modeling-subset-")
+        || summary.featureSets.some((featureSet) => featureSet.featureSetId === item.featureSetId);
+      return !algorithmKnown || !featureKnown;
+    })
   ) {
     throw new Error("The Model Laboratory result did not echo the exact project, Gold, split, treatment-policy, final-OOT, and zero-promotion authority.");
   }
@@ -330,6 +528,87 @@ export async function fetchProjectModelLabRuns(
   return value.runs.map((run) => assertRun(normalizedRun(run), summary));
 }
 
+function planPayload(
+  summary: ProjectModelLabSummary,
+  experiments: ModelExperimentDraft[],
+  acknowledgeExcessiveFits = false,
+) {
+  return {
+    authorityKey: summary.authority.authorityKey,
+    splitContractId: summary.split.splitContractId,
+    experiments,
+    seed: 20260901,
+    acknowledgeExcessiveFits,
+  };
+}
+
+async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+    signal,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
+  const value = await response.json().catch(() => null);
+  if (!response.ok) throw exactHttpError(value, response.status, path);
+  return value as T;
+}
+
+export async function planProjectModelDevelopment(
+  projectId: string,
+  summary: ProjectModelLabSummary,
+  experiments: ModelExperimentDraft[],
+  acknowledgeExcessiveFits = false,
+  signal?: AbortSignal,
+) {
+  const path = `${prefix(projectId)}/plan`;
+  const value = await postJSON<PlanEnvelope>(
+    path,
+    planPayload(summary, experiments, acknowledgeExcessiveFits),
+    signal,
+  );
+  if (value?.ok !== true || !value.plan?.planId) throw new Error("The model-development plan response was incomplete.");
+  if (value.plan.finalOotLocked !== true || value.plan.finalOotTargetAccessed !== false) {
+    throw new Error("The model-development plan did not preserve the final-OOT lock.");
+  }
+  return value.plan;
+}
+
+export async function enqueueProjectModelDevelopment(
+  projectId: string,
+  summary: ProjectModelLabSummary,
+  experiments: ModelExperimentDraft[],
+  acknowledgeExcessiveFits: boolean,
+  signal?: AbortSignal,
+) {
+  const path = `${prefix(projectId)}/jobs`;
+  const value = await postJSON<JobEnvelope>(
+    path,
+    planPayload(summary, experiments, acknowledgeExcessiveFits),
+    signal,
+  );
+  if (value?.ok !== true || !value.job?.jobId) throw new Error("The model-development job response was incomplete.");
+  return value.job;
+}
+
+export async function fetchProjectModelDevelopmentJobs(projectId: string, signal?: AbortSignal) {
+  const value = await getJSON<JobsEnvelope>(`${prefix(projectId)}/jobs`, { signal, credentials: "include" });
+  if (value?.ok !== true || !Array.isArray(value.jobs)) throw new Error("The model-development job ledger was incomplete.");
+  return value.jobs;
+}
+
+export async function fetchProjectModelDevelopmentJob(
+  projectId: string,
+  jobId: string,
+  signal?: AbortSignal,
+) {
+  const value = await getJSON<JobEnvelope>(`${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}`, { signal, credentials: "include" });
+  if (value?.ok !== true || value.job?.jobId !== jobId) throw new Error("The model-development job status was incomplete.");
+  return value.job;
+}
+
+/** @deprecated Normal UI execution uses the planned, persisted job queue. */
 export async function runProjectModelLab(
   projectId: string,
   summary: ProjectModelLabSummary,
