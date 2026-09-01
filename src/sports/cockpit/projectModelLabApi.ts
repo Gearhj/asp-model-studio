@@ -138,6 +138,10 @@ export type ModelLabCandidateResult = {
   classCalibrationDiagnostics: unknown[];
   runtimeMs: number | null;
   errorReason: string | null;
+  hyperparameters?: Record<string, unknown>;
+  featureCount?: number;
+  interpretabilityEvidence?: Record<string, unknown> | null;
+  evaluationEvidence?: Record<string, unknown> | null;
 };
 
 export type ModelLabRun = {
@@ -249,6 +253,8 @@ export type ModelExperimentDraft = {
   prospectiveSemanticCompatibilityAcknowledged?: boolean;
   foldLocalTreatmentAcknowledged?: boolean;
   seed?: number;
+  parentCandidateFingerprint?: string;
+  refinementPlanId?: string;
 };
 
 export type ModelDevelopmentPlan = {
@@ -264,6 +270,18 @@ export type ModelDevelopmentPlan = {
   executionBlocker: string | null;
   finalOotLocked: true;
   finalOotTargetAccessed: false;
+  batchName?: string;
+  parallelism: {
+    mode: "AUTO" | "MANUAL";
+    requested: "AUTO" | number;
+    effectiveCandidateWorkers: number;
+    maximumCandidateWorkers: number;
+    logicalCpuCount: number;
+    physicalMemoryGiB: number | null;
+    highMemoryCandidatePresent: boolean;
+    estimatorNativeWorkers: 1;
+    nestedOversubscriptionProhibited: true;
+  };
   experiments: Array<{
     experimentId: string;
     modelFamily: string;
@@ -309,9 +327,157 @@ export type ModelDevelopmentJob = {
     estimatedRemainingSeconds: number | null;
     message: string;
     failures?: unknown[];
+    completedConfigurations?: number;
+    failedConfigurations?: number;
+    remainingFits?: number;
+    parallelWorkers?: number;
+    activeCandidates?: Array<{
+      taskId: string;
+      algorithm: string;
+      algorithmLabel: string;
+      featureUniverse: string;
+      configuration: number;
+      configurationCount: number;
+      hyperparameters: Record<string, unknown>;
+      fold: number;
+      foldCount: number;
+      status: string;
+      elapsedSeconds: number;
+    }>;
+    completedCandidateReceipts?: Array<{
+      candidateId: string;
+      candidateReceiptSha256: string;
+      status: string;
+    }>;
+    cancelUnstartedRequested?: boolean;
   };
   artifacts: { runId?: string; runReceiptSha256?: string; promotionStatus?: string };
   error: { code?: string; message?: string };
+};
+
+export type CandidateAttempt = {
+  attemptId: string;
+  candidateFingerprint: string;
+  runId: string;
+  runReceiptSha256: string;
+  receiptSchemaVersion: string;
+  evidenceSource: "CURRENT_BATCH" | "HISTORICAL_BASELINE";
+  createdAt: string;
+  status: string;
+  modelFamily: string;
+  featureSetId: string | null;
+  featureSetName: string;
+  featureCount: number;
+  hyperparameters: Record<string, unknown>;
+  tuningMode: string;
+  gridPreset: string;
+  seed: number;
+  foldsCompleted: number;
+  meanOofLogLoss: number | null;
+  foldStandardDeviation: number | null;
+  summedBrier: number | null;
+  ece: number | null;
+  macroF1: number | null;
+  accuracy: number | null;
+  runtimeMs: number | null;
+  errorCode?: string | null;
+  errorReason?: string | null;
+  folds: Array<Record<string, any>>;
+  classCalibration: Array<Record<string, any>>;
+  modelComplexity?: Record<string, any> | string | null;
+  interpretabilityEvidence?: Record<string, any> | null;
+  evaluationEvidence?: Record<string, any> | null;
+  orderedFeatures?: string[];
+};
+
+export type CandidateGroup = {
+  candidateFingerprint: string;
+  modelFamily: string;
+  featureSetId: string | null;
+  featureSetName: string;
+  featureCount: number;
+  hyperparameters: Record<string, unknown>;
+  tuningMode: string;
+  gridPreset: string;
+  status: string;
+  attemptCount: number;
+  completedAttemptCount: number;
+  failedAttemptCount: number;
+  reproducibilityStatus: string;
+  rankingEligible: boolean;
+  evidenceSources: string[];
+  meanOofLogLoss: number | null;
+  foldStandardDeviation: number | null;
+  summedBrier: number | null;
+  ece: number | null;
+  macroF1: number | null;
+  accuracy: number | null;
+  runtimeMs: number | null;
+  foldsCompleted: number;
+  immutableEvidenceIdentity: string;
+  representativeAttemptId: string;
+  attempts: CandidateAttempt[];
+  rank: number | null;
+  developmentLabel: string;
+  finalist: boolean;
+};
+
+export type ProjectCandidateEvaluation = {
+  ok: true;
+  schemaVersion: string;
+  authority: {
+    projectId: string;
+    projectName: string;
+    goldDatasetId: string;
+    goldManifestSha: string;
+    authorityKey: string;
+    splitContractId: string;
+    splitChecksum: string;
+    outlierPolicyId: string;
+    missingPolicyId: string;
+    targetOrder: string[];
+    legacyGlobalMatrixUsed: false;
+    base22FallbackAvailable: false;
+  };
+  population: {
+    scope: "DEVELOPMENT_ONLY";
+    developmentRows: number;
+    startDate: string;
+    endDate: string;
+    foldCount: 5;
+    finalOotRows: number;
+    finalOotStartDate: string;
+    finalOotEndDate: string;
+    finalOotLocked: true;
+    finalOotTargetAccessed: false;
+    finalOotScored: false;
+  };
+  activity: {
+    immutableRunReceipts: number;
+    historicalRunReceipts: number;
+    currentBatchReceipts: number;
+    uniqueCandidateSpecifications: number;
+    attempts: number;
+    completedAttempts: number;
+    failedAttempts: number;
+    modelFitsDisplayedAsProjectEvidence: number;
+    newFitsOnPageLoad: 0;
+    providerCalls: 0;
+    modelsPromoted: 0;
+  };
+  currentBatches: CandidateGroup[];
+  historicalEvidence: {
+    collapsedByDefault: boolean;
+    banner: string;
+    candidates: CandidateGroup[];
+  };
+  candidateGroups: CandidateGroup[];
+  finalists: Array<Record<string, any>>;
+  refinements: Array<Record<string, any>>;
+  analysisRequests: Array<Record<string, any>>;
+  selectionMetric: string;
+  promotionStatus: "NOT_PROMOTED";
+  finalOotAccessed: false;
 };
 
 type SummaryEnvelope = { ok: true } & ProjectModelLabSummary;
@@ -440,6 +606,10 @@ function normalizedCandidate(raw: any): ModelLabCandidateResult {
     classCalibrationDiagnostics: Array.isArray(calibration) ? calibration : [],
     runtimeMs: finiteNumber(raw?.runtimeMs),
     errorReason: error == null ? null : typeof error === "string" ? error : [error?.code, error?.message].filter(Boolean).join(": ") || "Candidate failed closed.",
+    hyperparameters: raw?.hyperparameters && typeof raw.hyperparameters === "object" ? raw.hyperparameters : {},
+    featureCount: Number(raw?.featureCount ?? 0),
+    interpretabilityEvidence: raw?.interpretabilityEvidence && typeof raw.interpretabilityEvidence === "object" ? raw.interpretabilityEvidence : null,
+    evaluationEvidence: raw?.evaluationEvidence && typeof raw.evaluationEvidence === "object" ? raw.evaluationEvidence : null,
   };
 }
 
@@ -532,6 +702,7 @@ function planPayload(
   summary: ProjectModelLabSummary,
   experiments: ModelExperimentDraft[],
   acknowledgeExcessiveFits = false,
+  options?: { parallelWorkers?: "AUTO" | number; batchName?: string },
 ) {
   return {
     authorityKey: summary.authority.authorityKey,
@@ -539,6 +710,8 @@ function planPayload(
     experiments,
     seed: 20260901,
     acknowledgeExcessiveFits,
+    parallelWorkers: options?.parallelWorkers ?? "AUTO",
+    batchName: options?.batchName ?? "Stage 3 multi-model development batch",
   };
 }
 
@@ -561,11 +734,12 @@ export async function planProjectModelDevelopment(
   experiments: ModelExperimentDraft[],
   acknowledgeExcessiveFits = false,
   signal?: AbortSignal,
+  options?: { parallelWorkers?: "AUTO" | number; batchName?: string },
 ) {
   const path = `${prefix(projectId)}/plan`;
   const value = await postJSON<PlanEnvelope>(
     path,
-    planPayload(summary, experiments, acknowledgeExcessiveFits),
+    planPayload(summary, experiments, acknowledgeExcessiveFits, options),
     signal,
   );
   if (value?.ok !== true || !value.plan?.planId) throw new Error("The model-development plan response was incomplete.");
@@ -581,11 +755,12 @@ export async function enqueueProjectModelDevelopment(
   experiments: ModelExperimentDraft[],
   acknowledgeExcessiveFits: boolean,
   signal?: AbortSignal,
+  options?: { parallelWorkers?: "AUTO" | number; batchName?: string },
 ) {
   const path = `${prefix(projectId)}/jobs`;
   const value = await postJSON<JobEnvelope>(
     path,
-    planPayload(summary, experiments, acknowledgeExcessiveFits),
+    planPayload(summary, experiments, acknowledgeExcessiveFits, options),
     signal,
   );
   if (value?.ok !== true || !value.job?.jobId) throw new Error("The model-development job response was incomplete.");
@@ -606,6 +781,121 @@ export async function fetchProjectModelDevelopmentJob(
   const value = await getJSON<JobEnvelope>(`${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}`, { signal, credentials: "include" });
   if (value?.ok !== true || value.job?.jobId !== jobId) throw new Error("The model-development job status was incomplete.");
   return value.job;
+}
+
+export async function cancelUnstartedProjectModelDevelopment(
+  projectId: string,
+  jobId: string,
+  signal?: AbortSignal,
+) {
+  const path = `${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}/cancel-unstarted`;
+  const value = await postJSON<JobEnvelope>(path, {}, signal);
+  if (value?.ok !== true || value.job?.jobId !== jobId) throw new Error("The cancel-unstarted acknowledgement was incomplete.");
+  return value.job;
+}
+
+const evaluationPrefix = (projectId: string) =>
+  `/projects/${encodeURIComponent(projectId)}/sports/stage3-candidate-evaluation`;
+
+function assertEvaluation(value: ProjectCandidateEvaluation, projectId: string) {
+  if (
+    value?.ok !== true
+    || value.authority?.projectId !== projectId
+    || value.authority?.legacyGlobalMatrixUsed !== false
+    || value.authority?.base22FallbackAvailable !== false
+    || value.population?.scope !== "DEVELOPMENT_ONLY"
+    || value.population?.finalOotLocked !== true
+    || value.population?.finalOotTargetAccessed !== false
+    || value.population?.finalOotScored !== false
+    || value.activity?.newFitsOnPageLoad !== 0
+    || value.activity?.providerCalls !== 0
+    || value.activity?.modelsPromoted !== 0
+    || value.promotionStatus !== "NOT_PROMOTED"
+    || value.finalOotAccessed !== false
+    || !Array.isArray(value.candidateGroups)
+    || !Array.isArray(value.authority.targetOrder)
+    || (projectId === CURRENT_PROJECT_ID && (
+      value.authority.goldDatasetId !== CURRENT_GOLD_ID
+      || value.authority.goldManifestSha !== CURRENT_GOLD_MANIFEST
+      || value.population.developmentRows !== CURRENT_DEVELOPMENT.rows
+      || value.population.startDate !== CURRENT_DEVELOPMENT.start
+      || value.population.endDate !== CURRENT_DEVELOPMENT.end
+      || value.population.finalOotRows !== CURRENT_FINAL_OOT.rows
+      || value.population.finalOotStartDate !== CURRENT_FINAL_OOT.start
+      || value.population.finalOotEndDate !== CURRENT_FINAL_OOT.end
+      || value.authority.splitContractId !== CURRENT_SPLIT_ID
+      || value.authority.outlierPolicyId !== CURRENT_OUTLIER_ID
+      || value.authority.missingPolicyId !== CURRENT_MISSING_ID
+      || value.authority.targetOrder.length !== CURRENT_TARGET_ORDER.length
+      || CURRENT_TARGET_ORDER.some((target, index) => value.authority.targetOrder[index] !== target)
+    ))
+  ) throw new Error("Candidate Evaluation did not preserve the exact project-bound development authority and final-OOT lock.");
+  return value;
+}
+
+export async function fetchProjectCandidateEvaluation(projectId: string, signal?: AbortSignal) {
+  const value = await getJSON<ProjectCandidateEvaluation>(evaluationPrefix(projectId), { signal, credentials: "include" });
+  return assertEvaluation(value, projectId);
+}
+
+export async function saveProjectCandidateFinalists(
+  projectId: string,
+  candidateFingerprints: string[],
+  rationale: string,
+  evaluationBatch = "ALL_VERIFIED_PROJECT_EVIDENCE",
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; selection: Record<string, any> }>(
+    `${evaluationPrefix(projectId)}/finalists`,
+    { candidateFingerprints, rationale, evaluationBatch },
+    signal,
+  );
+}
+
+export async function requestProjectCandidateAnalysis(
+  projectId: string,
+  payload: {
+    candidateFingerprint: string;
+    analysisKind: "PERMUTATION_IMPORTANCE" | "SHAP" | "SENSITIVITY";
+    sampleSize: number;
+    seed: number;
+    targetClass: string;
+  },
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; analysis: Record<string, any> }>(
+    `${evaluationPrefix(projectId)}/analysis`, payload, signal,
+  );
+}
+
+export async function planProjectModelRefinement(
+  projectId: string,
+  payload: {
+    candidateFingerprint: string;
+    method: string;
+    minimumRetainedFeatures: number;
+    eliminationStep: number;
+    rationale: string;
+  },
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; plan: Record<string, any> }>(
+    `/projects/${encodeURIComponent(projectId)}/sports/stage3-model-refinement/plan`,
+    payload,
+    signal,
+  );
+}
+
+export async function executeProjectModelRefinement(
+  projectId: string,
+  planId: string,
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; job: ModelDevelopmentJob; refinement: Record<string, any> }>(
+    `/projects/${encodeURIComponent(projectId)}/sports/stage3-model-refinement/execute`,
+    { planId },
+    signal,
+  );
 }
 
 /** @deprecated Normal UI execution uses the planned, persisted job queue. */

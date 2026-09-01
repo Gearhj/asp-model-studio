@@ -162,6 +162,28 @@ def test_full_eligible_exact_counts_and_governed_exclusions_reconcile(
     assert result["finalOotTargetAccessed"] is False
 
 
+def test_default_binary_transform_matches_adopted_data_type_aware_missing_policy() -> None:
+    transformations = eligibility.feature_engineering._default_transformations(
+        ["complete_flag", "physically_missing_flag"],
+        {
+            "complete_flag": {
+                "binary": True,
+                "dataType": "numeric",
+                "missingPercentDevelopment": 0.0,
+            },
+            "physically_missing_flag": {
+                "binary": True,
+                "dataType": "numeric",
+                "missingPercentDevelopment": 0.661,
+            },
+        },
+    )
+    assert transformations["ordered"] == [
+        {"feature": "complete_flag", "steps": ["BINARY_PASSTHROUGH"]},
+        {"feature": "physically_missing_flag", "steps": ["BINARY_MODE_IMPUTE"]},
+    ]
+
+
 @pytest.mark.parametrize(
     ("row", "classification", "status", "override"),
     [

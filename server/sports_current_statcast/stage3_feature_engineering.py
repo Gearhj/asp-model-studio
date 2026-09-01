@@ -70,6 +70,7 @@ _SUPPORTED_TRANSFORMATIONS = frozenset(
         "CATEGORICAL_UNKNOWN",
         "ONE_HOT",
         "BINARY_PASSTHROUGH",
+        "BINARY_MODE_IMPUTE",
         "MISSING_INDICATOR",
         "ADOPTED_OUTLIER_POLICY",
         "ADOPTED_MISSING_POLICY",
@@ -455,6 +456,13 @@ def _family_summaries(catalog: Mapping[str, Mapping[str, Any]]) -> list[dict[str
 
 def _default_steps(meta: Mapping[str, Any]) -> list[str]:
     if meta.get("binary"):
+        # The adopted DATA_TYPE_AWARE Missing Policy v2 requires MODE for a
+        # physically-missing binary predictor.  Passthrough remains the exact
+        # contract for complete binary columns.  This distinction is part of
+        # the immutable/content-addressed transformation authority; the model
+        # worker must never infer it later from a pandas dtype.
+        if float(meta.get("missingPercentDevelopment") or 0.0) > 0.0:
+            return ["BINARY_MODE_IMPUTE"]
         return ["BINARY_PASSTHROUGH"]
     if str(meta.get("dataType")) == "categorical":
         return ["CATEGORICAL_UNKNOWN", "ONE_HOT"]
@@ -1241,10 +1249,13 @@ def _normalize_transformations(
                 "TRANSFORMATION_TYPE_INCOMPATIBLE",
                 f"Categorical transformations are not compatible with numeric feature {name}.",
             )
-        if "BINARY_PASSTHROUGH" in steps and not meta.get("binary"):
+        if (
+            {"BINARY_PASSTHROUGH", "BINARY_MODE_IMPUTE"} & set(steps)
+            and not meta.get("binary")
+        ):
             raise Stage3FeatureEngineeringError(
                 "TRANSFORMATION_TYPE_INCOMPATIBLE",
-                f"BINARY_PASSTHROUGH is not compatible with nonbinary feature {name}.",
+                f"Binary treatment is not compatible with nonbinary feature {name}.",
             )
         if "ONE_HOT" in steps and "CATEGORICAL_UNKNOWN" not in steps:
             raise Stage3FeatureEngineeringError(

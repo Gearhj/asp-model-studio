@@ -86,10 +86,18 @@ from ..sports_current_statcast.stage3_model_laboratory import (
     run_model_laboratory,
 )
 from ..sports_current_statcast.stage3_model_jobs import (
+    cancel_unstarted_model_development_work,
     enqueue_model_development_job,
     get_model_development_job,
     list_model_development_jobs,
     plan_model_development_queue,
+)
+from ..sports_current_statcast.stage3_candidate_evaluation import (
+    execute_model_refinement,
+    plan_model_refinement,
+    project_candidate_evaluation,
+    request_candidate_analysis,
+    save_finalist_selection,
 )
 
 
@@ -990,11 +998,12 @@ def post_sports_stage3_model_laboratory_plan(
     """Validate and count a development queue without fitting anything."""
 
     _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
     return _run_stage3_prepare(
         lambda: {
             "ok": True,
             "plan": plan_model_development_queue(
-                _service().database, project_id, payload
+                _service().database, project_id, payload, actor_user_id=actor
             ),
         }
     )
@@ -1038,12 +1047,121 @@ def post_sports_stage3_model_laboratory_job(
     payload: Dict[str, Any],
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
-    """Explicitly enqueue one bounded, single-worker development plan."""
+    """Explicitly enqueue one safely bounded multi-candidate batch plan."""
 
     _authorize_sports_project(project_id, user, "edit")
     actor = _stage3_actor(user)
     return _run_stage3_prepare(
         lambda: enqueue_model_development_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}/cancel-unstarted"
+)
+def post_sports_stage3_model_laboratory_cancel_unstarted(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Cancel only queued/unstarted configurations; preserve active evidence."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: cancel_unstarted_model_development_work(
+            _service().database,
+            project_id,
+            job_id,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-candidate-evaluation")
+def get_sports_stage3_candidate_evaluation(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read verified project-bound candidate evidence without fitting."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: project_candidate_evaluation(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/finalists")
+def post_sports_stage3_candidate_finalists(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_finalist_selection(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/analysis")
+def post_sports_stage3_candidate_analysis(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: request_candidate_analysis(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/plan")
+def post_sports_stage3_model_refinement_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: plan_model_refinement(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/execute")
+def post_sports_stage3_model_refinement_execute(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly queue a supported reduced challenger from one finalist."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: execute_model_refinement(
             _service().database,
             project_id,
             payload,

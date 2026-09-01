@@ -68,7 +68,7 @@ def test_every_frontend_cockpit_path_resolves_to_a_mounted_route():
 
 
 def test_core_15_step_cockpit_endpoints_present():
-    # the endpoints backing the 14-step cockpit surface, incl. the one that 404'd live (objective)
+    # the endpoints backing the 15-step cockpit surface, incl. the one that 404'd live (objective)
     mounted = _mounted_cockpit_routes()
     matches = _route_matcher(mounted)
     for path in [

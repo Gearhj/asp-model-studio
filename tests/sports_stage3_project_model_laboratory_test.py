@@ -11,6 +11,7 @@ import pytest
 
 from server.persistence.db import Database
 from server.persistence import persistence_router
+from server.sports_current_statcast import stage3_model_jobs as jobs
 from server.sports_current_statcast import stage3_model_laboratory as lab
 
 
@@ -25,7 +26,13 @@ def test_model_laboratory_routes_require_authenticated_users() -> None:
         ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/jobs"),
         ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}"),
         ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/jobs"),
+        ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}/cancel-unstarted"),
         ("POST", "/projects/{project_id}/sports/stage3-model-laboratory/run"),
+        ("GET", "/projects/{project_id}/sports/stage3-candidate-evaluation"),
+        ("POST", "/projects/{project_id}/sports/stage3-candidate-evaluation/finalists"),
+        ("POST", "/projects/{project_id}/sports/stage3-candidate-evaluation/analysis"),
+        ("POST", "/projects/{project_id}/sports/stage3-model-refinement/plan"),
+        ("POST", "/projects/{project_id}/sports/stage3-model-refinement/execute"),
     ):
         route = next(
             route
@@ -70,6 +77,43 @@ def _authority() -> SimpleNamespace:
         ),
         public=lambda: dict(public),
     )
+
+
+def test_model_lab_authority_project_identity_survives_job_revalidation() -> None:
+    eda_authority = _authority()
+    resolved = lab.ModelLabAuthority(
+        eda_authority=eda_authority,
+        project_name="MLB Current Challenger",
+        outlier_policy={},
+        missing_policy={},
+        feature_sets=(),
+        split={"contractId": "split-current", "checksum": "s" * 64},
+    )
+    eligibility = {"featureSetId": "features-current", "checksum": "f" * 64}
+    unsigned_plan = {
+        "projectId": PROJECT_ID,
+        "authorityKey": resolved.authority_key,
+        "featureUniverseId": eligibility["featureSetId"],
+        "featureUniverseChecksum": eligibility["checksum"],
+        "splitContractId": resolved.split["contractId"],
+        "splitChecksum": resolved.split["checksum"],
+        "foldCount": 5,
+        "metric": "MULTICLASS_LOG_LOSS",
+        "environment": jobs._environment_identity(),
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "providerCalls": 0,
+        "promotionRequested": False,
+    }
+    checksum = jobs._sha(unsigned_plan)
+    plan = {
+        **unsigned_plan,
+        "planId": "stage3-model-plan-" + checksum[:32],
+        "checksum": checksum,
+    }
+
+    assert resolved.project_id == PROJECT_ID
+    jobs._assert_plan_current(resolved, eligibility, plan)
 
 
 def _policy(authority: SimpleNamespace, kind: str, expected: dict[str, object]) -> dict[str, object]:
@@ -532,6 +576,52 @@ def test_registered_categorical_contract_maps_null_and_fold_unseen_to_unknown() 
     assert transformed[:, categorical_indices].sum(axis=1).tolist() == [1.0, 1.0]
 
 
+def test_reduced_challenger_selects_inside_each_training_fold_without_validation_or_oot() -> None:
+    frame, split = _small_frame_and_split()
+    frame["feature_numeric_two"] = frame["feature_numeric"] * 0.5 + 1.0
+    feature_set = {
+        "featureSetId": "stage3-fold-local-selector-test",
+        "name": "Fold-local selector test",
+        "version": 1,
+        "checksum": "6" * 64,
+        "orderedFeatures": ["feature_numeric", "feature_numeric_two", "feature_category"],
+        "transformationContracts": {
+            "ordered": [
+                {"feature": "feature_numeric", "steps": ["RETAIN_RAW"]},
+                {"feature": "feature_numeric_two", "steps": ["RETAIN_RAW"]},
+                {"feature": "feature_category", "steps": ["CATEGORICAL_UNKNOWN", "ONE_HOT"]},
+            ]
+        },
+    }
+    events: list[dict[str, object]] = []
+    result = lab._evaluate_candidate(
+        frame,
+        model_family="multinomial_logistic",
+        feature_set=feature_set,
+        split=split,
+        seed=731_026,
+        fold_local_selector={
+            "method": "RFE",
+            "minimumRetainedFeatures": 2,
+            "eliminationStep": 1,
+        },
+        progress_callback=events.append,
+    )
+    refinement = result["refinementEvidence"]
+    assert result["status"] == "COMPLETE"
+    assert result["featureCount"] == 2
+    assert result["sourceFeatureCount"] == 3
+    assert str(result["featureSetId"]).startswith("stage3-stable-reduced-feature-set-")
+    assert len(refinement["folds"]) == 5
+    assert len(refinement["stableRetainedFeatures"]) == 2
+    assert refinement["validationRowsUsedForSelection"] == 0
+    assert refinement["finalOotTargetAccessed"] is False
+    assert all(fold["validationRowsUsedForSelection"] == 0 for fold in refinement["folds"])
+    assert all(len(fold["retainedFeatures"]) == 2 for fold in refinement["folds"])
+    assert sum(event.get("event") == "FOLD_SELECTOR_FIT_COMPLETED" for event in events) == 5
+    assert sum(event.get("event") == "FOLD_COMPLETED" for event in events) == 5
+
+
 def test_registered_binary_passthrough_is_not_imputed_or_one_hot_encoded() -> None:
     training = pd.DataFrame({"is_home": [0, 1, 1], "feature_numeric": [1.0, 2.0, 3.0]})
     feature_set = {
@@ -558,6 +648,45 @@ def test_registered_binary_passthrough_is_not_imputed_or_one_hot_encoded() -> No
             dense_categoricals=True,
         )
     assert caught.value.code == "MODEL_LAB_BINARY_PASSTHROUGH_MISSING"
+
+
+def test_registered_binary_mode_imputation_fits_only_on_training_rows() -> None:
+    training = pd.DataFrame(
+        {
+            "crossed_time_zone": [0.0, 0.0, 1.0, np.nan],
+            "time_zone_missing": [0, 0, 0, 1],
+        }
+    )
+    feature_set = {
+        "featureSetId": "stage3-full-eligible-binary-mode-test",
+        "orderedFeatures": ["crossed_time_zone", "time_zone_missing"],
+        "transformationContracts": {
+            "ordered": [
+                {"feature": "crossed_time_zone", "steps": ["BINARY_MODE_IMPUTE"]},
+                {"feature": "time_zone_missing", "steps": ["BINARY_PASSTHROUGH"]},
+            ]
+        },
+    }
+    preprocessor, groups = lab._preprocessor(
+        training, feature_set, dense_categoricals=True
+    )
+    preprocessor.fit(training)
+    validation = pd.DataFrame(
+        {
+            "crossed_time_zone": [np.nan, 1.0],
+            "time_zone_missing": [1, 0],
+        }
+    )
+    transformed = np.asarray(preprocessor.transform(validation), dtype=float)
+    names = preprocessor.get_feature_names_out().tolist()
+    imputed_index = names.index("binary_mode__crossed_time_zone")
+    assert groups["binary_mode"] == ["crossed_time_zone"]
+    assert groups["binary"] == ["time_zone_missing"]
+    assert transformed[:, imputed_index].tolist() == [0.0, 1.0]
+    assert (
+        preprocessor.named_transformers_["binary_mode"].named_steps["imputer"].statistics_.tolist()
+        == [0.0]
+    )
 
 
 def test_hgb_disables_internal_random_early_stopping_split() -> None:

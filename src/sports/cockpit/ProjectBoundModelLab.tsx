@@ -1,27 +1,48 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, BarChart3, CheckCircle2, ChevronRight, Cpu, FlaskConical,
-  Gauge, Layers3, ListChecks, Loader2, Lock, Play, RefreshCw, ShieldCheck,
-  SlidersHorizontal, Sparkles, TableProperties, Trash2,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Cpu,
+  FlaskConical, Layers3, ListChecks, Loader2, Lock, PauseCircle, Play,
+  RefreshCw, Save, ShieldCheck, SlidersHorizontal, Sparkles,
 } from "lucide-react";
 import {
-  enqueueProjectModelDevelopment, fetchProjectModelDevelopmentJob,
-  fetchProjectModelDevelopmentJobs, fetchProjectModelLabRuns,
-  fetchProjectModelLabSummary, planProjectModelDevelopment,
-  type ModelAlgorithm, type ModelDevelopmentJob, type ModelDevelopmentPlan,
-  type ModelExperimentDraft, type ModelLabCandidateResult, type ModelLabRun,
+  cancelUnstartedProjectModelDevelopment,
+  enqueueProjectModelDevelopment,
+  fetchProjectCandidateEvaluation,
+  fetchProjectModelDevelopmentJob,
+  fetchProjectModelDevelopmentJobs,
+  fetchProjectModelLabSummary,
+  planProjectModelDevelopment,
+  type ModelAlgorithm,
+  type ModelDevelopmentJob,
+  type ModelDevelopmentPlan,
+  type ModelExperimentDraft,
+  type ProjectCandidateEvaluation,
   type ProjectModelLabSummary,
 } from "./projectModelLabApi";
+import { ProjectCandidateComparison } from "./ProjectCandidateComparison";
 
 type LoadState = "loading" | "ready" | "error";
 type GridPreset = "COMPACT" | "FULL" | "CUSTOM";
 type TuningMode = "FIXED" | "GRID" | "RANDOM";
+type WorkerChoice = "AUTO" | 1 | 2;
+type ModelConfig = {
+  featureUniverseId: string;
+  orderedFeaturesText: string;
+  tuningMode: TuningMode;
+  gridPreset: GridPreset;
+  fixedText: string;
+  customGridText: string;
+  randomIterations: number;
+  expanded: boolean;
+};
 
+const RECOMMENDED = [
+  "class_frequency_null", "multinomial_logistic", "random_forest", "extra_trees",
+  "histogram_gradient_boosting", "xgboost", "lightgbm",
+];
 const int = (value: number) => new Intl.NumberFormat("en-US").format(value);
-const decimal = (value: number | null, digits = 6) => value == null ? "—" : value.toFixed(digits);
-const duration = (value: number | null) => value == null ? "—" : value < 1_000 ? `${Math.round(value)} ms` : `${(value / 1_000).toFixed(1)} s`;
-const short = (value: string) => value.length > 22 ? `${value.slice(0, 18)}…` : value;
 const human = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const duration = (seconds: number | null | undefined) => seconds == null ? "Estimating…" : seconds < 60 ? `${Math.round(seconds)}s` : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 
 function gridCount(grid: Record<string, unknown[]>): number {
   const values = Object.values(grid);
@@ -33,98 +54,127 @@ function parseObject<T extends object>(value: string): T | null {
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as T : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-function estimateConfigurations(
-  algorithm: ModelAlgorithm | null,
-  tuningMode: TuningMode,
-  gridPreset: GridPreset,
-  customGridText: string,
-  randomIterations: number,
-): number {
-  if (!algorithm) return 0;
-  if (tuningMode === "FIXED") return 1;
-  const domain = gridPreset === "COMPACT"
-    ? algorithm.compactGrid.length
-    : gridPreset === "FULL"
-      ? gridCount(algorithm.fullGrid)
-      : gridCount(parseObject<Record<string, unknown[]>>(customGridText) ?? {});
-  return tuningMode === "RANDOM" ? Math.min(Math.max(1, randomIterations), domain) : domain;
+function estimateConfigurations(algorithm: ModelAlgorithm, config: ModelConfig): number {
+  if (config.tuningMode === "FIXED") return 1;
+  const domain = config.gridPreset === "COMPACT" ? algorithm.compactGrid.length
+    : config.gridPreset === "FULL" ? gridCount(algorithm.fullGrid)
+      : gridCount(parseObject<Record<string, unknown[]>>(config.customGridText) ?? {});
+  return config.tuningMode === "RANDOM" ? Math.min(Math.max(1, config.randomIterations), domain) : domain;
 }
 
-export function ProjectBoundModelLab({ projectId }: { projectId: string }) {
+function defaultConfig(algorithm: ModelAlgorithm, featureUniverseId: string): ModelConfig {
+  return {
+    featureUniverseId,
+    orderedFeaturesText: "",
+    tuningMode: algorithm.id === "class_frequency_null" ? "FIXED" : algorithm.defaultTuningMode,
+    gridPreset: algorithm.defaultGridPreset,
+    fixedText: JSON.stringify(algorithm.fixedHyperparameters, null, 2),
+    customGridText: JSON.stringify(algorithm.fullGrid, null, 2),
+    randomIterations: 20,
+    expanded: false,
+  };
+}
+
+function currentFeatureUniverseId(
+  saved: unknown,
+  summary: ProjectModelLabSummary,
+): string {
+  const requested = typeof saved === "string" ? saved : "";
+  if (requested === "CUSTOM_SUBSET") return requested;
+  if (requested === summary.featureUniverse.featureSetId) return requested;
+  if (summary.featureSets.some((item) => item.featureSetId === requested)) return requested;
+  // A Full Eligible authority is content-addressed.  When its governed
+  // transformation contract changes, a locally saved UI selection must follow
+  // the new current authority instead of submitting the superseded checksum as
+  // though it were still executable.
+  return summary.featureUniverse.featureSetId;
+}
+
+export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?: (id: string) => void }) {
   const [state, setState] = useState<LoadState>("loading");
   const [summary, setSummary] = useState<ProjectModelLabSummary | null>(null);
-  const [runs, setRuns] = useState<ModelLabRun[]>([]);
+  const [evaluation, setEvaluation] = useState<ProjectCandidateEvaluation | null>(null);
   const [jobs, setJobs] = useState<ModelDevelopmentJob[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [featureUniverseId, setFeatureUniverseId] = useState("");
-  const [customFeatureText, setCustomFeatureText] = useState("");
-  const [eligibilityRationale, setEligibilityRationale] = useState("");
-  const [semanticCompatibilityAcknowledged, setSemanticCompatibilityAcknowledged] = useState(false);
-  const [foldLocalTreatmentAcknowledged, setFoldLocalTreatmentAcknowledged] = useState(false);
-  const [algorithmId, setAlgorithmId] = useState("xgboost");
-  const [tuningMode, setTuningMode] = useState<TuningMode>("GRID");
-  const [gridPreset, setGridPreset] = useState<GridPreset>("COMPACT");
-  const [fixedText, setFixedText] = useState("{}");
-  const [customGridText, setCustomGridText] = useState("{}");
-  const [randomIterations, setRandomIterations] = useState(20);
-  const [queue, setQueue] = useState<ModelExperimentDraft[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [configs, setConfigs] = useState<Record<string, ModelConfig>>({});
+  const [commonFeatureUniverse, setCommonFeatureUniverse] = useState("");
+  const [commonOrderedFeaturesText, setCommonOrderedFeaturesText] = useState("");
+  const [useCommonFeatureUniverse, setUseCommonFeatureUniverse] = useState(true);
+  const [batchName, setBatchName] = useState("Stage 3 multi-model development batch");
+  const [workers, setWorkers] = useState<WorkerChoice>("AUTO");
   const [plan, setPlan] = useState<ModelDevelopmentPlan | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const selectionAuthority = useRef<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
+  const storageKey = `asp-stage3-multimodel:${projectId}`;
 
   const load = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    setState("loading");
-    setError(null);
+    setState("loading"); setError(null);
     try {
       const next = await fetchProjectModelLabSummary(projectId, controller.signal);
-      if (controller.signal.aborted) return;
-      setSummary(next);
-      if (selectionAuthority.current !== next.authority.authorityKey) {
-        selectionAuthority.current = next.authority.authorityKey;
-        setFeatureUniverseId(next.featureUniverse.featureSetId);
-        const preferred = next.modelCatalog.algorithms.find((item) => item.id === "xgboost" && item.available)
-          ?? next.modelCatalog.algorithms.find((item) => item.id === "multinomial_logistic" && item.available)
-          ?? next.modelCatalog.algorithms.find((item) => item.available);
-        if (preferred) setAlgorithmId(preferred.id);
-      }
-      const [history, jobLedger] = await Promise.allSettled([
-        fetchProjectModelLabRuns(projectId, next, controller.signal),
+      const [evaluationResult, jobResult] = await Promise.allSettled([
+        fetchProjectCandidateEvaluation(projectId, controller.signal),
         fetchProjectModelDevelopmentJobs(projectId, controller.signal),
       ]);
       if (controller.signal.aborted) return;
-      setRuns(history.status === "fulfilled" ? history.value : next.historicalEvidence.runs);
-      if (jobLedger.status === "fulfilled") {
-        setJobs(jobLedger.value);
-        const active = jobLedger.value.find((job) => ["QUEUED", "RUNNING"].includes(job.status));
-        setActiveJobId(active?.jobId ?? null);
-      }
+      setSummary(next);
+      setEvaluation(evaluationResult.status === "fulfilled" ? evaluationResult.value : null);
+      const jobLedger = jobResult.status === "fulfilled" ? jobResult.value : [];
+      setJobs(jobLedger);
+      const active = jobLedger.find((job) => ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(job.status));
+      setActiveJobId(active?.jobId ?? null);
+      const available = next.modelCatalog.algorithms.filter((item) => item.available);
+      const saved = window.localStorage.getItem(storageKey);
+      let parsed: any = null;
+      try { parsed = saved ? JSON.parse(saved) : null; } catch { parsed = null; }
+      const initialSelected = new Set<string>(
+        Array.isArray(parsed?.selected)
+          ? parsed.selected.filter((id: string) => available.some((item) => item.id === id))
+          : RECOMMENDED.filter((id) => available.some((item) => item.id === id)),
+      );
+      const universe = currentFeatureUniverseId(parsed?.commonFeatureUniverse, next);
+      const nextConfigs = Object.fromEntries(available.map((algorithm) => {
+        const baseline = defaultConfig(algorithm, universe);
+        const restored = parsed?.configs?.[algorithm.id];
+        return [algorithm.id, restored ? {
+          ...baseline,
+          ...restored,
+          featureUniverseId: currentFeatureUniverseId(restored.featureUniverseId, next),
+          expanded: false,
+        } : baseline];
+      }));
+      setSelected(initialSelected);
+      setCommonFeatureUniverse(universe);
+      setCommonOrderedFeaturesText(typeof parsed?.commonOrderedFeaturesText === "string" ? parsed.commonOrderedFeaturesText : "");
+      setUseCommonFeatureUniverse(parsed?.useCommonFeatureUniverse !== false);
+      setBatchName(typeof parsed?.batchName === "string" ? parsed.batchName : "Stage 3 multi-model development batch");
+      setWorkers([1, 2].includes(parsed?.workers) ? parsed.workers : "AUTO");
+      setConfigs(nextConfigs);
       setState("ready");
     } catch (caught) {
       if (controller.signal.aborted) return;
-      setSummary(null);
-      setRuns([]);
       setState("error");
-      setError(caught instanceof Error ? caught.message : "The project-bound Model Development Laboratory could not be loaded.");
+      setError(caught instanceof Error ? caught.message : "The exact project-bound Model Laboratory could not be loaded.");
     }
-  }, [projectId]);
+  }, [projectId, storageKey]);
 
+  useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
   useEffect(() => {
-    void load();
-    return () => request.current?.abort();
-  }, [load]);
+    if (!summary || state !== "ready") return;
+    window.localStorage.setItem(storageKey, JSON.stringify({ selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
+  }, [batchName, commonFeatureUniverse, commonOrderedFeaturesText, configs, selected, state, storageKey, summary, useCommonFeatureUniverse, workers]);
+  useEffect(() => { setPlan(null); setAcknowledged(false); }, [batchName, commonFeatureUniverse, commonOrderedFeaturesText, configs, selected, useCommonFeatureUniverse, workers]);
 
   useEffect(() => {
     if (!activeJobId) return undefined;
@@ -134,291 +184,114 @@ export function ProjectBoundModelLab({ projectId }: { projectId: string }) {
         const job = await fetchProjectModelDevelopmentJob(projectId, activeJobId);
         if (disposed) return;
         setJobs((current) => [job, ...current.filter((item) => item.jobId !== job.jobId)]);
-        if (!["QUEUED", "RUNNING"].includes(job.status)) {
+        if (!["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(job.status)) {
           setActiveJobId(null);
-          if (summary) {
-            const history = await fetchProjectModelLabRuns(projectId, summary);
-            if (!disposed) setRuns(history);
-          }
+          setEvaluation(await fetchProjectCandidateEvaluation(projectId));
         }
-      } catch (caught) {
-        if (!disposed) setActionError(caught instanceof Error ? caught.message : "Job progress could not be refreshed.");
-      }
+      } catch (caught) { if (!disposed) setActionError(caught instanceof Error ? caught.message : "Batch progress could not be refreshed."); }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 2_000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [activeJobId, projectId, summary]);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [activeJobId, projectId]);
 
-  const algorithm = useMemo(
-    () => summary?.modelCatalog.algorithms.find((item) => item.id === algorithmId) ?? null,
-    [algorithmId, summary],
-  );
-  const chosenFeature = useMemo(() => {
-    if (!summary) return null;
-    if (featureUniverseId === summary.featureUniverse.featureSetId) {
-      return { name: summary.featureUniverse.name, count: summary.featureUniverse.featureCount, executable: true };
-    }
-    if (featureUniverseId === "CUSTOM_SUBSET") {
-      const count = customFeatureText.split(",").filter((item) => item.trim()).length;
-      return { name: "Custom eligible subset", count, executable: count > 0 };
-    }
-    const saved = summary.featureSets.find((item) => item.featureSetId === featureUniverseId);
-    const reviewedOverride = Boolean(
-      saved?.overrideEligible
-      && eligibilityRationale.trim().length >= 20
-      && semanticCompatibilityAcknowledged
-      && foldLocalTreatmentAcknowledged
-    );
-    return saved ? { name: saved.name, count: saved.featureCount, executable: saved.executable !== false || reviewedOverride } : null;
-  }, [customFeatureText, eligibilityRationale, featureUniverseId, foldLocalTreatmentAcknowledged, semanticCompatibilityAcknowledged, summary]);
-  const configurationCount = estimateConfigurations(algorithm, tuningMode, gridPreset, customGridText, randomIterations);
+  const algorithms = summary?.modelCatalog.algorithms ?? [];
+  const selectedAlgorithms = algorithms.filter((algorithm) => selected.has(algorithm.id));
+  const configurationCount = selectedAlgorithms.reduce((total, algorithm) => total + estimateConfigurations(algorithm, configs[algorithm.id] ?? defaultConfig(algorithm, commonFeatureUniverse)), 0);
   const fitCount = configurationCount * (summary?.split.foldCount ?? 5);
-  const selectedSaved = summary?.featureSets.find((item) => item.featureSetId === featureUniverseId) ?? null;
-  const currentJob = jobs.find((item) => item.jobId === activeJobId) ?? jobs[0] ?? null;
+  const computeClass = selectedAlgorithms.some((item) => item.computeIntensity === "VERY_HIGH") ? "VERY HIGH" : selectedAlgorithms.some((item) => item.computeIntensity === "HIGH") ? "HIGH" : selectedAlgorithms.some((item) => item.computeIntensity === "MEDIUM") ? "MEDIUM" : "LOW";
+  const currentJob = jobs.find((job) => job.jobId === activeJobId) ?? jobs[0] ?? null;
 
-  useEffect(() => {
-    if (!algorithm) return;
-    setFixedText(JSON.stringify(algorithm.fixedHyperparameters, null, 2));
-    setCustomGridText(JSON.stringify(algorithm.fullGrid, null, 2));
-    setTuningMode(algorithm.defaultTuningMode);
-    setGridPreset(algorithm.defaultGridPreset);
-    setPlan(null);
-  }, [algorithm]);
-
-  const draft = (): ModelExperimentDraft | null => {
-    if (!algorithm || !summary || !chosenFeature) return null;
-    const fixed = parseObject<Record<string, unknown>>(fixedText);
-    const custom = parseObject<Record<string, unknown[]>>(customGridText);
-    if (tuningMode === "FIXED" && !fixed) {
-      setActionError("Fixed hyperparameters must be a valid JSON object.");
-      return null;
-    }
-    if (gridPreset === "CUSTOM" && !custom) {
-      setActionError("Custom Grid must be a valid JSON object of parameter arrays.");
-      return null;
-    }
-    return {
-      algorithmId: algorithm.id,
-      featureUniverseId,
-      tuningMode: algorithm.id === "class_frequency_null" ? "FIXED" : tuningMode,
-      gridPreset,
-      fixedHyperparameters: fixed ?? undefined,
-      customGrid: gridPreset === "CUSTOM" ? custom ?? undefined : undefined,
-      randomIterations: tuningMode === "RANDOM" ? randomIterations : undefined,
-      orderedFeatures: featureUniverseId === "CUSTOM_SUBSET"
-        ? customFeatureText.split(",").map((item) => item.trim()).filter(Boolean)
-        : undefined,
-      eligibilityOverrideRationale: eligibilityRationale || undefined,
-      prospectiveSemanticCompatibilityAcknowledged: selectedSaved?.overrideEligible ? semanticCompatibilityAcknowledged : undefined,
-      foldLocalTreatmentAcknowledged: selectedSaved?.overrideEligible ? foldLocalTreatmentAcknowledged : undefined,
-      seed: 20260901,
-    };
+  const updateConfig = (algorithmId: string, changes: Partial<ModelConfig>) => setConfigs((current) => ({ ...current, [algorithmId]: { ...current[algorithmId], ...changes } }));
+  const selectIds = (ids: string[]) => setSelected((current) => new Set([...current, ...ids.filter((id) => algorithms.some((algorithm) => algorithm.id === id && algorithm.available))]));
+  const clearIds = (ids: string[]) => setSelected((current) => { const next = new Set(current); ids.forEach((id) => next.delete(id)); return next; });
+  const saveDraft = () => {
+    window.localStorage.setItem(storageKey, JSON.stringify({ selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
+    setDraftSavedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    setActionError(null);
   };
 
-  const addToQueue = () => {
-    const item = draft();
-    if (!item || !chosenFeature?.executable || !algorithm?.available || configurationCount < 1) return;
-    const key = JSON.stringify(item);
-    if (queue.some((candidate) => JSON.stringify(candidate) === key)) {
-      setActionError("That exact model configuration is already in the queue.");
-      return;
+  const experiments = (): ModelExperimentDraft[] | null => {
+    if (!summary) return null;
+    const output: ModelExperimentDraft[] = [];
+    for (const algorithm of selectedAlgorithms) {
+      const config = configs[algorithm.id] ?? defaultConfig(algorithm, commonFeatureUniverse);
+      const featureUniverseId = useCommonFeatureUniverse ? commonFeatureUniverse : config.featureUniverseId;
+      const orderedFeatures = (useCommonFeatureUniverse ? commonOrderedFeaturesText : config.orderedFeaturesText).split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+      const fixed = parseObject<Record<string, unknown>>(config.fixedText);
+      const custom = parseObject<Record<string, unknown[]>>(config.customGridText);
+      if (config.tuningMode === "FIXED" && !fixed) { setActionError(`${algorithm.label}: fixed hyperparameters are not valid JSON.`); return null; }
+      if (config.gridPreset === "CUSTOM" && !custom) { setActionError(`${algorithm.label}: custom grid is not valid JSON.`); return null; }
+      if (featureUniverseId === "CUSTOM_SUBSET" && algorithm.id !== "class_frequency_null" && !orderedFeatures.length) { setActionError(`${algorithm.label}: Custom Eligible Subset requires at least one ordered predictor.`); return null; }
+      output.push({ algorithmId: algorithm.id, featureUniverseId, orderedFeatures: featureUniverseId === "CUSTOM_SUBSET" ? orderedFeatures : undefined, tuningMode: algorithm.id === "class_frequency_null" ? "FIXED" : config.tuningMode, gridPreset: config.gridPreset, fixedHyperparameters: fixed ?? undefined, customGrid: config.gridPreset === "CUSTOM" ? custom ?? undefined : undefined, randomIterations: config.tuningMode === "RANDOM" ? config.randomIterations : undefined, seed: 20260901 });
     }
-    setQueue((current) => [...current, item]);
-    setPlan(null);
-    setAcknowledged(false);
-    setActionError(null);
+    return output;
   };
 
   const reviewPlan = async () => {
-    if (!summary || !queue.length || planning) return;
-    setPlanning(true);
-    setActionError(null);
-    try {
-      setPlan(await planProjectModelDevelopment(projectId, summary, queue, acknowledged));
-    } catch (caught) {
-      setPlan(null);
-      setActionError(caught instanceof Error ? caught.message : "The queue plan failed closed.");
-    } finally {
-      setPlanning(false);
-    }
+    if (!summary || !selectedAlgorithms.length || planning) return;
+    const matrix = experiments(); if (!matrix) return;
+    setPlanning(true); setActionError(null);
+    try { setPlan(await planProjectModelDevelopment(projectId, summary, matrix, acknowledged, undefined, { parallelWorkers: workers, batchName })); }
+    catch (caught) { setPlan(null); setActionError(caught instanceof Error ? caught.message : "The batch plan failed closed."); }
+    finally { setPlanning(false); }
   };
 
-  const runQueue = async () => {
+  const runBatch = async () => {
     if (!summary || !plan?.executable || launching || activeJobId) return;
-    setLaunching(true);
-    setActionError(null);
+    const matrix = experiments(); if (!matrix) return;
+    setLaunching(true); setActionError(null);
     try {
-      const job = await enqueueProjectModelDevelopment(projectId, summary, queue, acknowledged);
+      const job = await enqueueProjectModelDevelopment(projectId, summary, matrix, acknowledged, undefined, { parallelWorkers: workers, batchName });
       setJobs((current) => [job, ...current.filter((item) => item.jobId !== job.jobId)]);
       setActiveJobId(job.jobId);
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "The project-scoped queue failed to start.");
-    } finally {
-      setLaunching(false);
-    }
+    } catch (caught) { setActionError(caught instanceof Error ? caught.message : "The project-scoped batch failed to start."); }
+    finally { setLaunching(false); }
+  };
+
+  const cancelUnstarted = async () => {
+    if (!activeJobId) return;
+    try { const job = await cancelUnstartedProjectModelDevelopment(projectId, activeJobId); setJobs((current) => [job, ...current.filter((item) => item.jobId !== job.jobId)]); }
+    catch (caught) { setActionError(caught instanceof Error ? caught.message : "The cancel-unstarted request failed closed."); }
   };
 
   if (state === "loading") return <Loading />;
   if (state === "error" || !summary) return <Failure message={error || "Project authority unavailable."} retry={load} />;
+  const featureChoices = [{ id: summary.featureUniverse.featureSetId, label: `Full Eligible — ${summary.featureUniverse.featureCount} predictors`, executable: true }, ...summary.featureSets.map((item) => ({ id: item.featureSetId, label: `${item.name} — ${item.featureCount} predictors`, executable: item.executable !== false })), { id: "CUSTOM_SUBSET", label: "Custom Eligible Subset — exact ordered predictors", executable: true }];
 
-  return (
-    <div className="min-w-0 space-y-4" data-testid="stage3-project-bound-model-laboratory">
-      <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-sm" data-testid="model-lab-project-context">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-5">
-          <div>
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300"><FlaskConical size={14} />Stage 3 · Model Development Laboratory</div>
-            <h2 className="mt-1 text-xl font-semibold">Build, tune, queue, and compare honest development candidates</h2>
-            <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-300">One project-bound workspace for feature authority, algorithms, hyperparameters, exact five-fold workload planning, execution progress, and the development leaderboard. Opening this page performs zero fits.</p>
-          </div>
-          <StatusBadge ready={summary.readiness.ready} />
-        </div>
-        <div className="grid gap-px bg-white/10 sm:grid-cols-2 xl:grid-cols-4">
-          <DarkFact label="Development" value={`${int(summary.population.developmentRows)} rows`} detail={`${summary.population.startDate} → ${summary.population.endDate}`} />
-          <DarkFact label="Default universe" value={`${summary.featureUniverse.featureCount} eligible predictors`} detail={summary.featureUniverse.featureSetId} />
-          <DarkFact label="Validation" value={`${summary.split.foldCount} expanding folds`} detail={summary.split.splitContractId} />
-          <DarkFact label="Final OOT" value={`${int(summary.population.finalOotRows)} locked`} detail="Targets never materialized or queried" tone="rose" />
-        </div>
-      </section>
+  return <div className="min-w-0 space-y-4" data-testid="stage3-project-bound-model-laboratory">
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white"><div className="grid gap-px bg-slate-800 lg:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(130px,0.6fr))]"><div className="bg-slate-950 p-5"><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300"><FlaskConical size={14} /> Step 9 · Model Development Laboratory</div><h2 className="mt-2 text-xl font-semibold">Design one governed multi-model comparison batch</h2><p className="mt-1 text-xs leading-5 text-slate-300">Select algorithms together, configure exact per-model experiments, then explicitly review and launch. Opening this page performs zero fits.</p></div><DarkFact label="Development" value={`${int(summary.population.developmentRows)} rows`} detail={`${summary.population.startDate} → ${summary.population.endDate}`} /><DarkFact label="Feature authority" value={`${summary.featureUniverse.featureCount} eligible`} detail={`${summary.featureUniverse.reconciliation.excludedPredictorCount} governed exclusions`} /><DarkFact label="Selection" value={`${selected.size} algorithms`} detail={`${int(configurationCount)} configurations · ${int(fitCount)} fits`} /><DarkFact label="Final OOT" value={`${int(summary.population.finalOotRows)} locked`} detail="No training, tuning, calibration, or selection access" tone="rose" /></div></section>
+    {(useCommonFeatureUniverse ? commonFeatureUniverse === "CUSTOM_SUBSET" : selectedAlgorithms.some((algorithm) => (configs[algorithm.id]?.featureUniverseId ?? commonFeatureUniverse) === "CUSTOM_SUBSET")) ? <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4 shadow-sm" data-testid="custom-eligible-subset-editor"><SectionTitle icon={<ListChecks size={16} />} title="Custom Eligible Subset" description="Enter exact eligible predictor names in modeling order, one per line or comma-separated. The backend rejects duplicates, identifiers, targets, ineligible fields, and empty subsets." />{useCommonFeatureUniverse ? <textarea value={commonOrderedFeaturesText} onChange={(event) => setCommonOrderedFeaturesText(event.target.value)} rows={7} spellCheck={false} className="mt-3 w-full rounded-lg border border-violet-300 bg-white px-3 py-2 font-mono text-[10px] leading-5 text-slate-900" placeholder={summary.featureUniverse.orderedFeatures.slice(0, 5).join("\n")} /> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{selectedAlgorithms.filter((algorithm) => configs[algorithm.id]?.featureUniverseId === "CUSTOM_SUBSET").map((algorithm) => <label key={algorithm.id} className="text-[10px] font-semibold uppercase text-violet-900">{algorithm.label}<textarea value={configs[algorithm.id]?.orderedFeaturesText ?? ""} onChange={(event) => updateConfig(algorithm.id, { orderedFeaturesText: event.target.value })} rows={6} spellCheck={false} className="mt-1 w-full rounded-lg border border-violet-300 bg-white px-3 py-2 font-mono text-[10px] leading-5 normal-case text-slate-900" placeholder="One exact eligible predictor per line" /></label>)}</div>}<p className="mt-2 text-[10px] text-violet-800">This creates a run-scoped content-addressed feature authority. It does not mutate or duplicate a saved governed set.</p></section> : null}
+    {!summary.readiness.ready ? <BlockingReasons blockers={summary.readiness.blockers} /> : null}
 
-      {!summary.readiness.ready ? <BlockingReasons blockers={summary.readiness.blockers} /> : null}
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="multi-model-selection"><SectionTitle icon={<Layers3 size={16} />} title="1 · Select multiple algorithms" description="Each checkbox is independent. Selection, family bundles, and configuration edits never initiate compute." /><div className="mt-3 flex flex-wrap gap-2"><Action onClick={() => selectIds(algorithms.filter((item) => item.available).map((item) => item.id))}>Select all available models</Action><Action onClick={() => setSelected(new Set())}>Clear all · remove selected experiments</Action><Action onClick={() => selectIds(RECOMMENDED)}>Select recommended baseline bundle</Action><span className="self-center rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-900">{selected.size} selected · {int(configurationCount)} configs · {int(fitCount)} fits · {computeClass} compute</span></div><div className="mt-4 space-y-4">{summary.modelCatalog.families.map((family) => { const members = family.algorithms.map((id) => algorithms.find((item) => item.id === id)).filter((item): item is ModelAlgorithm => Boolean(item)); const ids = members.map((item) => item.id); return <div key={family.id}><div className="mb-2 flex flex-wrap items-center gap-2"><h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{family.label}</h3><button type="button" onClick={() => selectIds(ids)} className="text-[10px] font-semibold text-cyan-700">Select family</button><span className="text-slate-300">·</span><button type="button" onClick={() => clearIds(ids)} className="text-[10px] font-semibold text-slate-500">Clear family</button></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{members.map((algorithm) => <label key={algorithm.id} className={`relative rounded-xl border p-3 ${!algorithm.available ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-70" : selected.has(algorithm.id) ? "border-cyan-500 bg-cyan-50 ring-1 ring-cyan-100" : "border-slate-200 bg-white hover:border-cyan-300"}`}><input type="checkbox" disabled={!algorithm.available} checked={selected.has(algorithm.id)} onChange={(event) => setSelected((current) => { const next = new Set(current); if (event.target.checked) next.add(algorithm.id); else next.delete(algorithm.id); return next; })} className="absolute right-3 top-3 h-4 w-4 rounded border-slate-300 text-cyan-700" /><div className="pr-6 text-xs font-semibold text-slate-950">{algorithm.label}</div><div className="mt-1 text-[9px] font-semibold uppercase text-slate-500">{algorithm.computeIntensity} compute · {algorithm.available ? "available" : human(algorithm.status)}</div>{algorithm.unavailableReason ? <p className="mt-2 text-[10px] leading-4 text-amber-800">{algorithm.unavailableReason}</p> : null}</label>)}</div></div>; })}</div></section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="model-lab-feature-universe">
-          <SectionTitle icon={<Layers3 size={16} />} title="1 · Feature universe" description="Full Eligible is the largest governed, point-in-time-valid, forecast-compatible universe—not every physical column." />
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <UniverseButton active={featureUniverseId === summary.featureUniverse.featureSetId} onClick={() => setFeatureUniverseId(summary.featureUniverse.featureSetId)} title="Full Eligible" detail={`${summary.featureUniverse.featureCount} predictors`} status="RECOMMENDED" tone="emerald" />
-            <UniverseButton active={featureUniverseId === summary.featureSets[0]?.featureSetId} onClick={() => setFeatureUniverseId(summary.featureSets[0]?.featureSetId ?? "")} title="Core Gold 48" detail="Transparent benchmark" status="BENCHMARK" tone="cyan" />
-            <UniverseButton active={featureUniverseId === "CUSTOM_SUBSET"} onClick={() => setFeatureUniverseId("CUSTOM_SUBSET")} title="Custom subset" detail="Eligible predictors only" status="DEVELOPMENT ONLY" tone="slate" />
-            <UniverseButton active={Boolean(selectedSaved && selectedSaved.featureSetId !== summary.featureSets[0]?.featureSetId)} onClick={() => setFeatureUniverseId(summary.featureSets.find((item) => item.featureSetId !== summary.featureSets[0]?.featureSetId)?.featureSetId ?? summary.featureSets[0]?.featureSetId ?? "")} title="Saved governed set" detail="Research / ablation preset" status="SECONDARY" tone="amber" />
-          </div>
-          {featureUniverseId === "CUSTOM_SUBSET" ? <label className="mt-3 block text-xs font-semibold text-slate-700">Ordered eligible feature names, comma separated<textarea value={customFeatureText} onChange={(event) => { setCustomFeatureText(event.target.value); setPlan(null); }} rows={3} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" placeholder="context_inning, context_outs_before, ..." /></label> : null}
-          <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3" data-testid="model-lab-exclusion-inspector">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-800">Inspect all {summary.featureUniverse.reconciliation.excludedPredictorCount} exclusions and rule decisions</summary>
-            <EligibilitySummary summary={summary} />
-          </details>
-          <details className="mt-3 rounded-xl border border-slate-200 p-3" data-testid="model-lab-ablation-presets">
-            <summary className="cursor-pointer text-xs font-semibold text-slate-800">Ablation / research presets · historical A/B/C evidence preserved</summary>
-            <div className="mt-3 grid gap-2 md:grid-cols-3">
-              {summary.featureSets.map((item) => { const hardBlocked = item.executionStatus === "NON_EXECUTABLE_CURRENT_AUTHORITY"; return <button key={item.featureSetId} type="button" disabled={hardBlocked} onClick={() => { setFeatureUniverseId(item.featureSetId); setPlan(null); }} className={`rounded-lg border p-3 text-left ${item.executable ? "border-slate-200 bg-white hover:border-cyan-300" : hardBlocked ? "cursor-not-allowed border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50 hover:border-amber-400"}`}><div className="text-xs font-semibold text-slate-900">{item.name}</div><div className="mt-1 text-[10px] uppercase text-slate-500">{item.featureCount} predictors · {human(item.executionStatus ?? "UNKNOWN")}</div>{item.blockingFeatures?.length ? <p className="mt-2 text-[10px] leading-4 text-rose-700">Blocked: {item.blockingFeatures.map((entry) => entry.name).join(", ")}</p> : null}{item.reviewRequiredFeatures?.length ? <p className="mt-2 text-[10px] leading-4 text-amber-800">Written override required: {item.reviewRequiredFeatures.map((entry) => entry.name).join(", ")}</p> : null}</button>; })}
-            </div>
-          </details>
-          {selectedSaved?.reviewRequiredFeatures?.length ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><label className="block font-semibold">Prospective semantic-sparse rationale<textarea value={eligibilityRationale} onChange={(event) => { setEligibilityRationale(event.target.value); setPlan(null); }} rows={2} className="mt-2 w-full rounded-md border border-amber-300 bg-white px-2 py-1.5 text-xs text-slate-800" placeholder="Explain why null has a valid prospective meaning and how fold-local treatment preserves it." /></label><label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={semanticCompatibilityAcknowledged} onChange={(event) => { setSemanticCompatibilityAcknowledged(event.target.checked); setPlan(null); }} className="mt-0.5" /><span>I confirm the sparse state has defensible prospective semantics under this run.</span></label><label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={foldLocalTreatmentAcknowledged} onChange={(event) => { setFoldLocalTreatmentAcknowledged(event.target.checked); setPlan(null); }} className="mt-0.5" /><span>I confirm every treatment parameter remains fitted inside its chronological training fold.</span></label></div> : null}
-        </section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="multi-model-feature-universe"><SectionTitle icon={<ShieldCheck size={16} />} title="2 · Common and per-model feature authority" description="Full Eligible is the default. Only explicitly selected algorithm/universe combinations enter the batch; no Cartesian product is inferred." /><label className="mt-3 flex items-center gap-2 text-xs font-semibold text-slate-800"><input type="checkbox" checked={useCommonFeatureUniverse} onChange={(event) => setUseCommonFeatureUniverse(event.target.checked)} /> Use this feature universe for all selected models</label><select value={commonFeatureUniverse} onChange={(event) => setCommonFeatureUniverse(event.target.value)} className="mt-2 w-full max-w-xl rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs">{featureChoices.map((choice) => <option key={choice.id} value={choice.id} disabled={!choice.executable}>{choice.label}{choice.executable ? "" : " — NON-EXECUTABLE"}</option>)}</select><div className="mt-3 flex flex-wrap gap-2"><Pill label="Full Eligible recommended" tone="emerald" /><Pill label="Core Gold 48 benchmark" tone="cyan" /><Pill label="Rest/Travel preserved but held closed" tone="rose" /><Pill label="Unavailable fields never zero-filled" tone="slate" /></div></section>
 
-        <AuthorityCard title="Scientific authority" icon={<ShieldCheck size={16} />}>
-          <AuthorityRows rows={[
-            ["Gold", summary.authority.goldDatasetId, summary.authority.goldManifestSha],
-            ["Split", `v${summary.split.version} · ${summary.split.foldCount} folds`, summary.split.splitContractId],
-            ["Outlier", `v${summary.policies.outlier.version} · adopted`, summary.policies.outlier.policyId],
-            ["Missing", `v${summary.policies.missing.version} · adopted`, summary.policies.missing.policyId],
-          ]} />
-          <div className="mt-3 flex flex-wrap gap-1.5"><Pill label="Fold-local preprocessing" tone="cyan" /><Pill label="Legacy matrix prohibited" tone="rose" /><Pill label="No promotion" tone="slate" /></div>
-          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-[11px] leading-5 text-rose-800"><Lock size={13} className="mr-1 inline" />Final OOT {summary.population.finalOotStartDate} → {summary.population.finalOotEndDate} remains inaccessible to training, tuning, calibration, feature selection, and metrics.</div>
-        </AuthorityCard>
-      </section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="selected-model-configuration"><SectionTitle icon={<SlidersHorizontal size={16} />} title="3 · Configure selected models" description="One compact card per selected algorithm preserves its own universe, tuning strategy, grid, seed, and five-fold burden." />{!selectedAlgorithms.length ? <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">Select one or more available algorithms above. Nothing will launch automatically.</div> : <div className="mt-3 space-y-2">{selectedAlgorithms.map((algorithm) => { const config = configs[algorithm.id] ?? defaultConfig(algorithm, commonFeatureUniverse); const count = estimateConfigurations(algorithm, config); return <div key={algorithm.id} className="rounded-xl border border-slate-200 bg-slate-50"><button type="button" onClick={() => updateConfig(algorithm.id, { expanded: !config.expanded })} className="flex w-full items-center gap-3 p-3 text-left"><span className="text-cyan-700">{config.expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span><span className="min-w-0 flex-1"><b className="block truncate text-xs text-slate-950">{algorithm.label}</b><span className="block truncate text-[10px] text-slate-500">{human(config.tuningMode)} · {human(config.gridPreset)} · {count} configurations · {count * 5} fits · seed 20260901</span></span><Pill label={`${algorithm.computeIntensity} compute`} tone={algorithm.computeIntensity.includes("HIGH") ? "amber" : "slate"} /></button>{config.expanded ? <div className="grid gap-4 border-t border-slate-200 bg-white p-4 lg:grid-cols-[220px_minmax(0,1fr)]"><div className="space-y-3">{!useCommonFeatureUniverse ? <label className="block text-[10px] font-semibold uppercase text-slate-500">Feature universe<select value={config.featureUniverseId} onChange={(event) => updateConfig(algorithm.id, { featureUniverseId: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs normal-case text-slate-800">{featureChoices.map((choice) => <option key={choice.id} value={choice.id} disabled={!choice.executable}>{choice.label}</option>)}</select></label> : <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-2 text-[10px] text-cyan-900">Common feature authority applied.</div>}<label className="block text-[10px] font-semibold uppercase text-slate-500">Tuning mode<select value={config.tuningMode} disabled={algorithm.id === "class_frequency_null"} onChange={(event) => updateConfig(algorithm.id, { tuningMode: event.target.value as TuningMode })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs normal-case text-slate-800">{algorithm.supportedTuningModes.map((mode) => <option key={mode}>{mode}</option>)}</select></label>{config.tuningMode !== "FIXED" ? <label className="block text-[10px] font-semibold uppercase text-slate-500">Grid preset<select value={config.gridPreset} onChange={(event) => updateConfig(algorithm.id, { gridPreset: event.target.value as GridPreset })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs normal-case text-slate-800"><option value="COMPACT">Compact Grid</option><option value="FULL">Full Grid</option><option value="CUSTOM">Custom Grid</option></select></label> : null}{config.tuningMode === "RANDOM" ? <label className="block text-[10px] font-semibold uppercase text-slate-500">Random configurations<input type="number" min={1} value={config.randomIterations} onChange={(event) => updateConfig(algorithm.id, { randomIterations: Math.max(1, Number(event.target.value) || 1) })} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs normal-case" /></label> : null}</div><label className="block text-[10px] font-semibold uppercase text-slate-500">{config.tuningMode === "FIXED" ? "Fixed hyperparameters" : config.gridPreset === "CUSTOM" ? "Custom parameter grid" : `${config.gridPreset} authoritative preview`}<textarea value={config.tuningMode === "FIXED" ? config.fixedText : config.gridPreset === "CUSTOM" ? config.customGridText : JSON.stringify(config.gridPreset === "COMPACT" ? algorithm.compactGrid : algorithm.fullGrid, null, 2)} readOnly={config.tuningMode !== "FIXED" && config.gridPreset !== "CUSTOM"} onChange={(event) => updateConfig(algorithm.id, config.tuningMode === "FIXED" ? { fixedText: event.target.value } : { customGridText: event.target.value })} rows={8} spellCheck={false} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-950 px-3 py-2 font-mono text-[10px] leading-5 text-slate-100" /></label></div> : null}</div>; })}</div>}</section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="model-lab-model-families">
-        <SectionTitle icon={<Gauge size={16} />} title="2 · Algorithm and model family" description="Only supervised eight-class candidates enter this leaderboard. Anomaly / novelty analytics remain a separate research capability." />
-        <div className="mt-3 space-y-3">
-          {summary.modelCatalog.families.map((family) => {
-            const members = family.algorithms.map((id) => summary.modelCatalog.algorithms.find((item) => item.id === id)).filter((item): item is ModelAlgorithm => Boolean(item));
-            return <div key={family.id}><div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{family.label}</div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{members.map((item) => <button key={item.id} type="button" disabled={!item.available} onClick={() => { setAlgorithmId(item.id); setPlan(null); }} className={`rounded-lg border p-3 text-left ${item.id === algorithmId ? "border-cyan-500 bg-cyan-50 ring-1 ring-cyan-100" : item.available ? "border-slate-200 bg-white hover:border-cyan-300" : "cursor-not-allowed border-slate-200 bg-slate-50 opacity-70"}`}><div className="text-xs font-semibold text-slate-900">{item.label}</div><div className="mt-1 text-[10px] uppercase text-slate-500">{item.available ? `${item.computeIntensity} compute` : human(item.status)}</div>{!item.available ? <div className="mt-1 text-[10px] leading-4 text-amber-800">{item.unavailableReason}</div> : null}</button>)}</div></div>;
-          })}
-        </div>
-        <details className="mt-3 rounded-xl border border-violet-200 bg-violet-50 p-3"><summary className="cursor-pointer text-xs font-semibold text-violet-900">Anomaly / Novelty Analytics — not ranked against supervised models</summary><p className="mt-2 text-xs leading-5 text-violet-800">{summary.modelCatalog.anomalyAnalytics.algorithms.join(", ")} are reserved for unusual-observation, OOD, regime, and data-quality research. They are never ranked on eight-class log loss beside XGBoost.</p></details>
-      </section>
-
-      {algorithm ? <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="model-lab-inline-tuning">
-        <SectionTitle icon={<SlidersHorizontal size={16} />} title="3 · Inline hyperparameter strategy" description={`${algorithm.label} · ${chosenFeature?.name ?? "Choose a feature universe"} · exact registered five-fold development split.`} />
-        <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div>
-            <div className="flex flex-wrap gap-2" aria-label="Tuning mode">
-              {algorithm.supportedTuningModes.map((mode) => <ChoiceButton key={mode} active={tuningMode === mode} onClick={() => { setTuningMode(mode); setPlan(null); }}>{human(mode)}</ChoiceButton>)}
-            </div>
-            {tuningMode !== "FIXED" ? <div className="mt-3 flex flex-wrap gap-2" aria-label="Grid preset">{(["COMPACT", "FULL", "CUSTOM"] as GridPreset[]).map((preset) => <ChoiceButton key={preset} active={gridPreset === preset} onClick={() => { setGridPreset(preset); setPlan(null); }}>{preset === "COMPACT" ? "Compact Grid" : preset === "FULL" ? "Full Grid" : "Custom Grid"}</ChoiceButton>)}</div> : null}
-            {tuningMode === "FIXED" ? <JsonEditor label="Fixed hyperparameters" value={fixedText} onChange={(value) => { setFixedText(value); setPlan(null); }} /> : gridPreset === "CUSTOM" ? <JsonEditor label="Custom parameter grid" value={customGridText} onChange={(value) => { setCustomGridText(value); setPlan(null); }} /> : <GridPreview algorithm={algorithm} preset={gridPreset} />}
-            {tuningMode === "RANDOM" ? <label className="mt-3 block max-w-xs text-xs font-semibold text-slate-700">Random configurations<input type="number" min={1} value={randomIterations} onChange={(event) => { setRandomIterations(Number(event.target.value) || 1); setPlan(null); }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" /></label> : null}
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-white" data-testid="model-lab-fit-estimate"><div className="text-[10px] font-semibold uppercase tracking-wide text-cyan-300">Planned workload</div><div className="mt-3 grid grid-cols-[1fr_auto] gap-y-2 text-xs"><span>Configurations</span><b>{int(configurationCount)}</b><span>Registered folds</span><b>× {summary.split.foldCount}</b><span className="border-t border-white/20 pt-2">Total fits</span><b className="border-t border-white/20 pt-2 text-lg text-cyan-200">{int(fitCount)}</b></div><div className={`mt-3 rounded-lg border p-2 text-[10px] leading-4 ${fitCount > summary.modelCatalog.tuning.hardFitLimit ? "border-rose-400/50 bg-rose-400/10 text-rose-200" : fitCount > summary.modelCatalog.tuning.warningFitThreshold ? "border-amber-400/50 bg-amber-400/10 text-amber-200" : "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"}`}>{fitCount > summary.modelCatalog.tuning.hardFitLimit ? `Held closed above ${int(summary.modelCatalog.tuning.hardFitLimit)} fits. Reduce the grid.` : fitCount > summary.modelCatalog.tuning.warningFitThreshold ? "Explicit compute acknowledgement will be required before launch." : "Within the bounded default planning envelope."}</div><div className="mt-2 text-[10px] text-slate-400">Estimator-native workers capped · one project job at a time · seed 20260901</div></div>
-        </div>
-        <button type="button" onClick={addToQueue} disabled={!algorithm.available || !chosenFeature?.executable || configurationCount < 1} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><ListChecks size={15} />Add to Experiment Queue</button>
-      </section> : null}
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="model-lab-experiment-queue">
-        <SectionTitle icon={<TableProperties size={16} />} title="4 · Experiment queue" description="Review every algorithm, universe, tuning strategy, configuration count, and five-fold fit burden before execution." />
-        {queue.length ? <div role="region" aria-label="Experiment queue" tabIndex={0} className="mt-3 overflow-x-auto"><table className="w-full min-w-[1240px] text-left text-xs"><caption className="sr-only">Queued development experiments and exact fit counts</caption><thead><tr>{["Algorithm", "Family", "Feature universe", "Tuning", "Configurations", "Folds", "Total fits", "Compute", "Seed", "Metric", "Preprocessing", "Status", ""].map((heading) => <th scope="col" key={heading} className="border-b border-slate-200 px-3 py-2 uppercase text-slate-500">{heading}</th>)}</tr></thead><tbody>{queue.map((item, index) => { const candidate = summary.modelCatalog.algorithms.find((entry) => entry.id === item.algorithmId); const configurations = estimateConfigurations(candidate ?? null, item.tuningMode, item.gridPreset, JSON.stringify(item.customGrid ?? {}), item.randomIterations ?? 20); const universe = item.featureUniverseId === summary.featureUniverse.featureSetId ? summary.featureUniverse.name : item.featureUniverseId === "CUSTOM_SUBSET" ? "Custom subset" : summary.featureSets.find((entry) => entry.featureSetId === item.featureUniverseId)?.name ?? item.featureUniverseId; return <tr key={`${item.algorithmId}-${index}`}><td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{candidate?.label ?? item.algorithmId}</td><td className="border-b border-slate-100 px-3 py-2">{human(candidate?.family ?? "")}</td><td className="border-b border-slate-100 px-3 py-2">{universe}</td><td className="border-b border-slate-100 px-3 py-2">{human(item.tuningMode)} · {human(item.gridPreset)}</td><td className="border-b border-slate-100 px-3 py-2 tabular-nums">{int(configurations)}</td><td className="border-b border-slate-100 px-3 py-2">5</td><td className="border-b border-slate-100 px-3 py-2 font-semibold tabular-nums">{int(configurations * 5)}</td><td className="border-b border-slate-100 px-3 py-2"><Pill label={`${candidate?.computeIntensity ?? "UNKNOWN"} compute`} tone={candidate?.computeIntensity === "HIGH" ? "amber" : "slate"} /></td><td className="border-b border-slate-100 px-3 py-2">{item.seed}</td><td className="border-b border-slate-100 px-3 py-2">Log loss</td><td className="border-b border-slate-100 px-3 py-2">Fold-local registered contract</td><td className="border-b border-slate-100 px-3 py-2"><Pill label="Queued for review" tone="slate" /></td><td className="border-b border-slate-100 px-3 py-2"><button type="button" aria-label={`Remove ${candidate?.label ?? item.algorithmId}`} onClick={() => { setQueue((current) => current.filter((_, itemIndex) => itemIndex !== index)); setPlan(null); }} className="rounded p-1 text-slate-500 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={14} /></button></td></tr>; })}</tbody></table></div> : <EmptyQueue />}
-        <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" disabled={!queue.length || planning} onClick={() => void reviewPlan()} className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 bg-white px-4 py-2 text-sm font-semibold text-cyan-800 disabled:border-slate-300 disabled:text-slate-400">{planning ? <Loader2 size={14} className="animate-spin" /> : <ListChecks size={14} />}Review Queue Plan</button>{plan ? <span className="text-xs text-slate-600">{int(plan.totalExperiments)} experiments · {int(plan.totalConfigurations)} configurations · <b>{int(plan.totalFits)} five-fold fits</b></span> : null}</div>
-        {plan?.requiresAcknowledgement ? <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><input type="checkbox" checked={acknowledged} onChange={(event) => { setAcknowledged(event.target.checked); setPlan(null); }} className="mt-0.5" /><span><b>Compute acknowledgement required.</b> I reviewed the exact fit count and understand this queue is intentionally bounded and may take substantial time.</span></label> : null}
-        {plan ? <div className={`mt-3 rounded-lg border p-3 text-xs ${plan.executable ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-rose-200 bg-rose-50 text-rose-900"}`}><b>{plan.executable ? "Plan verified." : "Plan held closed."}</b> {plan.executionBlocker ?? "Exact project authority, hyperparameters, fold count, preprocessing scope, seed, and zero-OOT contract are bound into the plan identity."}</div> : null}
-        <button type="button" onClick={() => void runQueue()} disabled={!plan?.executable || (plan.requiresAcknowledgement && !acknowledged) || launching || Boolean(activeJobId)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><Play size={15} />{activeJobId ? "Project Job Already Active" : launching ? "Starting…" : "Run Experiment Queue"}</button>
-        {actionError ? <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"><b>Held closed.</b> {actionError}</p> : null}
-      </section>
-
-      {currentJob ? <JobProgress job={currentJob} /> : null}
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="model-lab-results">
-        <SectionTitle icon={<BarChart3 size={16} />} title="Development leaderboard" description="Complete five-fold candidates rank by mean OOF multiclass log loss. Accuracy is diagnostic; the top row is never auto-promoted or called champion." />
-        <DevelopmentLeaderboard runs={runs} />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <AuthorityCard title="Interpretability handoff" icon={<Sparkles size={16} />}><ul className="space-y-2 text-xs leading-5 text-slate-700"><li><b>Tree:</b> native gain/importance plus fold stability; permutation importance in Evaluation.</li><li><b>Linear:</b> coefficients and fold coefficient stability.</li><li><b>Neural:</b> permutation importance; SHAP only after a governed dependency exists.</li><li><b>Selection:</b> native tree importance is never the sole authority. RFE/parsimony happens after model evidence exists.</li></ul></AuthorityCard>
-        <AuthorityCard title="Workflow handoff" icon={<ChevronRight size={16} />}><ol className="space-y-2 text-xs leading-5 text-slate-700"><li><b>Now:</b> Model Development Laboratory · algorithm, tuning, queue, execution, preliminary leaderboard.</li><li><b>Next:</b> Evaluation · deep candidate inspection.</li><li><b>Later:</b> feature selection/parsimony, calibration, simulation, game-level evaluation, champion/challenger decision, registry/export.</li></ol></AuthorityCard>
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600" data-testid="model-lab-authority-footer"><div className="flex flex-wrap items-center gap-2"><Pill label="Current Gold unchanged" tone="emerald" /><Pill label="Final OOT unopened" tone="rose" /><Pill label="Split v2 unchanged" tone="cyan" /><Pill label="No model promotion" tone="slate" /><span className="ml-auto max-w-full truncate font-mono" title={summary.featureUniverse.checksum}>Universe {short(summary.featureUniverse.checksum)}</span></div></section>
-    </div>
-  );
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="experiment-batch-plan"><SectionTitle icon={<ListChecks size={16} />} title="4 · Immutable experiment-batch plan" description="The batch binds project, Gold, ordered features, target order, split, treatment policies, exact configurations, environment, seed, creator, zero-OOT status, and a canonical checksum." /><div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]"><div><label className="block text-[10px] font-semibold uppercase text-slate-500">Batch name<input value={batchName} onChange={(event) => setBatchName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs normal-case text-slate-800" /></label><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><Fact label="Algorithms" value={String(selected.size)} /><Fact label="Configurations" value={int(configurationCount)} /><Fact label="Five-fold fits" value={int(fitCount)} /><Fact label="Compute class" value={computeClass} /></div></div><label className="block rounded-xl border border-slate-800 bg-slate-950 p-3 text-[10px] font-semibold uppercase text-slate-400">Parallel candidate workers<select value={workers} onChange={(event) => setWorkers(event.target.value === "AUTO" ? "AUTO" : Number(event.target.value) as 1 | 2)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-xs normal-case text-white"><option value="AUTO">Auto (resource-aware)</option><option value="1">1 worker</option><option value="2">2 workers if safe</option></select><span className="mt-2 block normal-case font-normal leading-4 text-slate-400">Estimator-native workers remain capped at one; high-memory candidates may reduce Auto concurrency.</span></label></div><div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void reviewPlan()} disabled={!selected.size || planning} className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 px-4 py-2 text-sm font-semibold text-cyan-800 disabled:border-slate-300 disabled:text-slate-400">{planning ? <Loader2 size={14} className="animate-spin" /> : <ListChecks size={14} />} Review exact batch plan</button><button type="button" onClick={saveDraft} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700"><Save size={14} />Save Draft Batch</button><button type="button" onClick={() => { setSelected(new Set()); setPlan(null); }} disabled={Boolean(activeJobId)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:text-slate-300">Clear Unstarted Queue</button>{draftSavedAt ? <span className="text-xs text-emerald-700">Draft saved {draftSavedAt}</span> : null}{plan ? <span className="text-xs text-slate-600"><b>{plan.totalExperiments} models · {plan.totalConfigurations} configurations · {plan.totalFits} five-fold fits</b> · {plan.parallelism.effectiveCandidateWorkers} safe worker(s)</span> : null}</div>{plan?.requiresAcknowledgement ? <label className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} className="mt-0.5" /><span><b>Compute acknowledgement required.</b> I reviewed the exact workload, worker limit, and five chronological folds.</span></label> : null}{plan ? <div className={`mt-3 rounded-xl border p-3 text-xs ${plan.executable ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-rose-200 bg-rose-50 text-rose-900"}`}><b>{plan.executable ? "Batch plan verified." : "Batch held closed."}</b> {plan.executionBlocker ?? `Plan ${plan.planId} · checksum ${plan.checksum}`}</div> : null}<button type="button" onClick={() => void runBatch()} disabled={!plan?.executable || (plan.requiresAcknowledgement && !acknowledged) || launching || Boolean(activeJobId)} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><Play size={15} />{activeJobId ? "One project batch is already active" : launching ? "Starting governed batch…" : `Run ${plan?.totalExperiments ?? selected.size} selected models · ${plan?.totalConfigurations ?? configurationCount} configurations · ${plan?.totalFits ?? fitCount} five-fold fits`}</button>{actionError ? <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"><b>Held closed.</b> {actionError}</p> : null}</section>
+    {currentJob ? <BatchProgress job={currentJob} onCancel={activeJobId ? cancelUnstarted : undefined} /> : null}
+    <section className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4" data-testid="historical-evidence-banner"><div className="flex gap-2 text-sm font-semibold text-cyan-950"><Sparkles size={16} />Evidence loaded without model activity</div><p className="mt-1 text-xs leading-5 text-cyan-900">{evaluation?.historicalEvidence.banner ?? "No experiment was started by opening this page. Verified immutable receipts are shown when available."}</p><div className="mt-2 flex flex-wrap gap-2"><Pill label={`${evaluation?.activity.historicalRunReceipts ?? summary.historicalEvidence.runCount} historical receipts preserved`} tone="cyan" /><Pill label={`${evaluation?.activity.newFitsOnPageLoad ?? 0} fits on page load`} tone="emerald" /><Pill label="Rest/Travel failures retained" tone="rose" /></div></section>
+    {evaluation ? <>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="current-batch-evidence"><h3 className="text-sm font-semibold text-slate-950">A · Current project batch</h3><p className="mt-1 text-xs text-slate-500">Newly completed work appears here and never overwrites historical receipts.</p>{evaluation.currentBatches.length ? <div className="mt-3"><ProjectCandidateComparison groups={evaluation.currentBatches} title="Current batch · grouped scientific candidates" source="CURRENT_BATCH" /></div> : <p className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">No current batch has completed. Historical evidence remains available below; opening this page created zero fits.</p>}</section>
+      <details open={!evaluation.currentBatches.length} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="historical-baseline-evidence"><summary className="cursor-pointer text-sm font-semibold text-slate-950">B · Historical verified baselines · {evaluation.historicalEvidence.candidates.length} grouped candidates</summary><p className="mt-1 text-xs text-slate-500">Immutable V1 receipts are grouped by scientific fingerprint. Attempt history remains expandable and unchanged.</p><div className="mt-3"><ProjectCandidateComparison groups={evaluation.historicalEvidence.candidates} title="Historical baselines · grouped scientific candidates" source="HISTORICAL_BASELINE" /></div></details>
+    </> : <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><b>Grouped Evaluation evidence is temporarily unavailable.</b> Model planning remains usable; reload after the backend is restarted on this build.</section>}
+    <section className="grid gap-4 lg:grid-cols-2"><Info title="Safe execution contract"><li>One active batch per project with an interprocess project lock.</li><li>Auto selects one or two independent candidate workers from local resources.</li><li>Each fold owns its preprocessing and estimator; native workers are one.</li><li>Completed candidate receipts persist independently; sibling failures survive.</li><li>Cancel affects queued/unstarted work only and never deletes evidence.</li></Info><Info title="Workflow handoff"><li>Completed candidates automatically appear in Candidate Evaluation.</li><li>Evaluation can designate multiple finalists—not a champion.</li><li>Model Refinement receives finalists for leakage-safe parsimony plans.</li><li>Final OOT remains locked until all later modeling decisions are frozen.</li><li className="list-none"><button type="button" onClick={() => go?.("evaluation")} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white">Continue to Candidate Evaluation <ChevronRight size={13} /></button></li></Info></section>
+  </div>;
 }
 
-function EligibilitySummary({ summary }: { summary: ProjectModelLabSummary }) {
-  const counts = summary.featureUniverse.reconciliation;
-  return <div className="mt-3"><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">{[
-    ["Eligible", counts.eligiblePredictorCount], ["Source unavailable", counts.sourceUnavailable], ["Missingness", counts.missingness], ["PIT / leakage", counts.pitLeakage], ["Identity", counts.identity], ["Computation", counts.computationFailure], ["Other governance", counts.other],
-  ].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-slate-200 bg-white p-2"><div className="text-[9px] uppercase text-slate-500">{label}</div><div className="mt-1 text-lg font-semibold text-slate-900">{value}</div></div>)}</div><div role="region" aria-label="Excluded predictors" tabIndex={0} className="mt-3 max-h-72 overflow-auto"><table className="w-full min-w-[760px] text-left text-[11px]"><caption className="sr-only">Full Eligible exclusion decisions</caption><thead className="sticky top-0 bg-slate-100"><tr>{["Feature", "Category", "Development missing", "Status", "Reason"].map((heading) => <th scope="col" key={heading} className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">{heading}</th>)}</tr></thead><tbody>{summary.featureUniverse.exclusions.map((item) => <tr key={item.name}><td className="border-b border-slate-100 px-2 py-2 font-mono">{item.name}</td><td className="border-b border-slate-100 px-2 py-2">{human(item.classification)}</td><td className="border-b border-slate-100 px-2 py-2 tabular-nums">{item.missingPercentDevelopment.toFixed(2)}%</td><td className="border-b border-slate-100 px-2 py-2">{human(item.status)}</td><td className="border-b border-slate-100 px-2 py-2 text-slate-600">{item.reason}</td></tr>)}</tbody></table></div></div>;
+function BatchProgress({ job, onCancel }: { job: ModelDevelopmentJob; onCancel?: () => Promise<void> }) {
+  const progress = job.progress; const percent = progress.totalFits ? Math.min(100, ((progress.completedFits + progress.failedFits) / progress.totalFits) * 100) : 0;
+  return <section className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm" data-testid="model-development-progress"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold text-cyan-950"><Cpu size={16} />{job.plan.batchName ?? "Model development batch"}</div><div className="mt-1 font-mono text-[10px] text-cyan-700">{job.jobId} · {job.status}</div></div>{onCancel && ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(job.status) ? <button type="button" onClick={() => void onCancel()} disabled={job.status === "CANCEL_REQUESTED"} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 disabled:opacity-60"><PauseCircle size={14} />{job.status === "CANCEL_REQUESTED" ? "Cancel requested" : "Clear Unstarted Queue · running fits finish safely"}</button> : null}</div><div className="mt-3 h-2 overflow-hidden rounded-full bg-cyan-100"><div className="h-full bg-cyan-600" style={{ width: `${percent}%` }} /></div><div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-7"><Fact label="Completed configs" value={String(progress.completedConfigurations ?? 0)} /><Fact label="Completed fits" value={`${progress.completedFits}/${progress.totalFits}`} /><Fact label="Failed fits" value={String(progress.failedFits)} /><Fact label="Remaining fits" value={String(progress.remainingFits ?? Math.max(0, progress.totalFits - progress.completedFits - progress.failedFits))} /><Fact label="Workers" value={String(progress.parallelWorkers ?? job.plan.parallelism?.effectiveCandidateWorkers ?? 1)} /><Fact label="Elapsed" value={duration(progress.elapsedSeconds)} /><Fact label="ETA" value={duration(progress.estimatedRemainingSeconds)} /></div>{progress.activeCandidates?.length ? <div className="mt-3 grid gap-2 md:grid-cols-2">{progress.activeCandidates.map((candidate) => <div key={candidate.taskId} className="rounded-lg border border-cyan-200 bg-white p-3"><b className="text-xs text-slate-900">{candidate.algorithmLabel}</b><p className="mt-1 text-[10px] text-slate-500">{candidate.featureUniverse} · configuration {candidate.configuration}/{candidate.configurationCount} · fold {candidate.fold}/{candidate.foldCount}</p><p className="mt-1 truncate font-mono text-[9px] text-slate-400" title={JSON.stringify(candidate.hyperparameters)}>{JSON.stringify(candidate.hyperparameters)}</p></div>)}</div> : null}{job.status === "FAILED" ? <div role="alert" className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900"><b>Batch failed before completion.</b> {job.error?.code ? <span className="font-mono">{job.error.code}: </span> : null}{job.error?.message || "The worker stopped without a persisted error message."}<span className="mt-1 block">No remaining-fit count is presented as completed model evidence.</span></div> : <p className="mt-3 text-xs text-cyan-900">{progress.message}</p>}{progress.completedCandidateReceipts?.length ? <p className="mt-2 text-[10px] text-cyan-800">{progress.completedCandidateReceipts.length} independent candidate receipt(s) persisted.</p> : null}</section>;
 }
 
-function GridPreview({ algorithm, preset }: { algorithm: ModelAlgorithm; preset: GridPreset }) {
-  const grid = preset === "COMPACT" ? algorithm.compactGrid : algorithm.fullGrid;
-  return <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3"><summary className="cursor-pointer text-xs font-semibold text-slate-800">Inspect {preset === "COMPACT" ? "curated compact configurations" : "full Cartesian domain"}</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-[10px] leading-4 text-slate-700">{JSON.stringify(grid, null, 2)}</pre></details>;
-}
-
-function JobProgress({ job }: { job: ModelDevelopmentJob }) {
-  const progress = job.progress;
-  const ratio = progress.totalFits ? Math.min(100, 100 * (progress.completedFits + progress.failedFits) / progress.totalFits) : 0;
-  return <section className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 shadow-sm" data-testid="model-lab-job-progress"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Cpu size={16} className="text-cyan-700" />Persisted experiment progress</div><div className="mt-1 font-mono text-[10px] text-slate-500">{job.jobId}</div></div><Pill label={human(job.status)} tone={job.status === "COMPLETE" ? "emerald" : job.status === "FAILED" ? "rose" : "cyan"} /></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-cyan-600 transition-all" style={{ width: `${ratio}%` }} /></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4"><ProgressFact label="Current model" value={progress.currentAlgorithm ? human(progress.currentAlgorithm) : "Waiting"} /><ProgressFact label="Configuration" value={progress.currentConfiguration ? `${progress.currentConfiguration} / ${progress.configurationCount ?? "—"}` : "—"} /><ProgressFact label="Hyperparameters" value={progress.currentHyperparameters ? JSON.stringify(progress.currentHyperparameters) : "—"} /><ProgressFact label="Fold" value={progress.currentFold ? `${progress.currentFold} / ${progress.foldCount ?? 5}` : "—"} /><ProgressFact label="Fits" value={`${int(progress.completedFits)} complete · ${int(progress.failedFits)} failed · ${int(progress.totalFits)} total`} /><ProgressFact label="Elapsed" value={`${Math.round(progress.elapsedSeconds ?? 0)} s`} /><ProgressFact label="Estimated remaining" value={progress.estimatedRemainingSeconds == null ? "Estimating" : `${Math.round(progress.estimatedRemainingSeconds)} s`} /><ProgressFact label="Feature universe" value={progress.currentFeatureUniverse ?? "—"} /><ProgressFact label="Evidence" value={job.artifacts.runReceiptSha256 ? `Receipt ${short(job.artifacts.runReceiptSha256)}` : "Pending immutable receipt"} /></div><p className="mt-3 text-xs text-slate-700">{progress.message}</p>{job.error?.message ? <p role="alert" className="mt-2 text-xs text-rose-800">{job.error.code}: {job.error.message}</p> : null}</section>;
-}
-
-function DevelopmentLeaderboard({ runs }: { runs: ModelLabRun[] }) {
-  const rows = runs.flatMap((run) => run.candidates.map((candidate) => ({ run, candidate })));
-  rows.sort((left, right) => {
-    if (left.candidate.meanOofLogLoss == null) return 1;
-    if (right.candidate.meanOofLogLoss == null) return -1;
-    return left.candidate.meanOofLogLoss - right.candidate.meanOofLogLoss;
-  });
-  if (!rows.length) return <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center"><FlaskConical className="mx-auto text-slate-400" size={24} /><p className="mt-2 text-sm font-semibold text-slate-800">No development evidence yet</p><p className="mt-1 text-xs text-slate-500">Opening this page performed zero fits.</p></div>;
-  return <><div className="mt-3 flex flex-wrap gap-2"><Pill label="INITIAL BASELINE / ABLATION EVIDENCE PRESERVED" tone="cyan" /><Pill label={`${runs.length} immutable run receipts`} tone="slate" /><Pill label="Final OOT accessed: NO" tone="rose" /></div><div role="region" aria-label="Development leaderboard" tabIndex={0} className="mt-3 overflow-x-auto"><table className="w-full min-w-[1520px] text-left text-xs"><caption className="sr-only">Development candidates ranked by mean out-of-fold multiclass log loss</caption><thead><tr>{["Rank", "Development status", "Algorithm", "Feature universe", "Hyperparameters", "Folds", "Mean OOF log loss", "Fold σ", "Summed Brier", "ECE", "Macro-F1", "Accuracy diagnostic", "Rare-class stability", "Complexity", "Runtime", "Immutable run / error"].map((heading) => <th scope="col" key={heading} className="border-b border-slate-200 px-3 py-2 uppercase text-slate-500">{heading}</th>)}</tr></thead><tbody>{rows.map(({ run, candidate }, index) => <LeaderboardRow key={`${run.runId}-${candidate.candidateId}`} run={run} candidate={candidate} rank={candidate.meanOofLogLoss == null ? null : index + 1} leading={candidate.meanOofLogLoss != null && index === 0} />)}</tbody></table></div><p className="mt-3 text-[11px] text-slate-500">The first complete row is the <b>Leading Development Candidate</b>, not a champion. Evaluation, feature selection/parsimony, calibration, final-OOT scoring, registry, and promotion remain separate governed decisions.</p></>;
-}
-
-function LeaderboardRow({ run, candidate, rank, leading }: { run: ModelLabRun; candidate: ModelLabCandidateResult; rank: number | null; leading: boolean }) {
-  return <tr className={leading ? "bg-cyan-50/70" : ""}><td className="border-b border-slate-100 px-3 py-2 font-semibold">{rank ?? "—"}</td><td className="border-b border-slate-100 px-3 py-2">{leading ? <Pill label="Leading Development Candidate" tone="cyan" /> : <Pill label={candidate.status === "FAILED" ? "Failed · preserved" : "Development evidence"} tone={candidate.status === "FAILED" ? "rose" : "slate"} />}</td><td className="border-b border-slate-100 px-3 py-2 font-semibold text-slate-900">{human(candidate.modelFamily)}</td><td className="border-b border-slate-100 px-3 py-2">{candidate.featureSetName || "Feature-independent null"}</td><td className="max-w-72 truncate border-b border-slate-100 px-3 py-2 font-mono text-[10px]" title={JSON.stringify((candidate as ModelLabCandidateResult & { hyperparameters?: unknown }).hyperparameters ?? {})}>{JSON.stringify((candidate as ModelLabCandidateResult & { hyperparameters?: unknown }).hyperparameters ?? {})}</td><td className="border-b border-slate-100 px-3 py-2">{candidate.foldsCompleted} / 5</td><td className="border-b border-slate-100 px-3 py-2 font-mono font-semibold">{decimal(candidate.meanOofLogLoss)}</td><td className="border-b border-slate-100 px-3 py-2 font-mono">{decimal(candidate.foldStability)}</td><td className="border-b border-slate-100 px-3 py-2 font-mono">{decimal(candidate.summedBrier)}</td><td className="border-b border-slate-100 px-3 py-2 font-mono">{decimal(candidate.ece)}</td><td className="border-b border-slate-100 px-3 py-2 font-mono">{decimal(candidate.macroF1)}</td><td className="border-b border-slate-100 px-3 py-2 font-mono">{decimal(candidate.accuracyDiagnostic)}</td><td className="border-b border-slate-100 px-3 py-2">{candidate.rareClassStability ?? "—"}</td><td className="border-b border-slate-100 px-3 py-2">{candidate.modelComplexity ?? "—"}</td><td className="border-b border-slate-100 px-3 py-2">{duration(candidate.runtimeMs)}</td><td className="border-b border-slate-100 px-3 py-2"><div className="font-mono text-[10px]">{short(run.runId)}</div>{candidate.errorReason ? <div className="mt-1 max-w-96 text-[10px] leading-4 text-rose-700">{candidate.errorReason}</div> : null}</td></tr>;
-}
-
-function UniverseButton({ active, onClick, title, detail, status, tone }: { active: boolean; onClick: () => void; title: string; detail: string; status: string; tone: "emerald" | "cyan" | "slate" | "amber" }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-3 text-left ${active ? "border-cyan-500 bg-cyan-50 ring-1 ring-cyan-100" : "border-slate-200 bg-white hover:border-cyan-300"}`}><div className="text-sm font-semibold text-slate-950">{title}</div><div className="mt-1 text-xs text-slate-600">{detail}</div><div className="mt-2"><Pill label={status} tone={tone} /></div></button>; }
-function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) { return <button type="button" onClick={onClick} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${active ? "border-cyan-600 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-600"}`}>{children}</button>; }
-function JsonEditor({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="mt-3 block text-xs font-semibold text-slate-700">{label}<textarea value={value} onChange={(event) => onChange(event.target.value)} rows={8} spellCheck={false} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-950 px-3 py-2 font-mono text-[11px] leading-5 text-slate-100" /></label>; }
-function EmptyQueue() { return <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center"><ListChecks className="mx-auto text-slate-400" size={24} /><p className="mt-2 text-sm font-semibold text-slate-800">No experiments queued</p><p className="mt-1 text-xs text-slate-500">Configure an algorithm above, inspect its exact fit burden, then add it for review. Nothing launches from a checkbox.</p></div>; }
-function ProgressFact({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-cyan-100 bg-white p-2"><div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 truncate font-semibold text-slate-900" title={value}>{value}</div></div>; }
-function Loading() { return <section className="grid min-h-64 place-items-center rounded-2xl border border-slate-200 bg-white" role="status" data-testid="model-lab-loading"><div className="text-center"><Loader2 className="mx-auto animate-spin text-cyan-700" size={24} /><p className="mt-2 text-sm font-semibold text-slate-800">Resolving the full project modeling authority…</p><p className="mt-1 text-xs text-slate-500">No model request is issued while the page loads.</p></div></section>; }
-function Failure({ message, retry }: { message: string; retry: () => Promise<void> }) { return <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5" role="alert" data-testid="model-lab-error"><div className="flex items-center gap-2 font-semibold text-rose-900"><AlertTriangle size={17} />Model Development Laboratory held closed</div><p className="mt-2 text-sm leading-6 text-rose-800">{message}</p><button type="button" onClick={() => void retry()} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-rose-900 px-3 py-2 text-xs font-semibold text-white"><RefreshCw size={13} />Retry exact authority</button></section>; }
-function BlockingReasons({ blockers }: { blockers: string[] }) { return <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4" role="alert"><div className="flex items-center gap-2 text-sm font-semibold text-rose-900"><AlertTriangle size={16} />Execution remains held closed</div><ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-800">{(blockers.length ? blockers : ["The exact project-bound execution contract is incomplete."]).map((item) => <li key={item}>{item}</li>)}</ul></section>; }
-function StatusBadge({ ready }: { ready: boolean }) { return <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase ${ready ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-rose-400/40 bg-rose-400/10 text-rose-200"}`}>{ready ? <CheckCircle2 size={12} /> : <Lock size={12} />}{ready ? "Ready for model development" : "Held closed"}</span>; }
-function DarkFact({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "rose" }) { return <div className="min-w-0 bg-slate-950 px-4 py-3 sm:px-5"><div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">{label}</div><div className={`mt-0.5 truncate font-semibold ${tone === "rose" ? "text-rose-300" : "text-white"}`}>{value}</div><div className="mt-0.5 truncate text-[10px] text-slate-400" title={detail}>{detail}</div></div>; }
-function AuthorityCard({ title, icon, children }: { title: string; icon: JSX.Element; children: ReactNode }) { return <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">{icon}{title}</h3><div className="mt-3">{children}</div></section>; }
-function AuthorityRows({ rows }: { rows: [string, string, string][] }) { return <dl className="space-y-2">{rows.map(([label, value, identity]) => <div key={label} className="grid min-w-0 gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:grid-cols-[86px_minmax(0,1fr)]"><dt className="text-[10px] font-semibold uppercase text-slate-500">{label}</dt><dd className="min-w-0"><div className="truncate text-xs font-semibold text-slate-900">{value}</div><div className="truncate font-mono text-[9px] text-slate-500" title={identity}>{identity}</div></dd></div>)}</dl>; }
+function Loading() { return <section className="grid min-h-64 place-items-center rounded-2xl border border-slate-200 bg-white" role="status"><div className="text-center"><Loader2 className="mx-auto animate-spin text-cyan-700" size={24} /><p className="mt-2 text-sm font-semibold text-slate-800">Resolving project model authorities and immutable evidence…</p><p className="mt-1 text-xs text-slate-500">No model request is issued while the page loads.</p></div></section>; }
+function Failure({ message, retry }: { message: string; retry: () => Promise<void> }) { return <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5" role="alert"><div className="flex items-center gap-2 font-semibold text-rose-900"><AlertTriangle size={17} />Model Development Laboratory held closed</div><p className="mt-2 text-sm leading-6 text-rose-800">{message}</p><button type="button" onClick={() => void retry()} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-rose-900 px-3 py-2 text-xs font-semibold text-white"><RefreshCw size={13} />Retry exact authority</button></section>; }
+function BlockingReasons({ blockers }: { blockers: string[] }) { return <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4" role="alert"><div className="flex items-center gap-2 text-sm font-semibold text-rose-900"><Lock size={16} />Execution remains held closed</div><ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-800">{blockers.map((item) => <li key={item}>{item}</li>)}</ul></section>; }
 function SectionTitle({ icon, title, description }: { icon: JSX.Element; title: string; description: string }) { return <div className="flex items-start gap-2"><span className="mt-0.5 text-cyan-700">{icon}</span><div><h3 className="text-sm font-semibold text-slate-950">{title}</h3><p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p></div></div>; }
-function Pill({ label, tone }: { label: string; tone: "emerald" | "cyan" | "rose" | "amber" | "slate" }) { const style = { emerald: "border-emerald-200 bg-emerald-50 text-emerald-800", cyan: "border-cyan-200 bg-cyan-50 text-cyan-800", rose: "border-rose-200 bg-rose-50 text-rose-800", amber: "border-amber-200 bg-amber-50 text-amber-800", slate: "border-slate-200 bg-slate-50 text-slate-700" }[tone]; return <span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold ${style}`}>{label}</span>; }
+function DarkFact({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "rose" }) { return <div className="min-w-0 bg-slate-950 px-4 py-4"><div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">{label}</div><div className={`mt-1 truncate text-sm font-semibold ${tone === "rose" ? "text-rose-300" : "text-white"}`}>{value}</div><div className="mt-1 truncate text-[9px] text-slate-400" title={detail}>{detail}</div></div>; }
+function Fact({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-slate-200 bg-white p-2"><div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 truncate text-xs font-semibold text-slate-900" title={value}>{value}</div></div>; }
+function Action({ onClick, children }: { onClick: () => void; children: ReactNode }) { return <button type="button" onClick={onClick} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-cyan-400 hover:text-cyan-800">{children}</button>; }
+function Pill({ label, tone }: { label: string; tone: "emerald" | "cyan" | "rose" | "amber" | "slate" }) { const style = { emerald: "border-emerald-200 bg-emerald-50 text-emerald-800", cyan: "border-cyan-200 bg-cyan-50 text-cyan-800", rose: "border-rose-200 bg-rose-50 text-rose-800", amber: "border-amber-200 bg-amber-50 text-amber-900", slate: "border-slate-200 bg-slate-50 text-slate-700" }[tone]; return <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-semibold ${style}`}>{label}</span>; }
+function Info({ title, children }: { title: string; children: ReactNode }) { return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><CheckCircle2 size={15} className="text-emerald-600" />{title}</h3><ul className="mt-3 space-y-2 text-xs leading-5 text-slate-700">{children}</ul></section>; }

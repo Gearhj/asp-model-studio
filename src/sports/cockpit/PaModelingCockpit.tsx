@@ -1,8 +1,8 @@
-// Interactive MLB PA Modeling Cockpit — the 14-step scientist workbench shell.
+// Interactive MLB PA Modeling Cockpit — the 15-step scientist workbench shell.
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
-  FlaskConical, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu,
+  FlaskConical, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu, Scissors,
   ChevronLeft, ChevronRight, Check, CloudOff, RefreshCw, Loader2, Menu, ShieldCheck, Lock, DatabaseZap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -17,6 +17,8 @@ import { ProjectBoundMissingStudio } from "./ProjectBoundMissingStudio";
 import { ProjectBoundFeatureEngineering } from "./ProjectBoundFeatureEngineering";
 import { ProjectBoundSplitBalance } from "./ProjectBoundSplitBalance";
 import { ProjectBoundModelLab } from "./ProjectBoundModelLab";
+import { ProjectBoundCandidateEvaluation } from "./ProjectBoundCandidateEvaluation";
+import { ProjectBoundModelRefinement } from "./ProjectBoundModelRefinement";
 import { CockpitDrawer } from "./CockpitDrawer";
 import { useStage3FocusMode } from "./stage3FocusMode";
 import {
@@ -40,12 +42,13 @@ const STEPS: Step[] = [
   { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundFeatureEngineering state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <FeatureEngineeringStep /> },
   { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Player Segmentation" /> : <SegmentationStep /> },
   { id: "split", n: "08", label: "Split & Balance", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundSplitBalance state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <TemporalSplitStep /> },
-  { id: "modellab", n: "09", label: "Model Development Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundModelLab projectId={c.projectId} /> : <ModelLabStep projectId={c.projectId} /> },
-  { id: "evaluation", n: "10", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Evaluation" /> : <EvaluationStep projectId={c.projectId} /> },
-  { id: "calibration", n: "11", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Calibration" /> : <CalibrationStep projectId={c.projectId} /> },
-  { id: "simulation", n: "12", label: "Simulation Impact", icon: Orbit, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Simulation Impact" /> : <SimulationStep projectId={c.projectId} /> },
-  { id: "champion", n: "13", label: "Champion / Challenger", icon: Trophy, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Champion / Challenger" /> : <ChampionChallengerStep projectId={c.projectId} /> },
-  { id: "registry", n: "14", label: "Registry & Evidence", icon: ClipboardList, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Registry & Evidence" /> : <RegistryStep projectId={c.projectId} /> },
+  { id: "modellab", n: "09", label: "Model Development Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundModelLab projectId={c.projectId} go={c.go} /> : <ModelLabStep projectId={c.projectId} /> },
+  { id: "evaluation", n: "10", label: "Candidate Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundCandidateEvaluation projectId={c.projectId} go={c.go} /> : <EvaluationStep projectId={c.projectId} /> },
+  { id: "refinement", n: "11", label: "Model Refinement & Explainability", icon: Scissors, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundModelRefinement projectId={c.projectId} go={c.go} /> : <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Model Refinement becomes available after project-bound Candidate Evaluation.</section> },
+  { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Calibration" /> : <CalibrationStep projectId={c.projectId} /> },
+  { id: "simulation", n: "13", label: "Simulation & Game-Level Evaluation", icon: Orbit, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Simulation & Game-Level Evaluation" /> : <SimulationStep projectId={c.projectId} /> },
+  { id: "champion", n: "14", label: "Champion / Challenger Decision", icon: Trophy, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Champion / Challenger Decision" /> : <ChampionChallengerStep projectId={c.projectId} /> },
+  { id: "registry", n: "15", label: "Registry, Export & Implementation", icon: ClipboardList, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Registry, Export & Implementation" /> : <RegistryStep projectId={c.projectId} /> },
 ];
 
 export default function PaModelingCockpit({
@@ -135,7 +138,7 @@ export default function PaModelingCockpit({
         <StepFooter active={active} go={go} />
       </main>
 
-      <CockpitDrawer open={workflowNavigatorOpen} onClose={() => setWorkflowNavigatorOpen(false)} title="Workflow navigator" description="All nine program stages and all fourteen Stage 3 steps remain available without occupying the analytical canvas." eyebrow="MLB modeling workflow" returnFocusRef={workflowTriggerRef} side="left" widthClassName="max-w-3xl" testId="stage3-workflow-navigator">
+      <CockpitDrawer open={workflowNavigatorOpen} onClose={() => setWorkflowNavigatorOpen(false)} title="Workflow navigator" description="All nine program stages and all fifteen Stage 3 steps remain available without occupying the analytical canvas." eyebrow="MLB modeling workflow" returnFocusRef={workflowTriggerRef} side="left" widthClassName="max-w-3xl" testId="stage3-workflow-navigator">
         <WorkflowNavigator programStages={programStages} activeStep={active} savedSteps={savedSteps} hasResult={Boolean(lastResult)} projectBound={Boolean(currentGoldReview)} goProgram={(number) => { onGoProgramStage?.(number); setWorkflowNavigatorOpen(false); }} goStep={(id) => { go(id); setWorkflowNavigatorOpen(false); }} />
       </CockpitDrawer>
 
@@ -433,7 +436,7 @@ function AutosaveBadge({ status, lastSavedAt, onRetry }: { status: AutosaveStatu
 
 // Consistent Previous / Next workflow footer at the bottom of every cockpit step. Uses the in-scope
 // STEPS order so destinations can never diverge from the left navigator; Step 1 has no Previous and
-// Step 14 has no Next. Navigation is internal step state — it does not route outside the cockpit.
+// Step 15 has no Next. Navigation is internal step state — it does not route outside the cockpit.
 function StepFooter({ active, go }: { active: string; go: (id: string) => void }) {
   const idx = STEPS.findIndex((s) => s.id === active);
   const prev = idx > 0 ? STEPS[idx - 1] : null;

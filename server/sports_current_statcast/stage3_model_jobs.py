@@ -11,10 +11,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -44,17 +45,93 @@ from .stage3_model_laboratory import (
 )
 
 
-MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_DEVELOPMENT_PLAN_V1"
+MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_DEVELOPMENT_PLAN_V2"
 MODEL_DEVELOPMENT_JOB_TYPE = "sports_stage3_model_development"
 MODEL_DEVELOPMENT_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_DEVELOPMENT_RUN_RECEIPT_V2"
 
-_ACTIVE_STATUSES = {"QUEUED", "RUNNING"}
+_ACTIVE_STATUSES = {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}
 _FORBIDDEN_PLAN_OPTIONS = {
     "finalOot", "holdout", "globalMatrix", "base22", "promote", "champion",
     "calibrateOnOot", "randomSplit", "provider",
 }
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stage3-model-development")
 _SUBMISSION_GUARD = threading.Lock()
+
+
+def _physical_memory_bytes() -> int | None:
+    """Return Windows physical memory without introducing a dependency."""
+
+    try:
+        import ctypes
+
+        class _MemoryStatus(ctypes.Structure):
+            _fields_ = [
+                ("length", ctypes.c_ulong),
+                ("memory_load", ctypes.c_ulong),
+                ("total_physical", ctypes.c_ulonglong),
+                ("available_physical", ctypes.c_ulonglong),
+                ("total_page_file", ctypes.c_ulonglong),
+                ("available_page_file", ctypes.c_ulonglong),
+                ("total_virtual", ctypes.c_ulonglong),
+                ("available_virtual", ctypes.c_ulonglong),
+                ("available_extended_virtual", ctypes.c_ulonglong),
+            ]
+
+        status = _MemoryStatus()
+        status.length = ctypes.sizeof(_MemoryStatus)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return int(status.total_physical)
+    except Exception:  # pragma: no cover - informational resource evidence
+        return None
+    return None
+
+
+def _parallelism(experiments: list[dict[str, Any]], requested: Any) -> dict[str, Any]:
+    logical_cpus = max(1, int(os.cpu_count() or 1))
+    memory_bytes = _physical_memory_bytes()
+    memory_gib = memory_bytes / (1024**3) if memory_bytes else None
+    high_memory = any(
+        str(item.get("computeIntensity") or "").upper()
+        in {"VERY_HIGH", "PROHIBITIVE"}
+        for item in experiments
+    )
+    auto = 2 if logical_cpus >= 8 and (memory_gib is None or memory_gib >= 16) else 1
+    if high_memory and memory_gib is not None and memory_gib < 24:
+        auto = 1
+    maximum = max(1, min(2, auto))
+    if requested in (None, "", "AUTO"):
+        mode = "AUTO"
+        effective = maximum
+    else:
+        if isinstance(requested, bool):
+            raise Stage3ModelLaboratoryError(
+                "MODEL_DEVELOPMENT_PARALLELISM_INVALID",
+                "Parallel candidate workers must be Auto, 1, or 2.",
+            )
+        try:
+            effective = int(requested)
+        except (TypeError, ValueError) as exc:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_DEVELOPMENT_PARALLELISM_INVALID",
+                "Parallel candidate workers must be Auto, 1, or 2.",
+            ) from exc
+        if effective < 1 or effective > maximum:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_DEVELOPMENT_PARALLELISM_UNSAFE",
+                f"This local resource envelope permits at most {maximum} concurrent candidate worker(s).",
+            )
+        mode = "MANUAL"
+    return {
+        "mode": mode,
+        "requested": requested if requested not in (None, "") else "AUTO",
+        "effectiveCandidateWorkers": effective,
+        "maximumCandidateWorkers": maximum,
+        "logicalCpuCount": logical_cpus,
+        "physicalMemoryGiB": round(memory_gib, 2) if memory_gib is not None else None,
+        "highMemoryCandidatePresent": high_memory,
+        "estimatorNativeWorkers": 1,
+        "nestedOversubscriptionProhibited": True,
+    }
 
 
 def _sha(value: Mapping[str, Any]) -> str:
@@ -122,6 +199,63 @@ def _custom_feature_set(
     }
 
 
+def _with_fold_local_selector(
+    feature_set: dict[str, Any] | None,
+    experiment: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    selector = experiment.get("foldLocalSelector")
+    if selector is None:
+        return feature_set
+    if feature_set is None or not isinstance(selector, Mapping):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_DEVELOPMENT_SELECTOR_FEATURES_REQUIRED",
+            "A fold-local selector requires a feature-bearing parent candidate.",
+        )
+    method = str(selector.get("method") or "").upper()
+    if method not in {"RFE", "STABILITY_SELECTION", "COEFFICIENT_GUIDED_ELIMINATION"}:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_DEVELOPMENT_SELECTOR_METHOD_UNAVAILABLE",
+            "Only leakage-safe fold-local RFE and coefficient-guided elimination are executable in this worker.",
+            status_code=409,
+        )
+    features = list(feature_set.get("orderedFeatures") or [])
+    minimum = int(selector.get("minimumRetainedFeatures") or 0)
+    step = int(selector.get("eliminationStep") or 0)
+    if not 1 <= minimum < len(features) or not 1 <= step < len(features):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_DEVELOPMENT_SELECTOR_BOUNDS_INVALID",
+            "The fold-local selector must preserve a non-empty reduced feature set.",
+        )
+    contract = {
+        "schemaVersion": "SPORTS_STAGE3_FOLD_LOCAL_SELECTOR_FEATURE_SET_V1",
+        "parentFeatureSetId": feature_set.get("featureSetId"),
+        "parentFeatureSetChecksum": feature_set.get("checksum"),
+        "orderedFeatures": features,
+        "transformationContracts": feature_set.get("transformationContracts"),
+        "foldLocalSelector": {
+            "method": method,
+            "minimumRetainedFeatures": minimum,
+            "eliminationStep": step,
+            "scoringMetric": "MULTICLASS_LOG_LOSS",
+            "validationRowsSelectFeatures": False,
+            "finalOotTargetAccessed": False,
+            "refinementPlanId": selector.get("refinementPlanId"),
+        },
+        "finalOotTargetAccessed": False,
+    }
+    checksum = _sha(contract)
+    return {
+        **contract,
+        "featureSetId": f"stage3-fold-local-reduced-challenger-{checksum[:32]}",
+        "featureSetKey": "FOLD_LOCAL_REDUCED_CHALLENGER",
+        "name": f"Fold-local {method.replace('_', ' ').title()} challenger",
+        "version": 1,
+        "status": "RUN_SCOPED_CONTENT_ADDRESSED_AUTHORITY",
+        "checksum": checksum,
+        "unavailableExclusions": [],
+    }
+
+
 def _feature_set_for_experiment(
     resolved: Any,
     eligibility: Mapping[str, Any],
@@ -129,12 +263,20 @@ def _feature_set_for_experiment(
 ) -> dict[str, Any] | None:
     algorithm_id = str(experiment.get("algorithmId") or "")
     if algorithm_id == "class_frequency_null":
+        if experiment.get("foldLocalSelector") is not None:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_DEVELOPMENT_SELECTOR_NOT_APPLICABLE",
+                "The feature-independent reference cannot enter feature refinement.",
+            )
         return None
     requested = str(experiment.get("featureUniverseId") or eligibility["featureSetId"])
     if requested in {"FULL_ELIGIBLE", eligibility["featureSetId"]}:
-        return build_feature_set_record(eligibility)
+        return _with_fold_local_selector(build_feature_set_record(eligibility), experiment)
     if requested == "CUSTOM_SUBSET":
-        return _custom_feature_set(eligibility, experiment.get("orderedFeatures"))
+        return _with_fold_local_selector(
+            _custom_feature_set(eligibility, experiment.get("orderedFeatures")),
+            experiment,
+        )
     registered = next(
         (item for item in resolved.feature_sets if item.get("featureSetId") == requested),
         None,
@@ -173,7 +315,7 @@ def _feature_set_for_experiment(
                 "The scientist must explicitly acknowledge that treatment is fitted inside each chronological training fold.",
                 status_code=409,
             )
-        return {
+        return _with_fold_local_selector({
             **dict(registered),
             "executionCompatibilityOverride": {
                 "status": "SCIENTIST_REVIEWED_RUN_SCOPED_OVERRIDE",
@@ -184,14 +326,16 @@ def _feature_set_for_experiment(
                     str(item["name"]) for item in assessment["reviewRequiredFeatures"]
                 ],
             },
-        }
-    return dict(registered)
+        }, experiment)
+    return _with_fold_local_selector(dict(registered), experiment)
 
 
 def plan_model_development_queue(
     database: Database,
     project_id: str,
     payload: Mapping[str, Any],
+    *,
+    actor_user_id: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise Stage3ModelLaboratoryError(
@@ -267,7 +411,29 @@ def plan_model_development_queue(
             raise Stage3ModelLaboratoryError(
                 "MODEL_DEVELOPMENT_TUNING_INVALID", f"{algorithm['label']}: {exc}"
             ) from exc
+        selector = (feature_set or {}).get("foldLocalSelector") or {}
+        source_feature_count = len((feature_set or {}).get("orderedFeatures") or [])
+        selector_fits_per_fold = 1
+        if selector:
+            selector_fits_per_fold = max(
+                1,
+                int(
+                    (source_feature_count - int(selector["minimumRetainedFeatures"]) + int(selector["eliminationStep"]) - 1)
+                    // int(selector["eliminationStep"])
+                ) + 1,
+            )
+            tuning = {
+                **tuning,
+                "foldLocalSelector": dict(selector),
+                "selectorFitsPerFold": selector_fits_per_fold,
+                "fitsPerConfiguration": selector_fits_per_fold * 5,
+                "totalFits": int(tuning["configurationCount"]) * selector_fits_per_fold * 5,
+                "requiresAcknowledgement": True,
+            }
         identity_payload = {
+            "projectId": project_id,
+            "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+            "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
             "algorithmId": algorithm_id,
             "featureSetId": (feature_set or {}).get("featureSetId"),
             "featureSetChecksum": (feature_set or {}).get("checksum"),
@@ -279,6 +445,16 @@ def plan_model_development_queue(
             "seed": int(seed),
             "metric": "MULTICLASS_LOG_LOSS",
             "splitContractId": resolved.split["contractId"],
+            "splitChecksum": resolved.split["checksum"],
+            "outlierPolicyId": resolved.outlier_policy["policyId"],
+            "outlierPolicyChecksum": resolved.outlier_policy["checksum"],
+            "missingPolicyId": resolved.missing_policy["policyId"],
+            "missingPolicyChecksum": resolved.missing_policy["checksum"],
+            "environment": _environment_identity(),
+            "targetOrder": list(GOLD_CLASS_ORDER),
+            "parentCandidateFingerprint": raw.get("parentCandidateFingerprint"),
+            "refinementPlanId": raw.get("refinementPlanId"),
+            "foldLocalSelector": dict(selector) if selector else None,
         }
         experiment_id = "stage3-model-experiment-" + _sha(identity_payload)[:32]
         if experiment_id in seen:
@@ -290,13 +466,18 @@ def plan_model_development_queue(
         planned.append(
             {
                 "experimentId": experiment_id,
+                "candidateSpecificationTemplateSha256": _sha(identity_payload),
+                "parentCandidateFingerprint": raw.get("parentCandidateFingerprint"),
+                "refinementPlanId": raw.get("refinementPlanId"),
+                "foldLocalSelector": dict(selector) if selector else None,
                 "modelFamily": algorithm["family"],
                 "algorithmId": algorithm_id,
                 "algorithmLabel": algorithm["label"],
                 "featureUniverseId": (feature_set or {}).get("featureSetId"),
                 "featureUniverseName": (feature_set or {}).get("name") or "Feature-independent null reference",
                 "featureUniverseChecksum": (feature_set or {}).get("checksum"),
-                "featureCount": len((feature_set or {}).get("orderedFeatures") or []),
+                "featureCount": int(selector.get("minimumRetainedFeatures") or source_feature_count),
+                "sourceFeatureCount": source_feature_count,
                 "featureSetContract": feature_set,
                 "tuning": tuning,
                 "seed": int(seed),
@@ -308,6 +489,7 @@ def plan_model_development_queue(
         )
     total_configurations = sum(int(item["tuning"]["configurationCount"]) for item in planned)
     total_fits = sum(int(item["tuning"]["totalFits"]) for item in planned)
+    parallelism = _parallelism(planned, payload.get("parallelWorkers", "AUTO"))
     executable = total_fits <= HARD_FIT_LIMIT and all(
         item["tuning"]["configurations"] for item in planned
     )
@@ -322,6 +504,10 @@ def plan_model_development_queue(
         "splitChecksum": resolved.split["checksum"],
         "foldCount": 5,
         "metric": "MULTICLASS_LOG_LOSS",
+        "batchName": str(payload.get("batchName") or "Stage 3 multi-model development batch").strip()[:120],
+        "createdByUserId": actor_user_id,
+        "environment": _environment_identity(),
+        "parallelism": parallelism,
         "experiments": planned,
         "totalExperiments": len(planned),
         "totalConfigurations": total_configurations,
@@ -361,6 +547,7 @@ def _assert_plan_current(
         "splitChecksum": resolved.split["checksum"],
         "foldCount": 5,
         "metric": "MULTICLASS_LOG_LOSS",
+        "environment": _environment_identity(),
         "finalOotLocked": True,
         "finalOotTargetAccessed": False,
         "providerCalls": 0,
@@ -420,7 +607,9 @@ def enqueue_model_development_job(
     *,
     actor_user_id: str,
 ) -> dict[str, Any]:
-    plan = plan_model_development_queue(database, project_id, payload)
+    plan = plan_model_development_queue(
+        database, project_id, payload, actor_user_id=actor_user_id
+    )
     if not plan["executable"]:
         raise Stage3ModelLaboratoryError(
             "MODEL_DEVELOPMENT_PLAN_NOT_EXECUTABLE", str(plan["executionBlocker"])
@@ -436,6 +625,15 @@ def enqueue_model_development_job(
             with interprocess_lock(claim_path, blocking=True, timeout=10.0, stale_after=120.0):
                 current = _active_job(database, project_id)
                 if current is not None:
+                    current_plan = json_loads(current.get("parameters_json"), {})
+                    if current_plan.get("checksum") == plan.get("checksum"):
+                        return {
+                            "ok": True,
+                            "job": {
+                                **_decode_job(current),
+                                "idempotentReplay": True,
+                            },
+                        }
                     raise Stage3ModelLaboratoryError(
                         "MODEL_DEVELOPMENT_JOB_ALREADY_ACTIVE",
                         f"Project job {current['run_id']} is already {str(current['status']).upper()}.",
@@ -462,6 +660,12 @@ def enqueue_model_development_job(
                             "elapsedSeconds": 0.0,
                             "estimatedRemainingSeconds": None,
                             "message": "Waiting for the single project-scoped model-development worker.",
+                            "parallelWorkers": plan["parallelism"]["effectiveCandidateWorkers"],
+                            "completedConfigurations": 0,
+                            "failedConfigurations": 0,
+                            "remainingFits": plan["totalFits"],
+                            "activeCandidates": [],
+                            "completedCandidateReceipts": [],
                         },
                         "artifacts_json": {
                             "coordinatorProcessId": os.getpid(),
@@ -500,20 +704,32 @@ def _execute_job(
     started_clock = time.perf_counter()
     completed_fits = 0
     failed_fits = 0
+    completed_configurations = 0
+    failed_configurations = 0
     failures: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
+    candidate_receipts: list[dict[str, Any]] = []
     frames: dict[str, Any] = {}
+    active_candidates: dict[str, dict[str, Any]] = {}
+    progress_guard = threading.Lock()
     lock_path = _runtime_root() / "locks" / f"{project_id}.model-development.lock"
+    worker_count = int((plan.get("parallelism") or {}).get("effectiveCandidateWorkers") or 1)
 
-    def update_progress(extra: Mapping[str, Any]) -> None:
-        elapsed = time.perf_counter() - started_clock
-        mean = elapsed / completed_fits if completed_fits else None
-        remaining = (
-            mean * max(0, int(plan["totalFits"]) - completed_fits - failed_fits)
-            if mean is not None
-            else None
-        )
+    def cancellation_requested() -> bool:
         row = RunRepository(database).get(job_id) or {}
+        return str(row.get("status") or "").upper() == "CANCEL_REQUESTED"
+
+    def update_progress(extra: Mapping[str, Any], *, state: str | None = None) -> None:
+        elapsed = time.perf_counter() - started_clock
+        finished = completed_fits + failed_fits
+        mean = elapsed / finished if finished else None
+        remaining_fits = max(0, int(plan["totalFits"]) - finished)
+        remaining = mean * remaining_fits if mean is not None else None
+        row = RunRepository(database).get(job_id) or {}
+        row_status = str(row.get("status") or "").upper()
+        effective_state = state or (
+            "CANCEL_REQUESTED" if row_status == "CANCEL_REQUESTED" else "RUNNING"
+        )
         _upsert_job(
             database,
             {
@@ -521,32 +737,84 @@ def _execute_job(
                 "project_id": project_id,
                 "run_type": MODEL_DEVELOPMENT_JOB_TYPE,
                 "workflow_type": "sports_stage3_model_development",
-                "status": "RUNNING",
+                "status": effective_state,
                 "started_at": row.get("started_at") or now_iso(),
                 "completed_at": None,
                 "parameters_json": plan,
                 "metrics_json": {
-                    "state": "RUNNING",
+                    "state": effective_state,
+                    "completedConfigurations": completed_configurations,
+                    "failedConfigurations": failed_configurations,
                     "completedFits": completed_fits,
                     "failedFits": failed_fits,
+                    "remainingFits": remaining_fits,
                     "totalFits": plan["totalFits"],
+                    "parallelWorkers": worker_count,
+                    "activeCandidates": list(active_candidates.values()),
+                    "completedCandidateReceipts": list(candidate_receipts),
                     "elapsedSeconds": elapsed,
                     "estimatedRemainingSeconds": remaining,
-                    "failures": failures,
+                    "failures": list(failures),
                     **dict(extra),
                 },
-                "artifacts_json": json_loads(row.get("artifacts_json"), {}),
+                "artifacts_json": {
+                    **json_loads(row.get("artifacts_json"), {}),
+                    "completedCandidateReceipts": list(candidate_receipts),
+                },
                 "error_json": {},
                 "created_by": actor_user_id,
             },
         )
+
+    def persist_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
+        payload = {
+            "schemaVersion": "SPORTS_STAGE3_CANDIDATE_ATTEMPT_RECEIPT_V1",
+            "jobId": job_id,
+            "projectId": project_id,
+            "planId": plan["planId"],
+            "planChecksum": plan["checksum"],
+            "createdAt": now_iso(),
+            "candidate": dict(candidate),
+            "finalOotTargetAccessed": False,
+            "promotionStatus": "NOT_PROMOTED",
+        }
+        digest = _sha(payload)
+        directory = _runtime_root() / "candidate-attempts" / "objects" / "sha256"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{digest}.json"
+        serialized = canonical_json_bytes(payload)
+        if path.exists():
+            if path.read_bytes() != serialized:
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_DEVELOPMENT_CANDIDATE_OBJECT_COLLISION",
+                    "A candidate attempt address contains different bytes.",
+                    status_code=409,
+                )
+        else:
+            handle, temporary = tempfile.mkstemp(prefix="stage3-candidate-", suffix=".tmp", dir=directory)
+            try:
+                with os.fdopen(handle, "wb") as stream:
+                    stream.write(serialized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        return {
+            "candidateId": candidate.get("candidateId"),
+            "candidateReceiptSha256": digest,
+            "status": candidate.get("status"),
+        }
 
     try:
         with interprocess_lock(lock_path, blocking=False, stale_after=86_400.0):
             resolved = resolve_model_lab_authority(database, project_id)
             eligibility = build_model_eligibility(resolved)
             _assert_plan_current(resolved, eligibility, plan)
-            update_progress({"message": "Exact project, feature, treatment, and split authorities verified."})
+            with progress_guard:
+                update_progress({"message": "Exact project, feature, treatment, split, and environment authorities verified."})
+
+            tasks: list[dict[str, Any]] = []
             for experiment_index, experiment in enumerate(plan["experiments"], start=1):
                 feature_set = experiment.get("featureSetContract")
                 feature_key = str((feature_set or {}).get("featureSetId") or "NOT_APPLICABLE")
@@ -554,90 +822,207 @@ def _execute_job(
                     frames[feature_key] = _fold_frame(
                         resolved, list((feature_set or {}).get("orderedFeatures") or [])
                     )
-                frame = frames[feature_key]
                 configurations = list((experiment.get("tuning") or {}).get("configurations") or [])
                 for config_index, hyperparameters in enumerate(configurations, start=1):
-                    config_fits = 0
+                    tasks.append(
+                        {
+                            "taskId": f"{experiment['experimentId']}:{config_index}",
+                            "experimentIndex": experiment_index,
+                            "experiment": experiment,
+                            "featureSet": feature_set,
+                            "frame": frames[feature_key],
+                            "configurationIndex": config_index,
+                            "configurationCount": len(configurations),
+                            "hyperparameters": hyperparameters,
+                        }
+                    )
 
-                    def on_fold(event: dict[str, Any]) -> None:
-                        nonlocal completed_fits, config_fits
-                        if event.get("event") == "FOLD_COMPLETED":
+            def execute_candidate(task: Mapping[str, Any]) -> dict[str, Any]:
+                nonlocal completed_fits
+                experiment = task["experiment"]
+                config_fits = 0
+                config_folds = 0
+
+                def on_fold(event: dict[str, Any]) -> None:
+                    nonlocal completed_fits, config_fits, config_folds
+                    with progress_guard:
+                        if event.get("event") in {"FOLD_SELECTOR_FIT_COMPLETED", "FOLD_COMPLETED"}:
                             completed_fits += 1
                             config_fits += 1
+                        if event.get("event") == "FOLD_COMPLETED":
+                            config_folds += 1
+                        active_candidates[str(task["taskId"])] = {
+                            "taskId": task["taskId"],
+                            "algorithm": experiment["algorithmId"],
+                            "algorithmLabel": experiment["algorithmLabel"],
+                            "featureUniverse": experiment["featureUniverseName"],
+                            "configuration": task["configurationIndex"],
+                            "configurationCount": task["configurationCount"],
+                            "hyperparameters": task["hyperparameters"],
+                            "fold": event.get("fold"),
+                            "foldCount": 5,
+                            "status": event.get("event"),
+                            "elapsedSeconds": time.perf_counter() - started_clock,
+                        }
                         update_progress(
                             {
-                                "currentExperiment": experiment_index,
-                                "experimentCount": plan["totalExperiments"],
-                                "currentAlgorithm": experiment["algorithmId"],
-                                "currentFeatureUniverse": experiment["featureUniverseName"],
-                                "currentConfiguration": config_index,
-                                "configurationCount": len(configurations),
-                                "currentHyperparameters": hyperparameters,
-                                "currentFold": event.get("fold"),
-                                "foldCount": 5,
-                                "message": f"{experiment['algorithmLabel']} · configuration {config_index}/{len(configurations)} · fold {event.get('fold')}/5",
+                                "message": f"{experiment['algorithmLabel']} · configuration {task['configurationIndex']}/{task['configurationCount']} · fold {event.get('fold')}/5",
                             }
                         )
 
+                try:
+                    result = _evaluate_candidate(
+                        task["frame"],
+                        model_family=str(experiment["algorithmId"]),
+                        feature_set=task["featureSet"],
+                        split=resolved.split,
+                        seed=int(experiment["seed"]),
+                        hyperparameters=task["hyperparameters"],
+                        fold_local_selector=experiment.get("foldLocalSelector"),
+                        progress_callback=on_fold,
+                    )
+                    result["experimentId"] = experiment["experimentId"]
+                    result["candidateSpecificationTemplateSha256"] = experiment[
+                        "candidateSpecificationTemplateSha256"
+                    ]
+                    result["tuningMode"] = experiment["tuning"]["tuningMode"]
+                    result["gridPreset"] = experiment["tuning"]["gridPreset"]
+                    result["configurationIndex"] = task["configurationIndex"]
+                    result["developmentLabel"] = "DEVELOPMENT_CANDIDATE"
+                    result["parentCandidateFingerprint"] = experiment.get("parentCandidateFingerprint")
+                    result["refinementPlanId"] = experiment.get("refinementPlanId")
+                    return {"ok": True, "candidate": result, "completedFits": config_fits, "completedFolds": config_folds}
+                except Exception as exc:  # one configuration cannot erase siblings
+                    return {
+                        "ok": False,
+                        "error": exc,
+                        "completedFits": config_fits,
+                        "completedFolds": config_folds,
+                        "task": task,
+                    }
+
+            task_iter = iter(tasks)
+            in_flight: dict[Future[dict[str, Any]], dict[str, Any]] = {}
+            cancelled_tasks: list[dict[str, Any]] = []
+            with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix=f"stage3-candidate-{project_id}",
+            ) as candidate_pool:
+                def submit_next() -> bool:
+                    if cancellation_requested():
+                        return False
                     try:
-                        result = _evaluate_candidate(
-                            frame,
-                            model_family=str(experiment["algorithmId"]),
-                            feature_set=feature_set,
-                            split=resolved.split,
-                            seed=int(experiment["seed"]),
-                            hyperparameters=hyperparameters,
-                            progress_callback=on_fold,
-                        )
-                        result["experimentId"] = experiment["experimentId"]
-                        result["tuningMode"] = experiment["tuning"]["tuningMode"]
-                        result["gridPreset"] = experiment["tuning"]["gridPreset"]
-                        result["configurationIndex"] = config_index
-                        result["developmentLabel"] = "DEVELOPMENT_CANDIDATE"
-                        candidates.append(result)
-                    except Exception as exc:  # one configuration cannot erase siblings
-                        uncounted = 5 - config_fits
-                        failed_fits += uncounted
-                        failure = {
-                            "experimentId": experiment["experimentId"],
-                            "algorithmId": experiment["algorithmId"],
-                            "configurationIndex": config_index,
-                            "hyperparameters": hyperparameters,
-                            "errorCode": getattr(exc, "code", "MODEL_DEVELOPMENT_CONFIGURATION_FAILED"),
-                            "reason": str(exc),
-                            "failedFits": uncounted,
+                        task = next(task_iter)
+                    except StopIteration:
+                        return False
+                    future = candidate_pool.submit(execute_candidate, task)
+                    in_flight[future] = task
+                    with progress_guard:
+                        active_candidates[str(task["taskId"])] = {
+                            "taskId": task["taskId"],
+                            "algorithm": task["experiment"]["algorithmId"],
+                            "algorithmLabel": task["experiment"]["algorithmLabel"],
+                            "featureUniverse": task["experiment"]["featureUniverseName"],
+                            "configuration": task["configurationIndex"],
+                            "configurationCount": task["configurationCount"],
+                            "hyperparameters": task["hyperparameters"],
+                            "fold": 0,
+                            "foldCount": 5,
+                            "status": "QUEUED_TO_WORKER",
+                            "elapsedSeconds": 0.0,
                         }
-                        failures.append(failure)
-                        candidates.append(
-                            {
-                                "candidateId": "stage3-candidate-" + uuid.uuid4().hex,
-                                "experimentId": experiment["experimentId"],
-                                "modelFamily": experiment["algorithmId"],
-                                "hyperparameters": hyperparameters,
-                                "featureSetId": experiment["featureUniverseId"],
-                                "featureSetName": experiment["featureUniverseName"],
-                                "featureCount": experiment["featureCount"],
-                                "status": "FAILED",
-                                "foldsCompleted": config_fits,
-                                "meanOofLogLoss": None,
-                                "summedBrier": None,
-                                "ece": None,
-                                "accuracyDiagnostic": None,
-                                "macroF1Diagnostic": None,
-                                "folds": [],
-                                "runtimeMs": 0,
-                                "errorCode": failure["errorCode"],
-                                "errorReason": failure["reason"],
-                            }
-                        )
-                        update_progress({"message": f"Configuration failed closed: {exc}"})
+                        update_progress({"message": f"Running up to {worker_count} independent candidate configuration(s) concurrently."})
+                    return True
+
+                for _ in range(worker_count):
+                    if not submit_next():
+                        break
+                while in_flight:
+                    done, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
+                    for future in done:
+                        task = in_flight.pop(future)
+                        outcome = future.result()
+                        with progress_guard:
+                            active_candidates.pop(str(task["taskId"]), None)
+                            if outcome["ok"]:
+                                candidate = outcome["candidate"]
+                                completed_configurations += 1
+                            else:
+                                exc = outcome["error"]
+                                expected_fits = int((task["experiment"].get("tuning") or {}).get("fitsPerConfiguration") or 5)
+                                uncounted = expected_fits - int(outcome["completedFits"])
+                                failed_fits += uncounted
+                                failed_configurations += 1
+                                experiment = task["experiment"]
+                                failure = {
+                                    "experimentId": experiment["experimentId"],
+                                    "algorithmId": experiment["algorithmId"],
+                                    "configurationIndex": task["configurationIndex"],
+                                    "hyperparameters": task["hyperparameters"],
+                                    "errorCode": getattr(exc, "code", "MODEL_DEVELOPMENT_CONFIGURATION_FAILED"),
+                                    "reason": str(exc),
+                                    "failedFits": uncounted,
+                                }
+                                failures.append(failure)
+                                candidate = {
+                                    "candidateId": "stage3-candidate-" + uuid.uuid4().hex,
+                                    "experimentId": experiment["experimentId"],
+                                    "candidateSpecificationTemplateSha256": experiment["candidateSpecificationTemplateSha256"],
+                                    "modelFamily": experiment["algorithmId"],
+                                    "hyperparameters": task["hyperparameters"],
+                                    "featureSetId": experiment["featureUniverseId"],
+                                    "featureSetName": experiment["featureUniverseName"],
+                                    "featureSetChecksum": experiment["featureUniverseChecksum"],
+                                    "featureCount": experiment["featureCount"],
+                                    "tuningMode": experiment["tuning"]["tuningMode"],
+                                    "gridPreset": experiment["tuning"]["gridPreset"],
+                                    "configurationIndex": task["configurationIndex"],
+                                    "status": "FAILED",
+                                    "foldsCompleted": int(outcome.get("completedFolds") or 0),
+                                    "meanOofLogLoss": None,
+                                    "summedBrier": None,
+                                    "ece": None,
+                                    "accuracyDiagnostic": None,
+                                    "macroF1Diagnostic": None,
+                                    "folds": [],
+                                    "runtimeMs": 0,
+                                    "errorCode": failure["errorCode"],
+                                    "errorReason": failure["reason"],
+                                }
+                            candidates.append(candidate)
+                            candidate_receipts.append(persist_candidate(candidate))
+                            update_progress(
+                                {
+                                    "message": (
+                                        f"Persisted immutable candidate evidence for {candidate['modelFamily']}."
+                                        if candidate["status"] == "COMPLETE"
+                                        else f"Candidate failed closed: {candidate['errorReason']}"
+                                    )
+                                }
+                            )
+                        if not cancellation_requested():
+                            submit_next()
+
+                # Anything never submitted is safely cancelled; no claim is
+                # made that a running estimator was interrupted.
+                if cancellation_requested():
+                    cancelled_tasks.extend(list(task_iter))
+
             completed = [item for item in candidates if item.get("status") == "COMPLETE"]
+            cancelled_fits = sum(
+                int((task["experiment"].get("tuning") or {}).get("fitsPerConfiguration") or 5)
+                for task in cancelled_tasks
+            )
+            if cancelled_tasks:
+                receipt_status = "CANCELLED_PARTIAL" if candidates else "CANCELLED"
+            else:
+                receipt_status = "COMPLETE" if len(completed) == len(candidates) else "PARTIAL"
             receipt = {
                 "schemaVersion": MODEL_DEVELOPMENT_RECEIPT_SCHEMA_VERSION,
                 "runId": "stage3-model-development-run-" + uuid.uuid4().hex,
                 "createdAt": now_iso(),
                 "createdByUserId": actor_user_id,
-                "status": "COMPLETE" if len(completed) == len(candidates) else "PARTIAL",
+                "status": receipt_status,
                 "identity": {
                     "projectId": project_id,
                     "projectName": resolved.project_name,
@@ -682,6 +1067,16 @@ def _execute_job(
                 "environment": _environment_identity(),
                 "candidates": candidates,
                 "failures": failures,
+                "cancelledUnstartedConfigurations": [
+                    {
+                        "experimentId": task["experiment"]["experimentId"],
+                        "algorithmId": task["experiment"]["algorithmId"],
+                        "configurationIndex": task["configurationIndex"],
+                        "hyperparameters": task["hyperparameters"],
+                    }
+                    for task in cancelled_tasks
+                ],
+                "candidateAttemptReceipts": candidate_receipts,
                 "runtimeMs": int((time.perf_counter() - started_clock) * 1000),
                 "rankingMetric": "MULTICLASS_LOG_LOSS",
                 "leadingCandidateLabel": "LEADING_DEVELOPMENT_CANDIDATE",
@@ -709,17 +1104,30 @@ def _execute_job(
                         "state": receipt["status"],
                         "completedFits": completed_fits,
                         "failedFits": failed_fits,
+                        "cancelledFits": cancelled_fits,
+                        "completedConfigurations": completed_configurations,
+                        "failedConfigurations": failed_configurations,
+                        "cancelledConfigurations": len(cancelled_tasks),
                         "totalFits": plan["totalFits"],
+                        "remainingFits": 0,
+                        "parallelWorkers": worker_count,
+                        "activeCandidates": [],
+                        "completedCandidateReceipts": candidate_receipts,
                         "elapsedSeconds": time.perf_counter() - started_clock,
                         "estimatedRemainingSeconds": 0.0,
                         "failures": failures,
-                        "message": "Immutable development evidence persisted; no model was promoted.",
+                        "message": (
+                            "Unstarted work was cancelled; completed immutable evidence was preserved and no running fit was represented as interrupted."
+                            if cancelled_tasks
+                            else "Immutable development evidence persisted; no model was promoted."
+                        ),
                     },
                     "artifacts_json": {
                         "runId": persisted["runId"],
                         "runReceiptSha256": persisted["runReceiptSha256"],
                         "finalOotTargetAccessed": False,
                         "promotionStatus": "NOT_PROMOTED",
+                        "completedCandidateReceipts": candidate_receipts,
                     },
                     "error_json": {},
                     "created_by": actor_user_id,
@@ -788,11 +1196,64 @@ def list_model_development_jobs(database: Database, project_id: str) -> dict[str
     return {"ok": True, "jobs": rows}
 
 
+def cancel_unstarted_model_development_work(
+    database: Database,
+    project_id: str,
+    job_id: str,
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    """Request cancellation of work not yet assigned to a candidate worker.
+
+    Running estimators are deliberately allowed to finish so the UI never
+    claims an unsafe interruption.  Their evidence remains immutable.
+    """
+
+    row = RunRepository(database).get(job_id)
+    if row is None or row.get("project_id") != project_id or row.get("run_type") != MODEL_DEVELOPMENT_JOB_TYPE:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_DEVELOPMENT_JOB_NOT_FOUND",
+            "The project-scoped model job does not exist.",
+            status_code=404,
+        )
+    status = str(row.get("status") or "").upper()
+    if status not in _ACTIVE_STATUSES:
+        return {"ok": True, "job": {**_decode_job(row), "idempotentReplay": True}}
+    progress = json_loads(row.get("metrics_json"), {})
+    progress.update(
+        {
+            "state": "CANCEL_REQUESTED",
+            "cancelUnstartedRequested": True,
+            "cancelRequestedAt": now_iso(),
+            "message": "Queued or unstarted configurations will be cancelled. Active fits are allowed to finish and reconcile their immutable evidence.",
+        }
+    )
+    updated = _upsert_job(
+        database,
+        {
+            "run_id": job_id,
+            "project_id": project_id,
+            "run_type": MODEL_DEVELOPMENT_JOB_TYPE,
+            "workflow_type": row.get("workflow_type") or "sports_stage3_model_development",
+            "status": "CANCEL_REQUESTED",
+            "started_at": row.get("started_at") or now_iso(),
+            "completed_at": None,
+            "parameters_json": json_loads(row.get("parameters_json"), {}),
+            "metrics_json": progress,
+            "artifacts_json": json_loads(row.get("artifacts_json"), {}),
+            "error_json": {},
+            "created_by": row.get("created_by") or actor_user_id,
+        },
+    )
+    return {"ok": True, "job": _decode_job(updated)}
+
+
 __all__ = [
     "MODEL_DEVELOPMENT_JOB_TYPE",
     "MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION",
     "MODEL_DEVELOPMENT_RECEIPT_SCHEMA_VERSION",
     "enqueue_model_development_job",
+    "cancel_unstarted_model_development_work",
     "get_model_development_job",
     "list_model_development_jobs",
     "plan_model_development_queue",

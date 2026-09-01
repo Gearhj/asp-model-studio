@@ -41,17 +41,18 @@ test("project-bound steps 04-06 and 08 use governed studios while only unimpleme
   );
   for (const label of [
     "Player Segmentation",
-    "Evaluation",
     "Calibration",
-    "Simulation Impact",
-    "Champion / Challenger",
-    "Registry & Evidence",
+    "Simulation & Game-Level Evaluation",
+    "Champion / Challenger Decision",
+    "Registry, Export & Implementation",
   ]) {
     assert.ok(
       cockpit.includes(`stepLabel="${label}"`),
       `${label} must remain held closed`,
     );
   }
+  assert.ok(cockpit.includes("ProjectBoundCandidateEvaluation"));
+  assert.ok(cockpit.includes("ProjectBoundModelRefinement"));
 });
 
 test("the shared Focus Mode shell is honest before evaluation and exposes authority-safe controls", () => {

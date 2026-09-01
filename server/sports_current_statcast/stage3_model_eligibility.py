@@ -19,7 +19,7 @@ from . import stage3_feature_engineering as feature_engineering
 
 
 MODEL_ELIGIBILITY_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_ELIGIBILITY_V1"
-MODEL_ELIGIBILITY_RULE_VERSION = "CURRENT_GOLD_MODEL_ELIGIBILITY_2026_09_01_V1"
+MODEL_ELIGIBILITY_RULE_VERSION = "CURRENT_GOLD_MODEL_ELIGIBILITY_2026_09_01_V2"
 
 # These are not inferred from null counts alone.  The accepted contextual
 # review explicitly records that historical game-end timestamp authority and
@@ -332,7 +332,7 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
         "featureSetId": f"stage3-full-eligible-modeling-set-{checksum[:32]}",
         "featureSetKey": "FULL_ELIGIBLE_MODELING_SET",
         "name": "Full Eligible Feature Set",
-        "version": 1,
+        "version": 2,
         "status": "GOVERNED_DERIVED_AUTHORITY",
         "authorityType": "CONTENT_ADDRESSED_PROJECT_MODELING_UNIVERSE",
         "checksum": checksum,

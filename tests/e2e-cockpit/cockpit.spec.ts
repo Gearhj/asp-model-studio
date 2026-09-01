@@ -75,7 +75,7 @@ test("verified project renders V2 active candidate, evaluation, calibration, reg
   await expect(page.getByText(/Active challenger/i)).toBeVisible({ timeout: 30_000 });
   await assertNoUndefinedOrObject(page);
 
-  await gotoStep(page, "Registry & Evidence");
+  await gotoStep(page, "Registry, Export & Implementation");
   await expect(page.getByText(/Run evidence record/i)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Evidence manifest/i).first()).toBeVisible();
   await assertNoUndefinedOrObject(page);

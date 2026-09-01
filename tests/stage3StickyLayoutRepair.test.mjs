@@ -42,9 +42,9 @@ test("the single compact header measures itself and the canvas reserves exact sc
   assert.ok(cockpit.includes('scrollIntoView({ behavior: "smooth", block: "start" })'));
 });
 
-test("all fourteen steps render below the same bounded workspace and analytical canvas", () => {
+test("all fifteen steps render below the same bounded workspace and analytical canvas", () => {
   const stepIds = [...cockpit.matchAll(/\{ id: "([a-z]+)", n: "\d\d"/g)].map((match) => match[1]);
-  assert.equal(stepIds.length, 14);
+  assert.equal(stepIds.length, 15);
   assert.ok(cockpit.includes("stage3-focus-workspace min-w-0 max-w-full"));
   assert.ok(cockpit.includes("overflow-x-clip"));
   assert.ok(cockpit.includes("stage3-scroll-target min-w-0 max-w-full"));

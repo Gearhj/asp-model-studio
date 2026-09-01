@@ -173,6 +173,18 @@ class ModelLabAuthority:
     split: Mapping[str, Any]
 
     @property
+    def project_id(self) -> str:
+        """Expose the canonical project identity used by queued-job checks.
+
+        The project id is owned by the resolved EDA authority.  Keeping this
+        compatibility property on the aggregate authority prevents background
+        workers from depending on the EDA object's internal nesting while still
+        retaining one source of truth for project identity.
+        """
+
+        return str(self.eda_authority.project_id)
+
+    @property
     def authority_key(self) -> str:
         authority = self.eda_authority
         return ":".join(
@@ -892,10 +904,11 @@ def _transformation_groups(
 ) -> dict[str, Any]:
     """Resolve the exact registered fold-local transformation contract.
 
-    Current immutable A/B/C registrations intentionally use only three
-    supported contracts: raw numeric values (fold-median when physically
-    missing), binary passthrough, and categorical UNKNOWN + one-hot.  Anything
-    else fails closed instead of receiving a dtype-derived substitute.
+    Current immutable registrations use four supported contracts: raw numeric
+    values (fold-median when physically missing), complete binary passthrough,
+    physically-missing binary fold-mode imputation, and categorical UNKNOWN +
+    one-hot.  Anything else fails closed instead of receiving a dtype-derived
+    substitute.
     """
 
     ordered_features = list(features or feature_set.get("orderedFeatures") or [])
@@ -936,6 +949,7 @@ def _transformation_groups(
     groups: dict[str, list[str]] = {
         "numeric": [],
         "binary": [],
+        "binary_mode": [],
         "categorical": [],
     }
     for name in ordered_features:
@@ -944,6 +958,8 @@ def _transformation_groups(
             groups["numeric"].append(name)
         elif steps == ("BINARY_PASSTHROUGH",):
             groups["binary"].append(name)
+        elif steps == ("BINARY_MODE_IMPUTE",):
+            groups["binary_mode"].append(name)
         elif steps == ("CATEGORICAL_UNKNOWN", "ONE_HOT"):
             groups["categorical"].append(name)
         else:
@@ -1006,6 +1022,16 @@ def _column_groups(
                 f"Binary passthrough feature {name} is not numeric/boolean in the execution frame.",
                 status_code=409,
             )
+    for name in groups["binary_mode"]:
+        if not (
+            pd.api.types.is_numeric_dtype(frame[name])
+            or pd.api.types.is_bool_dtype(frame[name])
+        ):
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_BINARY_CONTRACT_TYPE_MISMATCH",
+                f"Fold-mode binary feature {name} is not numeric/boolean in the execution frame.",
+                status_code=409,
+            )
     return groups
 
 
@@ -1031,6 +1057,7 @@ def _preprocessor(
     groups = _column_groups(frame, feature_set)
     numeric = groups["numeric"]
     binary = groups["binary"]
+    binary_mode = groups["binary_mode"]
     categorical = groups["categorical"]
     transformers: list[tuple[str, Any, list[str]]] = []
     if numeric:
@@ -1043,6 +1070,14 @@ def _preprocessor(
         )
     if binary:
         transformers.append(("binary", "passthrough", binary))
+    if binary_mode:
+        transformers.append(
+            (
+                "binary_mode",
+                Pipeline([("imputer", SimpleImputer(strategy="most_frequent"))]),
+                binary_mode,
+            )
+        )
     if categorical:
         # The registered categorical contract is CATEGORICAL_UNKNOWN +
         # ONE_HOT for every candidate family.  Dense learners receive the same
@@ -1301,6 +1336,74 @@ def _metrics(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _evaluation_evidence(
+    probabilities: np.ndarray, labels: np.ndarray
+) -> dict[str, Any]:
+    """Create bounded development-only diagnostics for later Evaluation.
+
+    New V2 receipts retain aggregate confusion and one-vs-rest lift/gains
+    evidence.  Individual OOF rows remain outside the JSON receipt; their exact
+    labels/probabilities are content hashed so a future persisted artifact can
+    be reconciled without pretending old V1 receipts contain row-level data.
+    """
+
+    class_count = len(GOLD_CLASS_ORDER)
+    predicted = probabilities.argmax(axis=1)
+    confusion = np.zeros((class_count, class_count), dtype=np.int64)
+    np.add.at(confusion, (labels, predicted), 1)
+    totals = confusion.sum(axis=1, keepdims=True)
+    normalized = np.divide(
+        confusion,
+        totals,
+        out=np.zeros_like(confusion, dtype=float),
+        where=totals != 0,
+    )
+    lift_by_class: dict[str, list[dict[str, Any]]] = {}
+    for class_index, class_name in enumerate(GOLD_CLASS_ORDER):
+        observed = (labels == class_index).astype(np.int8)
+        order = np.argsort(-probabilities[:, class_index], kind="stable")
+        bins = np.array_split(order, 10)
+        prevalence = float(observed.mean())
+        cumulative_observed = 0
+        total_observed = int(observed.sum())
+        rows: list[dict[str, Any]] = []
+        for bin_index, indices in enumerate(bins, start=1):
+            positives = int(observed[indices].sum())
+            cumulative_observed += positives
+            rate = float(positives / len(indices)) if len(indices) else 0.0
+            rows.append(
+                {
+                    "decile": bin_index,
+                    "observations": int(len(indices)),
+                    "positives": positives,
+                    "observedRate": rate,
+                    "lift": float(rate / prevalence) if prevalence else None,
+                    "cumulativeGain": (
+                        float(cumulative_observed / total_observed)
+                        if total_observed
+                        else None
+                    ),
+                }
+            )
+        lift_by_class[class_name] = rows
+    digest = hashlib.sha256()
+    digest.update(np.asarray(labels, dtype="<i2").tobytes(order="C"))
+    digest.update(np.asarray(probabilities, dtype="<f8").tobytes(order="C"))
+    return {
+        "status": "AVAILABLE_AGGREGATED_DEVELOPMENT_ONLY",
+        "scope": "FIVE_FOLD_OOF_DEVELOPMENT_ONLY",
+        "rowCount": int(labels.size),
+        "orderedClasses": list(GOLD_CLASS_ORDER),
+        "confusionMatrix": confusion.tolist(),
+        "normalizedConfusionMatrix": normalized.tolist(),
+        "oneVsRestLiftByClass": lift_by_class,
+        "oofPredictionEvidenceSha256": digest.hexdigest(),
+        "reloadableArtifactSha256": None,
+        "reloadableArtifactStatus": "NOT_PERSISTED_IN_BOUNDED_JSON_RECEIPT",
+        "finalOotTargetAccessed": False,
+    }
+
+
 def _model_complexity(estimator: Any, transformed_values: Any) -> dict[str, Any]:
     transformed_features = int(transformed_values.shape[1])
     result: dict[str, Any] = {
@@ -1378,6 +1481,24 @@ def _native_interpretability(
                 for index in order
             ],
             "coefficientRows": class_names,
+            "perClassTopFeatures": [
+                {
+                    "class": class_name,
+                    "features": [
+                        {
+                            "feature": feature_names[int(index)],
+                            "coefficient": float(matrix[row_index, int(index)]),
+                            "absoluteCoefficient": float(
+                                abs(matrix[row_index, int(index)])
+                            ),
+                        }
+                        for index in np.argsort(
+                            -np.abs(matrix[row_index]), kind="stable"
+                        )[:20]
+                    ],
+                }
+                for row_index, class_name in enumerate(class_names)
+            ],
             "permutationImportance": "DEFERRED_TO_GOVERNED_EVALUATION",
             "selectionConstraint": selection_constraint,
         }
@@ -1447,15 +1568,217 @@ def _interpretability_stability(folds: Sequence[Mapping[str, Any]]) -> dict[str,
         ),
         key=lambda item: (-item["topFoldAppearances"], -item["meanNativeMagnitude"], item["feature"]),
     )[:50]
+    class_coefficients: dict[tuple[str, str], list[float]] = {}
+    for fold_evidence in evidence:
+        for class_row in fold_evidence.get("perClassTopFeatures") or []:
+            class_name = str(class_row.get("class") or "")
+            for feature_row in class_row.get("features") or []:
+                feature = str(feature_row.get("feature") or "")
+                coefficient = feature_row.get("coefficient")
+                if class_name and feature and coefficient is not None:
+                    class_coefficients.setdefault((class_name, feature), []).append(
+                        float(coefficient)
+                    )
+    per_class: dict[str, list[dict[str, Any]]] = {}
+    for class_name in GOLD_CLASS_ORDER:
+        rows = [
+            {
+                "feature": feature,
+                "topFoldAppearances": len(values),
+                "meanCoefficient": float(np.mean(values)),
+                "coefficientStdDev": float(np.std(values, ddof=0)),
+                "directionStability": float(
+                    max(
+                        np.mean(np.asarray(values) >= 0),
+                        np.mean(np.asarray(values) <= 0),
+                    )
+                ),
+            }
+            for (candidate_class, feature), values in class_coefficients.items()
+            if candidate_class == class_name
+        ]
+        rows.sort(
+            key=lambda item: (
+                -item["topFoldAppearances"],
+                -abs(item["meanCoefficient"]),
+                item["feature"],
+            )
+        )
+        per_class[class_name] = rows[:30]
     return {
         "foldStatuses": [item.get("status") for item in evidence],
         "foldMethods": [item.get("method") for item in evidence],
         "nativeTopFeatureStability": stable,
+        "perClassCoefficientStability": per_class,
         "permutationImportance": "DEFERRED_TO_GOVERNED_EVALUATION",
         "selectionConstraint": (
             "DIAGNOSTIC_ONLY_NATIVE_IMPORTANCE_IS_NEVER_SOLE_FEATURE_SELECTION_AUTHORITY"
         ),
     }
+
+
+def _subset_feature_contract(
+    feature_set: Mapping[str, Any], features: Sequence[str]
+) -> dict[str, Any]:
+    raw = (feature_set.get("transformationContracts") or {}).get("ordered") or []
+    by_name = {
+        str(item.get("feature")): dict(item)
+        for item in raw
+        if isinstance(item, Mapping) and item.get("feature")
+    }
+    missing = [name for name in features if name not in by_name]
+    if missing:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_SELECTOR_TRANSFORMATION_MISSING",
+            "Fold-local selection could not bind transformations for: "
+            + ", ".join(missing),
+        )
+    return {
+        **dict(feature_set),
+        "orderedFeatures": list(features),
+        "transformationContracts": {
+            **dict(feature_set.get("transformationContracts") or {}),
+            "ordered": [by_name[name] for name in features],
+        },
+    }
+
+
+def _source_feature_importance(
+    estimator: Any,
+    preprocessor: ColumnTransformer,
+    source_features: Sequence[str],
+) -> dict[str, float]:
+    transformed = [str(value) for value in preprocessor.get_feature_names_out()]
+    coefficients = getattr(estimator, "coef_", None)
+    native = getattr(estimator, "feature_importances_", None)
+    if coefficients is not None:
+        matrix = np.asarray(coefficients, dtype=float)
+        if matrix.ndim == 1:
+            matrix = matrix.reshape(1, -1)
+        values = np.mean(np.abs(matrix), axis=0)
+    elif native is not None:
+        values = np.abs(np.asarray(native, dtype=float).reshape(-1))
+    else:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_SELECTOR_ESTIMATOR_INCOMPATIBLE",
+            "This estimator exposes neither coefficients nor native feature importance for fold-local elimination.",
+            status_code=409,
+        )
+    if len(transformed) != len(values) or not np.isfinite(values).all():
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_SELECTOR_IMPORTANCE_RECONCILIATION_FAILED",
+            "Fold-local selector importance did not reconcile to transformed features.",
+        )
+    importance = {name: 0.0 for name in source_features}
+    for transformed_name, value in zip(transformed, values, strict=True):
+        clean = transformed_name.split("__", 1)[-1]
+        matches = [
+            name
+            for name in source_features
+            if clean == name or clean.startswith(name + "_")
+        ]
+        if not matches:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_SELECTOR_SOURCE_MAPPING_FAILED",
+                f"Transformed selector feature {transformed_name} did not map to one governed source predictor.",
+            )
+        source = max(matches, key=len)
+        importance[source] += float(abs(value))
+    return importance
+
+
+def _fold_local_recursive_selection(
+    training: pd.DataFrame,
+    labels: np.ndarray,
+    *,
+    feature_set: Mapping[str, Any],
+    model_family: str,
+    seed: int,
+    hyperparameters: Mapping[str, Any] | None,
+    selector: Mapping[str, Any],
+    fold_number: int,
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+) -> tuple[list[str], ColumnTransformer, Any, Any, dict[str, Any], dict[str, Any]]:
+    current = list(feature_set.get("orderedFeatures") or [])
+    minimum = int(selector["minimumRetainedFeatures"])
+    step = int(selector["eliminationStep"])
+    dense = model_family in {
+        "histogram_gradient_boosting", "gaussian_naive_bayes", "mlp", "catboost",
+    }
+    rounds: list[dict[str, Any]] = []
+    while True:
+        contract = _subset_feature_contract(feature_set, current)
+        preprocessor, groups = _preprocessor(
+            training[current], contract, dense_categoricals=dense
+        )
+        values = preprocessor.fit_transform(training[current])
+        estimator = _model(
+            model_family,
+            seed + fold_number + len(rounds),
+            hyperparameters=hyperparameters,
+        )
+        with threadpool_limits(limits=1):
+            estimator.fit(values, labels)
+        importance = _source_feature_importance(estimator, preprocessor, current)
+        ranking = sorted(current, key=lambda name: (-importance[name], name))
+        if len(current) <= minimum:
+            rounds.append(
+                {
+                    "round": len(rounds) + 1,
+                    "inputFeatureCount": len(current),
+                    "removedFeatures": [],
+                    "retainedFeatures": list(current),
+                    "trainingRows": int(len(training)),
+                    "validationRowsUsedForSelection": 0,
+                    "ranking": [
+                        {"feature": name, "trainingOnlyMagnitude": importance[name]}
+                        for name in ranking
+                    ],
+                }
+            )
+            return current, preprocessor, estimator, values, groups, {
+                "method": selector["method"],
+                "fold": fold_number,
+                "rounds": rounds,
+                "retainedFeatures": list(current),
+                "removedFeatures": [
+                    name
+                    for name in feature_set.get("orderedFeatures") or []
+                    if name not in set(current)
+                ],
+                "validationRowsUsedForSelection": 0,
+                "finalOotRowsUsedForSelection": 0,
+            }
+        remove_count = min(step, len(current) - minimum)
+        removed = sorted(current, key=lambda name: (importance[name], name))[:remove_count]
+        rounds.append(
+            {
+                "round": len(rounds) + 1,
+                "inputFeatureCount": len(current),
+                "removedFeatures": removed,
+                "retainedFeatureCount": len(current) - len(removed),
+                "trainingRows": int(len(training)),
+                "validationRowsUsedForSelection": 0,
+                "rankingSha256": hashlib.sha256(
+                    canonical_json_bytes(
+                        {"ranking": [{"feature": name, "magnitude": importance[name]} for name in ranking]}
+                    )
+                ).hexdigest(),
+            }
+        )
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "state": "RUNNING",
+                    "modelFamily": model_family,
+                    "fold": fold_number,
+                    "event": "FOLD_SELECTOR_FIT_COMPLETED",
+                    "selectorRound": len(rounds),
+                    "retainedFeatureCount": len(current) - len(removed),
+                }
+            )
+        removed_set = set(removed)
+        current = [name for name in current if name not in removed_set]
 
 
 def _evaluate_candidate(
@@ -1466,6 +1789,7 @@ def _evaluate_candidate(
     split: Mapping[str, Any],
     seed: int,
     hyperparameters: Mapping[str, Any] | None = None,
+    fold_local_selector: Mapping[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
@@ -1479,6 +1803,7 @@ def _evaluate_candidate(
     fold_results: list[dict[str, Any]] = []
     all_probabilities: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
+    fold_selection_evidence: list[dict[str, Any]] = []
     contract_folds = list((split.get("contract") or {}).get("folds") or [])
     for fold in contract_folds:
         if progress_callback is not None:
@@ -1536,29 +1861,50 @@ def _evaluate_candidate(
                 "selectionConstraint": "REFERENCE_MODEL_NOT_A_FEATURE_SELECTION_AUTHORITY",
             }
         else:
-            dense = model_family in {
-                "histogram_gradient_boosting",
-                "gaussian_naive_bayes",
-                "mlp",
-                "catboost",
-            }
-            preprocessor, transformation_groups = _preprocessor(
-                frame.loc[train_mask, features],
-                feature_set or {},
-                dense_categoricals=dense,
-            )
-            train_values = preprocessor.fit_transform(frame.loc[train_mask, features])
-            validation_values = preprocessor.transform(frame.loc[validation_mask, features])
-            estimator = _model(
-                model_family,
-                seed + int(fold["foldNumber"]),
-                hyperparameters=hyperparameters,
-            )
-            # Keep native numerical libraries bounded and reproducible; HGB
-            # otherwise chooses an environment-sized thread pool internally.
-            with threadpool_limits(limits=1):
-                estimator.fit(train_values, train_labels)
-                probabilities = _aligned_probabilities(estimator, validation_values)
+            selector = fold_local_selector or (feature_set or {}).get("foldLocalSelector")
+            if selector:
+                selected_features, preprocessor, estimator, train_values, transformation_groups, selection_evidence = _fold_local_recursive_selection(
+                    frame.loc[train_mask, features],
+                    train_labels,
+                    feature_set=feature_set or {},
+                    model_family=model_family,
+                    seed=seed,
+                    hyperparameters=hyperparameters,
+                    selector=selector,
+                    fold_number=int(fold["foldNumber"]),
+                    progress_callback=progress_callback,
+                )
+                fold_selection_evidence.append(selection_evidence)
+                validation_values = preprocessor.transform(
+                    frame.loc[validation_mask, selected_features]
+                )
+                with threadpool_limits(limits=1):
+                    probabilities = _aligned_probabilities(estimator, validation_values)
+            else:
+                selected_features = features
+                dense = model_family in {
+                    "histogram_gradient_boosting",
+                    "gaussian_naive_bayes",
+                    "mlp",
+                    "catboost",
+                }
+                preprocessor, transformation_groups = _preprocessor(
+                    frame.loc[train_mask, features],
+                    feature_set or {},
+                    dense_categoricals=dense,
+                )
+                train_values = preprocessor.fit_transform(frame.loc[train_mask, features])
+                validation_values = preprocessor.transform(frame.loc[validation_mask, features])
+                estimator = _model(
+                    model_family,
+                    seed + int(fold["foldNumber"]),
+                    hyperparameters=hyperparameters,
+                )
+                # Keep native numerical libraries bounded and reproducible; HGB
+                # otherwise chooses an environment-sized thread pool internally.
+                with threadpool_limits(limits=1):
+                    estimator.fit(train_values, train_labels)
+                    probabilities = _aligned_probabilities(estimator, validation_values)
             complexity = _model_complexity(estimator, train_values)
             interpretability = _native_interpretability(estimator, preprocessor)
             numeric_medians: dict[str, float] = {}
@@ -1570,6 +1916,17 @@ def _evaluate_candidate(
                     name: float(value)
                     for name, value in zip(
                         transformation_groups["numeric"], statistics, strict=True
+                    )
+                }
+            binary_modes: dict[str, float] = {}
+            if transformation_groups["binary_mode"]:
+                statistics = preprocessor.named_transformers_["binary_mode"].named_steps[
+                    "imputer"
+                ].statistics_
+                binary_modes = {
+                    name: float(value)
+                    for name, value in zip(
+                        transformation_groups["binary_mode"], statistics, strict=True
                     )
                 }
             categorical_levels: dict[str, list[str]] = {}
@@ -1590,10 +1947,13 @@ def _evaluate_candidate(
                 "featureSetId": (feature_set or {}).get("featureSetId"),
                 "featureSetChecksum": (feature_set or {}).get("checksum"),
                 "modelFamily": model_family,
+                "selectedOrderedFeatures": selected_features,
                 "fitRows": int(train_mask.sum()),
                 "registeredOrderedTransformations": transformation_groups["ordered"],
                 "numericFoldMedians": numeric_medians,
                 "binaryPassthrough": transformation_groups["binary"],
+                "binaryFoldModes": binary_modes,
+                "binaryModeImputed": transformation_groups["binary_mode"],
                 "categoricalLevelsIncludingUnknown": categorical_levels,
             }
             preprocessing = {
@@ -1603,12 +1963,19 @@ def _evaluate_candidate(
                 "finalOotRowsUsedForParameters": 0,
                 "outlierTreatment": "RETAIN",
                 "numericMissingTreatment": "TRAINING_FOLD_MEDIAN",
-                "binaryTreatment": "REGISTERED_BINARY_PASSTHROUGH",
+                "binaryTreatment": (
+                    "REGISTERED_PASSTHROUGH_PLUS_TRAINING_FOLD_MODE"
+                    if transformation_groups["binary"] and transformation_groups["binary_mode"]
+                    else "TRAINING_FOLD_MODE"
+                    if transformation_groups["binary_mode"]
+                    else "REGISTERED_BINARY_PASSTHROUGH"
+                ),
                 "categoricalMissingTreatment": "CONSTANT_UNKNOWN_THEN_ONE_HOT",
                 "registeredOrderedTransformations": transformation_groups["ordered"],
                 "artifactSha256": hashlib.sha256(
                     canonical_json_bytes(preprocessing_artifact)
                 ).hexdigest(),
+                "foldLocalSelection": selection_evidence if selector else None,
             }
         if not np.isfinite(probabilities).all() or (probabilities < 0).any() or not np.allclose(probabilities.sum(axis=1), 1.0, atol=1e-8):
             raise Stage3ModelLaboratoryError(
@@ -1648,16 +2015,64 @@ def _evaluate_candidate(
                     "foldLogLoss": metrics["multiclassLogLoss"],
                 }
             )
-    combined = _metrics(np.vstack(all_probabilities), np.concatenate(all_labels))
+    stable_features = list(features)
+    refinement_evidence: dict[str, Any] | None = None
+    if fold_selection_evidence:
+        retain_counts = {
+            name: sum(name in set(item["retainedFeatures"]) for item in fold_selection_evidence)
+            for name in features
+        }
+        mean_rank: dict[str, float] = {}
+        for name in features:
+            ranks = []
+            for item in fold_selection_evidence:
+                final_ranking = item["rounds"][-1].get("ranking") or []
+                rank_by_name = {row["feature"]: index for index, row in enumerate(final_ranking)}
+                ranks.append(float(rank_by_name.get(name, len(features))))
+            mean_rank[name] = float(np.mean(ranks))
+        target_count = int((fold_local_selector or (feature_set or {}).get("foldLocalSelector"))["minimumRetainedFeatures"])
+        stable_features = sorted(
+            features,
+            key=lambda name: (-retain_counts[name], mean_rank[name], features.index(name)),
+        )[:target_count]
+        stable_set_payload = {
+            "schemaVersion": "SPORTS_STAGE3_STABLE_REDUCED_FEATURE_SET_V1",
+            "parentFeatureSetId": (feature_set or {}).get("parentFeatureSetId") or (feature_set or {}).get("featureSetId"),
+            "selectorContractChecksum": (feature_set or {}).get("checksum"),
+            "orderedFeatures": stable_features,
+            "selectionRule": "RETENTION_FREQUENCY_THEN_MEAN_TRAINING_ONLY_RANK",
+            "foldCount": len(fold_selection_evidence),
+            "validationRowsUsedForSelection": 0,
+            "finalOotTargetAccessed": False,
+        }
+        stable_checksum = hashlib.sha256(canonical_json_bytes(stable_set_payload)).hexdigest()
+        refinement_evidence = {
+            "status": "FOLD_LOCAL_SELECTION_COMPLETE",
+            "method": (fold_local_selector or (feature_set or {}).get("foldLocalSelector"))["method"],
+            "folds": fold_selection_evidence,
+            "stabilityCounts": retain_counts,
+            "stableRetainedFeatures": stable_features,
+            "stableRemovedFeatures": [name for name in features if name not in set(stable_features)],
+            "reducedFeatureSetId": f"stage3-stable-reduced-feature-set-{stable_checksum[:32]}",
+            "reducedFeatureSetChecksum": stable_checksum,
+            "validationRowsUsedForSelection": 0,
+            "finalOotTargetAccessed": False,
+        }
+    combined_probabilities = np.vstack(all_probabilities)
+    combined_labels = np.concatenate(all_labels)
+    combined = _metrics(combined_probabilities, combined_labels)
     return {
         "candidateId": "stage3-candidate-" + uuid.uuid4().hex,
         "modelFamily": model_family,
         "hyperparameters": dict(hyperparameters or _fixed_hyperparameters(model_family)),
-        "featureSetId": (feature_set or {}).get("featureSetId"),
-        "featureSetName": (feature_set or {}).get("name") or "Feature-independent null reference",
+        "featureSetId": refinement_evidence["reducedFeatureSetId"] if refinement_evidence else (feature_set or {}).get("featureSetId"),
+        "featureSetName": "Stable fold-local reduced challenger" if refinement_evidence else (feature_set or {}).get("name") or "Feature-independent null reference",
         "featureSetVersion": int((feature_set or {}).get("version") or 0) or None,
-        "featureSetChecksum": (feature_set or {}).get("checksum"),
-        "featureCount": len(features),
+        "featureSetChecksum": refinement_evidence["reducedFeatureSetChecksum"] if refinement_evidence else (feature_set or {}).get("checksum"),
+        "featureCount": len(stable_features),
+        "sourceFeatureCount": len(features),
+        "orderedFeatures": stable_features,
+        "refinementEvidence": refinement_evidence,
         "status": "COMPLETE",
         "foldsCompleted": len(fold_results),
         "meanOofLogLoss": combined["multiclassLogLoss"],
@@ -1695,6 +2110,9 @@ def _evaluate_candidate(
         },
         "modelComplexity": fold_results[-1]["modelComplexity"],
         "interpretabilityEvidence": _interpretability_stability(fold_results),
+        "evaluationEvidence": _evaluation_evidence(
+            combined_probabilities, combined_labels
+        ),
         "folds": fold_results,
         "runtimeMs": int((time.perf_counter() - started) * 1000),
         "errorReason": None,
@@ -1798,7 +2216,9 @@ def _receipt_matches_current_authority(
             return False
         allowed = set(EXPECTED_FEATURE_SET_IDS) | {eligibility["featureSetId"]}
         return all(
-            item in allowed or str(item).startswith("stage3-custom-modeling-subset-")
+            item in allowed
+            or str(item).startswith("stage3-custom-modeling-subset-")
+            or str(item).startswith("stage3-stable-reduced-feature-set-")
             for item in feature_ids
         )
     return False

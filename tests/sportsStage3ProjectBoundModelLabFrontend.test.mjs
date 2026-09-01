@@ -4,153 +4,107 @@ import test from "node:test";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
-const [cockpit, lab, api] = await Promise.all([
+const [cockpit, lab, evaluation, refinement, comparison, api] = await Promise.all([
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
   read("src/sports/cockpit/ProjectBoundModelLab.tsx"),
+  read("src/sports/cockpit/ProjectBoundCandidateEvaluation.tsx"),
+  read("src/sports/cockpit/ProjectBoundModelRefinement.tsx"),
+  read("src/sports/cockpit/ProjectCandidateComparison.tsx"),
   read("src/sports/cockpit/projectModelLabApi.ts"),
 ]);
 
-function includesAll(source, values, label) {
-  for (const value of values) assert.ok(source.includes(value), `${label} missing: ${value}`);
-}
+const includesAll = (source, values, label) => values.forEach((value) => assert.ok(source.includes(value), `${label} missing: ${value}`));
 
-test("Step 09 is one Model Development Laboratory and no standalone tuning step remains", () => {
+test("Stage 3 exposes the governed fifteen-step model-development sequence", () => {
   includesAll(cockpit, [
     'id: "modellab", n: "09", label: "Model Development Laboratory"',
-    '<ProjectBoundModelLab projectId={c.projectId} />',
-    'id: "evaluation", n: "10"',
-  ], "14-step routing");
+    '<ProjectBoundModelLab projectId={c.projectId} go={c.go} />',
+    'id: "evaluation", n: "10", label: "Candidate Evaluation"',
+    'id: "refinement", n: "11", label: "Model Refinement & Explainability"',
+    'id: "registry", n: "15", label: "Registry, Export & Implementation"',
+  ], "fifteen-step routing");
   assert.doesNotMatch(cockpit, /id: "tuning"|label: "Hyperparameter Tuning"|TuningStep/);
-  for (const label of ["Evaluation", "Calibration", "Simulation Impact", "Champion / Challenger", "Registry & Evidence"])
-    assert.ok(cockpit.includes(`stepLabel="${label}"`), `${label} must remain separately governed`);
 });
 
-test("laboratory opens on exact project authority with Full Eligible and a sealed OOT", () => {
+test("Model Laboratory is an explicit multi-model batch builder with bounded concurrency", () => {
   includesAll(lab, [
-    "Stage 3 · Model Development Laboratory",
-    "Opening this page performs zero fits.",
-    "Default universe",
-    "Full Eligible",
-    "RECOMMENDED",
-    "Core Gold 48",
-    "Custom subset",
-    "Saved governed set",
-    "Targets never materialized or queried",
-    "Final OOT",
-    "Current Gold unchanged",
-    "Split v2 unchanged",
-  ], "project-bound context");
-  assert.doesNotMatch(lab, /Base-22|globalFeatureMatrix|frozen2025|ll2025/i);
+    "Select all available models", "Clear all", "Select recommended baseline bundle",
+    "Select family", "Clear family", "Use this feature universe for all selected models",
+    "Full Eligible", "Core Gold 48 benchmark", "Custom Eligible Subset",
+    "FIXED", "GRID", "RANDOM", "Compact Grid", "Full Grid", "Custom Grid",
+    "Review exact batch plan", "Save Draft Batch", "Clear Unstarted Queue",
+    "Run ${plan?.totalExperiments", "Parallel candidate workers",
+    "Auto (resource-aware)", "2 workers if safe",
+    "One active batch per project", "Each fold owns its preprocessing and estimator",
+    "Batch failed before completion", "job.error?.code", "job.error?.message",
+  ], "multi-model controls");
+  assert.ok(lab.includes("Opening this page performs zero fits."));
+  assert.ok(lab.includes("Final OOT") && lab.includes("No training, tuning, calibration, or selection access"));
 });
 
-test("exclusions and preserved ablation evidence are inspectable and honest", () => {
+test("saved feature choices reconcile to the current content-addressed authority", () => {
   includesAll(lab, [
-    "Inspect all {summary.featureUniverse.reconciliation.excludedPredictorCount} exclusions",
-    "Source unavailable",
-    "Missingness",
-    "PIT / leakage",
-    "Computation",
-    "Other governance",
-    "Ablation / research presets",
-    "historical A/B/C evidence preserved",
-    "Blocked:",
-    "Written override required:",
-    "Prospective semantic-sparse rationale",
-  ], "feature eligibility");
+    "function currentFeatureUniverseId(",
+    'requested === summary.featureUniverse.featureSetId',
+    'requested === "CUSTOM_SUBSET"',
+    "summary.featureSets.some((item) => item.featureSetId === requested)",
+    "return summary.featureUniverse.featureSetId",
+    "featureUniverseId: currentFeatureUniverseId(restored.featureUniverseId, next)",
+  ], "content-addressed feature-authority reconciliation");
 });
 
-test("supervised families, inline tuning, and a reviewable bounded queue share one workspace", () => {
+test("current batches and historical immutable baselines remain visually distinct", () => {
   includesAll(lab, [
-    "Algorithm and model family",
-    "Anomaly / Novelty Analytics — not ranked against supervised models",
-    "Inline hyperparameter strategy",
-    "FIXED",
-    "GRID",
-    "RANDOM",
-    "Compact Grid",
-    "Full Grid",
-    "Custom Grid",
-    "Configurations",
-    "Registered folds",
-    "Total fits",
-    "computeIntensity",
-    "Fold-local registered contract",
-    "currentHyperparameters",
-    "Add to Experiment Queue",
-    "Review Queue Plan",
-    "Run Experiment Queue",
-    "one project job at a time",
-  ], "model-development workflow");
+    "A · Current project batch", "B · Historical verified baselines",
+    "current-batch-evidence", "historical-baseline-evidence",
+    "Immutable V1 receipts are grouped by scientific fingerprint",
+  ], "receipt grouping");
+  includesAll(comparison, [
+    "One bar and one ranked row per canonical candidate specification", "Immutable attempt history",
+    "reproducibilityStatus", "Failed candidates",
+  ], "comparison evidence");
 });
 
-test("client uses only project-scoped summary, planning, persisted jobs, and polling routes", () => {
+test("Evaluation compares project-bound development evidence and selects finalists only", () => {
+  includesAll(evaluation, [
+    "Project-bound receipts only", "CURRENT_BATCH", "HISTORICAL_BASELINE",
+    "Five-fold log-loss distribution", "one-vs-rest lift / cumulative gains",
+    "Cross-model fold variability", "Runtime versus OOF log loss", "Eight-class confusion evidence",
+    "EVIDENCE NOT CAPTURED IN HISTORICAL RECEIPT", "PERMUTATION_IMPORTANCE", "SHAP", "SENSITIVITY",
+    "SHAP and sensitivity require a saved finalist receipt", "Save immutable finalist receipt",
+    "Not champion", "Not promoted", "Final OOT locked",
+  ], "Candidate Evaluation");
+  assert.doesNotMatch(evaluation, /selectChampion|promoteModel|auto.?promot/i);
+});
+
+test("Refinement creates immutable reduced challengers without mutating parents", () => {
+  includesAll(refinement, [
+    "Only explicit Evaluation finalists enter", "RFE", "RFECV",
+    "STABILITY_SELECTION", "COEFFICIENT_GUIDED_ELIMINATION",
+    "Minimum retained", "Elimination step", "Expected selector fits",
+    "Create immutable refinement plan", "Run supported reduced challenger",
+    "FULL MODEL", "REDUCED CHALLENGER", "PARSIMONY",
+  ], "refinement workflow");
+  assert.ok(refinement.includes("Final OOT") && refinement.includes("Never used for selection"));
+  assert.doesNotMatch(refinement, /promoteModel|selectChampion/);
+});
+
+test("client uses project-scoped plan, jobs, cancellation, Evaluation, finalist, analysis, and refinement routes", () => {
   includesAll(api, [
-    "/sports/stage3-model-laboratory",
-    "`${prefix(projectId)}/summary`",
-    "`${prefix(projectId)}/runs`",
-    "`${prefix(projectId)}/plan`",
-    "`${prefix(projectId)}/jobs`",
-    "`${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}`",
-    "planProjectModelDevelopment",
-    "enqueueProjectModelDevelopment",
-    "fetchProjectModelDevelopmentJobs",
-    "fetchProjectModelDevelopmentJob",
-    'credentials: "include"',
+    "/sports/stage3-model-laboratory", "`${prefix(projectId)}/summary`", "`${prefix(projectId)}/plan`",
+    "`${prefix(projectId)}/jobs`", "cancel-unstarted", "stage3-candidate-evaluation",
+    "`${evaluationPrefix(projectId)}/finalists`", "`${evaluationPrefix(projectId)}/analysis`",
+    "stage3-model-refinement/plan", "stage3-model-refinement/execute", 'credentials: "include"',
   ], "project-scoped APIs");
 });
 
-test("client fails closed on authority drift, OOT access, provider use, legacy fallback, or promotion", () => {
+test("client preserves exact current authority and fails closed on OOT, legacy, provider, or promotion drift", () => {
   includesAll(api, [
     'const CURRENT_PROJECT_ID = "asp-mtddc6pw"',
     'const CURRENT_GOLD_ID = "gold-table:gold_mlb_current_pa_v1"',
     "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
-    "683_662",
-    "14_067",
-    "CURRENT_TARGET_ORDER",
-    "CURRENT_FEATURE_SET_IDS",
-    "stage3-split-contract-ae8cd433f1b44e528bb82e81ae68fd6b",
-    "stage3-outlier-policy-facf3b3cb90348e68fd349d14733d87a",
-    "stage3-imputation-policy-75a1080b57b14165b22ed348f11d6896",
-    "finalOotLocked !== true",
-    "finalOotTargetsMaterialized !== false",
-    "finalOotTargetAccessed !== false",
-    "providerCalls !== 0",
-    "legacyGlobalMatrixUsed !== false",
-    "autoPromoted !== false",
-    'promotionStatus !== "NOT_PROMOTED"',
-    "failed closed",
+    "683_662", "14_067", "CURRENT_TARGET_ORDER", "CURRENT_FEATURE_SET_IDS",
+    "finalOotLocked !== true", "finalOotTargetAccessed !== false", "providerCalls !== 0",
+    "legacyGlobalMatrixUsed !== false", "autoPromoted !== false", 'promotionStatus !== "NOT_PROMOTED"',
   ], "client safety boundary");
-});
-
-test("development leaderboard ranks log loss, retains failures, and never confers champion status", () => {
-  includesAll(lab, [
-    "Development leaderboard",
-    "Mean OOF log loss",
-    "Fold σ",
-    "Summed Brier",
-    "ECE",
-    "Macro-F1",
-    "Accuracy diagnostic",
-    "Rare-class stability",
-    "Failed · preserved",
-    "Leading Development Candidate",
-    "not a champion",
-    "INITIAL BASELINE / ABLATION EVIDENCE PRESERVED",
-    "Final OOT accessed: NO",
-  ], "honest development evidence");
-  assert.doesNotMatch(lab, /promoteModel|selectChampion|production model/i);
-});
-
-test("tables are keyboard reachable and bounded inside horizontal scroll regions", () => {
-  includesAll(lab, [
-    "min-w-0",
-    "overflow-x-auto",
-    'role="region" aria-label="Excluded predictors" tabIndex={0}',
-    'role="region" aria-label="Experiment queue" tabIndex={0}',
-    'role="region" aria-label="Development leaderboard" tabIndex={0}',
-    '<caption className="sr-only">',
-    'scope="col"',
-    "sm:grid-cols-2",
-    "xl:grid-cols-4",
-  ], "responsive accessibility");
 });

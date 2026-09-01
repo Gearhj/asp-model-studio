@@ -83,9 +83,11 @@ test("legacy datasets are absent; project-bound preparation studios replace step
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Split & Balance"/);
   for (const label of [
     "Player Segmentation",
-    "Evaluation", "Calibration", "Simulation Impact", "Champion / Challenger", "Registry & Evidence",
+    "Calibration", "Simulation & Game-Level Evaluation", "Champion / Challenger Decision", "Registry, Export & Implementation",
   ]) assert.ok(cockpit.includes(`stepLabel="${label}"`), `legacy fallback remains for ${label}`);
   assert.ok(cockpit.includes("ProjectBoundModelLab"));
+  assert.ok(cockpit.includes("ProjectBoundCandidateEvaluation"));
+  assert.ok(cockpit.includes("ProjectBoundModelRefinement"));
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Model Laboratory"/);
   assert.ok(workflow.includes("Project-bound development only · no promotion"));
   assert.doesNotMatch(workflow, /Open full PA Modeling Cockpit/);

@@ -16,15 +16,15 @@ const [shell, steps1, steps2, projectLab, api, ui, modelingApp, sidebar] = await
   read("src/components/Sidebar.tsx"),
 ]);
 
-test("workflow exposes all fourteen steps in canonical order", () => {
+test("workflow exposes all fifteen steps in canonical order", () => {
   const order = [...shell.matchAll(/id:\s*"([a-z]+)",\s*n:\s*"(\d\d)"/g)].map((m) => [m[2], m[1]]);
   const ids = order.map((o) => o[1]);
   assert.deepEqual(ids, [
     "objective", "population", "profile", "outliers", "missing", "features", "segmentation",
-    "split", "modellab", "evaluation", "calibration", "simulation", "champion", "registry",
+    "split", "modellab", "evaluation", "refinement", "calibration", "simulation", "champion", "registry",
   ]);
-  // numbering is sequential 01..14
-  assert.deepEqual(order.map((o) => o[0]), Array.from({ length: 14 }, (_, i) => String(i + 1).padStart(2, "0")));
+  // numbering is sequential 01..15
+  assert.deepEqual(order.map((o) => o[0]), Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(2, "0")));
 });
 
 test("OUTLIERS come strictly before MISSING VALUES", () => {
