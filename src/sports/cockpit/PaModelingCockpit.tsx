@@ -1,5 +1,5 @@
 // Interactive MLB PA Modeling Cockpit (Phase 6A) — the 15-step scientist workbench shell.
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
   FlaskConical, SlidersHorizontal, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu,
@@ -16,6 +16,7 @@ import { ProjectBoundOutlierStudio } from "./ProjectBoundOutlierStudio";
 import { ProjectBoundMissingStudio } from "./ProjectBoundMissingStudio";
 import { ProjectBoundFeatureEngineering } from "./ProjectBoundFeatureEngineering";
 import { ProjectBoundSplitBalance } from "./ProjectBoundSplitBalance";
+import { ProjectBoundModelLab } from "./ProjectBoundModelLab";
 import { CockpitDrawer } from "./CockpitDrawer";
 import { useStage3FocusMode } from "./stage3FocusMode";
 import {
@@ -39,7 +40,7 @@ const STEPS: Step[] = [
   { id: "features", n: "06", label: "Feature Engineering", icon: Wand2, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundFeatureEngineering state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <FeatureEngineeringStep /> },
   { id: "segmentation", n: "07", label: "Player Segmentation", icon: Boxes, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Player Segmentation" /> : <SegmentationStep /> },
   { id: "split", n: "08", label: "Split & Balance", icon: CalendarClock, group: "Prepare", render: (c) => c.currentGoldReview ? <ProjectBoundSplitBalance state={c.currentGoldReview} projectId={c.projectId} go={c.go} /> : <TemporalSplitStep /> },
-  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Model Laboratory" /> : <ModelLabStep projectId={c.projectId} /> },
+  { id: "modellab", n: "09", label: "Model Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundModelLab projectId={c.projectId} /> : <ModelLabStep projectId={c.projectId} /> },
   { id: "tuning", n: "10", label: "Hyperparameter Tuning", icon: SlidersHorizontal, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Hyperparameter Tuning" /> : <TuningStep /> },
   { id: "evaluation", n: "11", label: "Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Evaluation" /> : <EvaluationStep projectId={c.projectId} /> },
   { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Calibration" /> : <CalibrationStep projectId={c.projectId} /> },
@@ -70,20 +71,51 @@ export default function PaModelingCockpit({
   const autosave = useCockpitPersistence(projectId, active, setActive);
   const modelingFocus = useStage3FocusMode();
   const step = STEPS.find((s) => s.id === active)!;
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(84);
   const workflowTriggerRef = useRef<HTMLButtonElement>(null);
   const authorityTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return undefined;
+    const synchronizeHeight = () => setHeaderHeight(Math.ceil(header.getBoundingClientRect().height));
+    synchronizeHeight();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(synchronizeHeight);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   // Internal step navigation: swaps the rendered step only. Experiment state lives in the zustand
   // store (config / savedSteps / lastResult), so Previous/Next never reload the app or lose selections.
   const go = (id: string) => {
     setActive(id);
-    contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Defer until React has committed the requested step, then align the analytical canvas using
+    // its shared scroll margin. This prevents the sticky app + Stage 3 chrome from covering the
+    // first card without adding page-specific padding.
+    requestAnimationFrame(() => {
+      contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
+  const workspaceStyle = {
+    "--stage3-compact-header-height": `${headerHeight}px`,
+  } as CSSProperties;
+
   return (
-    <div className="min-w-0 space-y-3 pb-10" data-testid="stage3-focus-workspace" data-focus-mode={modelingFocus.focusModeEnabled ? "active" : "inactive"} data-embedded={embedded ? "true" : "false"}>
+    <div
+      ref={workspaceRef}
+      className="stage3-focus-workspace min-w-0 max-w-full space-y-3 overflow-x-clip pb-10"
+      style={workspaceStyle}
+      data-testid="stage3-focus-workspace"
+      data-focus-mode={modelingFocus.focusModeEnabled ? "active" : "inactive"}
+      data-embedded={embedded ? "true" : "false"}
+    >
       <Stage3CompactHeader
+        headerRef={headerRef}
         projectName={projectName}
         step={step}
         review={currentGoldReview?.review ?? null}
@@ -96,7 +128,7 @@ export default function PaModelingCockpit({
         authorityTriggerRef={authorityTriggerRef}
       />
 
-      <main className="min-w-0" ref={contentRef} data-testid="stage3-analytical-canvas">
+      <main className="stage3-scroll-target min-w-0 max-w-full" ref={contentRef} data-testid="stage3-analytical-canvas">
         {step.render({ projectId, go, currentGoldReview })}
         <StepFooter active={active} go={go} />
       </main>
@@ -113,6 +145,7 @@ export default function PaModelingCockpit({
 }
 
 function Stage3CompactHeader({
+  headerRef,
   projectName,
   step,
   review,
@@ -124,6 +157,7 @@ function Stage3CompactHeader({
   workflowTriggerRef,
   authorityTriggerRef,
 }: {
+  headerRef: RefObject<HTMLElement>;
   projectName: string;
   step: Step;
   review: CurrentGoldDataReview | null;
@@ -142,7 +176,9 @@ function Stage3CompactHeader({
 
   return (
     <header
+      ref={headerRef}
       className="sticky top-0 z-40 overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur lg:h-[84px]"
+      style={{ top: "var(--stage3-shell-chrome-offset, 0px)" }}
       data-testid="stage3-compact-header"
     >
       <div className="flex min-h-11 min-w-0 items-center gap-2 border-b border-slate-100 px-2.5 py-1.5 sm:px-3">

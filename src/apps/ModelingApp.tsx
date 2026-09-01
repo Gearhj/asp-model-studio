@@ -204,7 +204,11 @@ export default function ModelingApp() {
       focusModeEnabled={stage3Focus.enabled}
       setFocusModeEnabled={stage3Focus.setEnabled}
     >
-      <div className="min-h-screen bg-[#f3f6f8] text-slate-950" data-stage3-focus-mode={stage3FocusActive ? "active" : undefined}>
+      <div
+        className="min-h-screen bg-[#f3f6f8] text-slate-950"
+        data-stage3-app-shell={focusRoute.stage3SurfaceActive ? "active" : undefined}
+        data-stage3-focus-mode={stage3FocusActive ? "active" : undefined}
+      >
         <div className="flex min-h-screen">
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">

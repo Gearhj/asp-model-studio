@@ -494,6 +494,47 @@ body {
   overflow-x: hidden;
 }
 
+/*
+ * Stage 3 has one persistent context header. The offset is inherited from the application shell:
+ * mobile includes the 64px navigation bar, and non-focus mode also includes the 68px app header.
+ * The compact header reports its live height to the workspace so internal step navigation can land
+ * the first analytical card below all persistent chrome without per-page padding guesses.
+ */
+[data-stage3-app-shell="active"] {
+  --stage3-shell-chrome-offset: 8.25rem;
+}
+
+[data-stage3-app-shell="active"][data-stage3-focus-mode="active"] {
+  --stage3-shell-chrome-offset: 4rem;
+}
+
+.stage3-focus-workspace {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.stage3-scroll-target {
+  scroll-margin-top: calc(
+    var(--stage3-shell-chrome-offset, 0px)
+    + var(--stage3-compact-header-height, 84px)
+    + 0.75rem
+  );
+}
+
+.stage3-flow-controls {
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  [data-stage3-app-shell="active"] {
+    --stage3-shell-chrome-offset: 4.25rem;
+  }
+
+  [data-stage3-app-shell="active"][data-stage3-focus-mode="active"] {
+    --stage3-shell-chrome-offset: 0px;
+  }
+}
+
 @layer components {
   .sports-page-shell {
     @apply w-full space-y-6;

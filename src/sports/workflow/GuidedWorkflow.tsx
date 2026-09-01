@@ -328,7 +328,7 @@ function StageWorkspace({
         <GuidedStageContent number={3} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} programStages={resolutions} onGoProgramStage={onGoStage} projectName={displayName} />
         <section className="sports-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="stage3-no-champion-gate">
           <div><div className="text-sm font-semibold text-slate-900">Project champion: None yet</div><p className="mt-1 text-sm text-slate-600">Stage 3 remains open until chronological model development produces a separately governed selection decision. This population handoff does not fit, score, promote, or adopt a legacy artifact.</p></div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900"><Lock size={14} /> Legacy modeling execution held closed</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900"><Lock size={14} /> Project-bound development only · no promotion</span>
         </section>
       </>}
 

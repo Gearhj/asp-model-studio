@@ -79,6 +79,12 @@ from ..sports_current_statcast.stage3_split_balance import (
     split_contract_state,
     validate_manual_split,
 )
+from ..sports_current_statcast.stage3_model_laboratory import (
+    Stage3ModelLaboratoryError,
+    list_model_laboratory_runs,
+    model_laboratory_summary,
+    run_model_laboratory,
+)
 
 
 router = APIRouter()
@@ -755,7 +761,11 @@ def _run_stage3_prepare(operation: Callable[[], Dict[str, Any]]) -> Dict[str, An
         return operation()
     except SportsForecastContractError as exc:
         _raise_forecast_contract_error(exc)
-    except (Stage3FeatureEngineeringError, Stage3SplitBalanceError) as exc:
+    except (
+        Stage3FeatureEngineeringError,
+        Stage3SplitBalanceError,
+        Stage3ModelLaboratoryError,
+    ) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
     except Stage3TreatmentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
@@ -935,6 +945,52 @@ def post_sports_stage3_split_contract_register(
     return _run_stage3_prepare(
         lambda: register_split_contract(
             project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/summary")
+def get_sports_stage3_model_laboratory_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Resolve the exact project/Gold/feature/split/treatment run authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: model_laboratory_summary(_service().database, project_id)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/runs")
+def get_sports_stage3_model_laboratory_runs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List verified immutable development-only comparison receipts."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_model_laboratory_runs(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/run")
+def post_sports_stage3_model_laboratory_run(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly run only requested first-pass candidates over five folds."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: run_model_laboratory(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
         )
     )
 

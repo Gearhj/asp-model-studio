@@ -41,7 +41,6 @@ test("project-bound steps 04-06 and 08 use governed studios while only unimpleme
   );
   for (const label of [
     "Player Segmentation",
-    "Model Laboratory",
     "Hyperparameter Tuning",
     "Evaluation",
     "Calibration",
