@@ -1120,15 +1120,45 @@ def _preprocessor(
     )
 
 
+def _bounded_native_workers(requested: Any) -> int:
+    """Return a safe runtime-only native worker count.
+
+    Native parallelism is execution metadata, not a scientific
+    hyperparameter.  Keep it out of candidate identity while bounding direct
+    callers as well as resource-aware queued jobs.
+    """
+
+    if isinstance(requested, bool):
+        return 1
+    try:
+        count = int(requested)
+    except (TypeError, ValueError, OverflowError):
+        return 1
+    logical_cpus = max(1, int(os.cpu_count() or 1))
+    return max(1, min(count, logical_cpus, 4))
+
+
 def _model(
-    family: str, seed: int, hyperparameters: Mapping[str, Any] | None = None
+    family: str,
+    seed: int,
+    hyperparameters: Mapping[str, Any] | None = None,
+    *,
+    native_workers: int = 1,
 ) -> Any:
     parameters = _fixed_hyperparameters(family)
     parameters.update(dict(hyperparameters or {}))
+    # Older immutable plans included these runtime knobs in their estimator
+    # dictionaries.  They are not scientific hyperparameters: discard them
+    # from the local constructor copy and inject the current bounded execution
+    # budget without mutating the recorded configuration.
+    parameters.pop("n_jobs", None)
+    parameters.pop("thread_count", None)
+    runtime_workers = _bounded_native_workers(native_workers)
     if family == "multinomial_logistic":
         return LogisticRegression(
             C=float(parameters["C"]),
             max_iter=int(parameters["max_iter"]),
+            tol=float(parameters["tol"]),
             solver=str(parameters["solver"]),
             class_weight=parameters.get("class_weight"),
             random_state=seed,
@@ -1139,6 +1169,7 @@ def _model(
             l1_ratio=float(parameters["l1_ratio"]),
             penalty="elasticnet",
             max_iter=int(parameters["max_iter"]),
+            tol=float(parameters["tol"]),
             solver="saga",
             class_weight=parameters.get("class_weight"),
             random_state=seed,
@@ -1160,7 +1191,7 @@ def _model(
             max_features=parameters.get("max_features"),
             bootstrap=bool(parameters["bootstrap"]),
             class_weight=parameters.get("class_weight"),
-            n_jobs=1,
+            n_jobs=runtime_workers,
             random_state=seed,
         )
     if family == "extra_trees":
@@ -1170,7 +1201,7 @@ def _model(
             min_samples_leaf=int(parameters["min_samples_leaf"]),
             max_features=parameters.get("max_features"),
             class_weight=parameters.get("class_weight"),
-            n_jobs=1,
+            n_jobs=runtime_workers,
             random_state=seed,
         )
     if family == "histogram_gradient_boosting":
@@ -1206,7 +1237,7 @@ def _model(
             reg_alpha=float(parameters["reg_alpha"]),
             reg_lambda=float(parameters["reg_lambda"]),
             random_state=seed,
-            n_jobs=1,
+            n_jobs=runtime_workers,
             eval_metric="mlogloss",
         )
     if family == "lightgbm":
@@ -1216,7 +1247,7 @@ def _model(
             raise Stage3ModelLaboratoryError(
                 "MODEL_LAB_MODEL_FAMILY_UNAVAILABLE", "LightGBM is not installed.", status_code=409
             ) from exc
-        parameters["n_jobs"] = 1
+        parameters["n_jobs"] = runtime_workers
         return LGBMClassifier(
             objective="multiclass",
             num_class=len(GOLD_CLASS_ORDER),
@@ -1231,7 +1262,7 @@ def _model(
             raise Stage3ModelLaboratoryError(
                 "MODEL_LAB_MODEL_FAMILY_UNAVAILABLE", "CatBoost is not installed.", status_code=409
             ) from exc
-        parameters["thread_count"] = 1
+        parameters["thread_count"] = runtime_workers
         return CatBoostClassifier(
             loss_function="MultiClass",
             random_seed=seed,
@@ -1255,7 +1286,7 @@ def _model(
             )
         return estimator
     if family == "knn":
-        parameters["n_jobs"] = 1
+        parameters["n_jobs"] = runtime_workers
         return KNeighborsClassifier(**parameters)
     if family == "gaussian_naive_bayes":
         return GaussianNB(**parameters)
@@ -1697,6 +1728,7 @@ def _fold_local_recursive_selection(
     hyperparameters: Mapping[str, Any] | None,
     selector: Mapping[str, Any],
     fold_number: int,
+    native_workers: int,
     progress_callback: Callable[[dict[str, Any]], None] | None,
 ) -> tuple[list[str], ColumnTransformer, Any, Any, dict[str, Any], dict[str, Any]]:
     current = list(feature_set.get("orderedFeatures") or [])
@@ -1716,8 +1748,9 @@ def _fold_local_recursive_selection(
             model_family,
             seed + fold_number + len(rounds),
             hyperparameters=hyperparameters,
+            native_workers=native_workers,
         )
-        with threadpool_limits(limits=1):
+        with threadpool_limits(limits=native_workers):
             estimator.fit(values, labels)
         importance = _source_feature_importance(estimator, preprocessor, current)
         ranking = sorted(current, key=lambda name: (-importance[name], name))
@@ -1790,9 +1823,11 @@ def _evaluate_candidate(
     seed: int,
     hyperparameters: Mapping[str, Any] | None = None,
     fold_local_selector: Mapping[str, Any] | None = None,
+    native_workers: int = 1,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    runtime_workers = _bounded_native_workers(native_workers)
     features = list((feature_set or {}).get("orderedFeatures") or [])
     labels = frame["outcome"].map({name: index for index, name in enumerate(GOLD_CLASS_ORDER)})
     if labels.isna().any():
@@ -1872,13 +1907,14 @@ def _evaluate_candidate(
                     hyperparameters=hyperparameters,
                     selector=selector,
                     fold_number=int(fold["foldNumber"]),
+                    native_workers=runtime_workers,
                     progress_callback=progress_callback,
                 )
                 fold_selection_evidence.append(selection_evidence)
                 validation_values = preprocessor.transform(
                     frame.loc[validation_mask, selected_features]
                 )
-                with threadpool_limits(limits=1):
+                with threadpool_limits(limits=runtime_workers):
                     probabilities = _aligned_probabilities(estimator, validation_values)
             else:
                 selected_features = features
@@ -1899,10 +1935,11 @@ def _evaluate_candidate(
                     model_family,
                     seed + int(fold["foldNumber"]),
                     hyperparameters=hyperparameters,
+                    native_workers=runtime_workers,
                 )
                 # Keep native numerical libraries bounded and reproducible; HGB
                 # otherwise chooses an environment-sized thread pool internally.
-                with threadpool_limits(limits=1):
+                with threadpool_limits(limits=runtime_workers):
                     estimator.fit(train_values, train_labels)
                     probabilities = _aligned_probabilities(estimator, validation_values)
             complexity = _model_complexity(estimator, train_values)

@@ -75,6 +75,7 @@ export type ModelAlgorithm = {
   label: string;
   family: string;
   available: boolean;
+  automaticBundleEligible: boolean;
   status: string;
   unavailableReason?: string | null;
   supportedTuningModes: ("FIXED" | "GRID" | "RANDOM")[];
@@ -87,7 +88,25 @@ export type ModelAlgorithm = {
   computeIntensity: string;
   probabilityTreatment: string;
   interpretabilitySupport: string[];
-  computeGuard: Record<string, unknown>;
+  computeGuard: ModelComputeGuard;
+  executionResources?: ModelExecutionResources;
+};
+
+export type ModelComputeGuard = {
+  fullEligibleFeatureSetExecution?: boolean;
+  replacementAlgorithmId?: string;
+  reasonCode?: string;
+  reason?: string;
+  [key: string]: unknown;
+};
+
+export type ModelExecutionResources = {
+  computeIntensity?: string;
+  exclusiveCandidate?: boolean;
+  nativeWorkers?: number;
+  maximumConcurrentSameAlgorithm?: number;
+  nestedOversubscriptionProhibited?: boolean;
+  [key: string]: unknown;
 };
 
 export type ModelCatalog = {
@@ -264,7 +283,6 @@ export type ModelDevelopmentPlan = {
   totalConfigurations: number;
   totalFits: number;
   requiresAcknowledgement: boolean;
-  acknowledged: boolean;
   hardFitLimit: number;
   executable: boolean;
   executionBlocker: string | null;
@@ -279,7 +297,10 @@ export type ModelDevelopmentPlan = {
     logicalCpuCount: number;
     physicalMemoryGiB: number | null;
     highMemoryCandidatePresent: boolean;
-    estimatorNativeWorkers: 1;
+    estimatorNativeWorkers: number;
+    maximumEstimatorNativeWorkers: number;
+    exclusiveCandidateWorkers: number;
+    schedulingPolicy: string;
     nestedOversubscriptionProhibited: true;
   };
   experiments: Array<{
@@ -292,6 +313,7 @@ export type ModelDevelopmentPlan = {
     featureUniverseChecksum: string | null;
     featureCount: number;
     computeIntensity: string;
+    executionResources: ModelExecutionResources;
     tuning: {
       tuningMode: string;
       gridPreset: string;
@@ -304,10 +326,21 @@ export type ModelDevelopmentPlan = {
   }>;
 };
 
+export type ModelDevelopmentJobStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "CANCEL_REQUESTED"
+  | "COMPLETE"
+  | "PARTIAL"
+  | "FAILED"
+  | "INTERRUPTED"
+  | "CANCELLED"
+  | "CANCELLED_PARTIAL";
+
 export type ModelDevelopmentJob = {
   jobId: string;
   projectId: string;
-  status: string;
+  status: ModelDevelopmentJobStatus;
   startedAt: string | null;
   completedAt: string | null;
   plan: ModelDevelopmentPlan;
@@ -315,6 +348,10 @@ export type ModelDevelopmentJob = {
     state: string;
     completedFits: number;
     failedFits: number;
+    cancelledFits?: number;
+    pendingFits?: number;
+    unstartedFits?: number;
+    unresolvedFits?: number;
     totalFits: number;
     currentAlgorithm?: string;
     currentFeatureUniverse?: string;
@@ -329,7 +366,16 @@ export type ModelDevelopmentJob = {
     failures?: unknown[];
     completedConfigurations?: number;
     failedConfigurations?: number;
+    cancelledConfigurations?: number;
     remainingFits?: number;
+    cancellationPendingFits?: number;
+    drainingActiveCandidates?: number;
+    runtimeAdmission?: {
+      plannedCandidateWorkers: number;
+      effectiveCandidateWorkers: number;
+      availableMemoryGiBAtStart: number | null;
+      admissionPolicy: string;
+    };
     parallelWorkers?: number;
     activeCandidates?: Array<{
       taskId: string;
@@ -343,6 +389,21 @@ export type ModelDevelopmentJob = {
       foldCount: number;
       status: string;
       elapsedSeconds: number;
+      executionResources?: ModelExecutionResources;
+    }>;
+    interruptedCandidates?: Array<{
+      taskId?: string;
+      algorithm?: string;
+      algorithmLabel?: string;
+      featureUniverse?: string;
+      configuration?: number;
+      configurationCount?: number;
+      hyperparameters?: Record<string, unknown>;
+      fold?: number;
+      foldCount?: number;
+      status?: string;
+      elapsedSeconds?: number;
+      executionResources?: ModelExecutionResources;
     }>;
     completedCandidateReceipts?: Array<{
       candidateId: string;
@@ -350,8 +411,19 @@ export type ModelDevelopmentJob = {
       status: string;
     }>;
     cancelUnstartedRequested?: boolean;
+    cancelRequestedAt?: string | null;
   };
-  artifacts: { runId?: string; runReceiptSha256?: string; promotionStatus?: string };
+  artifacts: {
+    runId?: string;
+    runReceiptSha256?: string;
+    promotionStatus?: string;
+    coordinatorProcessId?: number;
+    completedCandidateReceipts?: Array<{
+      candidateId: string;
+      candidateReceiptSha256: string;
+      status: string;
+    }>;
+  };
   error: { code?: string; message?: string };
 };
 
@@ -361,7 +433,7 @@ export type CandidateAttempt = {
   runId: string;
   runReceiptSha256: string;
   receiptSchemaVersion: string;
-  evidenceSource: "CURRENT_BATCH" | "HISTORICAL_BASELINE";
+  evidenceSource: "CURRENT_BATCH" | "HISTORICAL_BASELINE" | "INCREMENTAL_CURRENT_EVIDENCE";
   createdAt: string;
   status: string;
   modelFamily: string;
@@ -464,8 +536,25 @@ export type ProjectCandidateEvaluation = {
     newFitsOnPageLoad: 0;
     providerCalls: 0;
     modelsPromoted: 0;
+    incrementalVerifiedCandidateReceipts?: number;
+    incrementalHeldClosedReceipts?: number;
   };
   currentBatches: CandidateGroup[];
+  incrementalCurrentEvidence?: {
+    status: string;
+    jobId?: string | null;
+    planId?: string | null;
+    verifiedCandidateReceipts?: number;
+    heldClosedReceipts?: number;
+    candidateGroups: CandidateGroup[];
+    diagnostics?: Array<{
+      code: string;
+      message: string;
+      candidateReceiptSha256?: string;
+    }>;
+    rankingEligible: false;
+    finalistSelectionEligible: false;
+  };
   historicalEvidence: {
     collapsedByDefault: boolean;
     banner: string;
@@ -754,16 +843,30 @@ export async function enqueueProjectModelDevelopment(
   summary: ProjectModelLabSummary,
   experiments: ModelExperimentDraft[],
   acknowledgeExcessiveFits: boolean,
+  reviewedPlan: Pick<ModelDevelopmentPlan, "planId" | "checksum">,
   signal?: AbortSignal,
   options?: { parallelWorkers?: "AUTO" | number; batchName?: string },
 ) {
   const path = `${prefix(projectId)}/jobs`;
   const value = await postJSON<JobEnvelope>(
     path,
-    planPayload(summary, experiments, acknowledgeExcessiveFits, options),
+    {
+      ...planPayload(summary, experiments, acknowledgeExcessiveFits, options),
+      expectedPlanId: reviewedPlan.planId,
+      expectedPlanChecksum: reviewedPlan.checksum,
+    },
     signal,
   );
   if (value?.ok !== true || !value.job?.jobId) throw new Error("The model-development job response was incomplete.");
+  if (
+    value.job.projectId !== projectId
+    || value.job.plan?.planId !== reviewedPlan.planId
+    || value.job.plan?.checksum !== reviewedPlan.checksum
+    || value.job.plan?.finalOotLocked !== true
+    || value.job.plan?.finalOotTargetAccessed !== false
+  ) {
+    throw new Error("The queued job did not bind the exact reviewed plan and final-OOT lock.");
+  }
   return value.job;
 }
 
@@ -779,7 +882,7 @@ export async function fetchProjectModelDevelopmentJob(
   signal?: AbortSignal,
 ) {
   const value = await getJSON<JobEnvelope>(`${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}`, { signal, credentials: "include" });
-  if (value?.ok !== true || value.job?.jobId !== jobId) throw new Error("The model-development job status was incomplete.");
+  if (value?.ok !== true || value.job?.jobId !== jobId || value.job?.projectId !== projectId) throw new Error("The model-development job status was incomplete.");
   return value.job;
 }
 
@@ -790,7 +893,12 @@ export async function cancelUnstartedProjectModelDevelopment(
 ) {
   const path = `${prefix(projectId)}/jobs/${encodeURIComponent(jobId)}/cancel-unstarted`;
   const value = await postJSON<JobEnvelope>(path, {}, signal);
-  if (value?.ok !== true || value.job?.jobId !== jobId) throw new Error("The cancel-unstarted acknowledgement was incomplete.");
+  if (
+    value?.ok !== true
+    || value.job?.jobId !== jobId
+    || value.job?.projectId !== projectId
+    || !["CANCEL_REQUESTED", "CANCELLED", "CANCELLED_PARTIAL", "COMPLETE", "PARTIAL", "FAILED", "INTERRUPTED"].includes(value.job.status)
+  ) throw new Error("The cancel-unstarted acknowledgement was incomplete or did not record cancellation.");
   return value.job;
 }
 
@@ -813,6 +921,11 @@ function assertEvaluation(value: ProjectCandidateEvaluation, projectId: string) 
     || value.promotionStatus !== "NOT_PROMOTED"
     || value.finalOotAccessed !== false
     || !Array.isArray(value.candidateGroups)
+    || (value.incrementalCurrentEvidence != null && (
+      !Array.isArray(value.incrementalCurrentEvidence.candidateGroups)
+      || value.incrementalCurrentEvidence.rankingEligible !== false
+      || value.incrementalCurrentEvidence.finalistSelectionEligible !== false
+    ))
     || !Array.isArray(value.authority.targetOrder)
     || (projectId === CURRENT_PROJECT_ID && (
       value.authority.goldDatasetId !== CURRENT_GOLD_ID

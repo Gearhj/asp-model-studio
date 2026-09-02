@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -264,6 +266,17 @@ def test_model_catalog_taxonomy_and_compute_guards() -> None:
     assert models["knn"]["available"] is False
     assert models["knn"]["status"] == "COMPUTE_GUARDED"
     assert models["knn"]["computeGuard"]["fullPopulationAutoExecution"] is False
+    assert all(
+        item["defaultTuningMode"] == "FIXED" for item in models.values()
+    )
+    assert models["elastic_net_logistic"]["automaticBundleEligible"] is False
+    assert (
+        models["elastic_net_logistic"]["computeGuard"][
+            "fullEligibleFeatureSetExecution"
+        ]
+        is False
+    )
+    assert models["sgd_classifier"]["automaticBundleEligible"] is True
     anomaly = catalog.anomaly_analytics_catalog()
     assert anomaly["rankingMetric"] is None
     assert anomaly["status"] == "SEPARATE_RESEARCH_CAPABILITY_NOT_MODEL_COMPETITION"
@@ -323,6 +336,35 @@ def test_unsafe_hyperparameters_and_empty_custom_grid_fail_at_planning() -> None
             {"tuningMode": "GRID", "gridPreset": "CUSTOM", "customGrid": {}},
             seed=1,
         )
+    with pytest.raises(ValueError, match="min_samples_split"):
+        catalog.plan_configurations(
+            models["decision_tree"],
+            {
+                "tuningMode": "FIXED",
+                "fixedHyperparameters": {"min_samples_split": 1},
+            },
+            seed=1,
+        )
+    if models["catboost"]["available"]:
+        with pytest.raises(ValueError, match="depth"):
+            catalog.plan_configurations(
+                models["catboost"],
+                {
+                    "tuningMode": "FIXED",
+                    "fixedHyperparameters": {"depth": 17},
+                },
+                seed=1,
+            )
+    if models["lightgbm"]["available"]:
+        with pytest.raises(ValueError, match="num_leaves"):
+            catalog.plan_configurations(
+                models["lightgbm"],
+                {
+                    "tuningMode": "FIXED",
+                    "fixedHyperparameters": {"num_leaves": 1},
+                },
+                seed=1,
+            )
 
 
 def _planner(
@@ -368,6 +410,150 @@ def test_queue_plan_defaults_to_full_eligible_and_never_scans_or_fits(
     assert plan["executable"] is True
     assert plan["finalOotTargetAccessed"] is False
     assert plan["promotionRequested"] is False
+
+
+def test_full_feature_saga_is_compute_guarded_but_bounded_subset_remains_available(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    database, authority, full = _planner(monkeypatch, tmp_path)
+    full_request = _payload(
+        authority,
+        {"algorithmId": "elastic_net_logistic", "tuningMode": "FIXED"},
+    )
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as guarded:
+        jobs.plan_model_development_queue(
+            database, authority.project_id, full_request
+        )
+    assert guarded.value.code == "MODEL_DEVELOPMENT_RESOURCE_GUARD"
+    assert "sgd_classifier" in str(guarded.value)
+
+    cloned_full = _payload(
+        authority,
+        {
+            "algorithmId": "elastic_net_logistic",
+            "featureUniverseId": "CUSTOM_SUBSET",
+            "orderedFeatures": list(full["orderedFeatures"]),
+            "tuningMode": "FIXED",
+        },
+    )
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as cloned_guard:
+        jobs.plan_model_development_queue(
+            database, authority.project_id, cloned_full
+        )
+    assert cloned_guard.value.code == "MODEL_DEVELOPMENT_RESOURCE_GUARD"
+
+    bounded = _payload(
+        authority,
+        {
+            "algorithmId": "elastic_net_logistic",
+            "featureUniverseId": "CUSTOM_SUBSET",
+            "orderedFeatures": list(full["orderedFeatures"][:8]),
+            "tuningMode": "FIXED",
+        },
+    )
+    plan = jobs.plan_model_development_queue(
+        database, authority.project_id, bounded
+    )
+    assert plan["experiments"][0]["featureCount"] == 8
+    assert plan["totalFits"] == 5
+
+
+def test_round_robin_tasks_and_resource_compatibility_are_deterministic() -> None:
+    def experiment(
+        identifier: str,
+        count: int,
+        *,
+        exclusive: bool = False,
+        feature_id: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "experimentId": identifier,
+            "algorithmId": identifier,
+            "featureSetContract": (
+                {
+                    "featureSetId": feature_id,
+                    "checksum": feature_id * 64,
+                }
+                if feature_id
+                else None
+            ),
+            "executionResources": {
+                "exclusiveCandidate": exclusive,
+                "nativeWorkers": 1,
+            },
+            "tuning": {
+                "configurations": [
+                    {"configuration": index} for index in range(1, count + 1)
+                ]
+            },
+        }
+
+    tasks = jobs._build_candidate_tasks(
+        [experiment("alpha", 3), experiment("beta", 2)]
+    )
+    assert [task["taskId"] for task in tasks] == [
+        "alpha:1",
+        "beta:1",
+        "alpha:2",
+        "beta:2",
+        "alpha:3",
+    ]
+    assert jobs._task_can_start(tasks[1], [tasks[0]]) is True
+    assert jobs._task_can_start(tasks[2], [tasks[0]]) is False
+    exclusive = jobs._build_candidate_tasks([experiment("heavy", 1, exclusive=True)])[0]
+    assert jobs._task_can_start(exclusive, [tasks[0]]) is False
+    assert jobs._task_can_start(exclusive, []) is True
+    assert jobs._task_can_start(tasks[0], [exclusive]) is False
+
+    feature_grouped = jobs._build_candidate_tasks(
+        [
+            experiment("alpha", 2, feature_id="a"),
+            experiment("beta", 2, feature_id="b"),
+            experiment("gamma", 2, feature_id="a"),
+        ]
+    )
+    assert [task["taskId"] for task in feature_grouped] == [
+        "alpha:1",
+        "gamma:1",
+        "alpha:2",
+        "gamma:2",
+        "beta:1",
+        "beta:2",
+    ]
+    assert jobs._task_can_start(feature_grouped[-2], [feature_grouped[0]]) is False
+
+
+def test_native_worker_budget_is_bounded_and_model_specific(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(jobs.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(jobs, "_physical_memory_bytes", lambda: 32 * 1024**3)
+    monkeypatch.setattr(jobs, "_available_memory_bytes", lambda: 28 * 1024**3)
+    definitions = {item["id"]: item for item in catalog.model_catalog()}
+    xgb = jobs._execution_resources(definitions["xgboost"])
+    logistic = jobs._execution_resources(definitions["multinomial_logistic"])
+    assert xgb["exclusiveCandidate"] is True
+    assert xgb["nativeWorkers"] == 4
+    assert logistic["exclusiveCandidate"] is False
+    assert logistic["nativeWorkers"] == 1
+    contract = jobs._parallelism(
+        [{"computeIntensity": "VERY_HIGH", "executionResources": xgb}], "AUTO"
+    )
+    assert contract["effectiveCandidateWorkers"] == 2
+    assert contract["exclusiveCandidateWorkers"] == 1
+    assert contract["maximumEstimatorNativeWorkers"] == 4
+    assert contract["schedulingPolicy"] == jobs.MODEL_DEVELOPMENT_SCHEDULING_POLICY
+
+    monkeypatch.setattr(jobs, "_available_memory_bytes", lambda: 8 * 1024**3)
+    # Volatile free memory cannot change the reviewed plan identity. It may
+    # only reduce actual concurrency when the job starts.
+    stable_plan = jobs._parallelism(
+        [{"computeIntensity": "VERY_HIGH", "executionResources": xgb}], "AUTO"
+    )
+    assert stable_plan == contract
+    constrained = jobs._runtime_candidate_worker_admission(2)
+    assert constrained["effectiveCandidateWorkers"] == 1
+    assert constrained["availableMemoryGiBAtStart"] == 8.0
 
 
 def test_c_is_rejected_before_scan_and_b_override_is_auditable(
@@ -454,3 +640,406 @@ def test_nested_forbidden_options_custom_subset_and_stale_plan_fail_closed(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as stale_error:
         jobs._assert_plan_current(authority, full, stale)
     assert stale_error.value.code == "MODEL_DEVELOPMENT_QUEUED_AUTHORITY_STALE"
+
+
+def test_cancel_unstarted_is_idempotent_and_preserves_original_timestamp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    job_id = "stage3-model-job-test"
+    row: dict[str, object] = {
+        "run_id": job_id,
+        "project_id": lab.EXPECTED_PROJECT_ID,
+        "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
+        "workflow_type": "sports_stage3_model_development",
+        "status": "RUNNING",
+        "started_at": "2026-09-02T08:00:00Z",
+        "completed_at": None,
+        "parameters_json": jobs.json_dumps({"planId": "plan"}),
+        "metrics_json": jobs.json_dumps(
+            {"state": "RUNNING", "completedFits": 5, "totalFits": 25}
+        ),
+        "artifacts_json": jobs.json_dumps({}),
+        "error_json": jobs.json_dumps({}),
+        "created_by": "scientist",
+    }
+
+    class Repository:
+        def get(self, requested: str) -> dict[str, object] | None:
+            return row if requested == job_id else None
+
+        def upsert(self, value: dict[str, object]) -> dict[str, object]:
+            row.update(value)
+            for key in ("parameters_json", "metrics_json", "artifacts_json", "error_json"):
+                if isinstance(row.get(key), dict):
+                    row[key] = jobs.json_dumps(row[key])
+            return row
+
+    repository = Repository()
+    monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
+    first = jobs.cancel_unstarted_model_development_work(
+        object(), lab.EXPECTED_PROJECT_ID, job_id, actor_user_id="scientist"
+    )
+    requested_at = first["job"]["progress"]["cancelRequestedAt"]
+    second = jobs.cancel_unstarted_model_development_work(
+        object(), lab.EXPECTED_PROJECT_ID, job_id, actor_user_id="scientist"
+    )
+    assert second["job"]["idempotentReplay"] is True
+    assert second["job"]["progress"]["cancelRequestedAt"] == requested_at
+    assert second["job"]["progress"]["cancelUnstartedRequested"] is True
+
+
+class _MemoryRunRepository:
+    def __init__(self, row: dict[str, object]) -> None:
+        self.row = row
+        self.history: list[dict[str, object]] = []
+
+    def get(self, requested: str) -> dict[str, object] | None:
+        return self.row if requested == self.row["run_id"] else None
+
+    def list_for_project(self, project_id: str) -> list[dict[str, object]]:
+        return [self.row] if project_id == self.row["project_id"] else []
+
+    def upsert(self, value: dict[str, object]) -> dict[str, object]:
+        self.row.update(value)
+        for key in ("parameters_json", "metrics_json", "artifacts_json", "error_json"):
+            if isinstance(self.row.get(key), dict):
+                self.row[key] = jobs.json_dumps(self.row[key])
+        self.history.append(deepcopy(self.row))
+        return dict(self.row)
+
+
+def _job_row(
+    job_id: str,
+    *,
+    status: str = "RUNNING",
+    total_fits: int = 10,
+) -> dict[str, object]:
+    return {
+        "run_id": job_id,
+        "project_id": lab.EXPECTED_PROJECT_ID,
+        "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
+        "workflow_type": "sports_stage3_model_development",
+        "status": status,
+        "started_at": "2026-09-02T08:00:00Z",
+        "completed_at": None,
+        "parameters_json": jobs.json_dumps({"planId": "plan"}),
+        "metrics_json": jobs.json_dumps(
+            {
+                "state": status,
+                "completedFits": 0,
+                "failedFits": 0,
+                "totalFits": total_fits,
+                "completedCandidateReceipts": [],
+            }
+        ),
+        "artifacts_json": jobs.json_dumps(
+            {"coordinatorProcessId": os.getpid(), "completedCandidateReceipts": []}
+        ),
+        "error_json": jobs.json_dumps({}),
+        "created_by": "scientist",
+    }
+
+
+def test_orphaned_job_fails_closed_and_preserves_completed_receipts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    row = _job_row("stage3-model-job-orphan", total_fits=20)
+    row["metrics_json"] = jobs.json_dumps(
+        {
+            "state": "RUNNING",
+            "completedFits": 5,
+            "failedFits": 0,
+            "totalFits": 20,
+            "pendingFits": 10,
+            "activeCandidates": [{"taskId": "active:1", "fold": 2}],
+            "completedCandidateReceipts": [{"candidateReceiptSha256": "a" * 64}],
+        }
+    )
+    row["artifacts_json"] = jobs.json_dumps(
+        {
+            "coordinatorProcessId": 987654,
+            "completedCandidateReceipts": [{"candidateReceiptSha256": "a" * 64}],
+        }
+    )
+    repository = _MemoryRunRepository(row)
+    monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(jobs, "_process_is_alive", lambda _pid: False)
+
+    reconciled = jobs._reconcile_orphaned_job(object(), row)
+    progress = jobs.json_loads(reconciled["metrics_json"], {})
+    artifacts = jobs.json_loads(reconciled["artifacts_json"], {})
+    error = jobs.json_loads(reconciled["error_json"], {})
+    assert reconciled["status"] == "INTERRUPTED"
+    assert progress["state"] == "INTERRUPTED"
+    assert progress["unstartedFits"] == 10
+    assert progress["unresolvedFits"] == 5
+    assert progress["pendingFits"] == 0
+    assert progress["cancellationPendingFits"] == 0
+    assert progress["drainingActiveCandidates"] == 0
+    assert progress["interruptedCandidates"] == [{"taskId": "active:1", "fold": 2}]
+    assert progress["activeCandidates"] == []
+    assert progress["completedCandidateReceipts"] == [
+        {"candidateReceiptSha256": "a" * 64}
+    ]
+    assert artifacts["interruptedCoordinatorProcessId"] == 987654
+    assert error["code"] == "MODEL_DEVELOPMENT_COORDINATOR_INTERRUPTED"
+
+
+def test_failure_terminal_write_wins_cancel_race_and_preserves_audit_fields(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    row = _job_row(
+        "stage3-model-job-failure", status="CANCEL_REQUESTED", total_fits=25
+    )
+    row["metrics_json"] = jobs.json_dumps(
+        {
+            "state": "CANCEL_REQUESTED",
+            "completedFits": 5,
+            "failedFits": 0,
+            "totalFits": 25,
+            "cancelUnstartedRequested": True,
+            "cancelRequestedAt": "2026-09-02T09:00:00Z",
+        }
+    )
+    repository = _MemoryRunRepository(row)
+    monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
+
+    jobs._finish_failed_job(
+        object(),
+        str(row["run_id"]),
+        lab.EXPECTED_PROJECT_ID,
+        "scientist",
+        {"totalFits": 25},
+        "TEST_FAILURE",
+        "bounded failure",
+    )
+    progress = jobs.json_loads(row["metrics_json"], {})
+    assert row["status"] == "FAILED"
+    assert progress["state"] == "FAILED"
+    assert progress["cancelUnstartedRequested"] is True
+    assert progress["cancelRequestedAt"] == "2026-09-02T09:00:00Z"
+    assert progress["unstartedFits"] == 20
+    assert progress["activeCandidates"] == []
+    assert progress["pendingFits"] == 0
+    assert progress["cancellationPendingFits"] == 0
+    assert progress["drainingActiveCandidates"] == 0
+
+
+def test_coordinator_identity_rejects_pid_reuse_and_bounds_registration_grace() -> None:
+    job_id = "stage3-model-job-coordinator-identity"
+    with jobs._COORDINATOR_GUARD:
+        jobs._COORDINATOR_FUTURES.pop(job_id, None)
+    assert (
+        jobs._coordinator_is_alive(
+            job_id,
+            os.getpid(),
+            "different-backend-instance",
+            jobs.now_iso(),
+        )
+        is False
+    )
+    assert (
+        jobs._coordinator_is_alive(
+            job_id,
+            os.getpid(),
+            jobs._COORDINATOR_INSTANCE_ID,
+            jobs.now_iso(),
+        )
+        is True
+    )
+    assert (
+        jobs._coordinator_is_alive(
+            job_id,
+            os.getpid(),
+            jobs._COORDINATOR_INSTANCE_ID,
+            "2000-01-01T00:00:00+00:00",
+        )
+        is False
+    )
+
+
+def test_queued_coordinator_cancellation_terminalizes_without_model_activity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    job_id = "stage3-model-job-cancelled-before-start"
+    row = _job_row(job_id, status="CANCEL_REQUESTED", total_fits=15)
+    repository = _MemoryRunRepository(row)
+    monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
+    plan = {"totalFits": 15, "totalConfigurations": 3}
+    jobs._finish_cancelled_before_start(
+        object(), job_id, lab.EXPECTED_PROJECT_ID, "scientist", plan
+    )
+    progress = jobs.json_loads(row["metrics_json"], {})
+    assert row["status"] == "CANCELLED"
+    assert progress["completedFits"] == 0
+    assert progress["cancelledFits"] == 15
+    assert progress["cancelledConfigurations"] == 3
+    assert progress["activeCandidates"] == []
+    assert "no model fit began" in progress["message"]
+
+
+def test_execute_job_heartbeats_and_isolates_one_candidate_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    job_id = "stage3-model-job-execute"
+    row = _job_row(job_id)
+    repository = _MemoryRunRepository(row)
+    authority = _authority()
+    authority.eda_authority.registration_id = "registration"
+    authority.eda_authority.dataset_version_id = "dataset-version"
+    monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        jobs, "resolve_model_lab_authority", lambda _database, _project: authority
+    )
+    monkeypatch.setattr(
+        jobs,
+        "build_model_eligibility",
+        lambda _resolved: {"featureSetId": "FULL", "checksum": "f" * 64},
+    )
+    monkeypatch.setattr(jobs, "_assert_plan_current", lambda *_args: None)
+    monkeypatch.setattr(jobs, "_fold_frame", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        jobs,
+        "_persist_run",
+        lambda _receipt: {"runId": "run", "runReceiptSha256": "r" * 64},
+    )
+
+    def evaluate(
+        _frame,
+        *,
+        model_family,
+        feature_set,
+        hyperparameters,
+        progress_callback,
+        **_kwargs,
+    ):
+        if model_family == "broken_family":
+            time.sleep(0.02)
+            raise lab.Stage3ModelLaboratoryError(
+                "BOUNDED_CANDIDATE_FAILURE", "one candidate failed"
+            )
+        # The timeout-based coordinator heartbeat must run while this candidate
+        # remains inside a fold with no milestone callback.
+        time.sleep(2.1)
+        for fold in range(1, 6):
+            progress_callback({"event": "FOLD_COMPLETED", "fold": fold})
+        return {
+            "candidateId": "candidate-ok",
+            "modelFamily": model_family,
+            "hyperparameters": dict(hyperparameters),
+            "featureSetId": feature_set["featureSetId"],
+            "featureSetName": feature_set["name"],
+            "featureSetChecksum": feature_set["checksum"],
+            "featureCount": 1,
+            "status": "COMPLETE",
+            "foldsCompleted": 5,
+            "meanOofLogLoss": 1.4,
+            "summedBrier": 0.7,
+            "ece": 0.01,
+            "accuracyDiagnostic": 0.5,
+            "macroF1Diagnostic": 0.1,
+            "folds": [],
+            "runtimeMs": 2100,
+        }
+
+    monkeypatch.setattr(jobs, "_evaluate_candidate", evaluate)
+
+    actual_upsert = jobs._upsert_job
+    terminal_attempts = 0
+
+    def transient_terminal_failure(database, value):
+        nonlocal terminal_attempts
+        if value.get("status") == "PARTIAL":
+            terminal_attempts += 1
+            if terminal_attempts == 1:
+                raise RuntimeError("transient terminal row write")
+        return actual_upsert(database, value)
+
+    monkeypatch.setattr(jobs, "_upsert_job", transient_terminal_failure)
+
+    def experiment(identifier: str) -> dict[str, object]:
+        feature_set = {
+            "featureSetId": f"feature-{identifier}",
+            "name": f"Feature {identifier}",
+            "checksum": identifier[0] * 64,
+            "orderedFeatures": ["eligible_000"],
+        }
+        return {
+            "experimentId": f"experiment-{identifier}",
+            "candidateSpecificationTemplateSha256": identifier[0] * 64,
+            "algorithmId": identifier,
+            "algorithmLabel": identifier,
+            "featureUniverseId": feature_set["featureSetId"],
+            "featureUniverseName": feature_set["name"],
+            "featureUniverseChecksum": feature_set["checksum"],
+            "featureCount": 1,
+            "featureSetContract": feature_set,
+            "seed": 7,
+            "executionResources": {
+                "exclusiveCandidate": False,
+                "nativeWorkers": 1,
+            },
+            "tuning": {
+                "tuningMode": "FIXED",
+                "gridPreset": "FIXED",
+                "configurationCount": 1,
+                "fitsPerConfiguration": 5,
+                "configurations": [{"value": 1}],
+            },
+        }
+
+    plan = {
+        "planId": "plan",
+        "checksum": "p" * 64,
+        "totalFits": 10,
+        "parallelism": {"effectiveCandidateWorkers": 2},
+        "experiments": [experiment("good_family"), experiment("broken_family")],
+    }
+    jobs._execute_job(
+        str(tmp_path / "ignored.db"),
+        job_id,
+        lab.EXPECTED_PROJECT_ID,
+        "scientist",
+        plan,
+    )
+
+    progress = jobs.json_loads(row["metrics_json"], {})
+    assert row["status"] == "PARTIAL"
+    assert progress["completedConfigurations"] == 1
+    assert progress["failedConfigurations"] == 1
+    assert progress["completedFits"] == 5
+    assert progress["failedFits"] == 5
+    assert terminal_attempts == 2
+    assert len(progress["completedCandidateReceipts"]) == 2
+    assert any(
+        jobs.json_loads(item["metrics_json"], {}).get("activeCandidates")
+        and float(
+            jobs.json_loads(item["metrics_json"], {})["activeCandidates"][0][
+                "elapsedSeconds"
+            ]
+        )
+        >= 1.5
+        for item in repository.history
+    )
+    failed_receipt = next(
+        receipt
+        for receipt in progress["completedCandidateReceipts"]
+        if receipt["status"] == "FAILED"
+    )
+    failed_payload = jobs.json_loads(
+        (
+            tmp_path
+            / "candidate-attempts"
+            / "objects"
+            / "sha256"
+            / f"{failed_receipt['candidateReceiptSha256']}.json"
+        ).read_text(encoding="utf-8"),
+        {},
+    )
+    assert failed_payload["candidate"]["runtimeMs"] > 0
+    assert failed_payload["candidate"]["errorCode"] == "BOUNDED_CANDIDATE_FAILURE"

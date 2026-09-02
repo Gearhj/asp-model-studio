@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
-MODEL_CATALOG_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_CATALOG_V1"
+MODEL_CATALOG_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_CATALOG_V2"
 FOLD_COUNT = 5
 WARNING_FIT_THRESHOLD = 250
 HARD_FIT_LIMIT = 2_500
@@ -42,6 +42,7 @@ def _algorithm(
     probability: str = "NATIVE_PREDICT_PROBA",
     interpretability: Sequence[str] = (),
     compute_guard: Mapping[str, Any] | None = None,
+    automatic_bundle_eligible: bool = True,
 ) -> dict[str, Any]:
     allowed = sorted(set(fixed) | set(full) | {key for item in compact for key in item})
     return {
@@ -52,7 +53,7 @@ def _algorithm(
         "status": status,
         "unavailableReason": reason,
         "supportedTuningModes": ["FIXED", "GRID", "RANDOM"] if identifier != "class_frequency_null" else ["FIXED"],
-        "defaultTuningMode": "FIXED" if identifier == "class_frequency_null" else "GRID",
+        "defaultTuningMode": "FIXED",
         "defaultGridPreset": "COMPACT",
         "fixedHyperparameters": dict(fixed),
         "compactGrid": [dict(item) for item in compact],
@@ -62,6 +63,7 @@ def _algorithm(
         "probabilityTreatment": probability,
         "interpretabilitySupport": list(interpretability),
         "computeGuard": dict(compute_guard or {}),
+        "automaticBundleEligible": bool(available and automatic_bundle_eligible),
         "seeded": True,
         "rankingEligible": identifier != "class_frequency_null" or True,
     }
@@ -80,25 +82,32 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "multinomial_logistic", "Multinomial Logistic Regression", "TRANSPARENT_LINEAR",
-            fixed={"C": 1.0, "solver": "lbfgs", "max_iter": 1000, "class_weight": None},
+            fixed={"C": 1.0, "solver": "lbfgs", "max_iter": 1000, "tol": 0.001, "class_weight": None},
             compact=[
-                {"C": 0.1, "solver": "lbfgs", "max_iter": 1000, "class_weight": None},
-                {"C": 1.0, "solver": "lbfgs", "max_iter": 1000, "class_weight": None},
-                {"C": 10.0, "solver": "lbfgs", "max_iter": 1000, "class_weight": None},
+                {"C": 0.1, "solver": "lbfgs", "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"C": 1.0, "solver": "lbfgs", "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"C": 10.0, "solver": "lbfgs", "max_iter": 1000, "tol": 0.001, "class_weight": None},
             ],
-            full={"C": [0.01, 0.1, 1.0, 10.0], "solver": ["lbfgs"], "max_iter": [500, 1000], "class_weight": [None]},
+            full={"C": [0.01, 0.1, 1.0, 10.0], "solver": ["lbfgs"], "max_iter": [500, 1000], "tol": [0.001], "class_weight": [None]},
             intensity="MEDIUM", interpretability=["coefficients", "fold_coefficient_stability", "permutation_importance"],
         ),
         _algorithm(
             "elastic_net_logistic", "Elastic-Net Multinomial Logistic", "TRANSPARENT_LINEAR",
-            fixed={"C": 1.0, "l1_ratio": 0.5, "solver": "saga", "max_iter": 1000, "class_weight": None},
+            fixed={"C": 1.0, "l1_ratio": 0.5, "solver": "saga", "max_iter": 1000, "tol": 0.001, "class_weight": None},
             compact=[
-                {"C": 0.1, "l1_ratio": 0.1, "solver": "saga", "max_iter": 1000, "class_weight": None},
-                {"C": 1.0, "l1_ratio": 0.5, "solver": "saga", "max_iter": 1000, "class_weight": None},
-                {"C": 10.0, "l1_ratio": 0.9, "solver": "saga", "max_iter": 1000, "class_weight": None},
+                {"C": 0.1, "l1_ratio": 0.1, "solver": "saga", "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"C": 1.0, "l1_ratio": 0.5, "solver": "saga", "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"C": 10.0, "l1_ratio": 0.9, "solver": "saga", "max_iter": 1000, "tol": 0.001, "class_weight": None},
             ],
-            full={"C": [0.01, 0.1, 1.0, 10.0], "l1_ratio": [0.1, 0.5, 0.9], "solver": ["saga"], "max_iter": [500, 1000], "class_weight": [None]},
+            full={"C": [0.01, 0.1, 1.0, 10.0], "l1_ratio": [0.1, 0.5, 0.9], "solver": ["saga"], "max_iter": [500, 1000], "tol": [0.001], "class_weight": [None]},
             intensity="HIGH", interpretability=["coefficients", "fold_coefficient_stability", "permutation_importance"],
+            automatic_bundle_eligible=False,
+            compute_guard={
+                "fullEligibleFeatureSetExecution": False,
+                "reasonCode": "SAGA_ELASTIC_NET_FULL_FEATURE_COMPUTE_GUARDED",
+                "replacementAlgorithmId": "sgd_classifier",
+                "reason": "SAGA Elastic-Net is compute-guarded on the complete eligible feature authority; use a bounded exact subset or the elastic-net SGD alternative.",
+            },
         ),
         _algorithm(
             "decision_tree", "Decision Tree", "TREE_ENSEMBLE",
@@ -113,24 +122,24 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "random_forest", "Random Forest", "TREE_ENSEMBLE",
-            fixed={"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None, "n_jobs": 1},
+            fixed={"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None},
             compact=[
-                {"n_estimators": 200, "max_depth": 12, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None, "n_jobs": 1},
-                {"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None, "n_jobs": 1},
-                {"n_estimators": 500, "max_depth": None, "min_samples_leaf": 20, "max_features": 0.5, "bootstrap": True, "class_weight": None, "n_jobs": 1},
+                {"n_estimators": 200, "max_depth": 12, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None},
+                {"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "bootstrap": True, "class_weight": None},
+                {"n_estimators": 500, "max_depth": None, "min_samples_leaf": 20, "max_features": 0.5, "bootstrap": True, "class_weight": None},
             ],
-            full={"n_estimators": [200, 500], "max_depth": [None, 12, 24], "min_samples_leaf": [1, 5, 20], "max_features": ["sqrt", 0.5], "bootstrap": [True], "class_weight": [None], "n_jobs": [1]},
+            full={"n_estimators": [200, 500], "max_depth": [None, 12, 24], "min_samples_leaf": [1, 5, 20], "max_features": ["sqrt", 0.5], "bootstrap": [True], "class_weight": [None]},
             intensity="HIGH", interpretability=["native_importance", "permutation_importance", "fold_importance_stability"],
         ),
         _algorithm(
             "extra_trees", "Extra Trees", "TREE_ENSEMBLE",
-            fixed={"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None, "n_jobs": 1},
+            fixed={"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None},
             compact=[
-                {"n_estimators": 200, "max_depth": 12, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None, "n_jobs": 1},
-                {"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None, "n_jobs": 1},
-                {"n_estimators": 500, "max_depth": None, "min_samples_leaf": 20, "max_features": 0.5, "class_weight": None, "n_jobs": 1},
+                {"n_estimators": 200, "max_depth": 12, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None},
+                {"n_estimators": 300, "max_depth": 24, "min_samples_leaf": 5, "max_features": "sqrt", "class_weight": None},
+                {"n_estimators": 500, "max_depth": None, "min_samples_leaf": 20, "max_features": 0.5, "class_weight": None},
             ],
-            full={"n_estimators": [200, 500], "max_depth": [None, 12, 24], "min_samples_leaf": [1, 5, 20], "max_features": ["sqrt", 0.5], "class_weight": [None], "n_jobs": [1]},
+            full={"n_estimators": [200, 500], "max_depth": [None, 12, 24], "min_samples_leaf": [1, 5, 20], "max_features": ["sqrt", 0.5], "class_weight": [None]},
             intensity="HIGH", interpretability=["native_importance", "permutation_importance", "fold_importance_stability"],
         ),
         _algorithm(
@@ -146,16 +155,16 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "xgboost", "XGBoost", "TREE_ENSEMBLE",
-            fixed={"n_estimators": 300, "learning_rate": 0.07, "max_depth": 5, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0, "n_jobs": 1},
+            fixed={"n_estimators": 300, "learning_rate": 0.07, "max_depth": 5, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0},
             compact=[
-                {"n_estimators": 300, "learning_rate": 0.03, "max_depth": 3, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0, "n_jobs": 1},
-                {"n_estimators": 300, "learning_rate": 0.07, "max_depth": 5, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0, "n_jobs": 1},
-                {"n_estimators": 600, "learning_rate": 0.03, "max_depth": 5, "min_child_weight": 5, "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0.0, "reg_alpha": 0.1, "reg_lambda": 5.0, "n_jobs": 1},
-                {"n_estimators": 300, "learning_rate": 0.1, "max_depth": 7, "min_child_weight": 5, "subsample": 0.8, "colsample_bytree": 1.0, "gamma": 1.0, "reg_alpha": 0.1, "reg_lambda": 5.0, "n_jobs": 1},
-                {"n_estimators": 600, "learning_rate": 0.07, "max_depth": 3, "min_child_weight": 1, "subsample": 1.0, "colsample_bytree": 0.7, "gamma": 1.0, "reg_alpha": 0.0, "reg_lambda": 5.0, "n_jobs": 1},
-                {"n_estimators": 600, "learning_rate": 0.1, "max_depth": 7, "min_child_weight": 1, "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0.0, "reg_alpha": 0.1, "reg_lambda": 1.0, "n_jobs": 1},
+                {"n_estimators": 300, "learning_rate": 0.03, "max_depth": 3, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0},
+                {"n_estimators": 300, "learning_rate": 0.07, "max_depth": 5, "min_child_weight": 1, "subsample": 0.8, "colsample_bytree": 0.7, "gamma": 0.0, "reg_alpha": 0.0, "reg_lambda": 1.0},
+                {"n_estimators": 600, "learning_rate": 0.03, "max_depth": 5, "min_child_weight": 5, "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0.0, "reg_alpha": 0.1, "reg_lambda": 5.0},
+                {"n_estimators": 300, "learning_rate": 0.1, "max_depth": 7, "min_child_weight": 5, "subsample": 0.8, "colsample_bytree": 1.0, "gamma": 1.0, "reg_alpha": 0.1, "reg_lambda": 5.0},
+                {"n_estimators": 600, "learning_rate": 0.07, "max_depth": 3, "min_child_weight": 1, "subsample": 1.0, "colsample_bytree": 0.7, "gamma": 1.0, "reg_alpha": 0.0, "reg_lambda": 5.0},
+                {"n_estimators": 600, "learning_rate": 0.1, "max_depth": 7, "min_child_weight": 1, "subsample": 1.0, "colsample_bytree": 1.0, "gamma": 0.0, "reg_alpha": 0.1, "reg_lambda": 1.0},
             ],
-            full={"n_estimators": [300, 600], "learning_rate": [0.03, 0.07, 0.1], "max_depth": [3, 5, 7], "min_child_weight": [1, 5], "subsample": [0.8, 1.0], "colsample_bytree": [0.7, 1.0], "gamma": [0.0, 1.0], "reg_alpha": [0.0, 0.1], "reg_lambda": [1.0, 5.0], "n_jobs": [1]},
+            full={"n_estimators": [300, 600], "learning_rate": [0.03, 0.07, 0.1], "max_depth": [3, 5, 7], "min_child_weight": [1, 5], "subsample": [0.8, 1.0], "colsample_bytree": [0.7, 1.0], "gamma": [0.0, 1.0], "reg_alpha": [0.0, 0.1], "reg_lambda": [1.0, 5.0]},
             intensity="VERY_HIGH", available=xgb,
             status="AVAILABLE" if xgb else "NOT_INSTALLED",
             reason=None if xgb else "XGBoost is not installed; no dependency is added automatically.",
@@ -163,12 +172,12 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "lightgbm", "LightGBM", "TREE_ENSEMBLE",
-            fixed={"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31, "max_depth": -1, "min_child_samples": 20, "subsample": 0.9, "colsample_bytree": 0.9, "n_jobs": 1},
+            fixed={"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31, "max_depth": -1, "min_child_samples": 20, "subsample": 0.9, "colsample_bytree": 0.9},
             compact=[
-                {"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31, "max_depth": -1, "min_child_samples": 20, "subsample": 0.9, "colsample_bytree": 0.9, "n_jobs": 1},
-                {"n_estimators": 500, "learning_rate": 0.03, "num_leaves": 63, "max_depth": -1, "min_child_samples": 50, "subsample": 0.8, "colsample_bytree": 0.8, "n_jobs": 1},
+                {"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31, "max_depth": -1, "min_child_samples": 20, "subsample": 0.9, "colsample_bytree": 0.9},
+                {"n_estimators": 500, "learning_rate": 0.03, "num_leaves": 63, "max_depth": -1, "min_child_samples": 50, "subsample": 0.8, "colsample_bytree": 0.8},
             ],
-            full={"n_estimators": [300, 500], "learning_rate": [0.03, 0.05, 0.1], "num_leaves": [31, 63], "max_depth": [-1], "min_child_samples": [20, 50], "subsample": [0.8, 1.0], "colsample_bytree": [0.8, 1.0], "n_jobs": [1]},
+            full={"n_estimators": [300, 500], "learning_rate": [0.03, 0.05, 0.1], "num_leaves": [31, 63], "max_depth": [-1], "min_child_samples": [20, 50], "subsample": [0.8, 1.0], "colsample_bytree": [0.8, 1.0]},
             intensity="VERY_HIGH", available=lgbm,
             status="AVAILABLE" if lgbm else "NOT_INSTALLED",
             reason=None if lgbm else "LightGBM is optional and is not installed.",
@@ -176,12 +185,12 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "catboost", "CatBoost", "TREE_ENSEMBLE",
-            fixed={"iterations": 300, "learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3.0, "thread_count": 1, "verbose": False},
+            fixed={"iterations": 300, "learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3.0, "verbose": False},
             compact=[
-                {"iterations": 300, "learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3.0, "thread_count": 1, "verbose": False},
-                {"iterations": 500, "learning_rate": 0.03, "depth": 8, "l2_leaf_reg": 5.0, "thread_count": 1, "verbose": False},
+                {"iterations": 300, "learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3.0, "verbose": False},
+                {"iterations": 500, "learning_rate": 0.03, "depth": 8, "l2_leaf_reg": 5.0, "verbose": False},
             ],
-            full={"iterations": [300, 500], "learning_rate": [0.03, 0.05, 0.1], "depth": [4, 6, 8], "l2_leaf_reg": [3.0, 5.0], "thread_count": [1], "verbose": [False]},
+            full={"iterations": [300, 500], "learning_rate": [0.03, 0.05, 0.1], "depth": [4, 6, 8], "l2_leaf_reg": [3.0, 5.0], "verbose": [False]},
             intensity="VERY_HIGH", available=cat,
             status="AVAILABLE" if cat else "NOT_INSTALLED",
             reason=None if cat else "CatBoost is optional and is not installed.",
@@ -197,24 +206,30 @@ def model_catalog() -> list[dict[str, Any]]:
             full={"C": [0.01, 0.1, 1.0, 10.0], "loss": ["squared_hinge"], "class_weight": [None], "calibration_cv": [3]},
             intensity="VERY_HIGH", probability="TRAINING_FOLD_ONLY_CALIBRATED_CLASSIFIER_CV",
             interpretability=["coefficients", "permutation_importance"],
+            automatic_bundle_eligible=False,
+            compute_guard={
+                "automaticBundleExecution": False,
+                "reasonCode": "NESTED_CALIBRATION_REQUIRES_EXPLICIT_SELECTION",
+                "reason": "The calibrated Linear SVM performs nested training-fold fits and must be selected explicitly.",
+            },
         ),
         _algorithm(
             "sgd_classifier", "SGD Linear Classifier", "MARGIN_DISTANCE",
-            fixed={"loss": "log_loss", "alpha": 0.0001, "penalty": "l2", "l1_ratio": 0.15, "max_iter": 1000, "class_weight": None},
+            fixed={"loss": "log_loss", "alpha": 0.0001, "penalty": "l2", "l1_ratio": 0.15, "max_iter": 1000, "tol": 0.001, "class_weight": None},
             compact=[
-                {"loss": "log_loss", "alpha": 0.00001, "penalty": "l2", "l1_ratio": 0.15, "max_iter": 1000, "class_weight": None},
-                {"loss": "log_loss", "alpha": 0.0001, "penalty": "elasticnet", "l1_ratio": 0.15, "max_iter": 1000, "class_weight": None},
-                {"loss": "log_loss", "alpha": 0.001, "penalty": "elasticnet", "l1_ratio": 0.5, "max_iter": 1000, "class_weight": None},
+                {"loss": "log_loss", "alpha": 0.00001, "penalty": "l2", "l1_ratio": 0.15, "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"loss": "log_loss", "alpha": 0.0001, "penalty": "elasticnet", "l1_ratio": 0.15, "max_iter": 1000, "tol": 0.001, "class_weight": None},
+                {"loss": "log_loss", "alpha": 0.001, "penalty": "elasticnet", "l1_ratio": 0.5, "max_iter": 1000, "tol": 0.001, "class_weight": None},
             ],
-            full={"loss": ["log_loss", "hinge"], "alpha": [0.00001, 0.0001, 0.001], "penalty": ["l2", "elasticnet"], "l1_ratio": [0.15, 0.5], "max_iter": [1000], "class_weight": [None]},
+            full={"loss": ["log_loss", "hinge"], "alpha": [0.00001, 0.0001, 0.001], "penalty": ["l2", "elasticnet"], "l1_ratio": [0.15, 0.5], "max_iter": [1000], "tol": [0.001], "class_weight": [None]},
             intensity="MEDIUM", probability="NATIVE_FOR_LOG_LOSS;TRAINING_FOLD_CALIBRATION_REQUIRED_FOR_HINGE",
             interpretability=["coefficients", "fold_coefficient_stability", "permutation_importance"],
         ),
         _algorithm(
             "knn", "k-Nearest Neighbors", "MARGIN_DISTANCE",
-            fixed={"n_neighbors": 31, "weights": "distance", "p": 2, "n_jobs": 1},
-            compact=[{"n_neighbors": 31, "weights": "distance", "p": 2, "n_jobs": 1}],
-            full={"n_neighbors": [5, 15, 31, 61], "weights": ["uniform", "distance"], "p": [1, 2], "n_jobs": [1]},
+            fixed={"n_neighbors": 31, "weights": "distance", "p": 2},
+            compact=[{"n_neighbors": 31, "weights": "distance", "p": 2}],
+            full={"n_neighbors": [5, 15, 31, 61], "weights": ["uniform", "distance"], "p": [1, 2]},
             intensity="PROHIBITIVE", available=False, status="COMPUTE_GUARDED",
             reason="Full-population KNN is held closed until a separately governed sampling or dimensionality-reduction experiment exists.",
             interpretability=["permutation_importance"],
@@ -229,13 +244,19 @@ def model_catalog() -> list[dict[str, Any]]:
         ),
         _algorithm(
             "mlp", "MLPClassifier", "NEURAL",
-            fixed={"hidden_layer_sizes": [128], "activation": "relu", "alpha": 0.0001, "learning_rate_init": 0.001, "batch_size": 512, "max_iter": 100, "early_stopping": True},
+            fixed={"hidden_layer_sizes": [128], "activation": "relu", "alpha": 0.0001, "learning_rate_init": 0.001, "batch_size": 512, "max_iter": 100, "tol": 0.0001, "early_stopping": True},
             compact=[
-                {"hidden_layer_sizes": [128], "activation": "relu", "alpha": 0.0001, "learning_rate_init": 0.001, "batch_size": 512, "max_iter": 100, "early_stopping": True},
-                {"hidden_layer_sizes": [128, 64], "activation": "relu", "alpha": 0.001, "learning_rate_init": 0.0005, "batch_size": 512, "max_iter": 100, "early_stopping": True},
+                {"hidden_layer_sizes": [128], "activation": "relu", "alpha": 0.0001, "learning_rate_init": 0.001, "batch_size": 512, "max_iter": 100, "tol": 0.0001, "early_stopping": True},
+                {"hidden_layer_sizes": [128, 64], "activation": "relu", "alpha": 0.001, "learning_rate_init": 0.0005, "batch_size": 512, "max_iter": 100, "tol": 0.0001, "early_stopping": True},
             ],
-            full={"hidden_layer_sizes": [[128], [256], [128, 64]], "activation": ["relu"], "alpha": [0.00001, 0.0001, 0.001], "learning_rate_init": [0.0005, 0.001], "batch_size": ["auto", 512], "max_iter": [100, 200], "early_stopping": [True]},
+            full={"hidden_layer_sizes": [[128], [256], [128, 64]], "activation": ["relu"], "alpha": [0.00001, 0.0001, 0.001], "learning_rate_init": [0.0005, 0.001], "batch_size": ["auto", 512], "max_iter": [100, 200], "tol": [0.0001], "early_stopping": [True]},
             intensity="VERY_HIGH", interpretability=["permutation_importance", "shap_when_dependency_governed"],
+            automatic_bundle_eligible=False,
+            compute_guard={
+                "automaticBundleExecution": False,
+                "reasonCode": "MLP_FULL_POPULATION_REQUIRES_EXPLICIT_SELECTION",
+                "reason": "The full-population neural challenger has an open-ended wall-clock envelope and must be selected explicitly after faster baselines are reviewed.",
+            },
         ),
     ]
 
@@ -349,6 +370,29 @@ def _validate_configuration_values(
         value = configuration[key]
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= limit:
             raise ValueError(f"{key} must be an integer between 1 and {limit:,}.")
+    if "min_samples_split" in configuration and int(configuration["min_samples_split"]) < 2:
+        raise ValueError("min_samples_split must be an integer between 2 and 1,000,000.")
+    bounded_integer_ranges = {
+        # CatBoost's CPU classifier supports bounded symmetric-tree depth.  A
+        # larger scientist-edited value must fail during planning instead of
+        # reaching a long-running worker only to fail (or exhaust memory).
+        "depth": (1, 16),
+        # LightGBM requires at least two leaves.  Keep an explicit upper bound
+        # so a custom grid cannot create an unbounded per-tree allocation.
+        "num_leaves": (2, 4_096),
+    }
+    for key, (minimum, maximum) in bounded_integer_ranges.items():
+        if key not in configuration:
+            continue
+        value = configuration[key]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            raise ValueError(
+                f"{key} must be an integer between {minimum:,} and {maximum:,}."
+            )
     if "max_depth" in configuration:
         value = configuration["max_depth"]
         if value is not None and not (
@@ -357,7 +401,7 @@ def _validate_configuration_values(
             raise ValueError("max_depth must be null, LightGBM -1, or an integer from 1 through 64.")
 
     strictly_positive = {
-        "C", "learning_rate", "alpha", "learning_rate_init", "var_smoothing",
+        "C", "learning_rate", "alpha", "learning_rate_init", "var_smoothing", "tol",
         "min_child_weight", "reg_lambda", "l2_leaf_reg",
     }
     nonnegative = {"gamma", "reg_alpha", "l2_regularization"}
@@ -522,7 +566,7 @@ def catalog_public() -> dict[str, Any]:
         "tuning": {
             "modes": ["FIXED", "GRID", "RANDOM"],
             "gridPresets": ["COMPACT", "FULL", "CUSTOM"],
-            "defaultMode": "GRID",
+            "defaultMode": "FIXED",
             "defaultGridPreset": "COMPACT",
             "warningFitThreshold": WARNING_FIT_THRESHOLD,
             "hardFitLimit": HARD_FIT_LIMIT,

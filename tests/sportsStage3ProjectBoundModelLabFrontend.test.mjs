@@ -28,16 +28,22 @@ test("Stage 3 exposes the governed fifteen-step model-development sequence", () 
 
 test("Model Laboratory is an explicit multi-model batch builder with bounded concurrency", () => {
   includesAll(lab, [
-    "Select all available models", "Clear all", "Select recommended baseline bundle",
-    "Select family", "Clear family", "Use this feature universe for all selected models",
+    "Select all resource-safe models", "Clear all", "Select recommended baseline bundle",
+    "Select resource-safe family", "Clear family", "Use this feature universe for all selected models",
     "Full Eligible", "Core Gold 48 benchmark", "Custom Eligible Subset",
     "FIXED", "GRID", "RANDOM", "Compact Grid", "Full Grid", "Custom Grid",
-    "Review exact batch plan", "Save Draft Batch", "Clear Unstarted Queue",
+    "Review exact batch plan", "Save Draft Batch", "Clear draft selections",
+    "Cancel unstarted configurations", "Cancellation recorded · active fits draining",
+    "Recording cancellation…", "Batch cancelled after preserving completed evidence",
     "Run ${plan?.totalExperiments", "Parallel candidate workers",
     "Auto (resource-aware)", "2 workers if safe",
-    "One active batch per project", "Each fold owns its preprocessing and estimator",
+    "One active batch per project", "Resource-safe defaults use one fixed configuration per selected algorithm",
+    "High-memory candidates run exclusively", "bounded native CPU budget",
     "Batch failed before completion", "job.error?.code", "job.error?.message",
   ], "multi-model controls");
+  assert.ok(lab.includes('tuningMode: "FIXED"'), "new drafts must start with fixed configurations");
+  assert.ok(lab.includes("item.available && item.automaticBundleEligible"), "automatic bundles must exclude guarded/manual algorithms");
+  assert.ok(lab.includes("asp-stage3-multimodel:v2:"), "stale unsafe GRID drafts must not be restored");
   assert.ok(lab.includes("Opening this page performs zero fits."));
   assert.ok(lab.includes("Final OOT") && lab.includes("No training, tuning, calibration, or selection access"));
 });
@@ -55,14 +61,81 @@ test("saved feature choices reconcile to the current content-addressed authority
 
 test("current batches and historical immutable baselines remain visually distinct", () => {
   includesAll(lab, [
-    "A · Current project batch", "B · Historical verified baselines",
-    "current-batch-evidence", "historical-baseline-evidence",
+    "Completed configurations so far — interim evidence",
+    "Interim results are not final-ranked and cannot be selected as finalists",
+    "A · Terminal current project batch", "B · Historical verified baselines",
+    "incremental-current-evidence", "current-batch-evidence", "historical-baseline-evidence",
     "Immutable V1 receipts are grouped by scientific fingerprint",
   ], "receipt grouping");
   includesAll(comparison, [
     "One bar and one ranked row per canonical candidate specification", "Immutable attempt history",
     "reproducibilityStatus", "Failed candidates",
   ], "comparison evidence");
+});
+
+test("active job polling refreshes Evaluation only for new complete receipts and terminal state", () => {
+  includesAll(lab, [
+    "completedReceiptSignature", "completedReceiptsSignature",
+    "terminalEvaluationJob",
+    "candidateReceiptSha256", "nextReceiptSignature",
+    "!terminal && nextReceiptSignature !== completedReceiptsSignature.current",
+    "terminal && terminalEvaluationJob.current !== job.jobId",
+    "const nextEvaluation = await fetchProjectCandidateEvaluation(projectId)", "setEvaluation(nextEvaluation)",
+    "if (polling) return", "evaluationReceiptCount >= jobReceiptCount",
+  ], "incremental receipt polling");
+  assert.ok(lab.includes("2_000"), "job progress must continue polling every two seconds");
+});
+
+test("launch binds the exact reviewed plan and reports terminal progress honestly", () => {
+  includesAll(api, [
+    "expectedPlanId: reviewedPlan.planId", "expectedPlanChecksum: reviewedPlan.checksum",
+    "value.job.plan?.planId !== reviewedPlan.planId", "value.job.plan?.checksum !== reviewedPlan.checksum",
+    "The queued job did not bind the exact reviewed plan and final-OOT lock",
+  ], "reviewed-plan binding");
+  includesAll(lab, [
+    'cancelledTerminal ? "Cancelled"', 'stoppedTerminal ? "Stopped"',
+    'completedTerminal ? "Complete"', 'ordinaryRemaining > 0 && progress.estimatedRemainingSeconds <= 0',
+    "Cancelled-configuration count unavailable", "Interim receipts held closed",
+  ], "honest terminal and held-closed progress");
+});
+
+test("interrupted work is terminal, failed closed, and preserves completed evidence", () => {
+  includesAll(api, [
+    "ModelDevelopmentJobStatus", '| "INTERRUPTED"',
+    '"FAILED", "INTERRUPTED"',
+  ], "interrupted status contract");
+  includesAll(lab, [
+    'const interruptedTerminal = job.status === "INTERRUPTED"',
+    "const stoppedTerminal = failedTerminal || interruptedTerminal",
+    "Batch was interrupted and is held closed",
+    "Completed immutable candidate receipts remain preserved",
+    "terminalUnfinishedValue", "progress.unstartedFits", "progress.unresolvedFits",
+    "progress.interruptedCandidates.length", "Unfinished work:",
+  ], "interrupted terminal UI");
+  assert.ok(lab.includes('!["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(job.status)'), "INTERRUPTED must never be polled as active");
+});
+
+test("runtime admission distinguishes planned capacity from workers actually admitted", () => {
+  includesAll(api, [
+    "runtimeAdmission", "plannedCandidateWorkers", "effectiveCandidateWorkers",
+    "availableMemoryGiBAtStart", "admissionPolicy",
+    "pendingFits", "unstartedFits", "unresolvedFits", "interruptedCandidates",
+  ], "runtime progress contract");
+  includesAll(lab, [
+    "up to {plan.parallelism.effectiveCandidateWorkers} candidate worker(s) planned",
+    "Runtime workers", "admittedWorkersValue", "runtime-worker-admission",
+    "candidate worker(s) admitted from an upper bound of",
+    "GiB available at start", "Admission not reported",
+    "progress.cancellationPendingFits ?? progress.pendingFits ?? ordinaryRemaining",
+  ], "runtime admission UI");
+});
+
+test("client contract carries resource scheduling and incremental evidence authority", () => {
+  includesAll(api, [
+    "automaticBundleEligible", "ModelComputeGuard", "ModelExecutionResources",
+    "schedulingPolicy", "maximumEstimatorNativeWorkers", "exclusiveCandidateWorkers",
+    "incrementalCurrentEvidence", "rankingEligible: false", "finalistSelectionEligible: false",
+  ], "resource-aware API contract");
 });
 
 test("Evaluation compares project-bound development evidence and selects finalists only", () => {

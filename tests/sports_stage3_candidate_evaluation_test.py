@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -86,6 +87,143 @@ def _run(candidate: dict[str, object], receipt: str, *, schema: str = lab.RUN_RE
     }
 
 
+def _incremental_fixture(tmp_path) -> tuple[
+    SimpleNamespace,
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+    dict[str, object],
+    object,
+    str,
+]:
+    resolved = _resolved()
+    configuration = {"C": 1.0, "solver": "lbfgs", "max_iter": 1000}
+    resources = {
+        "nativeWorkers": 1,
+        "exclusiveCandidate": False,
+        "nestedOversubscriptionProhibited": True,
+    }
+    experiment = {
+        "experimentId": "experiment-one",
+        "candidateSpecificationTemplateSha256": "c" * 64,
+        "algorithmId": "multinomial_logistic",
+        "seed": 20260901,
+        "featureUniverseId": "feature-a",
+        "featureUniverseName": "feature-a",
+        "featureUniverseChecksum": "f" * 64,
+        "featureCount": 1,
+        "sourceFeatureCount": 1,
+        "featureSetContract": {
+            "featureSetId": "feature-a",
+            "name": "feature-a",
+            "checksum": "f" * 64,
+            "orderedFeatures": ["feature-a"],
+        },
+        "foldLocalSelector": None,
+        "tuning": {
+            "tuningMode": "FIXED",
+            "gridPreset": "COMPACT",
+            "configurations": [configuration],
+            "configurationCount": 1,
+            "totalFits": 5,
+        },
+        "executionResources": resources,
+    }
+    unsigned_plan = {
+        "schemaVersion": jobs.MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION,
+        "projectId": lab.EXPECTED_PROJECT_ID,
+        "authorityKey": resolved.authority_key,
+        "splitContractId": resolved.split["contractId"],
+        "splitChecksum": resolved.split["checksum"],
+        "foldCount": 5,
+        "metric": "MULTICLASS_LOG_LOSS",
+        "environment": {"python": "3.12"},
+        "experiments": [experiment],
+        "totalExperiments": 1,
+        "totalConfigurations": 1,
+        "totalFits": 5,
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "providerCalls": 0,
+        "promotionRequested": False,
+    }
+    plan_sha = evaluation._sha(unsigned_plan)
+    plan = {
+        **unsigned_plan,
+        "planId": "stage3-model-plan-" + plan_sha[:32],
+        "checksum": plan_sha,
+    }
+    candidate = {
+        **_candidate(model="multinomial_logistic"),
+        "experimentId": experiment["experimentId"],
+        "candidateSpecificationTemplateSha256": experiment[
+            "candidateSpecificationTemplateSha256"
+        ],
+        "configurationIndex": 1,
+        "hyperparameters": configuration,
+        "featureCount": 1,
+        "sourceFeatureCount": 1,
+        "orderedFeatures": ["feature-a"],
+        "refinementEvidence": None,
+        "tuningMode": "FIXED",
+        "gridPreset": "COMPACT",
+        "executionResources": resources,
+    }
+    payload = {
+        "schemaVersion": evaluation.INCREMENTAL_RECEIPT_SCHEMA_VERSION,
+        "jobId": "job-one",
+        "projectId": lab.EXPECTED_PROJECT_ID,
+        "planId": plan["planId"],
+        "planChecksum": plan["checksum"],
+        "createdAt": "2026-09-02T09:00:00Z",
+        "candidate": candidate,
+        "finalOotTargetAccessed": False,
+        "promotionStatus": "NOT_PROMOTED",
+    }
+    directory = tmp_path / "candidate-attempts" / "objects" / "sha256"
+    directory.mkdir(parents=True)
+    row = {
+        "run_id": "job-one",
+        "project_id": lab.EXPECTED_PROJECT_ID,
+        "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
+        "status": "RUNNING",
+        "started_at": "2026-09-02T08:00:00Z",
+        "parameters_json": json.dumps(plan),
+        "metrics_json": json.dumps({}),
+        "artifacts_json": json.dumps({}),
+    }
+    receipt_sha = _point_row_at_payload(row, directory, payload, candidate)
+    return resolved, plan, candidate, payload, row, directory, receipt_sha
+
+
+def _point_row_at_payload(
+    row: dict[str, object], directory, payload: object, pointer_candidate: Mapping[str, object]
+) -> str:
+    raw = evaluation.canonical_json_bytes(payload)
+    receipt_sha = evaluation.hashlib.sha256(raw).hexdigest()
+    (directory / f"{receipt_sha}.json").write_bytes(raw)
+    row["metrics_json"] = json.dumps(
+        {
+            "completedCandidateReceipts": [
+                {
+                    "candidateId": pointer_candidate["candidateId"],
+                    "candidateReceiptSha256": receipt_sha,
+                    "status": pointer_candidate["status"],
+                }
+            ]
+        }
+    )
+    return receipt_sha
+
+
+def _install_active_row(monkeypatch: pytest.MonkeyPatch, row: dict[str, object]) -> None:
+    class Repository:
+        def list_for_project(self, _project_id: str) -> list[dict[str, object]]:
+            return [row]
+
+    monkeypatch.setattr(evaluation, "RunRepository", lambda _database: Repository())
+
+
 def test_repeated_receipts_group_without_mutating_or_deleting_attempts() -> None:
     first = _run(_candidate(), "1" * 64)
     second = deepcopy(first)
@@ -125,6 +263,16 @@ def test_project_evaluation_is_read_only_project_bound_and_oot_locked(monkeypatc
     monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
     monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: [run])
     monkeypatch.setattr(evaluation, "_decision_rows", lambda *_args: [])
+    monkeypatch.setattr(
+        evaluation,
+        "_incremental_current_evidence",
+        lambda *_args: {
+            "status": "NONE",
+            "candidateGroups": [],
+            "verifiedCandidateReceipts": 0,
+            "heldClosedReceipts": 0,
+        },
+    )
     result = evaluation.project_candidate_evaluation(object(), lab.EXPECTED_PROJECT_ID)
     assert result["authority"]["legacyGlobalMatrixUsed"] is False
     assert result["authority"]["base22FallbackAvailable"] is False
@@ -132,6 +280,229 @@ def test_project_evaluation_is_read_only_project_bound_and_oot_locked(monkeypatc
     assert result["population"]["finalOotTargetAccessed"] is False
     assert result["activity"]["newFitsOnPageLoad"] == 0
     assert result["activity"]["immutableRunReceipts"] == 1
+
+
+def test_verified_active_candidate_receipt_is_interim_and_not_selection_eligible(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    resolved, _plan, _candidate_value, _payload, row, directory, receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["status"] == "ACTIVE_WITH_VERIFIED_EVIDENCE"
+    assert result["verifiedCandidateReceipts"] == 1
+    assert result["heldClosedReceipts"] == 0
+    group = result["candidateGroups"][0]
+    assert group["meanOofLogLoss"] == pytest.approx(1.47)
+    assert group["rankingEligible"] is False
+    assert group["rank"] is None
+    assert group["finalist"] is False
+    assert group["developmentLabel"] == "INCREMENTAL_COMPLETE_NOT_SELECTION_ELIGIBLE"
+    assert group["evidenceSources"] == ["INCREMENTAL_CURRENT_EVIDENCE"]
+    assert group["attempts"][0]["receiptSchemaVersion"] == evaluation.INCREMENTAL_RECEIPT_SCHEMA_VERSION
+
+    raw = (directory / f"{receipt_sha}.json").read_bytes()
+    (directory / f"{receipt_sha}.json").write_bytes(raw + b" ")
+    tampered = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert tampered["candidateGroups"] == []
+    assert tampered["heldClosedReceipts"] == 1
+
+
+def test_incremental_receipt_rejects_boolean_configuration_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    resolved, _plan, candidate, payload, row, directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    candidate["configurationIndex"] = True
+    _point_row_at_payload(row, directory, payload, candidate)
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["candidateGroups"] == []
+    assert result["heldClosedReceipts"] == 1
+    assert result["diagnostics"][0]["code"] == "INCREMENTAL_RECEIPT_INTEGRITY_INVALID"
+
+
+@pytest.mark.parametrize("job_status", ["INTERRUPTED", "FAILED"])
+def test_orphaned_terminal_job_preserves_verified_candidate_attempt_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, job_status: str
+) -> None:
+    resolved, _plan, _candidate_value, _payload, row, _directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    row["status"] = job_status
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["status"] == "ORPHANED_TERMINAL_WITH_VERIFIED_EVIDENCE"
+    assert result["verifiedCandidateReceipts"] == 1
+    assert result["rankingEligible"] is False
+    assert result["finalistSelectionEligible"] is False
+    assert result["candidateGroups"][0]["developmentLabel"] == (
+        "INCREMENTAL_COMPLETE_NOT_SELECTION_ELIGIBLE"
+    )
+
+
+def test_orphan_candidate_receipt_is_not_duplicated_after_terminal_v2_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    resolved, plan, _candidate_value, _payload, row, _directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    row["status"] = "INTERRUPTED"
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+    terminal = {
+        "schemaVersion": lab.RUN_RECEIPT_SCHEMA_VERSION_V2,
+        "identity": {"planId": plan["planId"]},
+    }
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, [terminal]
+    )
+    assert result["status"] == "TERMINAL_RECEIPT_AVAILABLE"
+    assert result["candidateGroups"] == []
+    assert result["verifiedCandidateReceipts"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("featureSetChecksum", "0" * 64),
+        ("tuningMode", "GRID"),
+        ("executionResources", {"nativeWorkers": 99}),
+    ],
+)
+def test_incremental_receipt_binds_feature_tuning_and_resource_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, field: str, value: object
+) -> None:
+    resolved, _plan, candidate, payload, row, directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    candidate[field] = value
+    _point_row_at_payload(row, directory, payload, candidate)
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["candidateGroups"] == []
+    assert result["heldClosedReceipts"] == 1
+    assert result["diagnostics"][0]["code"] == "INCREMENTAL_RECEIPT_INTEGRITY_INVALID"
+
+
+def test_incremental_evidence_requires_current_plan_schema(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    resolved, plan, _candidate_value, _payload, row, _directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    unsigned = {key: value for key, value in plan.items() if key not in {"planId", "checksum"}}
+    unsigned["schemaVersion"] = "SPORTS_STAGE3_MODEL_DEVELOPMENT_PLAN_V1"
+    plan_sha = evaluation._sha(unsigned)
+    row["parameters_json"] = json.dumps(
+        {
+            **unsigned,
+            "planId": "stage3-model-plan-" + plan_sha[:32],
+            "checksum": plan_sha,
+        }
+    )
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["status"] == "HELD_CLOSED"
+    assert result["diagnostics"][0]["code"] == "INCREMENTAL_PLAN_AUTHORITY_INVALID"
+
+
+@pytest.mark.parametrize("malformed_part", ["plan", "progress", "receipt"])
+def test_incremental_evidence_fails_closed_on_malformed_decoded_shapes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, malformed_part: str
+) -> None:
+    resolved, _plan, candidate, _payload, row, directory, _receipt_sha = (
+        _incremental_fixture(tmp_path)
+    )
+    if malformed_part == "plan":
+        row["parameters_json"] = json.dumps([])
+    elif malformed_part == "progress":
+        row["metrics_json"] = json.dumps([])
+    else:
+        _point_row_at_payload(row, directory, [], candidate)
+    _install_active_row(monkeypatch, row)
+    monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
+
+    result = evaluation._incremental_current_evidence(
+        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+    )
+    assert result["status"] in {"HELD_CLOSED", "ACTIVE_NO_VERIFIED_EVIDENCE"}
+    assert result["candidateGroups"] == []
+    assert result["heldClosedReceipts"] == 1
+    assert result["diagnostics"][0]["code"] in {
+        "INCREMENTAL_PLAN_SHAPE_INVALID",
+        "INCREMENTAL_RECEIPT_LEDGER_SHAPE_INVALID",
+        "INCREMENTAL_RECEIPT_SHAPE_INVALID",
+    }
+
+
+def test_current_and_historical_rows_are_grouped_from_their_own_receipt_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    historical = _run(_candidate(loss=1.47), "1" * 64)
+    current = _run(
+        _candidate(loss=1.40),
+        "2" * 64,
+        schema=lab.RUN_RECEIPT_SCHEMA_VERSION_V2,
+    )
+    monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
+    monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: [historical, current])
+    monkeypatch.setattr(evaluation, "_decision_rows", lambda *_args: [])
+    monkeypatch.setattr(
+        evaluation,
+        "_incremental_current_evidence",
+        lambda *_args: {
+            "status": "NONE",
+            "candidateGroups": [],
+            "verifiedCandidateReceipts": 0,
+            "heldClosedReceipts": 0,
+        },
+    )
+
+    result = evaluation.project_candidate_evaluation(object(), lab.EXPECTED_PROJECT_ID)
+    assert len(result["currentBatches"]) == 1
+    assert result["currentBatches"][0]["meanOofLogLoss"] == pytest.approx(1.40)
+    assert result["currentBatches"][0]["evidenceSources"] == ["CURRENT_BATCH"]
+    assert len(result["historicalEvidence"]["candidates"]) == 1
+    assert result["historicalEvidence"]["candidates"][0]["meanOofLogLoss"] == pytest.approx(1.47)
+    assert result["historicalEvidence"]["candidates"][0]["evidenceSources"] == [
+        "HISTORICAL_BASELINE"
+    ]
+    assert len(result["candidateGroups"]) == 1
+    assert result["candidateGroups"][0]["meanOofLogLoss"] == pytest.approx(1.40)
+    assert result["candidateGroups"][0]["evidenceSources"] == ["CURRENT_BATCH"]
+
+
+def test_candidate_grouping_rejects_malformed_decoded_shapes() -> None:
+    malformed = _run(_candidate(), "1" * 64)
+    malformed["candidates"] = {"candidate": _candidate()}
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
+        evaluation._group_attempts([malformed])
+    assert exc_info.value.code == "STAGE3_CANDIDATE_EVIDENCE_SHAPE_INVALID"
 
 
 class _Repository:
@@ -221,6 +592,7 @@ def test_shap_and_sensitivity_require_a_persisted_finalist_receipt(monkeypatch: 
 def test_parallelism_is_bounded_and_estimator_workers_remain_one(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs.os, "cpu_count", lambda: 16)
     monkeypatch.setattr(jobs, "_physical_memory_bytes", lambda: 32 * 1024**3)
+    monkeypatch.setattr(jobs, "_available_memory_bytes", lambda: 32 * 1024**3)
     contract = jobs._parallelism([{"computeIntensity": "HIGH"}], "AUTO")
     assert contract["effectiveCandidateWorkers"] == 2
     assert contract["maximumCandidateWorkers"] == 2

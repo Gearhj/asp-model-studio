@@ -28,7 +28,12 @@ from ..sports_datasets.consumer import canonical_json_bytes
 from ..sports_gold.contracts import GOLD_CLASS_ORDER
 from .stage3_model_catalog import model_catalog
 from .stage3_model_eligibility import build_model_eligibility
-from .stage3_model_jobs import enqueue_model_development_job
+from .stage3_model_jobs import (
+    MODEL_DEVELOPMENT_JOB_TYPE,
+    MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION,
+    enqueue_model_development_job,
+    plan_model_development_queue,
+)
 from .stage3_model_laboratory import (
     CURRENT_GOLD_DATASET_ID,
     EXPECTED_DEVELOPMENT,
@@ -49,6 +54,7 @@ ANALYSIS_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_EXPLICIT_ANALYSIS_RECEIPT_V1"
 FINALIST_RUN_TYPE = "sports_stage3_finalist_selection"
 REFINEMENT_RUN_TYPE = "sports_stage3_model_refinement"
 ANALYSIS_RUN_TYPE = "sports_stage3_candidate_analysis"
+INCREMENTAL_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_CANDIDATE_ATTEMPT_RECEIPT_V1"
 
 _METRIC_KEYS = (
     "meanOofLogLoss",
@@ -69,10 +75,33 @@ _REFINEMENT_METHODS = {
     "REDUNDANCY_PRUNING",
     "STABILITY_SELECTION",
 }
+_EVIDENCE_SOURCES = {
+    "CURRENT_BATCH",
+    "HISTORICAL_BASELINE",
+    "INCREMENTAL_CURRENT_EVIDENCE",
+}
 
 
 def _sha(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(dict(value))).hexdigest()
+
+
+def _evidence_shape_error(message: str) -> Stage3ModelLaboratoryError:
+    return Stage3ModelLaboratoryError(
+        "STAGE3_CANDIDATE_EVIDENCE_SHAPE_INVALID",
+        message,
+        status_code=409,
+    )
+
+
+def _mapping_sequence(value: Any, *, label: str) -> list[Mapping[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
+        raise _evidence_shape_error(f"{label} must be a JSON array of objects.")
+    return list(value)
+
+
+def _strict_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _persist_object(kind: str, value: Mapping[str, Any]) -> dict[str, Any]:
@@ -104,7 +133,17 @@ def _persist_object(kind: str, value: Mapping[str, Any]) -> dict[str, Any]:
 
 def _experiment_for_candidate(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> Mapping[str, Any]:
     experiment_id = candidate.get("experimentId")
-    for experiment in (run.get("plan") or {}).get("experiments") or []:
+    raw_plan = run.get("plan")
+    if raw_plan is None:
+        return {}
+    if not isinstance(raw_plan, Mapping):
+        raise _evidence_shape_error("The candidate run plan must be a JSON object.")
+    raw_experiments = raw_plan.get("experiments")
+    if raw_experiments is None:
+        return {}
+    for experiment in _mapping_sequence(
+        raw_experiments, label="The candidate run experiments"
+    ):
         if experiment.get("experimentId") == experiment_id:
             return experiment
     return {}
@@ -116,14 +155,20 @@ def candidate_specification_payload(
     """Return the canonical scientific identity for one candidate attempt."""
 
     identity = run.get("identity") or {}
+    if not isinstance(identity, Mapping):
+        raise _evidence_shape_error("The candidate run identity must be a JSON object.")
     experiment = _experiment_for_candidate(run, candidate)
     feature_contract = experiment.get("featureSetContract") or {}
+    if not isinstance(feature_contract, Mapping):
+        raise _evidence_shape_error("The candidate feature-set contract must be a JSON object.")
     feature_checksum = candidate.get("featureSetChecksum") or experiment.get(
         "featureUniverseChecksum"
     )
     ordered_features = candidate.get("orderedFeatures")
     if ordered_features is None:
         ordered_features = feature_contract.get("orderedFeatures")
+    if ordered_features is not None and not isinstance(ordered_features, list):
+        raise _evidence_shape_error("Candidate orderedFeatures must be a JSON array.")
     ordered_identity = (
         _sha({"orderedFeatures": list(ordered_features or [])})
         if ordered_features is not None
@@ -131,6 +176,14 @@ def candidate_specification_payload(
     )
     seed = experiment.get("seed", identity.get("seed"))
     environment = run.get("environment") or {}
+    if not isinstance(environment, Mapping):
+        raise _evidence_shape_error("The candidate run environment must be a JSON object.")
+    hyperparameters = candidate.get("hyperparameters") or {}
+    if not isinstance(hyperparameters, Mapping):
+        raise _evidence_shape_error("Candidate hyperparameters must be a JSON object.")
+    target_order = identity.get("targetOrder") or []
+    if not isinstance(target_order, list):
+        raise _evidence_shape_error("The candidate target order must be a JSON array.")
     return {
         "projectId": identity.get("projectId"),
         "goldDatasetId": identity.get("goldDatasetId"),
@@ -141,14 +194,14 @@ def candidate_specification_payload(
         "featureSetChecksum": feature_checksum,
         "orderedFeatureIdentity": ordered_identity,
         "algorithmId": candidate.get("modelFamily"),
-        "hyperparameters": candidate.get("hyperparameters") or {},
+        "hyperparameters": dict(hyperparameters),
         "seed": seed,
         "outlierPolicyId": identity.get("outlierPolicyId"),
         "outlierPolicyChecksum": identity.get("outlierPolicyChecksum"),
         "missingPolicyId": identity.get("missingPolicyId"),
         "missingPolicyChecksum": identity.get("missingPolicyChecksum"),
-        "codeEnvironment": environment,
-        "targetOrder": list(identity.get("targetOrder") or []),
+        "codeEnvironment": dict(environment),
+        "targetOrder": list(target_order),
         "parentCandidateFingerprint": experiment.get("parentCandidateFingerprint"),
         "refinementPlanId": experiment.get("refinementPlanId"),
     }
@@ -172,8 +225,16 @@ def _finite(value: Any) -> float | None:
 
 def _attempt_result_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
     folds = []
-    for fold in candidate.get("folds") or []:
-        metrics = fold.get("metrics") or {}
+    raw_folds = candidate.get("folds")
+    if raw_folds is None:
+        raw_folds = []
+    for fold in _mapping_sequence(raw_folds, label="Candidate folds"):
+        raw_metrics = fold.get("metrics")
+        if raw_metrics is None:
+            raw_metrics = {}
+        if not isinstance(raw_metrics, Mapping):
+            raise _evidence_shape_error("Candidate fold metrics must be a JSON object.")
+        metrics = raw_metrics
         folds.append(
             {
                 "foldNumber": fold.get("foldNumber"),
@@ -214,7 +275,19 @@ def _materially_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool
 
 def _attempt(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, Any]:
     schema = str(run.get("schemaVersion") or "")
-    source = "CURRENT_BATCH" if schema == RUN_RECEIPT_SCHEMA_VERSION_V2 else "HISTORICAL_BASELINE"
+    override_source = run.get("_evidenceSource")
+    if override_source is not None:
+        source = str(override_source)
+        if source != "INCREMENTAL_CURRENT_EVIDENCE":
+            raise _evidence_shape_error("The candidate run has an invalid evidence-source override.")
+    elif schema == RUN_RECEIPT_SCHEMA_VERSION_V2:
+        source = "CURRENT_BATCH"
+    elif schema == RUN_RECEIPT_SCHEMA_VERSION:
+        source = "HISTORICAL_BASELINE"
+    else:
+        raise _evidence_shape_error("The candidate run has an unsupported receipt schema.")
+    if source not in _EVIDENCE_SOURCES:
+        raise _evidence_shape_error("The candidate run has an unsupported evidence source.")
     experiment = _experiment_for_candidate(run, candidate)
     return {
         "attemptId": candidate.get("candidateId"),
@@ -262,7 +335,14 @@ def _attempt(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, 
 def _group_attempts(runs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
-        for candidate in run.get("candidates") or []:
+        if not isinstance(run, Mapping):
+            raise _evidence_shape_error("A candidate run must be a JSON object.")
+        raw_candidates = run.get("candidates")
+        if raw_candidates is None:
+            raw_candidates = []
+        for candidate in _mapping_sequence(
+            raw_candidates, label="Candidate run candidates"
+        ):
             attempt = _attempt(run, candidate)
             groups[attempt["candidateFingerprint"]].append(attempt)
 
@@ -320,6 +400,10 @@ def _group_attempts(runs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "attempts": attempts,
             }
         )
+    return _rank_group_rows(rows)
+
+
+def _rank_group_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows.sort(
         key=lambda item: (
             item["status"] != "COMPLETE",
@@ -348,12 +432,534 @@ def _decision_rows(database: Database, project_id: str, run_type: str) -> list[d
     ]
 
 
+def _incremental_diagnostic(code: str, message: str, receipt: Any = None) -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "candidateReceiptSha256": receipt,
+    }
+
+
+def _incremental_held_closed(
+    row: Mapping[str, Any],
+    plan_id: Any,
+    diagnostic: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "HELD_CLOSED",
+        "jobId": row.get("run_id"),
+        "planId": plan_id,
+        "candidateGroups": [],
+        "verifiedCandidateReceipts": 0,
+        "heldClosedReceipts": 1,
+        "diagnostics": [dict(diagnostic)],
+        "rankingEligible": False,
+        "finalistSelectionEligible": False,
+    }
+
+
+def _incremental_candidate_matches_plan(
+    candidate: Mapping[str, Any],
+    experiment: Mapping[str, Any],
+) -> bool:
+    """Bind an independently persisted candidate to every planned science field."""
+
+    status = str(candidate.get("status") or "")
+    tuning = experiment.get("tuning")
+    if not isinstance(tuning, Mapping):
+        return False
+    configurations = tuning.get("configurations")
+    if not isinstance(configurations, list) or any(
+        not isinstance(item, Mapping) for item in configurations
+    ):
+        return False
+    configuration_index = _strict_int(candidate.get("configurationIndex"))
+    if configuration_index is None or not 1 <= configuration_index <= len(configurations):
+        return False
+    expected_configuration = configurations[configuration_index - 1]
+    hyperparameters = candidate.get("hyperparameters")
+    expected_resources = experiment.get("executionResources")
+    candidate_resources = candidate.get("executionResources")
+    if (
+        not isinstance(hyperparameters, Mapping)
+        or not isinstance(expected_resources, Mapping)
+        or not isinstance(candidate_resources, Mapping)
+    ):
+        return False
+
+    expected_count = _strict_int(experiment.get("featureCount"))
+    expected_source_count = _strict_int(experiment.get("sourceFeatureCount"))
+    candidate_count = _strict_int(candidate.get("featureCount"))
+    feature_contract = experiment.get("featureSetContract")
+    if feature_contract is None:
+        feature_contract = {}
+    if not isinstance(feature_contract, Mapping):
+        return False
+    planned_features = feature_contract.get("orderedFeatures") or []
+    if not isinstance(planned_features, list):
+        return False
+
+    selector = experiment.get("foldLocalSelector")
+    if selector is not None and not isinstance(selector, Mapping):
+        return False
+    refinement = candidate.get("refinementEvidence")
+    if status == "COMPLETE" and selector:
+        if not isinstance(refinement, Mapping):
+            return False
+        stable_features = refinement.get("stableRetainedFeatures")
+        if not isinstance(stable_features, list):
+            return False
+        expected_feature_id = refinement.get("reducedFeatureSetId")
+        expected_feature_name = "Stable fold-local reduced challenger"
+        expected_feature_checksum = refinement.get("reducedFeatureSetChecksum")
+        expected_features = stable_features
+        refinement_valid = (
+            refinement.get("status") == "FOLD_LOCAL_SELECTION_COMPLETE"
+            and refinement.get("method") == selector.get("method")
+            and refinement.get("validationRowsUsedForSelection") == 0
+            and refinement.get("finalOotTargetAccessed") is False
+            and len(stable_features) == expected_count
+        )
+    else:
+        expected_feature_id = experiment.get("featureUniverseId")
+        expected_feature_name = experiment.get("featureUniverseName")
+        expected_feature_checksum = experiment.get("featureUniverseChecksum")
+        expected_features = planned_features
+        refinement_valid = refinement is None
+
+    complete_shape_valid = True
+    if status == "COMPLETE":
+        raw_folds = candidate.get("folds")
+        if not isinstance(raw_folds, list) or any(
+            not isinstance(fold, Mapping) for fold in raw_folds
+        ):
+            complete_shape_valid = False
+        else:
+            fold_numbers = [_strict_int(fold.get("foldNumber")) for fold in raw_folds]
+            complete_shape_valid = fold_numbers == [1, 2, 3, 4, 5] and all(
+                isinstance(fold.get("metrics"), Mapping) for fold in raw_folds
+            )
+            if complete_shape_valid:
+                complete_shape_valid = all(
+                    all(
+                        _finite(fold["metrics"].get(key)) is not None
+                        for key in (
+                            "multiclassLogLoss",
+                            "summedBrier",
+                            "ece",
+                            "accuracy",
+                            "macroF1",
+                        )
+                    )
+                    for fold in raw_folds
+                )
+        complete_shape_valid = (
+            complete_shape_valid
+            and _strict_int(candidate.get("foldsCompleted")) == 5
+            and isinstance(candidate.get("orderedFeatures"), list)
+            and candidate.get("orderedFeatures") == expected_features
+            and _strict_int(candidate.get("sourceFeatureCount")) == expected_source_count
+            and all(
+                _finite(candidate.get(key)) is not None for key in _METRIC_KEYS[:-1]
+            )
+        )
+    elif status == "FAILED":
+        raw_folds = candidate.get("folds")
+        complete_shape_valid = isinstance(raw_folds, list) and all(
+            isinstance(fold, Mapping) for fold in raw_folds
+        )
+    else:
+        return False
+
+    return bool(
+        candidate.get("candidateSpecificationTemplateSha256")
+        == experiment.get("candidateSpecificationTemplateSha256")
+        and candidate.get("modelFamily") == experiment.get("algorithmId")
+        and dict(hyperparameters) == dict(expected_configuration)
+        and candidate.get("tuningMode") == tuning.get("tuningMode")
+        and candidate.get("gridPreset") == tuning.get("gridPreset")
+        and dict(candidate_resources) == dict(expected_resources)
+        and candidate.get("featureSetId") == expected_feature_id
+        and candidate.get("featureSetName") == expected_feature_name
+        and candidate.get("featureSetChecksum") == expected_feature_checksum
+        and candidate_count == expected_count
+        and expected_count is not None
+        and expected_source_count is not None
+        and refinement_valid
+        and complete_shape_valid
+    )
+
+
+def _incremental_experiment_shape_valid(experiment: Mapping[str, Any]) -> bool:
+    tuning = experiment.get("tuning")
+    feature_contract = experiment.get("featureSetContract")
+    selector = experiment.get("foldLocalSelector")
+    if not isinstance(tuning, Mapping):
+        return False
+    configurations = tuning.get("configurations")
+    return bool(
+        str(experiment.get("experimentId") or "")
+        and str(experiment.get("algorithmId") or "")
+        and isinstance(configurations, list)
+        and bool(configurations)
+        and all(isinstance(item, Mapping) for item in configurations)
+        and _strict_int(tuning.get("configurationCount")) == len(configurations)
+        and _strict_int(tuning.get("totalFits")) is not None
+        and str(tuning.get("tuningMode") or "")
+        and str(tuning.get("gridPreset") or "")
+        and isinstance(experiment.get("executionResources"), Mapping)
+        and (feature_contract is None or isinstance(feature_contract, Mapping))
+        and (
+            feature_contract is None
+            or isinstance(feature_contract.get("orderedFeatures"), list)
+        )
+        and (selector is None or isinstance(selector, Mapping))
+        and _strict_int(experiment.get("featureCount")) is not None
+        and _strict_int(experiment.get("sourceFeatureCount")) is not None
+    )
+
+
+def _incremental_current_evidence(
+    database: Database,
+    project_id: str,
+    resolved: Any,
+    terminal_runs: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Read independently persisted receipts from one active or orphaned batch.
+
+    These receipts are useful progress evidence, but they are deliberately not
+    merged into the final ranking or finalist authority until the batch writes
+    its terminal V2 run receipt.
+    """
+
+    repository_rows = RunRepository(database).list_for_project(project_id)
+    evidence_rows = [
+        row
+        for row in _mapping_sequence(repository_rows, label="Project run records")
+        if row.get("run_type") == MODEL_DEVELOPMENT_JOB_TYPE
+        and str(row.get("status") or "").upper()
+        in {"QUEUED", "RUNNING", "CANCEL_REQUESTED", "INTERRUPTED", "FAILED"}
+    ]
+    if not evidence_rows:
+        return {
+            "status": "NONE",
+            "jobId": None,
+            "planId": None,
+            "candidateGroups": [],
+            "verifiedCandidateReceipts": 0,
+            "heldClosedReceipts": 0,
+            "diagnostics": [],
+            "rankingEligible": False,
+            "finalistSelectionEligible": False,
+        }
+    evidence_rows.sort(key=lambda row: str(row.get("started_at") or ""), reverse=True)
+    row = evidence_rows[0]
+    row_status = str(row.get("status") or "").upper()
+    orphaned_terminal = row_status in {"INTERRUPTED", "FAILED"}
+    plan = json_loads(row.get("parameters_json"), {})
+    if not isinstance(plan, Mapping):
+        return _incremental_held_closed(
+            row,
+            None,
+            _incremental_diagnostic(
+                "INCREMENTAL_PLAN_SHAPE_INVALID",
+                "The active batch plan must decode to a JSON object.",
+            ),
+        )
+    plan_id = plan.get("planId")
+    terminal_plan_ids: set[Any] = set()
+    for run in terminal_runs:
+        if not isinstance(run, Mapping):
+            raise _evidence_shape_error("A terminal candidate run must be a JSON object.")
+        identity = run.get("identity") or {}
+        if not isinstance(identity, Mapping):
+            raise _evidence_shape_error("A terminal candidate run identity must be a JSON object.")
+        terminal_plan_ids.add(identity.get("planId"))
+    diagnostics: list[dict[str, Any]] = []
+    unsigned_plan = {
+        key: value for key, value in plan.items() if key not in {"planId", "checksum"}
+    }
+    expected_plan_sha = _sha(unsigned_plan) if unsigned_plan else None
+    raw_experiments = plan.get("experiments")
+    experiment_ids = (
+        [str(item.get("experimentId") or "") for item in raw_experiments]
+        if isinstance(raw_experiments, list)
+        and all(isinstance(item, Mapping) for item in raw_experiments)
+        else []
+    )
+    planned_configuration_count = (
+        sum(
+            int(item["tuning"]["configurationCount"])
+            for item in raw_experiments
+        )
+        if isinstance(raw_experiments, list)
+        and raw_experiments
+        and all(
+            isinstance(item, Mapping)
+            and isinstance(item.get("tuning"), Mapping)
+            and _strict_int(item["tuning"].get("configurationCount")) is not None
+            for item in raw_experiments
+        )
+        else None
+    )
+    planned_fit_count = (
+        sum(int(item["tuning"]["totalFits"]) for item in raw_experiments)
+        if isinstance(raw_experiments, list)
+        and raw_experiments
+        and all(
+            isinstance(item, Mapping)
+            and isinstance(item.get("tuning"), Mapping)
+            and _strict_int(item["tuning"].get("totalFits")) is not None
+            for item in raw_experiments
+        )
+        else None
+    )
+    plan_shape_valid = (
+        isinstance(raw_experiments, list)
+        and bool(raw_experiments)
+        and all(isinstance(item, Mapping) for item in raw_experiments)
+        and all(_incremental_experiment_shape_valid(item) for item in raw_experiments)
+        and len(experiment_ids) == len(set(experiment_ids))
+        and isinstance(plan.get("environment"), Mapping)
+    )
+    if (
+        not plan_shape_valid
+        or plan.get("schemaVersion") != MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION
+        or not expected_plan_sha
+        or plan.get("checksum") != expected_plan_sha
+        or plan_id != "stage3-model-plan-" + expected_plan_sha[:32]
+        or plan.get("projectId") != project_id
+        or plan.get("authorityKey") != resolved.authority_key
+        or plan.get("splitContractId") != resolved.split["contractId"]
+        or plan.get("splitChecksum") != resolved.split["checksum"]
+        or _strict_int(plan.get("foldCount")) != 5
+        or plan.get("metric") != "MULTICLASS_LOG_LOSS"
+        or _strict_int(plan.get("totalExperiments")) != len(raw_experiments or [])
+        or _strict_int(plan.get("totalConfigurations"))
+        != planned_configuration_count
+        or _strict_int(plan.get("totalFits")) != planned_fit_count
+        or plan.get("finalOotLocked") is not True
+        or plan.get("finalOotTargetAccessed") is not False
+        or plan.get("providerCalls") != 0
+        or plan.get("promotionRequested") is not False
+    ):
+        diagnostics.append(
+            _incremental_diagnostic(
+                "INCREMENTAL_PLAN_AUTHORITY_INVALID",
+                "The active batch plan does not reconcile to current project authority.",
+            )
+        )
+        return _incremental_held_closed(row, plan_id, diagnostics[0])
+
+    if plan_id in terminal_plan_ids:
+        return {
+            "status": "TERMINAL_RECEIPT_AVAILABLE",
+            "jobId": row.get("run_id"),
+            "planId": plan_id,
+            "candidateGroups": [],
+            "verifiedCandidateReceipts": 0,
+            "heldClosedReceipts": 0,
+            "diagnostics": [],
+            "rankingEligible": False,
+            "finalistSelectionEligible": False,
+        }
+
+    progress = json_loads(row.get("metrics_json"), {})
+    artifacts = json_loads(row.get("artifacts_json"), {})
+    if not isinstance(progress, Mapping) or not isinstance(artifacts, Mapping):
+        return _incremental_held_closed(
+            row,
+            plan_id,
+            _incremental_diagnostic(
+                "INCREMENTAL_RECEIPT_LEDGER_SHAPE_INVALID",
+                "The active batch progress and artifact ledgers must decode to JSON objects.",
+            ),
+        )
+    raw_pointers = artifacts.get("completedCandidateReceipts") or progress.get(
+        "completedCandidateReceipts"
+    ) or []
+    if not isinstance(raw_pointers, list):
+        return _incremental_held_closed(
+            row,
+            plan_id,
+            _incremental_diagnostic(
+                "INCREMENTAL_RECEIPT_LEDGER_SHAPE_INVALID",
+                "The completed-candidate receipt ledger must be a JSON array.",
+            ),
+        )
+    pointers: list[Mapping[str, Any]] = []
+    seen_sha: set[str] = set()
+    for pointer in raw_pointers:
+        if not isinstance(pointer, Mapping):
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_POINTER_INVALID",
+                    "A completed-candidate receipt pointer is not an object.",
+                )
+            )
+            continue
+        receipt_sha = str(pointer.get("candidateReceiptSha256") or "")
+        if receipt_sha in seen_sha:
+            continue
+        seen_sha.add(receipt_sha)
+        pointers.append(pointer)
+
+    experiments = {
+        str(item.get("experimentId") or ""): item for item in raw_experiments
+    }
+    verified_runs: list[dict[str, Any]] = []
+    for pointer in pointers:
+        receipt_sha = str(pointer.get("candidateReceiptSha256") or "")
+        if len(receipt_sha) != 64 or any(char not in "0123456789abcdef" for char in receipt_sha):
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_ADDRESS_INVALID",
+                    "A completed-candidate receipt has an invalid SHA-256 address.",
+                    receipt_sha,
+                )
+            )
+            continue
+        path = (
+            _runtime_root()
+            / "candidate-attempts"
+            / "objects"
+            / "sha256"
+            / f"{receipt_sha}.json"
+        )
+        try:
+            raw = path.read_bytes()
+            payload = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_UNREADABLE",
+                    "A completed-candidate receipt could not be read.",
+                    receipt_sha,
+                )
+            )
+            continue
+        if not isinstance(payload, Mapping):
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_SHAPE_INVALID",
+                    "A completed-candidate receipt must decode to a JSON object.",
+                    receipt_sha,
+                )
+            )
+            continue
+        candidate = payload.get("candidate") or {}
+        if not isinstance(candidate, Mapping):
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_SHAPE_INVALID",
+                    "A completed-candidate receipt candidate must be a JSON object.",
+                    receipt_sha,
+                )
+            )
+            continue
+        experiment = experiments.get(str(candidate.get("experimentId") or ""), {})
+        status = str(candidate.get("status") or "")
+        exact = (
+            hashlib.sha256(raw).hexdigest() == receipt_sha
+            and canonical_json_bytes(payload) == raw
+            and payload.get("schemaVersion") == INCREMENTAL_RECEIPT_SCHEMA_VERSION
+            and payload.get("jobId") == row.get("run_id")
+            and payload.get("projectId") == project_id
+            and payload.get("planId") == plan_id
+            and payload.get("planChecksum") == plan.get("checksum")
+            and payload.get("finalOotTargetAccessed") is False
+            and payload.get("promotionStatus") == "NOT_PROMOTED"
+            and pointer.get("candidateId") == candidate.get("candidateId")
+            and pointer.get("status") == status
+            and status in {"COMPLETE", "FAILED"}
+            and bool(experiment)
+            and _incremental_candidate_matches_plan(candidate, experiment)
+        )
+        if not exact:
+            diagnostics.append(
+                _incremental_diagnostic(
+                    "INCREMENTAL_RECEIPT_INTEGRITY_INVALID",
+                    "A candidate receipt did not reconcile to its active plan and was held closed.",
+                    receipt_sha,
+                )
+            )
+            continue
+        verified_runs.append(
+            {
+                "schemaVersion": INCREMENTAL_RECEIPT_SCHEMA_VERSION,
+                "runId": f"{row.get('run_id')}:{receipt_sha[:16]}",
+                "runReceiptSha256": receipt_sha,
+                "createdAt": payload.get("createdAt"),
+                "identity": {
+                    "projectId": project_id,
+                    "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+                    "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+                    "splitContractId": resolved.split["contractId"],
+                    "splitChecksum": resolved.split["checksum"],
+                    "outlierPolicyId": resolved.outlier_policy["policyId"],
+                    "outlierPolicyChecksum": resolved.outlier_policy["checksum"],
+                    "missingPolicyId": resolved.missing_policy["policyId"],
+                    "missingPolicyChecksum": resolved.missing_policy["checksum"],
+                    "targetOrder": list(GOLD_CLASS_ORDER),
+                },
+                "environment": plan.get("environment") or {},
+                "plan": plan,
+                "candidates": [candidate],
+                "_evidenceSource": "INCREMENTAL_CURRENT_EVIDENCE",
+            }
+        )
+
+    groups = _group_attempts(verified_runs)
+    for group in groups:
+        group["rankingEligible"] = False
+        group["rank"] = None
+        group["developmentLabel"] = "INCREMENTAL_COMPLETE_NOT_SELECTION_ELIGIBLE"
+        group["finalist"] = False
+    return {
+        "status": (
+            "ORPHANED_TERMINAL_WITH_VERIFIED_EVIDENCE"
+            if orphaned_terminal and groups
+            else "ORPHANED_TERMINAL_NO_VERIFIED_EVIDENCE"
+            if orphaned_terminal
+            else "ACTIVE_WITH_VERIFIED_EVIDENCE"
+            if groups
+            else "ACTIVE_NO_VERIFIED_EVIDENCE"
+        ),
+        "jobId": row.get("run_id"),
+        "planId": plan_id,
+        "candidateGroups": groups,
+        "verifiedCandidateReceipts": len(verified_runs),
+        "heldClosedReceipts": len(diagnostics),
+        "diagnostics": diagnostics,
+        "rankingEligible": False,
+        "finalistSelectionEligible": False,
+    }
+
+
 def project_candidate_evaluation(database: Database, project_id: str) -> dict[str, Any]:
     resolved = resolve_model_lab_authority(database, project_id)
     runs = _read_runs(project_id, resolved)
-    grouped = _group_attempts(runs)
-    current = [row for row in grouped if "CURRENT_BATCH" in row["evidenceSources"]]
-    historical = [row for row in grouped if "HISTORICAL_BASELINE" in row["evidenceSources"]]
+    current_runs = [
+        run for run in runs if run.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION_V2
+    ]
+    historical_runs = [
+        run for run in runs if run.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION
+    ]
+    current = _group_attempts(current_runs)
+    historical = _group_attempts(historical_runs)
+    current_fingerprints = {row["candidateFingerprint"] for row in current}
+    source_groups = [*current, *historical]
+    grouped = _rank_group_rows(
+        [dict(row) for row in current]
+        + [
+            dict(row)
+            for row in historical
+            if row["candidateFingerprint"] not in current_fingerprints
+        ]
+    )
+    incremental = _incremental_current_evidence(
+        database, project_id, resolved, runs
+    )
     finalist_rows = _decision_rows(database, project_id, FINALIST_RUN_TYPE)
     refinements = _decision_rows(database, project_id, REFINEMENT_RUN_TYPE)
     analyses = _decision_rows(database, project_id, ANALYSIS_RUN_TYPE)
@@ -373,8 +979,9 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
                 "receiptSha256": artifacts.get("receiptSha256"),
             }
         )
-    for row in grouped:
-        row["finalist"] = row["candidateFingerprint"] in finalist_fingerprints
+    for collection in (grouped, current, historical):
+        for row in collection:
+            row["finalist"] = row["candidateFingerprint"] in finalist_fingerprints
     return {
         "ok": True,
         "schemaVersion": EVALUATION_SCHEMA_VERSION,
@@ -409,19 +1016,28 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
             "immutableRunReceipts": len(runs),
             "historicalRunReceipts": sum(run.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION for run in runs),
             "currentBatchReceipts": sum(run.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION_V2 for run in runs),
-            "uniqueCandidateSpecifications": len(grouped),
-            "attempts": sum(row["attemptCount"] for row in grouped),
-            "completedAttempts": sum(row["completedAttemptCount"] for row in grouped),
-            "failedAttempts": sum(row["failedAttemptCount"] for row in grouped),
+            "uniqueCandidateSpecifications": len(
+                {row["candidateFingerprint"] for row in source_groups}
+            ),
+            "attempts": sum(row["attemptCount"] for row in source_groups),
+            "completedAttempts": sum(
+                row["completedAttemptCount"] for row in source_groups
+            ),
+            "failedAttempts": sum(row["failedAttemptCount"] for row in source_groups),
+            "incrementalVerifiedCandidateReceipts": incremental[
+                "verifiedCandidateReceipts"
+            ],
+            "incrementalHeldClosedReceipts": incremental["heldClosedReceipts"],
             "modelFitsDisplayedAsProjectEvidence": sum(
                 int(attempt.get("foldsCompleted") or 0)
-                for row in grouped for attempt in row["attempts"]
+                for row in source_groups for attempt in row["attempts"]
             ),
             "newFitsOnPageLoad": 0,
             "providerCalls": 0,
             "modelsPromoted": 0,
         },
         "currentBatches": current,
+        "incrementalCurrentEvidence": incremental,
         "historicalEvidence": {
             "collapsedByDefault": bool(current),
             "banner": (
@@ -902,6 +1518,17 @@ def execute_model_refinement(
         "parallelWorkers": 1,
         "batchName": f"Reduced challenger from {candidate['modelFamily']} · {plan_id}",
         "acknowledgeExcessiveFits": False,
+    }
+    reviewed_plan = plan_model_development_queue(
+        database,
+        project_id,
+        experiment_payload,
+        actor_user_id=actor_user_id,
+    )
+    experiment_payload = {
+        **experiment_payload,
+        "expectedPlanId": reviewed_plan["planId"],
+        "expectedPlanChecksum": reviewed_plan["checksum"],
     }
     job = enqueue_model_development_job(
         database,
