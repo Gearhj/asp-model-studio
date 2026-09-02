@@ -40,6 +40,10 @@ const RECOMMENDED = [
   "class_frequency_null", "multinomial_logistic", "random_forest", "extra_trees",
   "histogram_gradient_boosting", "xgboost", "lightgbm",
 ];
+const LEGACY_RUNTIME_PARAMETER_OWNERS: Record<string, ReadonlySet<string>> = {
+  n_jobs: new Set(["random_forest", "extra_trees", "xgboost", "lightgbm", "knn"]),
+  thread_count: new Set(["catboost"]),
+};
 const int = (value: number) => new Intl.NumberFormat("en-US").format(value);
 const human = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const duration = (seconds: number | null | undefined) => seconds == null ? "Estimating…" : seconds < 60 ? `${Math.round(seconds)}s` : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
@@ -55,6 +59,39 @@ function parseObject<T extends object>(value: string): T | null {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as T : null;
   } catch { return null; }
+}
+
+function withoutLegacyRuntimeParameters<T extends Record<string, unknown>>(
+  value: T,
+  algorithm: ModelAlgorithm,
+  grid: boolean,
+): T {
+  const allowed = new Set(algorithm.allowedHyperparameters);
+  return Object.fromEntries(Object.entries(value).filter(([key, entry]) => {
+    const legacyOwners = LEGACY_RUNTIME_PARAMETER_OWNERS[key];
+    if (allowed.has(key) || !legacyOwners?.has(algorithm.id)) return true;
+    // Model-catalog V1 exposed single-worker execution controls as though they
+    // were scientific hyperparameters.  V2 owns those values in the runtime
+    // admission contract.  Migrate only the exact legacy representation; an
+    // unknown key, another spelling, or a scientist-supplied value such as -1
+    // remains visible and is rejected by normal plan validation.
+    return grid
+      ? !(Array.isArray(entry) && entry.length === 1 && entry[0] === 1)
+      : entry !== 1;
+  })) as T;
+}
+
+function migrateLegacyRuntimeJson(
+  value: string,
+  algorithm: ModelAlgorithm,
+  grid: boolean,
+): string {
+  const parsed = parseObject<Record<string, unknown>>(value);
+  if (!parsed) return value;
+  const migrated = withoutLegacyRuntimeParameters(parsed, algorithm, grid);
+  return Object.keys(migrated).length === Object.keys(parsed).length
+    ? value
+    : JSON.stringify(migrated, null, 2);
 }
 
 function estimateConfigurations(algorithm: ModelAlgorithm, config: ModelConfig): number {
@@ -178,12 +215,17 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
       const nextConfigs = Object.fromEntries(available.map((algorithm) => {
         const baseline = defaultConfig(algorithm, universe);
         const restored = parsed?.configs?.[algorithm.id];
-        return [algorithm.id, restored ? {
+        if (!restored) return [algorithm.id, baseline];
+        const restoredFixedText = typeof restored.fixedText === "string" ? restored.fixedText : baseline.fixedText;
+        const restoredGridText = typeof restored.customGridText === "string" ? restored.customGridText : baseline.customGridText;
+        return [algorithm.id, {
           ...baseline,
           ...restored,
+          fixedText: migrateLegacyRuntimeJson(restoredFixedText, algorithm, false),
+          customGridText: migrateLegacyRuntimeJson(restoredGridText, algorithm, true),
           featureUniverseId: currentFeatureUniverseId(restored.featureUniverseId, next),
           expanded: false,
-        } : baseline];
+        }];
       }));
       setSelected(initialSelected);
       setCommonFeatureUniverse(universe);
@@ -269,11 +311,13 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
       const config = configs[algorithm.id] ?? defaultConfig(algorithm, commonFeatureUniverse);
       const featureUniverseId = useCommonFeatureUniverse ? commonFeatureUniverse : config.featureUniverseId;
       const orderedFeatures = (useCommonFeatureUniverse ? commonOrderedFeaturesText : config.orderedFeaturesText).split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
-      const fixed = parseObject<Record<string, unknown>>(config.fixedText);
-      const custom = parseObject<Record<string, unknown[]>>(config.customGridText);
-      if (config.tuningMode === "FIXED" && !fixed) { setActionError(`${algorithm.label}: fixed hyperparameters are not valid JSON.`); return null; }
-      if (config.gridPreset === "CUSTOM" && !custom) { setActionError(`${algorithm.label}: custom grid is not valid JSON.`); return null; }
+      const fixedInput = parseObject<Record<string, unknown>>(config.fixedText);
+      const customInput = parseObject<Record<string, unknown[]>>(config.customGridText);
+      if (config.tuningMode === "FIXED" && !fixedInput) { setActionError(`${algorithm.label}: fixed hyperparameters are not valid JSON.`); return null; }
+      if (config.gridPreset === "CUSTOM" && !customInput) { setActionError(`${algorithm.label}: custom grid is not valid JSON.`); return null; }
       if (featureUniverseId === "CUSTOM_SUBSET" && algorithm.id !== "class_frequency_null" && !orderedFeatures.length) { setActionError(`${algorithm.label}: Custom Eligible Subset requires at least one ordered predictor.`); return null; }
+      const fixed = fixedInput ? withoutLegacyRuntimeParameters(fixedInput, algorithm, false) : null;
+      const custom = customInput ? withoutLegacyRuntimeParameters(customInput, algorithm, true) : null;
       output.push({ algorithmId: algorithm.id, featureUniverseId, orderedFeatures: featureUniverseId === "CUSTOM_SUBSET" ? orderedFeatures : undefined, tuningMode: algorithm.id === "class_frequency_null" ? "FIXED" : config.tuningMode, gridPreset: config.gridPreset, fixedHyperparameters: fixed ?? undefined, customGrid: config.gridPreset === "CUSTOM" ? custom ?? undefined : undefined, randomIterations: config.tuningMode === "RANDOM" ? config.randomIterations : undefined, seed: 20260901 });
     }
     return output;

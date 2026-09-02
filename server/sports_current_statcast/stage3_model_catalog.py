@@ -309,6 +309,69 @@ def _validate_keys(algorithm: Mapping[str, Any], configuration: Mapping[str, Any
         raise ValueError("Unsupported hyperparameter(s): " + ", ".join(unknown))
 
 
+_LEGACY_RUNTIME_CONTROL_BY_ALGORITHM = {
+    "random_forest": "n_jobs",
+    "extra_trees": "n_jobs",
+    "xgboost": "n_jobs",
+    "lightgbm": "n_jobs",
+    "knn": "n_jobs",
+    "catboost": "thread_count",
+}
+
+
+def _without_legacy_runtime_controls(
+    algorithm: Mapping[str, Any], configuration: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Remove the former single-worker execution knobs from a saved draft.
+
+    Catalog V1 exposed ``n_jobs=1`` and ``thread_count=1`` as though they were
+    scientific hyperparameters.  Catalog V2 correctly assigns native worker
+    counts at execution time, but browser drafts created during that transition
+    can still submit the old values.  Accept only the exact historical sentinel
+    and remove it *before* validation and candidate identity are computed.  A
+    caller cannot use this compatibility path to choose runtime parallelism.
+    """
+
+    normalized = dict(configuration)
+    key = _LEGACY_RUNTIME_CONTROL_BY_ALGORITHM.get(str(algorithm.get("id") or ""))
+    if key is not None and key in normalized:
+        value = normalized.pop(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) != 1.0
+        ):
+            raise ValueError(
+                f"{key} is runtime-managed; only the legacy value 1 can be migrated."
+            )
+    return normalized
+
+
+def _without_legacy_runtime_control_domains(
+    algorithm: Mapping[str, Any], grid: Mapping[str, Sequence[Any]],
+) -> dict[str, Sequence[Any]]:
+    """Migrate V1 custom-grid domains without widening the accepted contract."""
+
+    normalized = dict(grid)
+    key = _LEGACY_RUNTIME_CONTROL_BY_ALGORITHM.get(str(algorithm.get("id") or ""))
+    if key is not None and key in normalized:
+        values = normalized.pop(key)
+        if (
+            not isinstance(values, Sequence)
+            or isinstance(values, (str, bytes))
+            or len(values) != 1
+            or isinstance(values[0], bool)
+            or not isinstance(values[0], (int, float))
+            or not math.isfinite(float(values[0]))
+            or float(values[0]) != 1.0
+        ):
+            raise ValueError(
+                f"{key} is runtime-managed; only the legacy domain [1] can be migrated."
+            )
+    return normalized
+
+
 def _validate_configuration_values(
     algorithm: Mapping[str, Any], configuration: Mapping[str, Any]
 ) -> None:
@@ -319,9 +382,6 @@ def _validate_configuration_values(
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError(f"{key} must be finite.")
 
-    for key in ("n_jobs", "thread_count"):
-        if key in configuration and configuration[key] != 1:
-            raise ValueError(f"{key} must equal 1 under the safe single-job execution contract.")
     if "class_weight" in configuration and configuration["class_weight"] is not None:
         raise ValueError("class_weight must remain null; balancing is not implicitly authorized.")
     if identifier == "histogram_gradient_boosting" and configuration.get("early_stopping") is not False:
@@ -471,6 +531,7 @@ def plan_configurations(
     if mode == "FIXED":
         fixed = dict(algorithm.get("fixedHyperparameters") or {})
         fixed.update(dict(specification.get("fixedHyperparameters") or {}))
+        fixed = _without_legacy_runtime_controls(algorithm, fixed)
         _validate_keys(algorithm, fixed)
         _validate_configuration_values(algorithm, fixed)
         configurations = [fixed]
@@ -480,7 +541,11 @@ def plan_configurations(
             compact = specification.get("compactGrid") or algorithm.get("compactGrid") or []
             if not isinstance(compact, list) or not compact:
                 raise ValueError("Compact Grid requires at least one explicit configuration.")
-            configurations = [dict(item) for item in compact if isinstance(item, Mapping)]
+            configurations = [
+                _without_legacy_runtime_controls(algorithm, item)
+                for item in compact
+                if isinstance(item, Mapping)
+            ]
             if len(configurations) != len(compact):
                 raise ValueError("Every compact-grid entry must be an object.")
             for item in configurations:
@@ -493,6 +558,7 @@ def plan_configurations(
                 if preset == "CUSTOM"
                 else dict(algorithm.get("fullGrid") or {})
             )
+            grid = _without_legacy_runtime_control_domains(algorithm, grid)
             if not grid:
                 raise ValueError(f"{preset.title()} Grid requires at least one parameter domain.")
             _validate_keys(algorithm, grid)
@@ -515,6 +581,7 @@ def plan_configurations(
                     if preset == "CUSTOM"
                     else dict(algorithm.get("fullGrid") or {})
                 )
+                grid = _without_legacy_runtime_control_domains(algorithm, grid)
                 if count > MAX_RANDOM_DOMAIN:
                     raise ValueError(
                         f"Random-search domain contains {count:,} configurations, above the planning limit of {MAX_RANDOM_DOMAIN:,}. Reduce the custom grid."

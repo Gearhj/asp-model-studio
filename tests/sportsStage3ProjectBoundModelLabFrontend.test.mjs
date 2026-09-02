@@ -59,6 +59,24 @@ test("saved feature choices reconcile to the current content-addressed authority
   ], "content-addressed feature-authority reconciliation");
 });
 
+test("legacy runtime-only draft parameters migrate without hiding scientist edits", () => {
+  includesAll(lab, [
+    "const LEGACY_RUNTIME_PARAMETER_OWNERS",
+    'n_jobs: new Set(["random_forest", "extra_trees", "xgboost", "lightgbm", "knn"])',
+    'thread_count: new Set(["catboost"])',
+    "function withoutLegacyRuntimeParameters",
+    "function migrateLegacyRuntimeJson",
+    "allowed.has(key) || !legacyOwners?.has(algorithm.id)",
+    "Array.isArray(entry) && entry.length === 1 && entry[0] === 1",
+    "entry !== 1",
+    "fixedText: migrateLegacyRuntimeJson(restoredFixedText, algorithm, false)",
+    "customGridText: migrateLegacyRuntimeJson(restoredGridText, algorithm, true)",
+    "withoutLegacyRuntimeParameters(fixedInput, algorithm, false)",
+    "withoutLegacyRuntimeParameters(customInput, algorithm, true)",
+  ], "legacy runtime-only draft migration");
+  assert.match(lab, /if \(!parsed\) return value/, "invalid scientist JSON must remain visible instead of being silently reset");
+});
+
 test("current batches and historical immutable baselines remain visually distinct", () => {
   includesAll(lab, [
     "Completed configurations so far — interim evidence",

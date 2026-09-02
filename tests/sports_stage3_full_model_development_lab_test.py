@@ -316,6 +316,155 @@ def test_fixed_grid_random_counts_are_exact_deterministic_and_bounded() -> None:
     assert fixed["totalFits"] == 5
 
 
+def test_legacy_runtime_controls_are_migrated_before_candidate_identity() -> None:
+    models = {item["id"]: item for item in catalog.model_catalog()}
+    xgb = models["xgboost"]
+
+    for algorithm_id in (
+        "random_forest",
+        "extra_trees",
+        "xgboost",
+        "lightgbm",
+        "knn",
+    ):
+        definition = models[algorithm_id]
+        clean_fixed = catalog.plan_configurations(
+            definition,
+            {"tuningMode": "FIXED"},
+            seed=7,
+        )
+        for legacy_value in (1, 1.0):
+            migrated_fixed = catalog.plan_configurations(
+                definition,
+                {
+                    "tuningMode": "FIXED",
+                    "fixedHyperparameters": {"n_jobs": legacy_value},
+                },
+                seed=7,
+            )
+            assert migrated_fixed == clean_fixed
+            assert "n_jobs" not in migrated_fixed["configurations"][0]
+
+    clean_compact = catalog.plan_configurations(
+        xgb,
+        {
+            "tuningMode": "GRID",
+            "gridPreset": "COMPACT",
+            "compactGrid": [dict(xgb["fixedHyperparameters"])],
+        },
+        seed=7,
+    )
+    migrated_compact = catalog.plan_configurations(
+        xgb,
+        {
+            "tuningMode": "GRID",
+            "gridPreset": "COMPACT",
+            "compactGrid": [
+                {**dict(xgb["fixedHyperparameters"]), "n_jobs": 1}
+            ],
+        },
+        seed=7,
+    )
+    assert migrated_compact == clean_compact
+
+    clean_custom = catalog.plan_configurations(
+        xgb,
+        {
+            "tuningMode": "GRID",
+            "gridPreset": "CUSTOM",
+            "customGrid": {"max_depth": [5]},
+        },
+        seed=7,
+    )
+    migrated_custom = catalog.plan_configurations(
+        xgb,
+        {
+            "tuningMode": "GRID",
+            "gridPreset": "CUSTOM",
+            "customGrid": {"max_depth": [5], "n_jobs": [1]},
+        },
+        seed=7,
+    )
+    assert migrated_custom == clean_custom
+
+    catboost = models["catboost"]
+    clean_catboost = catalog.plan_configurations(
+        catboost,
+        {"tuningMode": "FIXED"},
+        seed=7,
+    )
+    migrated_catboost = catalog.plan_configurations(
+        catboost,
+        {
+            "tuningMode": "FIXED",
+            "fixedHyperparameters": {"thread_count": 1},
+        },
+        seed=7,
+    )
+    assert migrated_catboost == clean_catboost
+
+
+def test_legacy_runtime_control_migration_remains_strict() -> None:
+    models = {item["id"]: item for item in catalog.model_catalog()}
+    xgb = models["xgboost"]
+    for rejected in (True, False, -1, 0, 2, "1", None):
+        with pytest.raises(ValueError, match="n_jobs is runtime-managed"):
+            catalog.plan_configurations(
+                xgb,
+                {
+                    "tuningMode": "FIXED",
+                    "fixedHyperparameters": {"n_jobs": rejected},
+                },
+                seed=7,
+            )
+    for rejected_domain in ([True], [-1], [0], [2], ["1"], [1, 1]):
+        with pytest.raises(ValueError, match="n_jobs is runtime-managed"):
+            catalog.plan_configurations(
+                xgb,
+                {
+                    "tuningMode": "GRID",
+                    "gridPreset": "CUSTOM",
+                    "customGrid": {
+                        "max_depth": [5],
+                        "n_jobs": rejected_domain,
+                    },
+                },
+                seed=7,
+            )
+    for unknown in ("n_job", "njobs", "worker_count"):
+        with pytest.raises(ValueError, match="Unsupported hyperparameter"):
+            catalog.plan_configurations(
+                xgb,
+                {
+                    "tuningMode": "FIXED",
+                    "fixedHyperparameters": {unknown: 1},
+                },
+                seed=7,
+            )
+    with pytest.raises(ValueError, match="Unsupported hyperparameter.*thread_count"):
+        catalog.plan_configurations(
+            xgb,
+            {
+                "tuningMode": "FIXED",
+                "fixedHyperparameters": {"thread_count": 1},
+            },
+            seed=7,
+        )
+
+
+def test_runtime_native_worker_authority_overrides_legacy_candidate_knobs() -> None:
+    models = {item["id"]: item for item in catalog.model_catalog()}
+    parameters = {**models["random_forest"]["fixedHyperparameters"], "n_jobs": 1}
+    estimator = lab._model(
+        "random_forest",
+        123,
+        parameters,
+        native_workers=3,
+    )
+    assert estimator.n_jobs == lab._bounded_native_workers(3)
+    assert parameters["n_jobs"] == 1
+
+
 def test_unsafe_hyperparameters_and_empty_custom_grid_fail_at_planning() -> None:
     models = {item["id"]: item for item in catalog.model_catalog()}
     with pytest.raises(ValueError, match="early_stopping"):
@@ -388,6 +537,37 @@ def _payload(authority: SimpleNamespace, experiment: dict[str, object]) -> dict[
         "experiments": [experiment],
         "seed": 20260901,
     }
+
+
+def test_legacy_runtime_control_does_not_change_signed_plan_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    database, authority, _full = _planner(monkeypatch, tmp_path)
+    clean = jobs.plan_model_development_queue(
+        database,
+        authority.project_id,
+        _payload(
+            authority,
+            {"algorithmId": "random_forest", "tuningMode": "FIXED"},
+        ),
+    )
+    migrated = jobs.plan_model_development_queue(
+        database,
+        authority.project_id,
+        _payload(
+            authority,
+            {
+                "algorithmId": "random_forest",
+                "tuningMode": "FIXED",
+                "fixedHyperparameters": {"n_jobs": 1},
+            },
+        ),
+    )
+    assert migrated == clean
+    assert migrated["planId"] == clean["planId"]
+    assert migrated["checksum"] == clean["checksum"]
+    assert "n_jobs" not in migrated["experiments"][0]["tuning"]["configurations"][0]
+    assert migrated["experiments"][0]["executionResources"]["nativeWorkers"] >= 1
 
 
 def test_queue_plan_defaults_to_full_eligible_and_never_scans_or_fits(
