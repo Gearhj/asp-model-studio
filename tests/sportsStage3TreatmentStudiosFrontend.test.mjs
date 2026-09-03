@@ -469,11 +469,13 @@ test("adoption is disabled whenever visible policy controls differ from the save
     [
       "canonicalPolicySignature",
       "savedDraftAvailable && !hasUnsavedChanges",
+      "combinedSpecification.canonicalCanAdopt",
       "if (hasUnsavedChanges) setConfirmAdopt(false)",
       "stage3-policy-unsaved-warning",
       "Unsaved policy changes.",
       "Save changes before adoption",
       "Adopt will never authorize the older draft silently.",
+      "Resolve every canonical feature-treatment blocker before adoption",
     ],
     "saved-draft adoption integrity",
   );
@@ -601,5 +603,127 @@ test("advanced metadata rows remain visibly unevaluated and noninteractive", () 
       "exclusionReason?: string | null",
     ],
     "excluded metadata response contract",
+  );
+});
+
+test("both treatment studios share one exact, refresh-persistent canonical specification workflow", () => {
+  includesAll(
+    api,
+    [
+      "TreatmentSpecificationData",
+      "/sports/stage3-treatment/specification",
+      "X-Stage3-Authority-Key",
+      "expectedManifestChecksum",
+      "specificationDraftId",
+      "useTreatmentSpecification",
+      "createDraft",
+      "adoptSpecification",
+    ],
+    "canonical specification client contract",
+  );
+  includesAll(
+    shell,
+    [
+      "stage3-treatment-specification",
+      "Load / apply canonical spec as DRAFT",
+      "Reapply / verify canonical spec draft",
+      "Adopt reviewed specification",
+      "Workbook specification → one linked draft",
+      "Priority exceptions",
+      "Full canonical manifest rows",
+      "Full canonical feature treatment manifest",
+      "Prior policies → canonical draft",
+      "manifestChecksum",
+      "sourceWorkbookSha256",
+      "canCreateDraft",
+      "canAdopt",
+      "blockers",
+      "max-h-[32rem]",
+      "overflow-auto",
+      "Combined specification draft.",
+      "Partial {kind} adoption is",
+      "stage3-combined-draft-atomic-adoption",
+    ],
+    "shared canonical specification review surface",
+  );
+  includesAll(
+    outliers,
+    [
+      "projectId={projectId}",
+      "authorityKey={authority}",
+      'policyId: policy?.policyId',
+      'expectedChecksum: policy?.checksum',
+      "hydratedPolicyIdentity",
+    ],
+    "outlier specification integration",
+  );
+  includesAll(
+    missing,
+    [
+      "projectId={projectId}",
+      "authorityKey={authority}",
+      'policyId: policy?.policyId',
+      'expectedChecksum: policy?.checksum',
+      "hydratedPolicyIdentity",
+    ],
+    "missing specification integration",
+  );
+  assert.doesNotMatch(
+    `${outliers}\n${missing}`,
+    /run\("policy\/adopt", policyBody\)/,
+    "adoption must submit only the immutable saved-draft identity",
+  );
+  assert.doesNotMatch(
+    `${outliers}\n${missing}`,
+    /hydrated\.current = false/,
+    "refresh must not reopen the stale-policy hydration race",
+  );
+});
+
+test("specification mutations reject stale projects and only adopt the exact current receipt", () => {
+  includesAll(
+    api,
+    [
+      "TreatmentAdditionalBackendFeature",
+      "additionalBackendFeatures: TreatmentAdditionalBackendFeature[]",
+      'status: "AVAILABLE" | "DRAFT_CURRENT" | "DRAFT_STALE" | "BLOCKED"',
+      "hasCurrentTreatmentSpecificationDraft",
+      'data?.status === "DRAFT_CURRENT"',
+      'data.draft?.status === "DRAFT"',
+      "data.draft.manifestChecksum === data.specification.manifestChecksum",
+      "mutationController.current?.abort()",
+      "const controller = new AbortController()",
+      "const current = ++generation.current",
+      "controller.signal.aborted || current !== generation.current",
+      "{ signal: controller.signal }",
+    ],
+    "race-safe exact receipt contract",
+  );
+  includesAll(
+    shell,
+    [
+      "const currentDraft = hasCurrentTreatmentSpecificationDraft(data)",
+      "!currentDraft",
+      "data?.canAdopt && currentDraft",
+      "Create or reload the current exact manifest draft before adoption",
+    ],
+    "atomic adoption button gate",
+  );
+});
+
+test("unresolved canonical blockers hold Feature Engineering progression closed", () => {
+  includesAll(
+    shell,
+    [
+      "blockerCount: specification.value?.data.blockers.length ?? null",
+      'kind === "missing"',
+      "combinedSpecification.blockerCount > 0",
+      "disabled={continueBlocked}",
+      "stage3-feature-engineering-progression-blocked",
+      "Feature Engineering progression is held closed.",
+      "remains independently inspectable as a read-only",
+      "no candidate set can be registered without adopted",
+    ],
+    "Feature Engineering progression gate",
   );
 });

@@ -722,6 +722,98 @@ def test_outlier_table_returns_method_bound_active_summary(
     assert p95["totalAffectedRows"] == p95["highestAffectedCount"]
 
 
+def test_no_statistical_detection_preserves_not_evaluated_null_semantics(
+    governed: tuple[SimpleNamespace, pd.DataFrame, str], tmp_path: Path
+) -> None:
+    _authority_value, _frame_value, key = governed
+    database = _database(tmp_path)
+    request = {
+        "authorityKey": key,
+        "search": "feature_cont",
+        "globalMethod": "NO_STATISTICAL_DETECTION",
+        "globalTreatment": "RETAIN",
+        "pageSize": 100,
+    }
+
+    table = treatments.outlier_table(database, PROJECT_ID, request)["data"]
+    row = next(item for item in table["rows"] if item["variable"] == "feature_cont")
+    assert row["status"] == "NOT_STATISTICALLY_EVALUATED"
+    assert row["numberOfOutliers"] is None
+    assert row["outlierPercent"] is None
+    assert row["lowerTailCount"] is None
+    assert row["upperTailCount"] is None
+    assert row["affectedGames"] is None
+    assert row["affectedBatters"] is None
+    assert row["affectedPitchers"] is None
+    assert row["eligibleTreatments"] == ["RETAIN"]
+
+    summary = table["activeSummary"]
+    assert summary["status"] == "NOT_EVALUATED"
+    for field in (
+        "variablesWithOutliers",
+        "totalAffectedRows",
+        "affectedGames",
+        "affectedBatters",
+        "affectedPitchers",
+        "highestAffectedCount",
+        "highestAffectedPercent",
+    ):
+        assert summary[field] is None
+
+    detail = treatments.outlier_detail(
+        database,
+        PROJECT_ID,
+        {
+            "authorityKey": key,
+            "variable": "feature_cont",
+            "detectionMethod": "NO_STATISTICAL_DETECTION",
+            "treatment": "RETAIN",
+        },
+    )["data"]
+    assert detail["evaluationStatus"] == "NOT_EVALUATED"
+    assert detail["thresholds"]["lower"] is None
+    assert detail["thresholds"]["upper"] is None
+    assert detail["thresholds"]["fittingRule"] == "No statistical detection parameters are fit."
+    assert detail["eligibleTreatments"] == ["RETAIN"]
+    assert set(detail["detected"].values()) == {None}
+    assert detail["activeSummary"]["status"] == "NOT_EVALUATED"
+    assert detail["activeSummary"]["variablesWithOutliers"] is None
+    assert detail["activeSummary"]["totalAffectedRows"] is None
+
+
+def test_no_statistical_detection_rejects_transforming_or_custom_thresholds(
+    governed: tuple[SimpleNamespace, pd.DataFrame, str], tmp_path: Path
+) -> None:
+    _authority_value, _frame_value, key = governed
+    database = _database(tmp_path)
+    with pytest.raises(treatments.Stage3TreatmentError) as transforming:
+        treatments.outlier_detail(
+            database,
+            PROJECT_ID,
+            {
+                "authorityKey": key,
+                "variable": "feature_cont",
+                "detectionMethod": "NO_STATISTICAL_DETECTION",
+                "treatment": "CAP_IQR",
+            },
+        )
+    assert transforming.value.code == "OUTLIER_TREATMENT_INELIGIBLE"
+
+    with pytest.raises(treatments.Stage3TreatmentError) as custom_threshold:
+        treatments.outlier_detail(
+            database,
+            PROJECT_ID,
+            {
+                "authorityKey": key,
+                "variable": "feature_cont",
+                "detectionMethod": "NO_STATISTICAL_DETECTION",
+                "treatment": "RETAIN",
+                "customUpperThreshold": 10,
+            },
+        )
+    assert custom_threshold.value.code == "OUTLIER_CUSTOM_THRESHOLD_INELIGIBLE"
+
+
 def test_missing_table_reports_exact_descriptive_fill_preview_values(
     governed: tuple[SimpleNamespace, pd.DataFrame, str], tmp_path: Path
 ) -> None:

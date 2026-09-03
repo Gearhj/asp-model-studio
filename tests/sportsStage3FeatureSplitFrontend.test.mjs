@@ -4,11 +4,12 @@ import test from "node:test";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
-const [cockpit, feature, split, api] = await Promise.all([
+const [cockpit, feature, split, api, modelingApp] = await Promise.all([
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
   read("src/sports/cockpit/ProjectBoundFeatureEngineering.tsx"),
   read("src/sports/cockpit/ProjectBoundSplitBalance.tsx"),
   read("src/sports/cockpit/projectFeatureSplitApi.ts"),
+  read("src/apps/ModelingApp.tsx"),
 ]);
 
 function includesAll(source, values, label) {
@@ -23,6 +24,18 @@ test("project-bound Feature Engineering and Split & Balance replace the legacy h
   ], "cockpit routing");
   assert.doesNotMatch(cockpit, /stepLabel="Feature Engineering"/);
   assert.doesNotMatch(cockpit, /stepLabel="Temporal Split"/);
+});
+
+test("the standalone cockpit hydrates the exact backend project and redacted Stage 3 authority", () => {
+  includesAll(modelingApp, [
+    "useCanonicalSportsProject",
+    "useProjectStage3DataAuthority",
+    "projectIdentity.status === \"ready\"",
+    "currentGoldReview={currentGoldReview}",
+    "projectName={projectName}",
+    "Project authority unavailable",
+  ], "standalone project authority");
+  assert.doesNotMatch(modelingApp, /<PaModelingCockpit projectId=\{projectId\} \/>/);
 });
 
 test("Feature Engineering presents a decision-first, project-bound candidate workspace", () => {
@@ -187,4 +200,22 @@ test("client routes are project-bound and fail closed on OOT, legacy matrices, p
 test("both studios constrain horizontal overflow to analytical tables and use responsive grids", () => {
   includesAll(feature, ["min-w-0", "overflow-x-auto", "sm:grid-cols-2", "xl:grid-cols"], "feature responsiveness");
   includesAll(split, ["min-w-0", "overflow-x-auto", "sm:grid-cols-2", "xl:grid-cols"], "split responsiveness");
+});
+
+test("Feature Engineering labels absent adopted treatment authority honestly", () => {
+  includesAll(feature, [
+    "adoptedPolicyLabel",
+    'policy.policyId !== "NOT_ADOPTED"',
+    ': "Not adopted"',
+    "Outlier ${adoptedPolicyLabel",
+    "Missing ${adoptedPolicyLabel",
+  ], "treatment lineage labels");
+  assert.doesNotMatch(
+    feature,
+    /label="Outlier policy" value=\{`v\$\{summary\.data\.treatmentPolicies\.outlier\.version\}`\}/,
+  );
+  assert.doesNotMatch(
+    feature,
+    /label="Missing policy" value=\{`v\$\{summary\.data\.treatmentPolicies\.missing\.version\}`\}/,
+  );
 });
