@@ -164,10 +164,12 @@ def test_final_oot_is_rejected_before_any_model_usage():
 
 
 def test_end_to_end_simulation_is_fixed_seed_reproducible_and_hash_bound():
+    sampler = tiny_sampler()
+    sampler_sha = gs.transition_sampler_sha256(sampler)
     common = {
-        "transition_sampler": tiny_sampler(),
-        "transition_model_sha256": "d" * 64,
-        "expected_transition_model_sha256": "d" * 64,
+        "transition_sampler": sampler,
+        "transition_model_sha256": sampler_sha,
+        "expected_transition_model_sha256": sampler_sha,
         "draws": 64,
         "seed": 20260903,
         "scoring_mode": gs.HISTORICAL_OOF_SCORING,
@@ -178,25 +180,37 @@ def test_end_to_end_simulation_is_fixed_seed_reproducible_and_hash_bound():
     assert first == second
     assert first["foldModelUsed"] == "FOLD_5"
     assert first["reconciliation"]["status"] == "PASSED"
-    assert first["transitionModelSha256"] == "d" * 64
+    assert first["transitionModelSha256"] == sampler_sha
     assert first["externalProviderCalls"] == 0
     assert first["actualTargetOutcomesRead"] is False
     assert len(first["scoringReceiptSha256"]) == 64
 
 
 def test_transition_authority_mismatch_stops_before_simulation():
+    sampler = tiny_sampler()
     with pytest.raises(gs.Stage3GameScoringError) as raised:
         gs.score_governed_game(
             game_inputs(),
             artifact(),
-            transition_sampler=tiny_sampler(),
+            transition_sampler=sampler,
             transition_model_sha256="d" * 64,
-            expected_transition_model_sha256="e" * 64,
+            expected_transition_model_sha256="d" * 64,
             draws=32,
             seed=1,
             scoring_mode=gs.HISTORICAL_OOF_SCORING,
         )
     assert raised.value.code == "SIMULATOR_TRANSITION_AUTHORITY_MISMATCH"
+
+
+def test_transition_sampler_digest_changes_with_actual_sampler_content():
+    sampler = tiny_sampler()
+    before = gs.transition_sampler_sha256(sampler)
+    sampler._trans[0] = sampler._trans[0].copy()
+    sampler._trans[0][0, 2] += 1
+
+    after = gs.transition_sampler_sha256(sampler)
+
+    assert before != after
 
 
 def test_public_summary_and_enqueue_are_provider_free_and_fail_closed():

@@ -139,22 +139,107 @@ def test_historical_binding_uses_the_selected_fold_pipeline_checksum():
             "relativePath": f"fold-models/fold-{number}.joblib",
             "sha256": str(number) * 64,
             "foldNumber": number,
+            "trainEnd": f"2026-0{number}-01",
+            "validationStart": f"2026-0{number}-02",
+            "validationEnd": f"2026-0{number}-28",
         }
         for number in range(1, 6)
     ]
+    artifact_manifest["oof"] = {
+        "folds": [
+            {
+                "foldNumber": number,
+                "trainEnd": f"2026-0{number}-01",
+                "validationStart": f"2026-0{number}-02",
+                "validationEnd": f"2026-0{number}-28",
+            }
+            for number in range(1, 6)
+        ]
+    }
     checksum = hashlib.sha256(canonical_json_bytes(artifact_manifest)).hexdigest()
 
     bound = ga.bind_verified_stage3_artifact(
-        SimpleNamespace(manifest=artifact_manifest, pipeline=pipeline),
+        SimpleNamespace(manifest=artifact_manifest, pipeline=pipeline, fold_number=5),
         expected_manifest_sha256=checksum,
         model_role=ga.FOLD_VALIDATION_MODEL,
         fold_number=5,
-        validation_start_date="2026-05-02",
-        validation_end_date="2026-08-13",
     )
 
     assert bound.model_sha256 == "5" * 64
     assert bound.fold_number == 5
+    assert bound.training_end_date == "2026-05-01"
+    assert bound.validation_start_date == "2026-05-02"
+    assert bound.validation_end_date == "2026-05-28"
+
+
+def test_historical_binding_rejects_fold_boundaries_that_differ_across_manifest_records():
+    pipeline = RecordingPipeline()
+    artifact_manifest = manifest(pipeline)
+    artifact_manifest["files"]["foldModels"] = [
+        {
+            "relativePath": "fold-models/fold-5.joblib",
+            "sha256": "5" * 64,
+            "foldNumber": 5,
+            "trainEnd": "2026-05-01",
+            "validationStart": "2026-05-02",
+            "validationEnd": "2026-08-13",
+        }
+    ]
+    artifact_manifest["oof"] = {
+        "folds": [
+            {
+                "foldNumber": 5,
+                "trainEnd": "2026-05-01",
+                "validationStart": "2026-05-03",
+                "validationEnd": "2026-08-13",
+            }
+        ]
+    }
+    checksum = hashlib.sha256(canonical_json_bytes(artifact_manifest)).hexdigest()
+
+    with pytest.raises(ga.Stage3GameProbabilityAdapterError) as raised:
+        ga.bind_verified_stage3_artifact(
+            SimpleNamespace(manifest=artifact_manifest, pipeline=pipeline, fold_number=5),
+            expected_manifest_sha256=checksum,
+            model_role=ga.FOLD_VALIDATION_MODEL,
+            fold_number=5,
+        )
+    assert raised.value.code == "STAGE3_FOLD_MODEL_AUTHORITY_MISMATCH"
+
+
+def test_historical_binding_rejects_loaded_pipeline_from_another_fold():
+    pipeline = RecordingPipeline()
+    artifact_manifest = manifest(pipeline)
+    artifact_manifest["files"]["foldModels"] = [
+        {
+            "relativePath": "fold-models/fold-5.joblib",
+            "sha256": "5" * 64,
+            "foldNumber": 5,
+            "trainEnd": "2026-05-01",
+            "validationStart": "2026-05-02",
+            "validationEnd": "2026-08-13",
+        }
+    ]
+    artifact_manifest["oof"] = {
+        "folds": [
+            {
+                "foldNumber": 5,
+                "trainEnd": "2026-05-01",
+                "validationStart": "2026-05-02",
+                "validationEnd": "2026-08-13",
+            }
+        ]
+    }
+    checksum = hashlib.sha256(canonical_json_bytes(artifact_manifest)).hexdigest()
+
+    with pytest.raises(ga.Stage3GameProbabilityAdapterError) as raised:
+        ga.bind_verified_stage3_artifact(
+            SimpleNamespace(manifest=artifact_manifest, pipeline=pipeline, fold_number=4),
+            expected_manifest_sha256=checksum,
+            model_role=ga.FOLD_VALIDATION_MODEL,
+            fold_number=5,
+        )
+    assert raised.value.code == "STAGE3_FOLD_MODEL_AUTHORITY_MISMATCH"
 
 
 def test_lineup_ordinal_and_exactly_five_simulated_fields_drive_model_frame():
@@ -192,6 +277,18 @@ def test_lineup_ordinal_and_exactly_five_simulated_fields_drive_model_frame():
     selected = (game_inputs.templates[0], game_inputs.templates[17], game_inputs.templates[1])
     for position, name in enumerate(game_inputs.non_simulation_features):
         assert frame[name].tolist() == [row.frozen_predictor_values[position] for row in selected]
+
+
+def test_long_extra_inning_state_supported_by_simulator_crosses_adapter_boundary():
+    pipeline = RecordingPipeline()
+    provider = ga.build_stage3_probability_adapter(inputs(), binding(pipeline))
+    long_game = state()
+    object.__setattr__(long_game, "inning", np.array([31, 50, 99], dtype=np.int64))
+
+    probabilities = provider(long_game)
+
+    assert probabilities.shape == (3, 8)
+    assert pipeline.frames[-1]["context_inning"].tolist() == [31, 50, 99]
 
 
 @pytest.mark.parametrize(

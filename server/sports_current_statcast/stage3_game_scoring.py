@@ -22,6 +22,7 @@ from server.persistence.db import Database, json_loads
 from server.persistence.repositories.project_repository import ProjectRepository
 from server.persistence.repositories.run_repository import RunRepository
 from server.sports_datasets.consumer import canonical_json_bytes
+from server.sports_modeling.metrics import PA_CLASS_ORDER
 from server.sports_phase5.game_initialization import RngLineage
 from server.sports_phase5.whole_game_monte_carlo import (
     MAX_TEAM_PA,
@@ -51,6 +52,7 @@ FINAL_OOT_END = date(2026, 8, 27)
 MIN_SIMULATION_DRAWS = 32
 MAX_SIMULATION_DRAWS = 1_000_000
 _ACTIVE_JOB_STATUSES = {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}
+_TRANSITION_SAMPLER_DIGEST_SCHEMA = b"SPORTS_STAGE3_TRANSITION_SAMPLER_CONTENT_V1\0"
 
 
 class Stage3GameScoringError(RuntimeError):
@@ -85,6 +87,71 @@ def _sha256(value: Any, *, label: str) -> str:
     if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
         raise _error("STAGE3_SCORING_CHECKSUM_INVALID", f"{label} must be a SHA-256 digest.")
     return digest
+
+
+def transition_sampler_sha256(transition_sampler: FastTransitionSampler) -> str:
+    """Hash the exact transition probabilities and outcomes used by the simulator.
+
+    ``FastTransitionSampler`` is an optimized projection of the governed transition model.
+    Binding its complete cell contents prevents a caller from attaching an unrelated model
+    checksum to a different in-memory sampler.
+    """
+
+    if not isinstance(transition_sampler, FastTransitionSampler):
+        raise TypeError("transition_sampler must be FastTransitionSampler")
+    cumulative_by_cell = getattr(transition_sampler, "_cum", None)
+    transitions_by_cell = getattr(transition_sampler, "_trans", None)
+    expected_cells = set(range(len(PA_CLASS_ORDER) * 3 * 8))
+    if (
+        not isinstance(cumulative_by_cell, Mapping)
+        or not isinstance(transitions_by_cell, Mapping)
+        or set(cumulative_by_cell) != expected_cells
+        or set(transitions_by_cell) != expected_cells
+    ):
+        raise _error(
+            "SIMULATOR_TRANSITION_SAMPLER_INVALID",
+            "The transition sampler does not contain the complete governed base/out cell grid.",
+        )
+
+    digest = hashlib.sha256()
+    digest.update(_TRANSITION_SAMPLER_DIGEST_SCHEMA)
+    for cell in sorted(expected_cells):
+        raw_cumulative = np.asarray(cumulative_by_cell[cell])
+        raw_transitions = np.asarray(transitions_by_cell[cell])
+        if (
+            raw_cumulative.ndim != 1
+            or raw_cumulative.size == 0
+            or raw_cumulative.dtype.kind not in "fiu"
+            or raw_transitions.shape != (raw_cumulative.size, 3)
+            or raw_transitions.dtype.kind not in "iu"
+        ):
+            raise _error(
+                "SIMULATOR_TRANSITION_SAMPLER_INVALID",
+                f"Transition sampler cell {cell} has an invalid shape or dtype.",
+            )
+        cumulative = np.asarray(raw_cumulative, dtype="<f8")
+        transitions = np.asarray(raw_transitions, dtype="<i8")
+        if (
+            not np.isfinite(cumulative).all()
+            or np.any(cumulative < 0.0)
+            or np.any(cumulative > 1.0 + 1e-12)
+            or np.any(np.diff(cumulative) < -1e-12)
+            or not np.isclose(cumulative[-1], 1.0, rtol=0.0, atol=1e-12)
+            or np.any(transitions[:, 0] < 0)
+            or np.any(transitions[:, 0] > 3)
+            or np.any(transitions[:, 1] < 0)
+            or np.any(transitions[:, 1] > 7)
+            or np.any(transitions[:, 2] < 0)
+        ):
+            raise _error(
+                "SIMULATOR_TRANSITION_SAMPLER_INVALID",
+                f"Transition sampler cell {cell} contains invalid probability or state values.",
+            )
+        digest.update(int(cell).to_bytes(2, byteorder="little", signed=False))
+        digest.update(int(cumulative.size).to_bytes(4, byteorder="little", signed=False))
+        digest.update(cumulative.tobytes(order="C"))
+        digest.update(transitions.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def validate_scoring_model_usage(
@@ -509,10 +576,11 @@ def score_governed_game(
     expected_transition_sha = _sha256(
         expected_transition_model_sha256, label="expected transition model checksum"
     )
-    if transition_sha != expected_transition_sha:
+    sampler_sha = transition_sampler_sha256(transition_sampler)
+    if transition_sha != expected_transition_sha or transition_sha != sampler_sha:
         raise _error(
             "SIMULATOR_TRANSITION_AUTHORITY_MISMATCH",
-            "The loaded base/out transition authority differs from the scoring plan.",
+            "The actual base/out transition sampler differs from the declared or expected scoring authority.",
         )
     usage = validate_scoring_model_usage(
         game_inputs, artifact, scoring_mode=scoring_mode
@@ -547,6 +615,11 @@ def score_governed_game(
             "STAGE3_WHOLE_GAME_SIMULATION_FAILED",
             "The governed whole-game simulator failed; no partial score was published.",
         ) from exc
+    if transition_sampler_sha256(transition_sampler) != sampler_sha:
+        raise _error(
+            "SIMULATOR_TRANSITION_AUTHORITY_MUTATED",
+            "The base/out transition sampler changed during scoring; no result was published.",
+        )
     distributions = build_game_distribution_output(simulation)
     receipt_base = {
         "schemaVersion": GAME_SCORING_SCHEMA_VERSION,
@@ -762,5 +835,6 @@ __all__ = [
     "get_game_scoring_job",
     "reconcile_game_distribution_output",
     "score_governed_game",
+    "transition_sampler_sha256",
     "validate_scoring_model_usage",
 ]

@@ -160,8 +160,6 @@ def bind_verified_stage3_artifact(
     expected_manifest_sha256: str,
     model_role: str = FINAL_DEVELOPMENT_MODEL,
     fold_number: int | None = None,
-    validation_start_date: str | None = None,
-    validation_end_date: str | None = None,
 ) -> VerifiedStage3ArtifactBinding:
     """Bind an artifact-loader result after independently rechecking its manifest.
 
@@ -234,6 +232,7 @@ def bind_verified_stage3_artifact(
 
     artifact_id = _valid_identifier(manifest.get("artifactId"), label="artifact ID")
     role = str(model_role or "").upper()
+    loaded_fold_number = _member(loaded_artifact, "fold_number", "foldNumber")
     if role not in _MODEL_ROLES:
         raise _error("STAGE3_ARTIFACT_MODEL_ROLE_INVALID", "Artifact model role is invalid.")
     if role == FOLD_VALIDATION_MODEL:
@@ -241,17 +240,25 @@ def bind_verified_stage3_artifact(
             isinstance(fold_number, bool)
             or not isinstance(fold_number, int)
             or fold_number not in range(1, 6)
-            or not validation_start_date
-            or not validation_end_date
         ):
             raise _error(
                 "STAGE3_FOLD_MODEL_AUTHORITY_INCOMPLETE",
-                "A historical OOF binding requires fold number and validation boundaries.",
+                "A historical OOF binding requires a fold number from 1 through 5.",
             )
-    elif any(value is not None for value in (fold_number, validation_start_date, validation_end_date)):
+        if loaded_fold_number != fold_number:
+            raise _error(
+                "STAGE3_FOLD_MODEL_AUTHORITY_MISMATCH",
+                "The loaded fold pipeline identity differs from the selected verified manifest fold.",
+            )
+    elif fold_number is not None:
         raise _error(
             "STAGE3_FINAL_MODEL_FOLD_IDENTITY_PROHIBITED",
             "The final development model cannot be represented as an OOF fold model.",
+        )
+    elif loaded_fold_number is not None:
+        raise _error(
+            "STAGE3_FINAL_MODEL_FOLD_IDENTITY_PROHIBITED",
+            "A loaded fold pipeline cannot be bound as the final development model.",
         )
 
     files = manifest.get("files")
@@ -267,6 +274,47 @@ def bind_verified_stage3_artifact(
         ) if isinstance(fold_files, list) else None
     else:
         model_file = files.get("model") if isinstance(files, Mapping) else None
+
+    fold_training_end: str | None = None
+    fold_validation_start: str | None = None
+    fold_validation_end: str | None = None
+    if role == FOLD_VALIDATION_MODEL:
+        oof = manifest.get("oof")
+        oof_folds = oof.get("folds") if isinstance(oof, Mapping) else None
+        oof_fold = next(
+            (
+                item
+                for item in oof_folds
+                if isinstance(item, Mapping) and item.get("foldNumber") == fold_number
+            ),
+            None,
+        ) if isinstance(oof_folds, list) else None
+        if not isinstance(model_file, Mapping) or not isinstance(oof_fold, Mapping):
+            raise _error(
+                "STAGE3_FOLD_MODEL_AUTHORITY_INCOMPLETE",
+                "The verified manifest does not contain the selected fold's model and OOF authority.",
+            )
+        fold_training_end = _valid_identifier(
+            model_file.get("trainEnd"), label="fold training end date"
+        )
+        fold_validation_start = _valid_identifier(
+            model_file.get("validationStart"), label="fold validation start date"
+        )
+        fold_validation_end = _valid_identifier(
+            model_file.get("validationEnd"), label="fold validation end date"
+        )
+        if any(
+            oof_fold.get(key) != value
+            for key, value in (
+                ("trainEnd", fold_training_end),
+                ("validationStart", fold_validation_start),
+                ("validationEnd", fold_validation_end),
+            )
+        ):
+            raise _error(
+                "STAGE3_FOLD_MODEL_AUTHORITY_MISMATCH",
+                "The selected fold model boundaries differ from the verified OOF manifest authority.",
+            )
     model_sha = _valid_sha(
         model_file.get("sha256") if isinstance(model_file, Mapping) else None,
         label="model binary checksum",
@@ -280,13 +328,16 @@ def bind_verified_stage3_artifact(
         ),
         label="feature-set checksum",
     )
-    training_end = _nested(
-        manifest,
-        ("training", "endDate"),
-        ("training", "developmentEndDate"),
-        ("training", "cutoff"),
-    )
-    training_end = _valid_identifier(training_end, label="training end date")
+    if role == FOLD_VALIDATION_MODEL:
+        training_end = fold_training_end
+    else:
+        training_end = _nested(
+            manifest,
+            ("training", "endDate"),
+            ("training", "developmentEndDate"),
+            ("training", "cutoff"),
+        )
+        training_end = _valid_identifier(training_end, label="training end date")
 
     return VerifiedStage3ArtifactBinding(
         artifact_id=artifact_id,
@@ -299,8 +350,8 @@ def bind_verified_stage3_artifact(
         model_role=role,
         training_end_date=training_end,
         fold_number=fold_number,
-        validation_start_date=validation_start_date,
-        validation_end_date=validation_end_date,
+        validation_start_date=fold_validation_start,
+        validation_end_date=fold_validation_end,
     )
 
 
@@ -348,7 +399,7 @@ def _validate_state(state: SimulatedPAStateBatch) -> tuple[int, dict[str, np.nda
         )
     parsed = {
         "context_inning": _integer_vector(
-            inning, name="inning", shape=shape, minimum=1, maximum=30
+            inning, name="inning", shape=shape, minimum=1
         ),
         "context_top_bottom": np.where(is_top, 0, 1).astype(np.int64),
         "context_outs_before": _integer_vector(
