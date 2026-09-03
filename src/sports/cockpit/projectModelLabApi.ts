@@ -427,13 +427,23 @@ export type ModelDevelopmentJob = {
   error: { code?: string; message?: string };
 };
 
+export type CandidateEvidenceSource =
+  | "CURRENT_BATCH"
+  | "HISTORICAL_BASELINE"
+  | "INCREMENTAL_CURRENT_EVIDENCE";
+
+export type FinalistEvaluationBatch = Extract<
+  CandidateEvidenceSource,
+  "CURRENT_BATCH" | "HISTORICAL_BASELINE"
+>;
+
 export type CandidateAttempt = {
   attemptId: string;
   candidateFingerprint: string;
   runId: string;
   runReceiptSha256: string;
   receiptSchemaVersion: string;
-  evidenceSource: "CURRENT_BATCH" | "HISTORICAL_BASELINE" | "INCREMENTAL_CURRENT_EVIDENCE";
+  evidenceSource: CandidateEvidenceSource;
   createdAt: string;
   status: string;
   modelFamily: string;
@@ -477,7 +487,7 @@ export type CandidateGroup = {
   failedAttemptCount: number;
   reproducibilityStatus: string;
   rankingEligible: boolean;
-  evidenceSources: string[];
+  evidenceSources: CandidateEvidenceSource[];
   meanOofLogLoss: number | null;
   foldStandardDeviation: number | null;
   summedBrier: number | null;
@@ -492,6 +502,25 @@ export type CandidateGroup = {
   rank: number | null;
   developmentLabel: string;
   finalist: boolean;
+};
+
+export type FinalistCandidateSelection = {
+  candidateFingerprint: string;
+  evidenceSource: FinalistEvaluationBatch;
+  representativeAttemptId: string;
+  immutableEvidenceIdentity: string;
+  attemptEvidence: Array<{
+    attemptId: string;
+    runId: string;
+    runReceiptSha256: string;
+  }>;
+};
+
+export type SaveProjectCandidateFinalistsPayload = {
+  candidateFingerprints: string[];
+  candidateSelections: FinalistCandidateSelection[];
+  rationale: string;
+  evaluationBatch: FinalistEvaluationBatch;
 };
 
 export type ProjectCandidateEvaluation = {
@@ -567,6 +596,134 @@ export type ProjectCandidateEvaluation = {
   selectionMetric: string;
   promotionStatus: "NOT_PROMOTED";
   finalOotAccessed: false;
+};
+
+export type ProjectDownstreamFinalist = {
+  candidateFingerprint: string;
+  modelFamily: string;
+  featureSetId?: string | null;
+  featureSetName: string;
+  featureCount: number;
+  evidenceSource: CandidateEvidenceSource;
+  attemptId?: string;
+  runId?: string;
+  runReceiptSha256?: string;
+  representativeAttemptId?: string;
+  immutableEvidenceIdentity?: string;
+  meanOofLogLoss: number | null;
+  foldStandardDeviation?: number | null;
+  summedBrier: number | null;
+  ece: number | null;
+  macroF1?: number | null;
+  accuracy?: number | null;
+  foldsCompleted: number;
+  classCalibration: Array<{
+    class: string;
+    support: number;
+    meanPredictedProbability: number;
+    observedRate: number;
+    absoluteCalibrationError: number;
+    oneVsRestBrier?: number | null;
+  }>;
+  reloadableArtifactSha256?: string | null;
+  reloadableArtifactAvailable?: boolean;
+  rowLevelOofArtifactAvailable?: boolean;
+  evaluationEvidence?: {
+    status?: string;
+    scope?: string;
+    reloadableArtifactSha256?: string | null;
+    reloadableArtifactStatus?: string;
+    finalOotTargetAccessed?: false;
+    [key: string]: unknown;
+  } | null;
+};
+
+export type ProjectDownstreamDecision = {
+  decisionId?: string;
+  calibrationDecisionId?: string;
+  gameEvaluationDecisionId?: string;
+  selectionId?: string;
+  selectionDecisionId?: string;
+  registryEntryId?: string;
+  candidateFingerprint?: string;
+  finalistSelectionId?: string;
+  disposition?: string;
+  decision?: string;
+  status?: string;
+  rationale?: string;
+  createdAt?: string;
+  checksum?: string;
+  receiptSha256?: string;
+  authorityStatus?: "CURRENT" | "SUPERSEDED";
+  modelStatus?: string;
+  exportStatus?: string;
+  deploymentStatus?: string;
+  [key: string]: unknown;
+};
+
+export type ProjectStage3Downstream = {
+  ok: true;
+  schemaVersion?: string;
+  authority: {
+    projectId: string;
+    projectName?: string;
+    goldDatasetId: string;
+    goldManifestSha: string;
+    authorityKey?: string;
+    splitContractId?: string;
+    finalistSelectionId?: string | null;
+    targetOrder?: string[];
+    legacyGlobalMatrixUsed: false;
+    base22FallbackAvailable?: boolean;
+  };
+  population: {
+    scope: "DEVELOPMENT_ONLY";
+    developmentRows: number;
+    startDate: string;
+    endDate: string;
+    finalOotRows: number;
+    finalOotStartDate: string;
+    finalOotEndDate: string;
+    finalOotLocked: true;
+    finalOotTargetAccessed: false;
+    finalOotScored: false;
+  };
+  finalists: ProjectDownstreamFinalist[];
+  historicalBenchmark: {
+    label?: string;
+    candidateFingerprint?: string;
+    modelFamily?: string;
+    featureSetName?: string;
+    meanOofLogLoss: number | null;
+    evidenceSource?: string;
+    [key: string]: unknown;
+  } | null;
+  calibrationDecisions: ProjectDownstreamDecision[];
+  gameEvaluationDecisions: ProjectDownstreamDecision[];
+  selectionDecisions: ProjectDownstreamDecision[];
+  registryEntries: ProjectDownstreamDecision[];
+  gates: {
+    calibrationReady: boolean;
+    calibrationDecisionCurrent: boolean;
+    gameEvaluationReady: boolean;
+    gameEvaluationDecisionCurrent: boolean;
+    challengerDecisionReady: boolean;
+    challengerDecisionCurrent: boolean;
+    registryHandoffReady: boolean;
+    registryHandoffCurrent: boolean;
+  };
+  activity: {
+    providerCalls?: number;
+    modelsPromoted?: number;
+    newFitsOnPageLoad?: number;
+    calibrationFits?: number;
+    simulationRuns?: number;
+    finalOotRowsAccessed?: number;
+    modelsExported?: number;
+    finalOotTargetAccessed?: boolean;
+    finalOotScored?: boolean;
+    [key: string]: unknown;
+  };
 };
 
 type SummaryEnvelope = { ok: true } & ProjectModelLabSummary;
@@ -953,14 +1110,12 @@ export async function fetchProjectCandidateEvaluation(projectId: string, signal?
 
 export async function saveProjectCandidateFinalists(
   projectId: string,
-  candidateFingerprints: string[],
-  rationale: string,
-  evaluationBatch = "ALL_VERIFIED_PROJECT_EVIDENCE",
+  payload: SaveProjectCandidateFinalistsPayload,
   signal?: AbortSignal,
 ) {
   return postJSON<{ ok: true; selection: Record<string, any> }>(
     `${evaluationPrefix(projectId)}/finalists`,
-    { candidateFingerprints, rationale, evaluationBatch },
+    payload,
     signal,
   );
 }
@@ -1008,6 +1163,108 @@ export async function executeProjectModelRefinement(
     `/projects/${encodeURIComponent(projectId)}/sports/stage3-model-refinement/execute`,
     { planId },
     signal,
+  );
+}
+
+const downstreamPrefix = (projectId: string) =>
+  `/projects/${encodeURIComponent(projectId)}/sports/stage3-downstream`;
+
+function assertProjectStage3Downstream(value: ProjectStage3Downstream, projectId: string) {
+  if (
+    value?.ok !== true
+    || value.authority?.projectId !== projectId
+    || !value.authority?.goldDatasetId
+    || !value.authority?.goldManifestSha
+    || value.authority?.legacyGlobalMatrixUsed !== false
+    || value.authority?.base22FallbackAvailable === true
+    || value.population?.scope !== "DEVELOPMENT_ONLY"
+    || value.population?.developmentRows <= 0
+    || value.population?.finalOotLocked !== true
+    || value.population?.finalOotTargetAccessed !== false
+    || value.population?.finalOotScored !== false
+    || !Array.isArray(value.finalists)
+    || !Array.isArray(value.calibrationDecisions)
+    || !Array.isArray(value.gameEvaluationDecisions)
+    || !Array.isArray(value.selectionDecisions)
+    || !Array.isArray(value.registryEntries)
+    || (value.activity?.providerCalls ?? 0) !== 0
+    || (value.activity?.modelsPromoted ?? 0) !== 0
+    || (value.activity?.newFitsOnPageLoad ?? 0) !== 0
+    || (value.activity?.calibrationFits ?? 0) !== 0
+    || (value.activity?.simulationRuns ?? 0) !== 0
+    || (value.activity?.finalOotRowsAccessed ?? 0) !== 0
+    || (value.activity?.modelsExported ?? 0) !== 0
+    || (projectId === CURRENT_PROJECT_ID && (
+      value.authority.goldDatasetId !== CURRENT_GOLD_ID
+      || value.authority.goldManifestSha !== CURRENT_GOLD_MANIFEST
+      || value.population.developmentRows !== CURRENT_DEVELOPMENT.rows
+      || value.population.startDate !== CURRENT_DEVELOPMENT.start
+      || value.population.endDate !== CURRENT_DEVELOPMENT.end
+      || value.population.finalOotRows !== CURRENT_FINAL_OOT.rows
+      || value.population.finalOotStartDate !== CURRENT_FINAL_OOT.start
+      || value.population.finalOotEndDate !== CURRENT_FINAL_OOT.end
+    ))
+  ) throw new Error("The downstream workflow did not preserve the exact project-bound development authority, zero-promotion state, and final-OOT lock.");
+  return value;
+}
+
+export async function fetchProjectStage3Downstream(projectId: string, signal?: AbortSignal) {
+  const value = await getJSON<ProjectStage3Downstream>(downstreamPrefix(projectId), {
+    signal,
+    credentials: "include",
+  });
+  return assertProjectStage3Downstream(value, projectId);
+}
+
+export async function saveProjectCalibrationDecision(
+  projectId: string,
+  payload: {
+    candidateFingerprint: string;
+    disposition: "RETAIN_RAW" | "DEFER_RECALIBRATION";
+    rationale: string;
+  },
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; decision: ProjectDownstreamDecision }>(
+    `${downstreamPrefix(projectId)}/calibration`, payload, signal,
+  );
+}
+
+export async function saveProjectGameEvaluationDecision(
+  projectId: string,
+  payload: {
+    candidateFingerprint: string;
+    disposition: "DEFER_UNTIL_EXECUTABLE_ARTIFACT";
+    rationale: string;
+  },
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; decision: ProjectDownstreamDecision }>(
+    `${downstreamPrefix(projectId)}/game-evaluation`, payload, signal,
+  );
+}
+
+export async function saveProjectResearchSelection(
+  projectId: string,
+  payload: {
+    candidateFingerprint: string;
+    decision: "REGISTER_RESEARCH_CHALLENGER" | "KEEP_INCUMBENT" | "DEFER_DECISION";
+    rationale: string;
+  },
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; decision: ProjectDownstreamDecision }>(
+    `${downstreamPrefix(projectId)}/selection`, payload, signal,
+  );
+}
+
+export async function registerProjectResearchHandoff(
+  projectId: string,
+  selectionId: string,
+  signal?: AbortSignal,
+) {
+  return postJSON<{ ok: true; entry: ProjectDownstreamDecision; idempotentReplay: boolean }>(
+    `${downstreamPrefix(projectId)}/registry`, { selectionId }, signal,
   );
 }
 

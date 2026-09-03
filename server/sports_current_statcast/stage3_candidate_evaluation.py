@@ -55,6 +55,15 @@ FINALIST_RUN_TYPE = "sports_stage3_finalist_selection"
 REFINEMENT_RUN_TYPE = "sports_stage3_model_refinement"
 ANALYSIS_RUN_TYPE = "sports_stage3_candidate_analysis"
 INCREMENTAL_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_CANDIDATE_ATTEMPT_RECEIPT_V1"
+DOWNSTREAM_SCHEMA_VERSION = "SPORTS_STAGE3_PROJECT_DOWNSTREAM_V1"
+CALIBRATION_DECISION_SCHEMA_VERSION = "SPORTS_STAGE3_CALIBRATION_DECISION_V1"
+GAME_EVALUATION_DECISION_SCHEMA_VERSION = "SPORTS_STAGE3_GAME_EVALUATION_DECISION_V1"
+CHALLENGER_DECISION_SCHEMA_VERSION = "SPORTS_STAGE3_CHALLENGER_DECISION_V1"
+REGISTRY_HANDOFF_SCHEMA_VERSION = "SPORTS_STAGE3_RESEARCH_HANDOFF_V1"
+CALIBRATION_DECISION_RUN_TYPE = "sports_stage3_calibration_decision"
+GAME_EVALUATION_DECISION_RUN_TYPE = "sports_stage3_game_evaluation_decision"
+CHALLENGER_DECISION_RUN_TYPE = "sports_stage3_challenger_decision"
+REGISTRY_HANDOFF_RUN_TYPE = "sports_stage3_research_handoff"
 
 _METRIC_KEYS = (
     "meanOofLogLoss",
@@ -430,6 +439,43 @@ def _decision_rows(database: Database, project_id: str, run_type: str) -> list[d
         for row in RunRepository(database).list_for_project(project_id)
         if row.get("run_type") == run_type
     ]
+
+
+def _ordered_finalist_rows(database: Database, project_id: str) -> list[dict[str, Any]]:
+    """Return immutable finalist decisions newest-first.
+
+    Finalist receipts are an append-only decision history.  Current authority
+    belongs to the newest receipt; older receipts remain auditable history and
+    must never be unioned into the current selection.
+    """
+
+    return sorted(
+        _decision_rows(database, project_id, FINALIST_RUN_TYPE),
+        key=lambda row: (
+            str(row.get("started_at") or row.get("completed_at") or ""),
+            str(row.get("run_id") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _finalist_parameters(row: Mapping[str, Any] | None) -> dict[str, Any]:
+    if row is None:
+        return {}
+    parameters = json_loads(row.get("parameters_json"), {})
+    if not isinstance(parameters, Mapping):
+        raise _evidence_shape_error(
+            "The current finalist-selection receipt parameters must be a JSON object."
+        )
+    return dict(parameters)
+
+
+def _current_finalist_authority(
+    database: Database, project_id: str
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    rows = _ordered_finalist_rows(database, project_id)
+    row = rows[0] if rows else None
+    return row, _finalist_parameters(row)
 
 
 def _incremental_diagnostic(code: str, message: str, receipt: Any = None) -> dict[str, Any]:
@@ -960,28 +1006,74 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
     incremental = _incremental_current_evidence(
         database, project_id, resolved, runs
     )
-    finalist_rows = _decision_rows(database, project_id, FINALIST_RUN_TYPE)
+    finalist_rows = _ordered_finalist_rows(database, project_id)
     refinements = _decision_rows(database, project_id, REFINEMENT_RUN_TYPE)
     analyses = _decision_rows(database, project_id, ANALYSIS_RUN_TYPE)
     finalist_fingerprints: set[str] = set()
+    finalist_evidence_source: str | None = None
     finalist_receipts: list[dict[str, Any]] = []
-    for row in finalist_rows:
-        parameters = json_loads(row.get("parameters_json"), {})
+    current_finalist_id = finalist_rows[0].get("run_id") if finalist_rows else None
+    for index, row in enumerate(finalist_rows):
+        parameters = _finalist_parameters(row)
         artifacts = json_loads(row.get("artifacts_json"), {})
-        finalist_fingerprints.update(parameters.get("candidateFingerprints") or [])
+        if not isinstance(artifacts, Mapping):
+            raise _evidence_shape_error(
+                "Finalist-selection artifacts must be a JSON object."
+            )
+        fingerprints = parameters.get("candidateFingerprints") or []
+        if not isinstance(fingerprints, list):
+            raise _evidence_shape_error(
+                "Finalist-selection candidateFingerprints must be a JSON array."
+            )
+        if index == 0:
+            finalist_fingerprints = {str(item) for item in fingerprints}
+            requested_source = str(
+                parameters.get("evidenceSource")
+                or parameters.get("evaluationBatch")
+                or ""
+            )
+            if requested_source in {"CURRENT_BATCH", "HISTORICAL_BASELINE"}:
+                finalist_evidence_source = requested_source
+            else:
+                # Legacy V1 finalist receipts used ALL even when every bound
+                # attempt came from one exact source. Resolve that source only
+                # when the immutable attempt identities make it unambiguous.
+                selected_candidates = parameters.get("selectedCandidates") or []
+                receipt_shas = {
+                    str(receipt)
+                    for item in selected_candidates
+                    if isinstance(item, Mapping)
+                    for receipt in (item.get("attemptReceiptSha256s") or [])
+                }
+                matching_sources = {
+                    str(attempt.get("evidenceSource"))
+                    for group in source_groups
+                    if group["candidateFingerprint"] in finalist_fingerprints
+                    for attempt in group["attempts"]
+                    if attempt.get("runReceiptSha256") in receipt_shas
+                }
+                if len(matching_sources) == 1:
+                    finalist_evidence_source = matching_sources.pop()
         finalist_receipts.append(
             {
                 "selectionId": row.get("run_id"),
                 "status": row.get("status"),
                 "createdAt": row.get("started_at"),
-                "candidateFingerprints": parameters.get("candidateFingerprints") or [],
+                "candidateFingerprints": fingerprints,
                 "rationale": parameters.get("rationale"),
                 "receiptSha256": artifacts.get("receiptSha256"),
+                "evaluationBatch": parameters.get("evaluationBatch"),
+                "selectedCandidates": parameters.get("selectedCandidates") or [],
+                "authorityStatus": "CURRENT" if index == 0 else "SUPERSEDED",
+                "supersededBySelectionId": None if index == 0 else current_finalist_id,
             }
         )
     for collection in (grouped, current, historical):
         for row in collection:
-            row["finalist"] = row["candidateFingerprint"] in finalist_fingerprints
+            row["finalist"] = (
+                row["candidateFingerprint"] in finalist_fingerprints
+                and finalist_evidence_source in row["evidenceSources"]
+            )
     return {
         "ok": True,
         "schemaVersion": EVALUATION_SCHEMA_VERSION,
@@ -1048,6 +1140,7 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
         },
         "candidateGroups": grouped,
         "finalists": finalist_receipts,
+        "currentFinalistSelectionId": current_finalist_id,
         "refinements": [
             {
                 "refinementId": row.get("run_id"),
@@ -1075,10 +1168,27 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
 
 
 def _candidate_group(
-    database: Database, project_id: str, fingerprint: str
+    database: Database,
+    project_id: str,
+    fingerprint: str,
+    *,
+    evidence_source: str | None = None,
 ) -> tuple[Any, dict[str, Any]]:
     resolved = resolve_model_lab_authority(database, project_id)
-    grouped = _group_attempts(_read_runs(project_id, resolved))
+    runs = _read_runs(project_id, resolved)
+    if evidence_source is not None:
+        schema = {
+            "CURRENT_BATCH": RUN_RECEIPT_SCHEMA_VERSION_V2,
+            "HISTORICAL_BASELINE": RUN_RECEIPT_SCHEMA_VERSION,
+        }.get(evidence_source)
+        if schema is None:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_EVIDENCE_SOURCE_INVALID",
+                "The finalist evidence source is unsupported.",
+                status_code=409,
+            )
+        runs = [run for run in runs if run.get("schemaVersion") == schema]
+    grouped = _group_attempts(runs)
     candidate = next((item for item in grouped if item["candidateFingerprint"] == fingerprint), None)
     if candidate is None:
         raise Stage3ModelLaboratoryError(
@@ -1087,6 +1197,191 @@ def _candidate_group(
             status_code=404,
         )
     return resolved, candidate
+
+
+def _current_finalist_binding(
+    database: Database,
+    project_id: str,
+    fingerprint: str,
+    candidate: Mapping[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Resolve one current finalist to its frozen source and attempt evidence."""
+
+    _row, parameters = _current_finalist_authority(database, project_id)
+    raw_fingerprints = parameters.get("candidateFingerprints") or []
+    if not isinstance(raw_fingerprints, list) or fingerprint not in {
+        str(item) for item in raw_fingerprints
+    }:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_REFINEMENT_FINALIST_REQUIRED",
+            "Only a finalist in the current immutable selection receipt may enter this action.",
+            status_code=409,
+        )
+    raw_selected = parameters.get("selectedCandidates") or []
+    if not isinstance(raw_selected, list):
+        raise _evidence_shape_error(
+            "The current finalist selectedCandidates must be a JSON array."
+        )
+    selected = next(
+        (
+            item
+            for item in raw_selected
+            if isinstance(item, Mapping)
+            and str(item.get("candidateFingerprint") or "") == fingerprint
+        ),
+        None,
+    )
+    if selected is None:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_ATTEMPT_EVIDENCE_MISSING",
+            "The current finalist receipt does not identify its selected candidate evidence.",
+            status_code=409,
+        )
+    explicit_sources = {
+        str(value)
+        for value in (
+            selected.get("evidenceSource"),
+            parameters.get("evidenceSource"),
+            parameters.get("evaluationBatch"),
+        )
+        if str(value or "") in {"CURRENT_BATCH", "HISTORICAL_BASELINE"}
+    }
+    if len(explicit_sources) > 1:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_EVIDENCE_SOURCE_MISMATCH",
+            "The current finalist receipt contains conflicting evidence-source identities.",
+            status_code=409,
+        )
+    if explicit_sources:
+        source = explicit_sources.pop()
+    else:
+        # Backward-compatible resolution for already persisted V1 selections:
+        # infer only from their exact immutable run-receipt hashes.
+        bound_receipts = {
+            str(value)
+            for value in (selected.get("attemptReceiptSha256s") or [])
+        }
+        inferred = {
+            str(attempt.get("evidenceSource"))
+            for attempt in (candidate.get("attempts") or [])
+            if attempt.get("runReceiptSha256") in bound_receipts
+        }
+        if len(inferred) != 1:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_EVIDENCE_SOURCE_AMBIGUOUS",
+                "The current legacy finalist receipt cannot be resolved to one exact evidence source.",
+                status_code=409,
+            )
+        source = inferred.pop()
+    source_attempts = [
+        attempt
+        for attempt in (candidate.get("attempts") or [])
+        if attempt.get("status") == "COMPLETE"
+        and attempt.get("evidenceSource") == source
+    ]
+    if not source_attempts:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_EVIDENCE_SOURCE_MISMATCH",
+            "The current finalist receipt has no matching completed source-bound attempt.",
+            status_code=409,
+        )
+    available = {
+        (
+            str(item.get("attemptId") or ""),
+            str(item.get("runId") or ""),
+            str(item.get("runReceiptSha256") or ""),
+        ): item
+        for item in source_attempts
+    }
+    raw_bound = selected.get("attemptEvidence")
+    if raw_bound is not None:
+        if not isinstance(raw_bound, list) or any(
+            not isinstance(item, Mapping) for item in raw_bound
+        ):
+            raise _evidence_shape_error(
+                "The current finalist attemptEvidence must be a JSON array of objects."
+            )
+        bound = {
+            (
+                str(item.get("attemptId") or ""),
+                str(item.get("runId") or ""),
+                str(item.get("runReceiptSha256") or ""),
+            )
+            for item in raw_bound
+        }
+        if (
+            not bound
+            or len(bound) != len(raw_bound)
+            or any(not all(identity) for identity in bound)
+            or not bound.issubset(available)
+        ):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_ATTEMPT_EVIDENCE_MISMATCH",
+                "The current finalist receipt no longer reconciles to its exact attempt evidence.",
+                status_code=409,
+            )
+        representative = available.get(
+            (
+                str(selected.get("representativeAttemptId") or ""),
+                str(selected.get("representativeRunId") or ""),
+                str(selected.get("immutableEvidenceIdentity") or ""),
+            )
+        )
+        if representative is None or (
+            str(representative.get("attemptId") or ""),
+            str(representative.get("runId") or ""),
+            str(representative.get("runReceiptSha256") or ""),
+        ) not in bound:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_REPRESENTATIVE_EVIDENCE_MISMATCH",
+                "The current finalist representative is not part of its bound attempt evidence.",
+                status_code=409,
+            )
+    else:
+        # Legacy immutable selections bound run receipt hashes but did not name
+        # their representative attempt. Preserve those receipts and derive one
+        # representative deterministically from only the originally bound runs.
+        bound_receipts = {
+            str(value) for value in (selected.get("attemptReceiptSha256s") or [])
+        }
+        legacy_attempts = [
+            attempt
+            for attempt in source_attempts
+            if attempt.get("runReceiptSha256") in bound_receipts
+        ]
+        if not legacy_attempts:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_ATTEMPT_EVIDENCE_MISMATCH",
+                "The current legacy finalist no longer resolves to its bound immutable receipts.",
+                status_code=409,
+            )
+        representative = next(
+            (
+                item
+                for item in legacy_attempts
+                if item.get("attemptId") == candidate.get("representativeAttemptId")
+            ),
+            legacy_attempts[0],
+        )
+    return source, {
+        **dict(selected),
+        "evidenceSource": source,
+        "representativeAttemptId": representative["attemptId"],
+        "representativeRunId": representative["runId"],
+        "immutableEvidenceIdentity": representative["runReceiptSha256"],
+    }
+
+
+def _current_finalist_source(
+    database: Database,
+    project_id: str,
+    fingerprint: str,
+    candidate: Mapping[str, Any],
+) -> str:
+    source, _binding = _current_finalist_binding(
+        database, project_id, fingerprint, candidate
+    )
+    return source
 
 
 def save_finalist_selection(
@@ -1113,11 +1408,41 @@ def save_finalist_selection(
             "STAGE3_FINALIST_RATIONALE_REQUIRED",
             "A written finalist rationale of at least 20 characters is required.",
         )
+    evidence_source = str(payload.get("evaluationBatch") or "").upper()
+    if evidence_source not in {"CURRENT_BATCH", "HISTORICAL_BASELINE"}:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_EVIDENCE_SOURCE_REQUIRED",
+            "Finalist selection requires one exact evidence source: CURRENT_BATCH or HISTORICAL_BASELINE.",
+            status_code=409,
+        )
+    raw_selections = payload.get("candidateSelections")
+    if not isinstance(raw_selections, list) or any(
+        not isinstance(item, Mapping) for item in raw_selections
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_EVIDENCE_BINDINGS_REQUIRED",
+            "Finalist selection requires exact candidate, attempt, run, and receipt bindings.",
+        )
+    selection_by_fingerprint: dict[str, Mapping[str, Any]] = {}
+    for item in raw_selections:
+        fingerprint = str(item.get("candidateFingerprint") or "")
+        if not fingerprint or fingerprint in selection_by_fingerprint:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_EVIDENCE_BINDINGS_DUPLICATE",
+                "Each finalist must have exactly one evidence binding.",
+            )
+        selection_by_fingerprint[fingerprint] = item
+    requested_fingerprints = [str(item) for item in fingerprints]
+    if set(selection_by_fingerprint) != set(requested_fingerprints):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_FINALIST_EVIDENCE_BINDINGS_MISMATCH",
+            "Candidate evidence bindings must match the requested finalist fingerprints exactly.",
+            status_code=409,
+        )
     resolved = resolve_model_lab_authority(database, project_id)
     groups = {item["candidateFingerprint"]: item for item in _group_attempts(_read_runs(project_id, resolved))}
     selected = []
-    for raw in fingerprints:
-        fingerprint = str(raw)
+    for fingerprint in requested_fingerprints:
         candidate = groups.get(fingerprint)
         if candidate is None or candidate["status"] != "COMPLETE":
             raise Stage3ModelLaboratoryError(
@@ -1125,18 +1450,132 @@ def save_finalist_selection(
                 f"Finalist {fingerprint} is not a completed verified project-bound candidate.",
                 status_code=409,
             )
+        binding = selection_by_fingerprint[fingerprint]
+        if str(binding.get("evidenceSource") or "").upper() != evidence_source:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_EVIDENCE_SOURCE_MISMATCH",
+                f"Finalist {fingerprint} does not bind the requested {evidence_source} evidence source.",
+                status_code=409,
+            )
+        source_attempts = [
+            item
+            for item in candidate["attempts"]
+            if item.get("status") == "COMPLETE"
+            and item.get("evidenceSource") == evidence_source
+        ]
+        source_attempts.sort(
+            key=lambda item: (
+                str(item.get("createdAt") or ""),
+                str(item.get("runReceiptSha256") or ""),
+                str(item.get("attemptId") or ""),
+            ),
+            reverse=True,
+        )
+        if not source_attempts:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_EVIDENCE_SOURCE_MISMATCH",
+                f"Finalist {fingerprint} has no completed verified {evidence_source} attempt.",
+                status_code=409,
+            )
+        raw_attempt_evidence = binding.get("attemptEvidence")
+        if not isinstance(raw_attempt_evidence, list) or any(
+            not isinstance(item, Mapping) for item in raw_attempt_evidence
+        ):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_ATTEMPT_EVIDENCE_REQUIRED",
+                f"Finalist {fingerprint} requires exact attempt/run/receipt evidence.",
+            )
+
+        def attempt_identity(item: Mapping[str, Any]) -> tuple[str, str, str]:
+            return (
+                str(item.get("attemptId") or ""),
+                str(item.get("runId") or ""),
+                str(item.get("runReceiptSha256") or ""),
+            )
+
+        available_attempts = {attempt_identity(item) for item in source_attempts}
+        requested_attempts = {attempt_identity(item) for item in raw_attempt_evidence}
+        if (
+            not requested_attempts
+            or len(requested_attempts) != len(raw_attempt_evidence)
+            or any(not all(identity) for identity in requested_attempts)
+            or not requested_attempts.issubset(available_attempts)
+        ):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_ATTEMPT_EVIDENCE_MISMATCH",
+                f"Finalist {fingerprint} attempt evidence does not identify completed verified {evidence_source} attempts exactly.",
+                status_code=409,
+            )
+        selected_source_attempts = [
+            item
+            for item in source_attempts
+            if attempt_identity(item) in requested_attempts
+        ]
+        representative_attempt_id = str(binding.get("representativeAttemptId") or "")
+        immutable_evidence_identity = str(binding.get("immutableEvidenceIdentity") or "")
+        representative = next(
+            (
+                item
+                for item in selected_source_attempts
+                if item.get("attemptId") == representative_attempt_id
+                and item.get("runReceiptSha256") == immutable_evidence_identity
+            ),
+            None,
+        )
+        if representative is None:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_REPRESENTATIVE_EVIDENCE_MISMATCH",
+                f"Finalist {fingerprint} representative attempt and receipt identity do not match verified {evidence_source} evidence.",
+                status_code=409,
+            )
+        source_losses = [
+            float(item["meanOofLogLoss"])
+            for item in selected_source_attempts
+            if item.get("meanOofLogLoss") is not None
+        ]
+        if not source_losses:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_FINALIST_METRIC_EVIDENCE_MISSING",
+                f"Finalist {fingerprint} has no finite source-bound selection metric.",
+                status_code=409,
+            )
+        source_result_fingerprints = {
+            str(item.get("resultFingerprint") or "")
+            for item in selected_source_attempts
+        }
+        exact_attempt_evidence = [
+            {
+                "attemptId": item["attemptId"],
+                "runId": item["runId"],
+                "runReceiptSha256": item["runReceiptSha256"],
+                "receiptSchemaVersion": item["receiptSchemaVersion"],
+                "createdAt": item["createdAt"],
+                "resultFingerprint": item["resultFingerprint"],
+            }
+            for item in selected_source_attempts
+        ]
         selected.append(
             {
                 "candidateFingerprint": fingerprint,
                 "modelFamily": candidate["modelFamily"],
                 "featureSetId": candidate["featureSetId"],
-                "meanOofLogLoss": candidate["meanOofLogLoss"],
-                "warnings": [candidate["reproducibilityStatus"]]
-                if candidate["reproducibilityStatus"] == "REPRODUCIBILITY_REVIEW_REQUIRED"
+                "meanOofLogLoss": float(np.mean(source_losses)),
+                "evidenceSource": evidence_source,
+                "representativeAttemptId": representative["attemptId"],
+                "representativeRunId": representative["runId"],
+                "immutableEvidenceIdentity": representative["runReceiptSha256"],
+                "attemptEvidence": exact_attempt_evidence,
+                "warnings": ["REPRODUCIBILITY_REVIEW_REQUIRED"]
+                if len(source_result_fingerprints) > 1
                 else [],
-                "attemptReceiptSha256s": [item["runReceiptSha256"] for item in candidate["attempts"]],
+                # Retained for readers of the original receipt contract.  The
+                # structured attemptEvidence above is the exact authority.
+                "attemptReceiptSha256s": [
+                    item["runReceiptSha256"] for item in selected_source_attempts
+                ],
             }
         )
+    prior_row, _prior_parameters = _current_finalist_authority(database, project_id)
     body = {
         "schemaVersion": FINALIST_RECEIPT_SCHEMA_VERSION,
         "selectionId": "stage3-finalist-selection-" + uuid.uuid4().hex,
@@ -1149,7 +1588,9 @@ def save_finalist_selection(
         "splitContractId": resolved.split["contractId"],
         "outlierPolicyId": resolved.outlier_policy["policyId"],
         "missingPolicyId": resolved.missing_policy["policyId"],
-        "evaluationBatch": str(payload.get("evaluationBatch") or "ALL_VERIFIED_PROJECT_EVIDENCE"),
+        "evaluationBatch": evidence_source,
+        "evidenceSource": evidence_source,
+        "supersedesSelectionId": prior_row.get("run_id") if prior_row else None,
         "candidateFingerprints": [item["candidateFingerprint"] for item in selected],
         "selectedCandidates": selected,
         "rationale": rationale,
@@ -1203,22 +1644,24 @@ def request_candidate_analysis(
             status_code=409,
         )
     if kind in {"SHAP", "SENSITIVITY"}:
-        persisted_finalists = {
-            str(item)
-            for row in _decision_rows(database, project_id, FINALIST_RUN_TYPE)
-            for item in (
-                json_loads(row.get("parameters_json"), {}).get(
-                    "candidateFingerprints"
-                )
-                or []
+        try:
+            evidence_source = _current_finalist_source(
+                database, project_id, fingerprint, candidate
             )
-        }
-        if fingerprint not in persisted_finalists:
-            raise Stage3ModelLaboratoryError(
-                "STAGE3_ANALYSIS_FINALIST_REQUIRED",
-                "SHAP and sensitivity analysis require an immutable finalist selection receipt.",
-                status_code=409,
-            )
+        except Stage3ModelLaboratoryError as exc:
+            if exc.code == "STAGE3_REFINEMENT_FINALIST_REQUIRED":
+                raise Stage3ModelLaboratoryError(
+                    "STAGE3_ANALYSIS_FINALIST_REQUIRED",
+                    "SHAP and sensitivity require the current immutable finalist selection receipt.",
+                    status_code=409,
+                ) from exc
+            raise
+        resolved, candidate = _candidate_group(
+            database,
+            project_id,
+            fingerprint,
+            evidence_source=evidence_source,
+        )
     sample_size = int(payload.get("sampleSize") or 2_000)
     if not 100 <= sample_size <= 5_000:
         raise Stage3ModelLaboratoryError(
@@ -1309,20 +1752,43 @@ def plan_model_refinement(
 ) -> dict[str, Any]:
     fingerprint = str(payload.get("candidateFingerprint") or "")
     resolved, candidate = _candidate_group(database, project_id, fingerprint)
-    if candidate["status"] != "COMPLETE" or not candidate.get("finalist"):
-        # ``finalist`` is decorated by the full evaluation response, so resolve
-        # persisted finalist decisions explicitly here.
-        selected = {
+    evidence_source, finalist_binding = _current_finalist_binding(
+        database, project_id, fingerprint, candidate
+    )
+    resolved, candidate = _candidate_group(
+        database,
+        project_id,
+        fingerprint,
+        evidence_source=evidence_source,
+    )
+    if candidate["status"] != "COMPLETE":
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_REFINEMENT_PARENT_EVIDENCE_MISSING",
+            "The current source-bound finalist has no completed immutable attempt.",
+            status_code=409,
+        )
+    current_selection_row, _current_selection_parameters = (
+        _current_finalist_authority(database, project_id)
+    )
+    parent_attempt = next(
+        (
             item
-            for row in _decision_rows(database, project_id, FINALIST_RUN_TYPE)
-            for item in (json_loads(row.get("parameters_json"), {}).get("candidateFingerprints") or [])
-        }
-        if fingerprint not in selected:
-            raise Stage3ModelLaboratoryError(
-                "STAGE3_REFINEMENT_FINALIST_REQUIRED",
-                "Only an explicitly selected finalist may enter Model Refinement.",
-                status_code=409,
-            )
+            for item in candidate["attempts"]
+            if item.get("status") == "COMPLETE"
+            and item.get("attemptId")
+            == finalist_binding.get("representativeAttemptId")
+            and item.get("runId") == finalist_binding.get("representativeRunId")
+            and item.get("runReceiptSha256")
+            == finalist_binding.get("immutableEvidenceIdentity")
+        ),
+        None,
+    )
+    if parent_attempt is None:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_REFINEMENT_PARENT_EVIDENCE_MISSING",
+            "The current source-bound finalist has no exact representative attempt.",
+            status_code=409,
+        )
     method = str(payload.get("method") or "STABILITY_SELECTION").upper()
     if method not in _REFINEMENT_METHODS:
         raise Stage3ModelLaboratoryError(
@@ -1377,7 +1843,14 @@ def plan_model_refinement(
         "goldDatasetId": CURRENT_GOLD_DATASET_ID,
         "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
         "splitContractId": resolved.split["contractId"],
+        "finalistSelectionId": current_selection_row.get("run_id")
+        if current_selection_row
+        else None,
         "parentCandidateFingerprint": fingerprint,
+        "parentEvidenceSource": evidence_source,
+        "parentAttemptId": parent_attempt["attemptId"],
+        "parentRunId": parent_attempt["runId"],
+        "parentRunReceiptSha256": parent_attempt["runReceiptSha256"],
         "parentFeatureSetId": candidate.get("featureSetId"),
         "parentFeatureCount": feature_count,
         "method": method,
@@ -1467,9 +1940,23 @@ def execute_model_refinement(
             status_code=409,
         )
     resolved, candidate = _candidate_group(
-        database, project_id, str(plan["parentCandidateFingerprint"])
+        database,
+        project_id,
+        str(plan["parentCandidateFingerprint"]),
+        evidence_source=str(plan.get("parentEvidenceSource") or ""),
     )
-    attempt = next((item for item in candidate["attempts"] if item["status"] == "COMPLETE"), None)
+    attempt = next(
+        (
+            item
+            for item in candidate["attempts"]
+            if item["status"] == "COMPLETE"
+            and item.get("attemptId") == plan.get("parentAttemptId")
+            and item.get("runId") == plan.get("parentRunId")
+            and item.get("runReceiptSha256")
+            == plan.get("parentRunReceiptSha256")
+        ),
+        None,
+    )
     if attempt is None:
         raise Stage3ModelLaboratoryError(
             "STAGE3_REFINEMENT_PARENT_EVIDENCE_MISSING",
@@ -1587,6 +2074,798 @@ def execute_model_refinement(
     }
 
 
+def _ordered_downstream_rows(
+    database: Database, project_id: str, run_type: str
+) -> list[dict[str, Any]]:
+    return sorted(
+        _decision_rows(database, project_id, run_type),
+        key=lambda row: (
+            str(row.get("started_at") or row.get("completed_at") or ""),
+            str(row.get("run_id") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def _downstream_receipts(
+    database: Database, project_id: str, run_type: str
+) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    rows = _ordered_downstream_rows(database, project_id, run_type)
+    current_id = rows[0].get("run_id") if rows else None
+    for row in rows:
+        body = json_loads(row.get("parameters_json"), {})
+        artifacts = json_loads(row.get("artifacts_json"), {})
+        if not isinstance(body, Mapping) or not isinstance(artifacts, Mapping):
+            raise _evidence_shape_error(
+                "A Stage 3 downstream decision receipt must decode to JSON objects."
+            )
+        receipts.append(
+            {
+                **dict(body),
+                "receiptSha256": artifacts.get("receiptSha256"),
+                "authorityStatus": (
+                    "CURRENT" if row.get("run_id") == current_id else "SUPERSEDED"
+                ),
+                "ledgerStatus": row.get("status"),
+            }
+        )
+    return receipts
+
+
+def _current_downstream_receipt(
+    database: Database, project_id: str, run_type: str
+) -> dict[str, Any] | None:
+    receipts = _downstream_receipts(database, project_id, run_type)
+    return receipts[0] if receipts else None
+
+
+def _current_finalist_details(
+    database: Database, project_id: str
+) -> tuple[Any, str | None, list[dict[str, Any]]]:
+    resolved = resolve_model_lab_authority(database, project_id)
+    selection_row, parameters = _current_finalist_authority(database, project_id)
+    fingerprints = parameters.get("candidateFingerprints") or []
+    if not isinstance(fingerprints, list):
+        raise _evidence_shape_error(
+            "The current finalist selection candidateFingerprints must be a JSON array."
+        )
+    all_groups = {
+        item["candidateFingerprint"]: item
+        for item in _group_attempts(_read_runs(project_id, resolved))
+    }
+    finalists: list[dict[str, Any]] = []
+    for raw_fingerprint in fingerprints:
+        fingerprint = str(raw_fingerprint)
+        all_source_candidate = all_groups.get(fingerprint)
+        if all_source_candidate is None:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_CURRENT_FINALIST_EVIDENCE_MISSING",
+                "A current finalist no longer resolves to verified project-bound evidence.",
+                status_code=409,
+            )
+        evidence_source, binding = _current_finalist_binding(
+            database, project_id, fingerprint, all_source_candidate
+        )
+        _resolved, candidate = _candidate_group(
+            database,
+            project_id,
+            fingerprint,
+            evidence_source=evidence_source,
+        )
+        attempt = next(
+            (
+                item
+                for item in candidate.get("attempts") or []
+                if item.get("status") == "COMPLETE"
+                and item.get("attemptId") == binding.get("representativeAttemptId")
+                and item.get("runId") == binding.get("representativeRunId")
+                and item.get("runReceiptSha256")
+                == binding.get("immutableEvidenceIdentity")
+            ),
+            None,
+        )
+        if attempt is None:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_CURRENT_FINALIST_ATTEMPT_MISSING",
+                "A current finalist no longer resolves to its exact representative attempt.",
+                status_code=409,
+            )
+        evaluation = attempt.get("evaluationEvidence")
+        reloadable_sha = (
+            evaluation.get("reloadableArtifactSha256")
+            if isinstance(evaluation, Mapping)
+            else None
+        )
+        finalists.append(
+            {
+                "candidateFingerprint": fingerprint,
+                "modelFamily": candidate.get("modelFamily"),
+                "featureSetId": candidate.get("featureSetId"),
+                "featureSetName": candidate.get("featureSetName"),
+                "featureCount": candidate.get("featureCount"),
+                "meanOofLogLoss": attempt.get("meanOofLogLoss"),
+                "summedBrier": attempt.get("summedBrier"),
+                "ece": attempt.get("ece"),
+                "macroF1": attempt.get("macroF1"),
+                "accuracy": attempt.get("accuracy"),
+                "foldStandardDeviation": attempt.get("foldStandardDeviation"),
+                "foldsCompleted": attempt.get("foldsCompleted"),
+                "runtimeMs": attempt.get("runtimeMs"),
+                "classCalibration": attempt.get("classCalibration") or [],
+                "folds": attempt.get("folds") or [],
+                "evidenceSource": evidence_source,
+                "attemptId": attempt.get("attemptId"),
+                "runId": attempt.get("runId"),
+                "runReceiptSha256": attempt.get("runReceiptSha256"),
+                "resultFingerprint": attempt.get("resultFingerprint"),
+                "reloadableArtifactSha256": reloadable_sha,
+                "reloadableArtifactAvailable": bool(reloadable_sha),
+                "rowLevelOofArtifactAvailable": bool(
+                    reloadable_sha
+                    and isinstance(evaluation, Mapping)
+                    and evaluation.get("status") == "AVAILABLE"
+                ),
+            }
+        )
+    return (
+        resolved,
+        str(selection_row.get("run_id")) if selection_row else None,
+        finalists,
+    )
+
+
+def _historical_development_benchmark(
+    project_id: str, resolved: Any
+) -> dict[str, Any] | None:
+    historical = _group_attempts(
+        [
+            run
+            for run in _read_runs(project_id, resolved)
+            if run.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION
+        ]
+    )
+    best = next(
+        (
+            item
+            for item in historical
+            if item.get("rankingEligible")
+            and item.get("meanOofLogLoss") is not None
+        ),
+        None,
+    )
+    if best is None:
+        return None
+    return {
+        "candidateFingerprint": best.get("candidateFingerprint"),
+        "modelFamily": best.get("modelFamily"),
+        "featureSetId": best.get("featureSetId"),
+        "featureSetName": best.get("featureSetName"),
+        "meanOofLogLoss": best.get("meanOofLogLoss"),
+        "evidenceSource": "HISTORICAL_BASELINE",
+        "immutableEvidenceIdentity": best.get("immutableEvidenceIdentity"),
+    }
+
+
+def _require_current_finalist(
+    database: Database, project_id: str, fingerprint: str
+) -> tuple[Any, str, dict[str, Any]]:
+    resolved, selection_id, finalists = _current_finalist_details(database, project_id)
+    if not selection_id:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_FINALIST_SELECTION_REQUIRED",
+            "Select and save at least one current project finalist before continuing.",
+            status_code=409,
+        )
+    candidate = next(
+        (
+            item
+            for item in finalists
+            if item.get("candidateFingerprint") == fingerprint
+        ),
+        None,
+    )
+    if candidate is None:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_FINALIST_REQUIRED",
+            "The requested candidate is not part of the current immutable finalist selection.",
+            status_code=409,
+        )
+    return resolved, selection_id, candidate
+
+
+def _persist_downstream_decision(
+    database: Database,
+    *,
+    project_id: str,
+    actor_user_id: str,
+    kind: str,
+    run_type: str,
+    workflow_type: str,
+    body: Mapping[str, Any],
+) -> dict[str, Any]:
+    persisted = _persist_object(kind, body)
+    RunRepository(database).upsert(
+        {
+            "run_id": body["decisionId"],
+            "project_id": project_id,
+            "run_type": run_type,
+            "workflow_type": workflow_type,
+            "status": body["status"],
+            "started_at": body["createdAt"],
+            "completed_at": body["createdAt"],
+            "parameters_json": dict(body),
+            "metrics_json": {
+                "modelFits": 0,
+                "modelsPromoted": 0,
+                "finalOotRowsAccessed": 0,
+            },
+            "artifacts_json": {"receiptSha256": persisted["receiptSha256"]},
+            "error_json": {},
+            "created_by": actor_user_id,
+        }
+    )
+    return persisted
+
+
+def project_stage3_downstream(
+    database: Database, project_id: str
+) -> dict[str, Any]:
+    resolved, finalist_selection_id, finalists = _current_finalist_details(
+        database, project_id
+    )
+    historical_benchmark = _historical_development_benchmark(project_id, resolved)
+    calibration = _downstream_receipts(
+        database, project_id, CALIBRATION_DECISION_RUN_TYPE
+    )
+    game_evaluation = _downstream_receipts(
+        database, project_id, GAME_EVALUATION_DECISION_RUN_TYPE
+    )
+    selections = _downstream_receipts(
+        database, project_id, CHALLENGER_DECISION_RUN_TYPE
+    )
+    registry = _downstream_receipts(
+        database, project_id, REGISTRY_HANDOFF_RUN_TYPE
+    )
+    current_calibration = calibration[0] if calibration else None
+    current_game_evaluation = game_evaluation[0] if game_evaluation else None
+    current_selection = selections[0] if selections else None
+    current_registry = registry[0] if registry else None
+    finalist_fingerprints = {
+        str(item.get("candidateFingerprint") or "") for item in finalists
+    }
+    calibration_current = bool(
+        current_calibration
+        and current_calibration.get("finalistSelectionId") == finalist_selection_id
+        and current_calibration.get("candidateFingerprint") in finalist_fingerprints
+    )
+    game_current = bool(
+        current_game_evaluation
+        and calibration_current
+        and current_game_evaluation.get("finalistSelectionId") == finalist_selection_id
+        and current_game_evaluation.get("candidateFingerprint")
+        == current_calibration.get("candidateFingerprint")
+        and current_game_evaluation.get("calibrationDecisionId")
+        == current_calibration.get("decisionId")
+    )
+    selection_current_for_finalists = bool(
+        current_selection
+        and current_selection.get("finalistSelectionId") == finalist_selection_id
+        and (
+            not current_selection.get("candidateFingerprint")
+            or current_selection.get("candidateFingerprint") in finalist_fingerprints
+        )
+    )
+    selection_current = bool(
+        selection_current_for_finalists
+        and (
+            current_selection.get("decision") != "REGISTER_RESEARCH_CHALLENGER"
+            or (
+                game_current
+                and current_selection.get("candidateFingerprint")
+                == current_game_evaluation.get("candidateFingerprint")
+                and current_selection.get("calibrationDecisionId")
+                == current_calibration.get("decisionId")
+                and current_selection.get("gameEvaluationDecisionId")
+                == current_game_evaluation.get("decisionId")
+            )
+        )
+    )
+    registry_current = bool(
+        current_registry
+        and selection_current
+        and current_selection.get("decision") == "REGISTER_RESEARCH_CHALLENGER"
+        and current_registry.get("finalistSelectionId") == finalist_selection_id
+        and current_registry.get("selectionDecisionId")
+        == current_selection.get("decisionId")
+        and current_registry.get("candidateFingerprint")
+        == current_selection.get("candidateFingerprint")
+    )
+    return {
+        "ok": True,
+        "schemaVersion": DOWNSTREAM_SCHEMA_VERSION,
+        "authority": {
+            "projectId": project_id,
+            "projectName": resolved.project_name,
+            "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+            "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+            "authorityKey": resolved.authority_key,
+            "splitContractId": resolved.split["contractId"],
+            "splitChecksum": resolved.split["checksum"],
+            "outlierPolicyId": resolved.outlier_policy["policyId"],
+            "missingPolicyId": resolved.missing_policy["policyId"],
+            "targetOrder": list(GOLD_CLASS_ORDER),
+            "finalistSelectionId": finalist_selection_id,
+            "legacyGlobalMatrixUsed": False,
+            "base22FallbackAvailable": False,
+        },
+        "population": {
+            "scope": "DEVELOPMENT_ONLY",
+            "developmentRows": EXPECTED_DEVELOPMENT[2],
+            "startDate": EXPECTED_DEVELOPMENT[0],
+            "endDate": EXPECTED_DEVELOPMENT[1],
+            "finalOotRows": EXPECTED_FINAL_OOT[2],
+            "finalOotStartDate": EXPECTED_FINAL_OOT[0],
+            "finalOotEndDate": EXPECTED_FINAL_OOT[1],
+            "finalOotLocked": True,
+            "finalOotTargetAccessed": False,
+            "finalOotScored": False,
+        },
+        "finalists": finalists,
+        "historicalBenchmark": historical_benchmark,
+        "calibrationDecisions": calibration,
+        "gameEvaluationDecisions": game_evaluation,
+        "selectionDecisions": selections,
+        "registryEntries": registry,
+        "gates": {
+            "calibrationReady": bool(finalists),
+            "calibrationDecisionCurrent": calibration_current,
+            "gameEvaluationReady": calibration_current,
+            "gameEvaluationDecisionCurrent": game_current,
+            "challengerDecisionReady": calibration_current and game_current,
+            "challengerDecisionCurrent": selection_current,
+            "registryHandoffReady": bool(
+                selection_current
+                and current_selection.get("decision")
+                == "REGISTER_RESEARCH_CHALLENGER"
+            ),
+            "registryHandoffCurrent": registry_current,
+        },
+        "limitations": {
+            "rowLevelOofPredictions": "NOT_PERSISTED_IN_CURRENT_RECEIPTS",
+            "reloadableModelArtifact": "NOT_PERSISTED_IN_CURRENT_RECEIPTS",
+            "pregameLineupStarterAuthority": "NOT_AVAILABLE_FOR_CURRENT_GOLD",
+            "postHocCalibrationExecutable": False,
+            "wholeGameSimulationExecutable": False,
+            "finalOotEvaluationAuthorized": False,
+            "deploymentExecutable": False,
+        },
+        "activity": {
+            "newFitsOnPageLoad": 0,
+            "calibrationFits": 0,
+            "simulationRuns": 0,
+            "finalOotRowsAccessed": 0,
+            "providerCalls": 0,
+            "modelsPromoted": 0,
+            "modelsExported": 0,
+        },
+        "workflowStatus": (
+            "RESEARCH_HANDOFF_RECORDED"
+            if registry_current
+            else "RESEARCH_CHALLENGER_DECISION_RECORDED"
+            if selection_current
+            else "DEVELOPMENT_REVIEW_IN_PROGRESS"
+        ),
+    }
+
+
+def save_project_calibration_decision(
+    database: Database,
+    project_id: str,
+    payload: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    fingerprint = str(payload.get("candidateFingerprint") or "")
+    disposition = str(payload.get("disposition") or "").upper()
+    if disposition not in {"RETAIN_RAW", "DEFER_RECALIBRATION"}:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CALIBRATION_DISPOSITION_INVALID",
+            "Choose RETAIN_RAW or DEFER_RECALIBRATION for the current aggregate-only evidence.",
+        )
+    resolved, finalist_selection_id, candidate = _require_current_finalist(
+        database, project_id, fingerprint
+    )
+    rationale = str(payload.get("rationale") or "").strip() or (
+        "Record that no post-hoc calibration is applied to the finalist's aggregate five-fold OOF evidence."
+        if disposition == "RETAIN_RAW"
+        else "Defer post-hoc calibration until row-level OOF predictions are captured."
+    )
+    body = {
+        "schemaVersion": CALIBRATION_DECISION_SCHEMA_VERSION,
+        "decisionId": "stage3-calibration-decision-" + uuid.uuid4().hex,
+        "createdAt": now_iso(),
+        "createdByUserId": actor_user_id,
+        "projectId": project_id,
+        "authorityKey": resolved.authority_key,
+        "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+        "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+        "finalistSelectionId": finalist_selection_id,
+        "candidateFingerprint": fingerprint,
+        "candidateAttemptId": candidate["attemptId"],
+        "candidateRunReceiptSha256": candidate["runReceiptSha256"],
+        "evidenceSource": candidate["evidenceSource"],
+        "disposition": disposition,
+        "status": (
+            "NO_POSTHOC_CALIBRATION_SELECTED"
+            if disposition == "RETAIN_RAW"
+            else "POSTHOC_CALIBRATION_DEFERRED"
+        ),
+        "rationale": rationale,
+        "rawMetrics": {
+            "meanOofLogLoss": candidate["meanOofLogLoss"],
+            "summedBrier": candidate["summedBrier"],
+            "ece": candidate["ece"],
+            "classCalibration": candidate["classCalibration"],
+        },
+        "calibrationApplied": False,
+        "calibrationMethod": (
+            "NONE_NO_POSTHOC_CALIBRATION"
+            if disposition == "RETAIN_RAW"
+            else "NOT_EVALUATED_DEFERRED"
+        ),
+        "aggregateOnlyEvidence": True,
+        "rowLevelOofProbabilitiesPersisted": False,
+        "rowLevelOofArtifactAvailable": candidate["rowLevelOofArtifactAvailable"],
+        "modelsFit": 0,
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "modelsPromoted": 0,
+    }
+    persisted = _persist_downstream_decision(
+        database,
+        project_id=project_id,
+        actor_user_id=actor_user_id,
+        kind="calibration-decisions",
+        run_type=CALIBRATION_DECISION_RUN_TYPE,
+        workflow_type="sports_stage3_calibration",
+        body=body,
+    )
+    return {"ok": True, "decision": persisted}
+
+
+def save_project_game_evaluation_decision(
+    database: Database,
+    project_id: str,
+    payload: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    fingerprint = str(payload.get("candidateFingerprint") or "")
+    disposition = str(payload.get("disposition") or "").upper()
+    if disposition != "DEFER_UNTIL_EXECUTABLE_ARTIFACT":
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_GAME_EVALUATION_DISPOSITION_INVALID",
+            "The current evidence supports only an explicit deferral until an executable artifact and pregame participant authority exist.",
+        )
+    resolved, finalist_selection_id, candidate = _require_current_finalist(
+        database, project_id, fingerprint
+    )
+    calibration = _current_downstream_receipt(
+        database, project_id, CALIBRATION_DECISION_RUN_TYPE
+    )
+    if (
+        not calibration
+        or calibration.get("finalistSelectionId") != finalist_selection_id
+        or calibration.get("candidateFingerprint") != fingerprint
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_CALIBRATION_DECISION_REQUIRED",
+            "Save the current finalist's calibration disposition before recording game-evaluation readiness.",
+            status_code=409,
+        )
+    rationale = str(payload.get("rationale") or "").strip() or (
+        "Defer whole-game evaluation until a reloadable model and governed pregame lineup/starter authority exist."
+    )
+    body = {
+        "schemaVersion": GAME_EVALUATION_DECISION_SCHEMA_VERSION,
+        "decisionId": "stage3-game-evaluation-decision-" + uuid.uuid4().hex,
+        "createdAt": now_iso(),
+        "createdByUserId": actor_user_id,
+        "projectId": project_id,
+        "authorityKey": resolved.authority_key,
+        "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+        "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+        "finalistSelectionId": finalist_selection_id,
+        "candidateFingerprint": fingerprint,
+        "candidateAttemptId": candidate["attemptId"],
+        "candidateRunReceiptSha256": candidate["runReceiptSha256"],
+        "calibrationDecisionId": calibration["decisionId"],
+        "disposition": disposition,
+        "status": "GAME_EVALUATION_DEFERRED_MISSING_PREREQUISITES",
+        "rationale": rationale,
+        "missingPrerequisites": [
+            "RELOADABLE_MODEL_ARTIFACT",
+            "ROW_LEVEL_OOF_PREDICTIONS",
+            "GOVERNED_PREGAME_LINEUP_AUTHORITY",
+            "GOVERNED_PREGAME_STARTER_AUTHORITY",
+        ],
+        "gameSimulationRun": False,
+        "gameLevelMetricsAvailable": False,
+        "developmentResearchSelectionMayContinue": True,
+        "deploymentMayContinue": False,
+        "modelsFit": 0,
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "modelsPromoted": 0,
+    }
+    persisted = _persist_downstream_decision(
+        database,
+        project_id=project_id,
+        actor_user_id=actor_user_id,
+        kind="game-evaluation-decisions",
+        run_type=GAME_EVALUATION_DECISION_RUN_TYPE,
+        workflow_type="sports_stage3_game_evaluation",
+        body=body,
+    )
+    return {"ok": True, "decision": persisted}
+
+
+def save_project_challenger_decision(
+    database: Database,
+    project_id: str,
+    payload: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    decision = str(payload.get("decision") or "").upper()
+    if decision not in {
+        "REGISTER_RESEARCH_CHALLENGER",
+        "KEEP_INCUMBENT",
+        "DEFER_DECISION",
+    }:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CHALLENGER_DECISION_INVALID",
+            "Choose REGISTER_RESEARCH_CHALLENGER, KEEP_INCUMBENT, or DEFER_DECISION.",
+        )
+    fingerprint = str(payload.get("candidateFingerprint") or "")
+    resolved, finalist_selection_id, finalists = _current_finalist_details(
+        database, project_id
+    )
+    if not finalist_selection_id:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_FINALIST_SELECTION_REQUIRED",
+            "A current immutable finalist selection is required.",
+            status_code=409,
+        )
+    candidate = next(
+        (
+            item
+            for item in finalists
+            if item.get("candidateFingerprint") == fingerprint
+        ),
+        None,
+    )
+    if decision == "REGISTER_RESEARCH_CHALLENGER" and candidate is None:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_FINALIST_REQUIRED",
+            "Select one current finalist as the research challenger.",
+            status_code=409,
+        )
+    calibration = _current_downstream_receipt(
+        database, project_id, CALIBRATION_DECISION_RUN_TYPE
+    )
+    game_evaluation = _current_downstream_receipt(
+        database, project_id, GAME_EVALUATION_DECISION_RUN_TYPE
+    )
+    if decision == "REGISTER_RESEARCH_CHALLENGER" and (
+        not calibration
+        or not game_evaluation
+        or calibration.get("finalistSelectionId") != finalist_selection_id
+        or game_evaluation.get("finalistSelectionId") != finalist_selection_id
+        or calibration.get("candidateFingerprint") != fingerprint
+        or game_evaluation.get("candidateFingerprint") != fingerprint
+        or game_evaluation.get("calibrationDecisionId")
+        != calibration.get("decisionId")
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_DOWNSTREAM_REVIEW_REQUIRED",
+            "Save calibration and game-evaluation dispositions for the same current finalist before advancing it.",
+            status_code=409,
+        )
+    benchmark = _historical_development_benchmark(project_id, resolved)
+    candidate_loss = candidate.get("meanOofLogLoss") if candidate else None
+    benchmark_loss = benchmark.get("meanOofLogLoss") if benchmark else None
+    delta = (
+        float(candidate_loss) - float(benchmark_loss)
+        if candidate_loss is not None and benchmark_loss is not None
+        else None
+    )
+    rationale = str(payload.get("rationale") or "").strip() or {
+        "REGISTER_RESEARCH_CHALLENGER": "Advance this finalist for research-only artifact completion and prospective validation.",
+        "KEEP_INCUMBENT": "Retain the existing historical baseline while preserving the new finalist evidence.",
+        "DEFER_DECISION": "Defer a challenger decision while preserving all development evidence.",
+    }[decision]
+    status = {
+        "REGISTER_RESEARCH_CHALLENGER": "RESEARCH_CHALLENGER_SELECTED",
+        "KEEP_INCUMBENT": "INCUMBENT_RETAINED",
+        "DEFER_DECISION": "DECISION_DEFERRED",
+    }[decision]
+    body = {
+        "schemaVersion": CHALLENGER_DECISION_SCHEMA_VERSION,
+        "decisionId": "stage3-challenger-decision-" + uuid.uuid4().hex,
+        "createdAt": now_iso(),
+        "createdByUserId": actor_user_id,
+        "projectId": project_id,
+        "authorityKey": resolved.authority_key,
+        "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+        "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+        "finalistSelectionId": finalist_selection_id,
+        "candidateFingerprint": fingerprint if candidate else None,
+        "candidateAttemptId": candidate.get("attemptId") if candidate else None,
+        "candidateRunReceiptSha256": (
+            candidate.get("runReceiptSha256") if candidate else None
+        ),
+        "decision": decision,
+        "status": status,
+        "rationale": rationale,
+        "developmentComparison": {
+            "candidateMeanOofLogLoss": candidate_loss,
+            "historicalBenchmarkMeanOofLogLoss": benchmark_loss,
+            "candidateMinusBenchmarkLogLoss": delta,
+            "candidateOutperformedBenchmark": delta is not None and delta < 0,
+            "outperformanceRequiredToRegisterResearchChallenger": False,
+        },
+        "calibrationDecisionId": (
+            calibration.get("decisionId") if calibration else None
+        ),
+        "gameEvaluationDecisionId": (
+            game_evaluation.get("decisionId") if game_evaluation else None
+        ),
+        "modelStatus": (
+            "RESEARCH_CHALLENGER"
+            if decision == "REGISTER_RESEARCH_CHALLENGER"
+            else "NOT_SELECTED"
+        ),
+        "championSelected": False,
+        "promotionStatus": "NOT_PROMOTED",
+        "deploymentStatus": "NOT_DEPLOYABLE",
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "modelsPromoted": 0,
+    }
+    persisted = _persist_downstream_decision(
+        database,
+        project_id=project_id,
+        actor_user_id=actor_user_id,
+        kind="challenger-decisions",
+        run_type=CHALLENGER_DECISION_RUN_TYPE,
+        workflow_type="sports_stage3_challenger_decision",
+        body=body,
+    )
+    return {"ok": True, "decision": persisted}
+
+
+def register_project_research_handoff(
+    database: Database,
+    project_id: str,
+    payload: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    selection = _current_downstream_receipt(
+        database, project_id, CHALLENGER_DECISION_RUN_TYPE
+    )
+    requested_selection_id = str(payload.get("selectionId") or "")
+    resolved, finalist_selection_id, finalists = _current_finalist_details(
+        database, project_id
+    )
+    if (
+        not selection
+        or selection.get("decision") != "REGISTER_RESEARCH_CHALLENGER"
+        or selection.get("decisionId") != requested_selection_id
+        or selection.get("finalistSelectionId") != finalist_selection_id
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_RESEARCH_CHALLENGER_SELECTION_REQUIRED",
+            "The current research-challenger selection receipt is required for registration.",
+            status_code=409,
+        )
+    fingerprint = str(selection.get("candidateFingerprint") or "")
+    candidate = next(
+        (
+            item
+            for item in finalists
+            if item.get("candidateFingerprint") == fingerprint
+        ),
+        None,
+    )
+    if candidate is None:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_FINALIST_REQUIRED",
+            "The research-challenger selection no longer resolves to a current finalist.",
+            status_code=409,
+        )
+    calibration = _current_downstream_receipt(
+        database, project_id, CALIBRATION_DECISION_RUN_TYPE
+    )
+    game_evaluation = _current_downstream_receipt(
+        database, project_id, GAME_EVALUATION_DECISION_RUN_TYPE
+    )
+    if (
+        not calibration
+        or not game_evaluation
+        or calibration.get("finalistSelectionId") != finalist_selection_id
+        or game_evaluation.get("finalistSelectionId") != finalist_selection_id
+        or selection.get("calibrationDecisionId") != calibration.get("decisionId")
+        or selection.get("gameEvaluationDecisionId")
+        != game_evaluation.get("decisionId")
+        or game_evaluation.get("calibrationDecisionId")
+        != calibration.get("decisionId")
+        or calibration.get("candidateFingerprint") != fingerprint
+        or game_evaluation.get("candidateFingerprint") != fingerprint
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_CURRENT_DOWNSTREAM_REVIEW_REQUIRED",
+            "The research-challenger selection no longer resolves to the current calibration and game-evaluation decision chain.",
+            status_code=409,
+        )
+    existing = _current_downstream_receipt(
+        database, project_id, REGISTRY_HANDOFF_RUN_TYPE
+    )
+    if (
+        existing
+        and existing.get("selectionDecisionId") == requested_selection_id
+        and existing.get("finalistSelectionId") == finalist_selection_id
+        and existing.get("candidateFingerprint") == fingerprint
+    ):
+        return {"ok": True, "entry": existing, "idempotentReplay": True}
+    body = {
+        "schemaVersion": REGISTRY_HANDOFF_SCHEMA_VERSION,
+        "decisionId": "stage3-research-handoff-" + uuid.uuid4().hex,
+        "registryEntryId": "stage3-research-challenger-" + uuid.uuid4().hex,
+        "createdAt": now_iso(),
+        "createdByUserId": actor_user_id,
+        "projectId": project_id,
+        "authorityKey": resolved.authority_key,
+        "goldDatasetId": CURRENT_GOLD_DATASET_ID,
+        "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+        "finalistSelectionId": finalist_selection_id,
+        "selectionDecisionId": requested_selection_id,
+        "candidateFingerprint": fingerprint,
+        "candidateAttemptId": candidate["attemptId"],
+        "candidateRunReceiptSha256": candidate["runReceiptSha256"],
+        "modelFamily": candidate["modelFamily"],
+        "featureSetId": candidate["featureSetId"],
+        "featureSetName": candidate["featureSetName"],
+        "featureCount": candidate["featureCount"],
+        "status": "RESEARCH_CHALLENGER_HANDOFF_RECORDED",
+        "modelStatus": "RESEARCH_CHALLENGER",
+        "promotionStatus": "NOT_PROMOTED",
+        "artifactStatus": "EXECUTABLE_ARTIFACT_NOT_MATERIALIZED",
+        "exportStatus": "NOT_EXPORTED",
+        "deploymentStatus": "NOT_DEPLOYABLE",
+        "implementationStatus": "DEVELOPMENT_EVIDENCE_REGISTERED",
+        "nextRequiredAction": "MATERIALIZE_RELOADABLE_MODEL_AND_ROW_LEVEL_OOF_EVIDENCE_THEN_RUN_GAME_LEVEL_VALIDATION",
+        "historicalEvidencePreserved": True,
+        "primaryBankrollAffected": False,
+        "finalOotLocked": True,
+        "finalOotTargetAccessed": False,
+        "modelsFit": 0,
+        "modelsPromoted": 0,
+    }
+    persisted = _persist_downstream_decision(
+        database,
+        project_id=project_id,
+        actor_user_id=actor_user_id,
+        kind="research-handoffs",
+        run_type=REGISTRY_HANDOFF_RUN_TYPE,
+        workflow_type="sports_stage3_registry_handoff",
+        body=body,
+    )
+    return {"ok": True, "entry": persisted, "idempotentReplay": False}
+
+
 __all__ = [
     "ANALYSIS_RECEIPT_SCHEMA_VERSION",
     "EVALUATION_SCHEMA_VERSION",
@@ -1599,4 +2878,9 @@ __all__ = [
     "project_candidate_evaluation",
     "request_candidate_analysis",
     "save_finalist_selection",
+    "project_stage3_downstream",
+    "register_project_research_handoff",
+    "save_project_calibration_decision",
+    "save_project_challenger_decision",
+    "save_project_game_evaluation_decision",
 ]

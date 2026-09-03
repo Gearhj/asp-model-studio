@@ -180,6 +180,20 @@ test("Refinement creates immutable reduced challengers without mutating parents"
   assert.doesNotMatch(refinement, /promoteModel|selectChampion/);
 });
 
+test("Refinement presents truthful parent evidence and only executable selectors", () => {
+  includesAll(refinement, [
+    "representativeAttemptId", "hasRankingEvidence", "representativeEvidenceAttempt",
+    "EVIDENCE ·", "HISTORICAL_BASELINE", "NO RANKING PREVIEW IN PARENT RECEIPT",
+    "No feature ranking is fabricated", "recompute ranking evidence from training rows independently inside each chronological training fold",
+    "CURRENT_EXECUTOR_METHODS", '"RFE", "STABILITY_SELECTION", "COEFFICIENT_GUIDED_ELIMINATION"',
+    "PLAN_ONLY_EXECUTOR_UNAVAILABLE", "INCOMPATIBLE_WITH_SELECTED_ESTIMATOR",
+    "disabled={!state.executable}", "disabled={!methodExecution.executable}",
+    "planned && methodExecution.executable", "plan-only designs until a fold-local executor exists",
+    "(expectedRounds + 1) * 5",
+  ], "refinement evidence and execution capability");
+  assert.doesNotMatch(refinement, /executable reduction will fail closed for this candidate/);
+});
+
 test("client uses project-scoped plan, jobs, cancellation, Evaluation, finalist, analysis, and refinement routes", () => {
   includesAll(api, [
     "/sports/stage3-model-laboratory", "`${prefix(projectId)}/summary`", "`${prefix(projectId)}/plan`",

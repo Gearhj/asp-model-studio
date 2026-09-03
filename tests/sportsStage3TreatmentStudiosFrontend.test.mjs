@@ -17,7 +17,7 @@ function includesAll(source, values, label) {
     assert.ok(source.includes(value), `${label} missing: ${value}`);
 }
 
-test("project-bound steps 04-06 and 08 use governed studios while only unimplemented downstream steps remain held closed", () => {
+test("project-bound preparation and downstream steps use governed workflows while only segmentation remains held closed", () => {
   includesAll(
     cockpit,
     ["ProjectBoundOutlierStudio", "ProjectBoundMissingStudio", "ProjectBoundFeatureEngineering", "ProjectBoundSplitBalance"],
@@ -39,20 +39,14 @@ test("project-bound steps 04-06 and 08 use governed studios while only unimpleme
     cockpit,
     /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Temporal Split"/,
   );
-  for (const label of [
-    "Player Segmentation",
-    "Calibration",
-    "Simulation & Game-Level Evaluation",
-    "Champion / Challenger Decision",
-    "Registry, Export & Implementation",
-  ]) {
-    assert.ok(
-      cockpit.includes(`stepLabel="${label}"`),
-      `${label} must remain held closed`,
-    );
-  }
+  assert.ok(cockpit.includes('stepLabel="Player Segmentation"'));
   assert.ok(cockpit.includes("ProjectBoundCandidateEvaluation"));
   assert.ok(cockpit.includes("ProjectBoundModelRefinement"));
+  includesAll(
+    cockpit,
+    ["ProjectBoundCalibration", "ProjectBoundGameEvaluation", "ProjectBoundChampionDecision", "ProjectBoundRegistryHandoff"],
+    "project-bound downstream routing",
+  );
 });
 
 test("the shared Focus Mode shell is honest before evaluation and exposes authority-safe controls", () => {

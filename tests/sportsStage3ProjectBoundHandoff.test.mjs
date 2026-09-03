@@ -81,14 +81,18 @@ test("legacy datasets are absent; project-bound preparation studios replace step
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Missing Values"/);
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Feature Engineering"/);
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Split & Balance"/);
-  for (const label of [
-    "Player Segmentation",
-    "Calibration", "Simulation & Game-Level Evaluation", "Champion / Challenger Decision", "Registry, Export & Implementation",
-  ]) assert.ok(cockpit.includes(`stepLabel="${label}"`), `legacy fallback remains for ${label}`);
+  assert.ok(cockpit.includes('stepLabel="Player Segmentation"'));
   assert.ok(cockpit.includes("ProjectBoundModelLab"));
   assert.ok(cockpit.includes("ProjectBoundCandidateEvaluation"));
   assert.ok(cockpit.includes("ProjectBoundModelRefinement"));
+  assert.ok(cockpit.includes("ProjectBoundCalibration"));
+  assert.ok(cockpit.includes("ProjectBoundGameEvaluation"));
+  assert.ok(cockpit.includes("ProjectBoundChampionDecision"));
+  assert.ok(cockpit.includes("ProjectBoundRegistryHandoff"));
+  for (const label of [
+    "Calibration", "Simulation & Game-Level Evaluation", "Champion / Challenger Decision", "Registry, Export & Implementation",
+  ]) assert.doesNotMatch(cockpit, new RegExp(`ProjectBoundLaterStepGate state=\\{c\\.currentGoldReview\\} stepLabel="${label}"`));
   assert.doesNotMatch(cockpit, /ProjectBoundLaterStepGate state=\{c\.currentGoldReview\} stepLabel="Model Laboratory"/);
-  assert.ok(workflow.includes("Project-bound development only · no promotion"));
+  assert.ok(workflow.includes("Status: project-bound development only · promotion unavailable"));
   assert.doesNotMatch(workflow, /Open full PA Modeling Cockpit/);
 });

@@ -96,8 +96,13 @@ from ..sports_current_statcast.stage3_candidate_evaluation import (
     execute_model_refinement,
     plan_model_refinement,
     project_candidate_evaluation,
+    project_stage3_downstream,
+    register_project_research_handoff,
     request_candidate_analysis,
     save_finalist_selection,
+    save_project_calibration_decision,
+    save_project_challenger_decision,
+    save_project_game_evaluation_decision,
 )
 
 
@@ -1162,6 +1167,99 @@ def post_sports_stage3_model_refinement_execute(
     actor = _stage3_actor(user)
     return _run_stage3_prepare(
         lambda: execute_model_refinement(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-downstream")
+def get_sports_stage3_downstream(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read the project-bound Steps 12-15 development decision state."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: project_stage3_downstream(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/calibration")
+def post_sports_stage3_downstream_calibration(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Persist an explicit raw/deferred calibration decision without fitting."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_calibration_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/game-evaluation")
+def post_sports_stage3_downstream_game_evaluation(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Record the exact game-evaluation limitation for a current finalist."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_game_evaluation_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/selection")
+def post_sports_stage3_downstream_selection(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Select a research challenger without declaring a champion or promotion."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_challenger_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/registry")
+def post_sports_stage3_downstream_registry(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Record a metadata-only research handoff; never export or deploy it."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_project_research_handoff(
             _service().database,
             project_id,
             payload,

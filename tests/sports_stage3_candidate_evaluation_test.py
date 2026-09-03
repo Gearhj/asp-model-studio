@@ -520,23 +520,249 @@ class _Repository:
         return self.rows.get(run_id)
 
 
+def _finalist_payload(
+    group: Mapping[str, object],
+    source: str,
+    *,
+    attempt_receipts: set[str] | None = None,
+) -> dict[str, object]:
+    attempts = [
+        item
+        for item in group["attempts"]
+        if item["status"] == "COMPLETE"
+        and item["evidenceSource"] == source
+        and (
+            attempt_receipts is None
+            or item["runReceiptSha256"] in attempt_receipts
+        )
+    ]
+    assert attempts
+    representative = attempts[0]
+    fingerprint = str(group["candidateFingerprint"])
+    return {
+        "candidateFingerprints": [fingerprint],
+        "rationale": "Stable probability evidence merits bounded refinement.",
+        "evaluationBatch": source,
+        "candidateSelections": [
+            {
+                "candidateFingerprint": fingerprint,
+                "evidenceSource": source,
+                "representativeAttemptId": representative["attemptId"],
+                "immutableEvidenceIdentity": representative["runReceiptSha256"],
+                "attemptEvidence": [
+                    {
+                        "attemptId": item["attemptId"],
+                        "runId": item["runId"],
+                        "runReceiptSha256": item["runReceiptSha256"],
+                    }
+                    for item in attempts
+                ],
+            }
+        ],
+    }
+
+
 def test_finalist_receipt_is_not_champion_and_binds_attempt_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     repository = _Repository()
     run = _run(_candidate(), "1" * 64)
-    fingerprint = evaluation.candidate_specification_fingerprint(run, run["candidates"][0])
+    group = evaluation._group_attempts([run])[0]
     monkeypatch.setattr(evaluation, "RunRepository", lambda _database: repository)
     monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
     monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: [run])
     monkeypatch.setattr(evaluation, "_persist_object", lambda _kind, body: {**body, "receiptSha256": "a" * 64})
     result = evaluation.save_finalist_selection(
         object(), lab.EXPECTED_PROJECT_ID,
-        {"candidateFingerprints": [fingerprint], "rationale": "Stable probability evidence merits bounded refinement."},
+        _finalist_payload(group, "HISTORICAL_BASELINE"),
         actor_user_id="scientist",
     )
     assert result["selection"]["decisionStatus"] == "FINALIST_FOR_REFINEMENT"
     assert result["selection"]["championSelected"] is False
     assert result["selection"]["promotionStatus"] == "NOT_PROMOTED"
+    assert result["selection"]["evidenceSource"] == "HISTORICAL_BASELINE"
     assert result["selection"]["selectedCandidates"][0]["attemptReceiptSha256s"] == ["1" * 64]
+    assert result["selection"]["selectedCandidates"][0]["attemptEvidence"] == [
+        {
+            "attemptId": run["candidates"][0]["candidateId"],
+            "runId": run["runId"],
+            "runReceiptSha256": "1" * 64,
+            "receiptSchemaVersion": lab.RUN_RECEIPT_SCHEMA_VERSION,
+            "createdAt": run["createdAt"],
+            "resultFingerprint": result["selection"]["selectedCandidates"][0][
+                "attemptEvidence"
+            ][0]["resultFingerprint"],
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_code"),
+    [
+        (
+            lambda payload: payload.update({"evaluationBatch": "ALL"}),
+            "STAGE3_FINALIST_EVIDENCE_SOURCE_REQUIRED",
+        ),
+        (
+            lambda payload: payload["candidateSelections"][0].update(
+                {"evidenceSource": "CURRENT_BATCH"}
+            ),
+            "STAGE3_FINALIST_EVIDENCE_SOURCE_MISMATCH",
+        ),
+        (
+            lambda payload: payload["candidateSelections"][0]["attemptEvidence"][
+                0
+            ].update({"runReceiptSha256": "9" * 64}),
+            "STAGE3_FINALIST_ATTEMPT_EVIDENCE_MISMATCH",
+        ),
+    ],
+)
+def test_finalist_save_rejects_non_exact_source_or_attempt_evidence(
+    monkeypatch: pytest.MonkeyPatch, mutate, expected_code: str
+) -> None:
+    repository = _Repository()
+    run = _run(_candidate(), "1" * 64)
+    group = evaluation._group_attempts([run])[0]
+    payload = _finalist_payload(group, "HISTORICAL_BASELINE")
+    mutate(payload)
+    monkeypatch.setattr(evaluation, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
+    monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: [run])
+
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
+        evaluation.save_finalist_selection(
+            object(), lab.EXPECTED_PROJECT_ID, payload, actor_user_id="scientist"
+        )
+    assert exc_info.value.code == expected_code
+
+
+def test_latest_finalist_receipt_is_current_and_source_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _Repository()
+    historical_selected = _run(
+        _candidate(model="histogram_gradient_boosting", feature="feature-old"),
+        "1" * 64,
+    )
+    historical_same_spec = _run(_candidate(), "2" * 64)
+    current = _run(
+        _candidate(), "3" * 64, schema=lab.RUN_RECEIPT_SCHEMA_VERSION_V2
+    )
+    runs = [historical_selected, historical_same_spec, current]
+    monkeypatch.setattr(evaluation, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
+    monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: runs)
+    monkeypatch.setattr(
+        evaluation,
+        "_persist_object",
+        lambda _kind, body: {**body, "receiptSha256": evaluation._sha(body)},
+    )
+    monkeypatch.setattr(
+        evaluation,
+        "_incremental_current_evidence",
+        lambda *_args: {
+            "status": "NONE",
+            "candidateGroups": [],
+            "verifiedCandidateReceipts": 0,
+            "heldClosedReceipts": 0,
+        },
+    )
+
+    old_group = evaluation._group_attempts([historical_selected])[0]
+    old_result = evaluation.save_finalist_selection(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        _finalist_payload(old_group, "HISTORICAL_BASELINE"),
+        actor_user_id="scientist",
+    )
+    old_id = old_result["selection"]["selectionId"]
+    repository.rows[old_id]["started_at"] = "2026-09-01T12:00:00Z"
+
+    combined_group = evaluation._group_attempts(
+        [historical_same_spec, current]
+    )[0]
+    new_result = evaluation.save_finalist_selection(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        _finalist_payload(combined_group, "CURRENT_BATCH"),
+        actor_user_id="scientist",
+    )
+    new_id = new_result["selection"]["selectionId"]
+    repository.rows[new_id]["started_at"] = "2026-09-02T12:00:00Z"
+
+    result = evaluation.project_candidate_evaluation(
+        object(), lab.EXPECTED_PROJECT_ID
+    )
+    assert result["currentFinalistSelectionId"] == new_id
+    assert result["finalists"][0]["authorityStatus"] == "CURRENT"
+    assert result["finalists"][1]["authorityStatus"] == "SUPERSEDED"
+    assert result["finalists"][1]["supersededBySelectionId"] == new_id
+    assert result["currentBatches"][0]["finalist"] is True
+    same_historical = next(
+        item
+        for item in result["historicalEvidence"]["candidates"]
+        if item["candidateFingerprint"]
+        == result["currentBatches"][0]["candidateFingerprint"]
+    )
+    assert same_historical["finalist"] is False
+    old_candidate = next(
+        item
+        for item in result["historicalEvidence"]["candidates"]
+        if item["candidateFingerprint"] == old_group["candidateFingerprint"]
+    )
+    assert old_candidate["finalist"] is False
+
+
+def test_refinement_uses_frozen_finalist_attempt_after_later_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _Repository()
+    selected_run = _run(
+        _candidate(),
+        "1" * 64,
+        schema=lab.RUN_RECEIPT_SCHEMA_VERSION_V2,
+    )
+    selected_run["createdAt"] = "2026-09-01T12:00:00Z"
+    visible_runs = [selected_run]
+    monkeypatch.setattr(evaluation, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(evaluation, "resolve_model_lab_authority", lambda *_args: _resolved())
+    monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: visible_runs)
+    monkeypatch.setattr(
+        evaluation,
+        "_persist_object",
+        lambda _kind, body: {**body, "receiptSha256": evaluation._sha(body)},
+    )
+
+    selected_group = evaluation._group_attempts([selected_run])[0]
+    evaluation.save_finalist_selection(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        _finalist_payload(selected_group, "CURRENT_BATCH"),
+        actor_user_id="scientist",
+    )
+    later_run = _run(
+        _candidate(),
+        "2" * 64,
+        schema=lab.RUN_RECEIPT_SCHEMA_VERSION_V2,
+    )
+    later_run["createdAt"] = "2026-09-02T12:00:00Z"
+    visible_runs.append(later_run)
+
+    result = evaluation.plan_model_refinement(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        {
+            "candidateFingerprint": selected_group["candidateFingerprint"],
+            "method": "STABILITY_SELECTION",
+            "minimumRetainedFeatures": 24,
+            "eliminationStep": 2,
+        },
+        actor_user_id="scientist",
+    )
+    assert result["plan"]["parentEvidenceSource"] == "CURRENT_BATCH"
+    assert result["plan"]["parentAttemptId"] == selected_run["candidates"][0][
+        "candidateId"
+    ]
+    assert result["plan"]["parentRunId"] == selected_run["runId"]
+    assert result["plan"]["parentRunReceiptSha256"] == "1" * 64
 
 
 def test_shap_request_persists_sample_identity_and_fails_closed_without_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -544,15 +770,31 @@ def test_shap_request_persists_sample_identity_and_fails_closed_without_dependen
     run = _run(_candidate(), "1" * 64)
     group = evaluation._group_attempts([run])[0]
     monkeypatch.setattr(evaluation, "RunRepository", lambda _database: repository)
-    monkeypatch.setattr(evaluation, "_candidate_group", lambda *_args: (_resolved(), group))
+    monkeypatch.setattr(
+        evaluation,
+        "_candidate_group",
+        lambda *_args, **_kwargs: (_resolved(), group),
+    )
     monkeypatch.setattr(
         evaluation,
         "_decision_rows",
         lambda *_args: [
             {
+                "run_id": "selection-one",
+                "started_at": "2026-09-01T13:00:00Z",
                 "parameters_json": json.dumps(
-                    {"candidateFingerprints": [group["candidateFingerprint"]]}
-                )
+                    {
+                        **_finalist_payload(group, "HISTORICAL_BASELINE"),
+                        "selectedCandidates": [
+                            {
+                                **_finalist_payload(
+                                    group, "HISTORICAL_BASELINE"
+                                )["candidateSelections"][0],
+                                "representativeRunId": run["runId"],
+                            }
+                        ],
+                    }
+                ),
             }
         ],
     )
@@ -571,7 +813,11 @@ def test_shap_request_persists_sample_identity_and_fails_closed_without_dependen
 
 def test_shap_and_sensitivity_require_a_persisted_finalist_receipt(monkeypatch: pytest.MonkeyPatch) -> None:
     group = evaluation._group_attempts([_run(_candidate(), "1" * 64)])[0]
-    monkeypatch.setattr(evaluation, "_candidate_group", lambda *_args: (_resolved(), group))
+    monkeypatch.setattr(
+        evaluation,
+        "_candidate_group",
+        lambda *_args, **_kwargs: (_resolved(), group),
+    )
     monkeypatch.setattr(evaluation, "_decision_rows", lambda *_args: [])
     for kind in ("SHAP", "SENSITIVITY"):
         with pytest.raises(lab.Stage3ModelLaboratoryError, match="finalist selection receipt"):

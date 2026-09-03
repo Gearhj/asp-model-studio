@@ -10,6 +10,8 @@ import {
   requestProjectCandidateAnalysis,
   saveProjectCandidateFinalists,
   type CandidateGroup,
+  type FinalistCandidateSelection,
+  type FinalistEvaluationBatch,
   type ProjectCandidateEvaluation,
 } from "./projectModelLabApi";
 import { ProjectCandidateComparison } from "./ProjectCandidateComparison";
@@ -18,11 +20,65 @@ const int = (value: number) => new Intl.NumberFormat("en-US").format(value);
 const decimal = (value: number | null | undefined, digits = 6) => value == null ? "—" : value.toFixed(digits);
 const human = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+function groupsForSource(data: ProjectCandidateEvaluation, source: FinalistEvaluationBatch) {
+  return source === "CURRENT_BATCH" ? data.currentBatches : data.historicalEvidence.candidates;
+}
+
+function latestFinalistSource(data: ProjectCandidateEvaluation): FinalistEvaluationBatch | null {
+  const receipt = data.finalists.find((item) => item.authorityStatus === "CURRENT") ?? data.finalists[0];
+  if (!receipt) return null;
+  const declared = String(receipt.evidenceSource ?? receipt.evaluationBatch ?? "").toUpperCase();
+  if (declared === "CURRENT_BATCH" || declared === "HISTORICAL_BASELINE") return declared;
+  const boundSources = new Set(
+    (Array.isArray(receipt.selectedCandidates) ? receipt.selectedCandidates : [])
+      .map((item: Record<string, any>) => String(item?.evidenceSource ?? "").toUpperCase())
+      .filter((item: string): item is FinalistEvaluationBatch => item === "CURRENT_BATCH" || item === "HISTORICAL_BASELINE"),
+  );
+  return boundSources.size === 1 ? [...boundSources][0] : null;
+}
+
+function finalistBinding(group: CandidateGroup, source: FinalistEvaluationBatch): FinalistCandidateSelection {
+  const attempts = group.attempts
+    .filter((attempt) => attempt.status === "COMPLETE" && attempt.evidenceSource === source)
+    .sort((left, right) =>
+      String(right.createdAt).localeCompare(String(left.createdAt))
+      || String(left.attemptId).localeCompare(String(right.attemptId))
+      || String(left.runReceiptSha256).localeCompare(String(right.runReceiptSha256))
+    );
+  if (!attempts.length) {
+    throw new Error(`${source} evidence is not available for ${group.candidateFingerprint}.`);
+  }
+  const representative = attempts.find((attempt) =>
+    attempt.attemptId === group.representativeAttemptId
+    && attempt.runReceiptSha256 === group.immutableEvidenceIdentity
+  ) ?? attempts[0];
+  const requiredIdentities = [
+    representative.attemptId,
+    representative.runId,
+    representative.runReceiptSha256,
+    ...attempts.flatMap((attempt) => [attempt.attemptId, attempt.runId, attempt.runReceiptSha256]),
+  ];
+  if (requiredIdentities.some((identity) => !String(identity || "").trim())) {
+    throw new Error(`${source} evidence identity is incomplete for ${group.candidateFingerprint}.`);
+  }
+  return {
+    candidateFingerprint: group.candidateFingerprint,
+    evidenceSource: source,
+    representativeAttemptId: representative.attemptId,
+    immutableEvidenceIdentity: representative.runReceiptSha256,
+    attemptEvidence: attempts.map((attempt) => ({
+      attemptId: attempt.attemptId,
+      runId: attempt.runId,
+      runReceiptSha256: attempt.runReceiptSha256,
+    })),
+  };
+}
+
 export function ProjectBoundCandidateEvaluation({ projectId, go }: { projectId: string; go?: (id: string) => void }) {
   const [data, setData] = useState<ProjectCandidateEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [source, setSource] = useState<"ALL" | "CURRENT_BATCH" | "HISTORICAL_BASELINE">("ALL");
+  const [source, setSource] = useState<FinalistEvaluationBatch>("CURRENT_BATCH");
   const [family, setFamily] = useState("ALL");
   const [feature, setFeature] = useState("ALL");
   const [status, setStatus] = useState("COMPLETE");
@@ -34,6 +90,16 @@ export function ProjectBoundCandidateEvaluation({ projectId, go }: { projectId: 
   const [analysisMessage, setAnalysisMessage] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const request = useRef<AbortController | null>(null);
+  const sourceRef = useRef<FinalistEvaluationBatch>("CURRENT_BATCH");
+
+  const hydrateSourceSelection = useCallback((next: ProjectCandidateEvaluation, activeSource: FinalistEvaluationBatch) => {
+    const groups = groupsForSource(next, activeSource);
+    const complete = groups.filter((item) => item.status === "COMPLETE");
+    sourceRef.current = activeSource;
+    setSource(activeSource);
+    setSelected(new Set(complete.slice(0, 2).map((item) => item.candidateFingerprint)));
+    setFinalists(new Set(complete.filter((item) => item.finalist).map((item) => item.candidateFingerprint)));
+  }, []);
 
   const load = useCallback(async () => {
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
@@ -42,24 +108,44 @@ export function ProjectBoundCandidateEvaluation({ projectId, go }: { projectId: 
       const next = await fetchProjectCandidateEvaluation(projectId, controller.signal);
       if (controller.signal.aborted) return;
       setData(next);
-      setSource(next.currentBatches.length ? "CURRENT_BATCH" : "HISTORICAL_BASELINE");
-      setFinalists(new Set(next.candidateGroups.filter((item) => item.finalist).map((item) => item.candidateFingerprint)));
-      setSelected((current) => current.size ? current : new Set(next.candidateGroups.filter((item) => item.status === "COMPLETE").slice(0, 2).map((item) => item.candidateFingerprint)));
+      const requestedSource = sourceRef.current;
+      const activeSource = requestedSource === "CURRENT_BATCH" && !next.currentBatches.length
+        ? "HISTORICAL_BASELINE"
+        : requestedSource === "HISTORICAL_BASELINE" && !next.historicalEvidence.candidates.length && next.currentBatches.length
+          ? "CURRENT_BATCH"
+          : requestedSource;
+      hydrateSourceSelection(next, activeSource);
     } catch (caught) { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Candidate Evaluation could not be loaded."); }
     finally { if (!controller.signal.aborted) setLoading(false); }
-  }, [projectId]);
+  }, [hydrateSourceSelection, projectId]);
   useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
 
-  const filtered = useMemo(() => (data?.candidateGroups ?? []).filter((candidate) =>
-    (source === "ALL" || candidate.evidenceSources.includes(source))
-    && (family === "ALL" || candidate.modelFamily === family)
+  const sourceGroups = useMemo(() => data ? groupsForSource(data, source) : [], [data, source]);
+  const filtered = useMemo(() => sourceGroups.filter((candidate) =>
+    (family === "ALL" || candidate.modelFamily === family)
     && (feature === "ALL" || candidate.featureSetId === feature)
     && (status === "ALL" || candidate.status === status)
     && (finalistFilter === "ALL" || (finalistFilter === "FINALIST" ? candidate.finalist : !candidate.finalist))
-  ), [data, family, feature, finalistFilter, source, status]);
-  const details = (data?.candidateGroups ?? []).filter((candidate) => selected.has(candidate.candidateFingerprint)).slice(0, 3);
-  const families = [...new Set((data?.candidateGroups ?? []).map((item) => item.modelFamily))];
-  const features = [...new Map((data?.candidateGroups ?? []).map((item) => [String(item.featureSetId), { id: String(item.featureSetId), label: item.featureSetName }])).values()];
+  ), [family, feature, finalistFilter, sourceGroups, status]);
+  const details = sourceGroups.filter((candidate) => selected.has(candidate.candidateFingerprint)).slice(0, 3);
+  const families = [...new Set(sourceGroups.map((item) => item.modelFamily))];
+  const features = [...new Map(sourceGroups.map((item) => [String(item.featureSetId), { id: String(item.featureSetId), label: item.featureSetName }])).values()];
+  const persistedFinalistSource = data ? latestFinalistSource(data) : null;
+  const persistedSourceFinalists = persistedFinalistSource === source
+    && sourceGroups.some((item) => item.status === "COMPLETE" && item.finalist);
+  const otherSourceHasLatestSelection = persistedFinalistSource != null && persistedFinalistSource !== source;
+
+  const changeSource = (nextSource: FinalistEvaluationBatch) => {
+    if (nextSource === source) return;
+    sourceRef.current = nextSource;
+    setFamily("ALL");
+    setFeature("ALL");
+    setStatus("COMPLETE");
+    setFinalistFilter("ALL");
+    setRationale("");
+    if (data) hydrateSourceSelection(data, nextSource);
+    else setSource(nextSource);
+  };
 
   const toggleDetail = (fingerprint: string) => setSelected((current) => {
     const next = new Set(current);
@@ -71,7 +157,18 @@ export function ProjectBoundCandidateEvaluation({ projectId, go }: { projectId: 
   const saveFinalists = async () => {
     if (!finalists.size || rationale.trim().length < 20) return;
     setSaving(true); setError(null);
-    try { await saveProjectCandidateFinalists(projectId, [...finalists], rationale); await load(); }
+    try {
+      const selectedGroups = sourceGroups.filter((group) => group.status === "COMPLETE" && finalists.has(group.candidateFingerprint));
+      if (selectedGroups.length !== finalists.size) throw new Error(`${source} finalist selection contains stale or unavailable evidence.`);
+      const candidateSelections = selectedGroups.map((group) => finalistBinding(group, source));
+      await saveProjectCandidateFinalists(projectId, {
+        candidateFingerprints: candidateSelections.map((item) => item.candidateFingerprint),
+        candidateSelections,
+        rationale,
+        evaluationBatch: source,
+      });
+      await load();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Finalist selection failed closed."); }
     finally { setSaving(false); }
   };
@@ -90,16 +187,16 @@ export function ProjectBoundCandidateEvaluation({ projectId, go }: { projectId: 
     <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white"><div className="grid gap-px bg-slate-800 lg:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(120px,0.6fr))]"><div className="bg-slate-950 p-5"><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300"><BarChart3 size={14} /> Step 10 · Candidate Evaluation</div><h2 className="mt-2 text-xl font-semibold">Compare verified development evidence in depth</h2><p className="mt-1 text-xs leading-5 text-slate-300">Project-bound receipts only. Opening Evaluation performs no fit, tuning, calibration, SHAP, refinement, or promotion.</p></div><DarkFact label="Unique candidates" value={String(data.activity.uniqueCandidateSpecifications)} detail={`${data.activity.attempts} immutable attempts`} /><DarkFact label="Development" value={`${int(data.population.developmentRows)} rows`} detail={`${data.population.foldCount} chronological folds`} /><DarkFact label="Activity" value={`${data.activity.modelFitsDisplayedAsProjectEvidence} preserved fold fits`} detail={`${data.activity.newFitsOnPageLoad} new fits on page load`} /><DarkFact label="Final OOT" value={`${int(data.population.finalOotRows)} locked`} detail="No Evaluation access" tone="rose" /></div></section>
     <section className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4"><div className="flex items-center gap-2 text-sm font-semibold text-cyan-950"><ShieldCheck size={16} />Project-bound evidence authority</div><p className="mt-1 text-xs leading-5 text-cyan-900">{data.historicalEvidence.banner} The apparent duplicate rows were matching attempts from distinct immutable receipts; the default view now groups them by full scientific fingerprint.</p><div className="mt-2 flex flex-wrap gap-2"><Pill label={`${data.activity.historicalRunReceipts} historical receipts`} tone="cyan" /><Pill label={`${data.activity.currentBatchReceipts} current batch receipts`} tone="slate" /><Pill label="Legacy global matrix impossible" tone="emerald" /><Pill label="Base-22 fallback impossible" tone="emerald" /><Pill label="0 promoted" tone="rose" /></div></section>
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Search size={15} className="text-cyan-700" />Evaluation batch selector</div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6"><Filter label="Evidence" value={source} onChange={(value) => setSource(value as typeof source)} options={["ALL", "CURRENT_BATCH", "HISTORICAL_BASELINE"]} /><Filter label="Algorithm family" value={family} onChange={setFamily} options={["ALL", ...families]} /><label className="text-[10px] font-semibold uppercase text-slate-500">Feature universe<select value={feature} onChange={(event) => setFeature(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs normal-case text-slate-800"><option value="ALL">All</option>{features.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><Filter label="Status" value={status} onChange={setStatus} options={["ALL", "COMPLETE", "FAILED"]} /><Filter label="Finalist designation" value={finalistFilter} onChange={setFinalistFilter} options={["ALL", "FINALIST", "NOT_FINALIST"]} /><label className="text-[10px] font-semibold uppercase text-slate-500">One-vs-rest class<select value={className} onChange={(event) => setClassName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs normal-case text-slate-800">{data.authority.targetOrder.map((item) => <option key={item}>{item}</option>)}</select></label></div></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Search size={15} className="text-cyan-700" />Evaluation batch selector</div><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold tracking-wide ${source === "CURRENT_BATCH" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-900"}`} data-testid="active-evaluation-source">{source} EVIDENCE ONLY</span></div><p className="mt-1 text-[10px] leading-4 text-slate-500">The active evidence source controls the comparison, default detail panels, finalist checklist, and immutable selection receipt. Sources are never silently mixed.</p><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-6"><Filter label="Evidence" value={source} onChange={(value) => changeSource(value as FinalistEvaluationBatch)} options={["CURRENT_BATCH", "HISTORICAL_BASELINE"]} /><Filter label="Algorithm family" value={family} onChange={setFamily} options={["ALL", ...families]} /><label className="text-[10px] font-semibold uppercase text-slate-500">Feature universe<select value={feature} onChange={(event) => setFeature(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs normal-case text-slate-800"><option value="ALL">All</option>{features.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><Filter label="Status" value={status} onChange={setStatus} options={["ALL", "COMPLETE", "FAILED"]} /><Filter label="Finalist designation" value={finalistFilter} onChange={setFinalistFilter} options={["ALL", "FINALIST", "NOT_FINALIST"]} /><label className="text-[10px] font-semibold uppercase text-slate-500">One-vs-rest class<select value={className} onChange={(event) => setClassName(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs normal-case text-slate-800">{data.authority.targetOrder.map((item) => <option key={item}>{item}</option>)}</select></label></div></section>
 
-    <ProjectCandidateComparison groups={filtered} title="Cross-model Evaluation overview" source="ALL" />
+    <ProjectCandidateComparison groups={filtered} title={`${human(source)} Evaluation overview`} source={source} />
     <EvaluationOverviewDiagnostics groups={filtered} />
 
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><GitCompareArrows size={15} className="text-cyan-700" />Side-by-side inspection</h3><p className="mt-1 text-xs text-slate-500">Select up to three completed candidate specifications. Historical receipts without row/model artifacts fail closed only for the affected diagnostic.</p></div><span className="text-xs font-semibold text-slate-500">{selected.size}/3 selected</span></div><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{filtered.filter((item) => item.status === "COMPLETE").map((item) => <label key={item.candidateFingerprint} className={`flex items-start gap-2 rounded-lg border p-3 ${selected.has(item.candidateFingerprint) ? "border-cyan-400 bg-cyan-50" : "border-slate-200"}`}><input type="checkbox" checked={selected.has(item.candidateFingerprint)} onChange={() => toggleDetail(item.candidateFingerprint)} disabled={!selected.has(item.candidateFingerprint) && selected.size >= 3} className="mt-0.5" /><span><b className="block text-xs text-slate-900">{human(item.modelFamily)}</b><span className="block text-[10px] text-slate-500">{item.featureSetName} · log loss {decimal(item.meanOofLogLoss)}</span></span></label>)}</div></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><GitCompareArrows size={15} className="text-cyan-700" />Side-by-side inspection</h3><p className="mt-1 text-xs text-slate-500">Select up to three completed {human(source)} candidate specifications. Historical receipts without row/model artifacts fail closed only for the affected diagnostic.</p></div><span className="text-xs font-semibold text-slate-500">{selected.size}/3 selected</span></div><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{filtered.filter((item) => item.status === "COMPLETE").map((item) => <label key={item.candidateFingerprint} className={`flex items-start gap-2 rounded-lg border p-3 ${selected.has(item.candidateFingerprint) ? "border-cyan-400 bg-cyan-50" : "border-slate-200"}`}><input type="checkbox" checked={selected.has(item.candidateFingerprint)} onChange={() => toggleDetail(item.candidateFingerprint)} disabled={!selected.has(item.candidateFingerprint) && selected.size >= 3} className="mt-0.5" /><span><b className="block text-xs text-slate-900">{human(item.modelFamily)}</b><span className="block text-[10px] font-semibold text-cyan-800">{source}</span><span className="block text-[10px] text-slate-500">{item.featureSetName} · log loss {decimal(item.meanOofLogLoss)}</span></span></label>)}</div></section>
 
     {details.length ? <section className="grid gap-4 xl:grid-cols-2" data-testid="candidate-detail-panels">{details.map((group) => <CandidateDetail key={group.candidateFingerprint} group={group} className={className} analysisMessage={analysisMessage} onAnalyze={analyze} finalist={finalists.has(group.candidateFingerprint)} persistedFinalist={group.finalist} onFinalist={() => toggleFinalist(group.candidateFingerprint)} />)}</section> : null}
 
-    <section className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-white" data-testid="finalist-selection"><div className="flex items-center gap-2 text-sm font-semibold"><Target size={16} className="text-cyan-300" />Finalist selection for refinement</div><p className="mt-1 text-xs leading-5 text-slate-300">Choose one or more completed candidates after comparison. A finalist is not a champion and receives no production authority.</p><div className="mt-3 flex flex-wrap gap-2">{data.candidateGroups.filter((item) => item.status === "COMPLETE").map((item) => <label key={item.candidateFingerprint} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${finalists.has(item.candidateFingerprint) ? "border-cyan-400 bg-cyan-400/10" : "border-slate-700"}`}><input type="checkbox" checked={finalists.has(item.candidateFingerprint)} onChange={() => toggleFinalist(item.candidateFingerprint)} />{human(item.modelFamily)} · {item.featureSetName}</label>)}</div><label className="mt-3 block text-[10px] font-semibold uppercase text-slate-400">Written scientific rationale<textarea value={rationale} onChange={(event) => setRationale(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs normal-case text-white" placeholder="Explain the primary metric, secondary evidence, stability, complexity, and warnings considered." /></label><div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => void saveFinalists()} disabled={!finalists.size || rationale.trim().length < 20 || saving} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-600">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save immutable finalist receipt</button><button type="button" onClick={() => go?.("refinement")} disabled={!data.candidateGroups.some((item) => item.finalist)} className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold disabled:text-slate-500">Continue to Model Refinement <ChevronRight size={14} /></button></div><div className="mt-3 flex flex-wrap gap-2"><Pill label="Not champion" tone="amber" /><Pill label="Not promoted" tone="rose" /><Pill label="Final OOT locked" tone="rose" /></div></section>
+    <section className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-white" data-testid="finalist-selection"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 text-sm font-semibold"><Target size={16} className="text-cyan-300" />Finalist selection for refinement</div><span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${source === "CURRENT_BATCH" ? "border-emerald-400 bg-emerald-400/10 text-emerald-200" : "border-amber-400 bg-amber-400/10 text-amber-200"}`}>{source} ONLY</span></div><p className="mt-1 text-xs leading-5 text-slate-300">Choose one or more completed candidates from the active evidence source. Saving binds every selected attempt and immutable run receipt from {source}; evidence from another source is never selected silently.</p>{otherSourceHasLatestSelection ? <p className="mt-2 rounded-lg border border-amber-400/50 bg-amber-400/10 px-3 py-2 text-[10px] leading-4 text-amber-100" data-testid="other-source-finalist-history">No {human(source)} finalists are currently saved. The latest {human(persistedFinalistSource)} finalist receipt remains immutable history; switch evidence sources to inspect it.</p> : null}<div className="mt-3 flex flex-wrap gap-2">{sourceGroups.filter((item) => item.status === "COMPLETE").map((item) => <label key={item.candidateFingerprint} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${finalists.has(item.candidateFingerprint) ? "border-cyan-400 bg-cyan-400/10" : "border-slate-700"}`}><input type="checkbox" checked={finalists.has(item.candidateFingerprint)} onChange={() => toggleFinalist(item.candidateFingerprint)} /><span><b>{human(item.modelFamily)} · {item.featureSetName}</b><span className="ml-2 font-mono text-[9px] text-cyan-200">{source}</span></span></label>)}</div><label className="mt-3 block text-[10px] font-semibold uppercase text-slate-400">Written scientific rationale<textarea value={rationale} onChange={(event) => setRationale(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs normal-case text-white" placeholder="Explain the primary metric, secondary evidence, stability, complexity, and warnings considered." /></label><div className="mt-3 flex flex-wrap gap-3"><button type="button" title="Save immutable finalist receipt" onClick={() => void saveFinalists()} disabled={!finalists.size || rationale.trim().length < 20 || saving} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-600">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save {human(source)} finalist receipt</button><button type="button" onClick={() => go?.("refinement")} disabled={!persistedSourceFinalists} title={!persistedSourceFinalists ? `Save a ${source} finalist receipt before continuing.` : undefined} className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold disabled:text-slate-500">Continue to Model Refinement <ChevronRight size={14} /></button></div><div className="mt-3 flex flex-wrap gap-2"><Pill label="Not champion" tone="amber" /><Pill label="Not promoted" tone="rose" /><Pill label="Final OOT locked" tone="rose" /></div></section>
     {error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">{error}</p> : null}
   </div>;
 }
@@ -117,7 +214,7 @@ function CandidateDetail({ group, className, analysisMessage, onAnalyze, finalis
   const normalizedConfusion = evaluation?.normalizedConfusionMatrix as number[][] | undefined;
   const importance = (interpretation?.nativeTopFeatureStability ?? interpretation?.topFeatures ?? []) as Array<Record<string, any>>;
   const coefficients = (interpretation?.perClassCoefficientStability?.[className] ?? []) as Array<Record<string, any>>;
-  return <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-950">{human(group.modelFamily)}</h3><p className="text-[10px] text-slate-500">{group.featureSetName} · {group.featureCount} source predictors</p></div><label className="flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900"><input type="checkbox" checked={finalist} onChange={onFinalist} /> Finalist for refinement</label></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric label="OOF log loss" value={decimal(group.meanOofLogLoss)} /><Metric label="Summed Brier" value={decimal(group.summedBrier)} /><Metric label="ECE" value={decimal(group.ece)} /><Metric label="Fold SD" value={decimal(group.foldStandardDeviation)} /></div>
+  return <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-950">{human(group.modelFamily)}</h3><p className="text-[10px] text-slate-500">{group.featureSetName} · {group.featureCount} source predictors</p><span className="mt-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 font-mono text-[9px] font-semibold text-cyan-900">{attempt.evidenceSource}</span></div><label className="flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900"><input type="checkbox" checked={finalist} onChange={onFinalist} /> Finalist for refinement</label></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric label="OOF log loss" value={decimal(group.meanOofLogLoss)} /><Metric label="Summed Brier" value={decimal(group.summedBrier)} /><Metric label="ECE" value={decimal(group.ece)} /><Metric label="Fold SD" value={decimal(group.foldStandardDeviation)} /></div>
     <Diagnostic title="Five-fold log-loss distribution" icon={<Gauge size={14} />}>{foldLosses.length ? <ReactECharts option={{ animation: false, grid: { left: 38, right: 10, top: 10, bottom: 28 }, xAxis: { type: "category", data: foldLosses.map((_value, index) => `F${index + 1}`), axisLabel: { fontSize: 9 } }, yAxis: { type: "value", scale: true, axisLabel: { fontSize: 9 } }, tooltip: { trigger: "axis" }, series: [{ type: "bar", data: foldLosses, itemStyle: { color: "#0891b2" } }] }} style={{ height: 160 }} opts={{ renderer: "svg" }} /> : <Unavailable text="Fold metric evidence was not captured." />}</Diagnostic>
     <Diagnostic title={`${className} reliability / calibration`} icon={<Target size={14} />}>{selectedCalibration ? <div className="grid grid-cols-2 gap-2 text-[10px]"><Metric label="Support" value={int(Number(selectedCalibration.support ?? 0))} /><Metric label="Observed rate" value={decimal(Number(selectedCalibration.observedRate), 4)} /><Metric label="Mean predicted" value={decimal(Number(selectedCalibration.meanPredictedProbability), 4)} /><Metric label="One-v-rest Brier" value={decimal(Number(selectedCalibration.oneVsRestBrier), 5)} /></div> : <Unavailable text="Class calibration evidence was not captured in this receipt." />}</Diagnostic>
     <Diagnostic title="Eight-class confusion evidence" icon={<GitCompareArrows size={14} />}>{confusion?.length && normalizedConfusion?.length ? <div className="grid gap-3 2xl:grid-cols-2"><ConfusionMatrix title="Counts" matrix={confusion} classes={evaluation?.orderedClasses ?? []} normalized={false} /><ConfusionMatrix title="Row-normalized" matrix={normalizedConfusion} classes={evaluation?.orderedClasses ?? []} normalized /></div> : <Unavailable text="EVIDENCE NOT CAPTURED IN HISTORICAL RECEIPT — confusion values are not fabricated as zero." />}</Diagnostic>

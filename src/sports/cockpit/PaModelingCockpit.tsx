@@ -19,6 +19,12 @@ import { ProjectBoundSplitBalance } from "./ProjectBoundSplitBalance";
 import { ProjectBoundModelLab } from "./ProjectBoundModelLab";
 import { ProjectBoundCandidateEvaluation } from "./ProjectBoundCandidateEvaluation";
 import { ProjectBoundModelRefinement } from "./ProjectBoundModelRefinement";
+import {
+  ProjectBoundCalibration,
+  ProjectBoundGameEvaluation,
+  ProjectBoundChampionDecision,
+  ProjectBoundRegistryHandoff,
+} from "./ProjectBoundDownstreamWorkflow";
 import { CockpitDrawer } from "./CockpitDrawer";
 import { useStage3FocusMode } from "./stage3FocusMode";
 import {
@@ -45,10 +51,10 @@ const STEPS: Step[] = [
   { id: "modellab", n: "09", label: "Model Development Laboratory", icon: FlaskConical, group: "Model", render: (c) => c.currentGoldReview ? <ProjectBoundModelLab projectId={c.projectId} go={c.go} /> : <ModelLabStep projectId={c.projectId} /> },
   { id: "evaluation", n: "10", label: "Candidate Evaluation", icon: BarChart3, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundCandidateEvaluation projectId={c.projectId} go={c.go} /> : <EvaluationStep projectId={c.projectId} /> },
   { id: "refinement", n: "11", label: "Model Refinement & Explainability", icon: Scissors, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundModelRefinement projectId={c.projectId} go={c.go} /> : <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">Model Refinement becomes available after project-bound Candidate Evaluation.</section> },
-  { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Calibration" /> : <CalibrationStep projectId={c.projectId} /> },
-  { id: "simulation", n: "13", label: "Simulation & Game-Level Evaluation", icon: Orbit, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Simulation & Game-Level Evaluation" /> : <SimulationStep projectId={c.projectId} /> },
-  { id: "champion", n: "14", label: "Champion / Challenger Decision", icon: Trophy, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Champion / Challenger Decision" /> : <ChampionChallengerStep projectId={c.projectId} /> },
-  { id: "registry", n: "15", label: "Registry, Export & Implementation", icon: ClipboardList, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundLaterStepGate state={c.currentGoldReview} stepLabel="Registry, Export & Implementation" /> : <RegistryStep projectId={c.projectId} /> },
+  { id: "calibration", n: "12", label: "Calibration", icon: Gauge, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundCalibration projectId={c.projectId} go={c.go} /> : <CalibrationStep projectId={c.projectId} /> },
+  { id: "simulation", n: "13", label: "Simulation & Game-Level Evaluation", icon: Orbit, group: "Assess", render: (c) => c.currentGoldReview ? <ProjectBoundGameEvaluation projectId={c.projectId} go={c.go} /> : <SimulationStep projectId={c.projectId} /> },
+  { id: "champion", n: "14", label: "Champion / Challenger Decision", icon: Trophy, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundChampionDecision projectId={c.projectId} go={c.go} /> : <ChampionChallengerStep projectId={c.projectId} /> },
+  { id: "registry", n: "15", label: "Registry, Export & Implementation", icon: ClipboardList, group: "Decide", render: (c) => c.currentGoldReview ? <ProjectBoundRegistryHandoff projectId={c.projectId} go={c.go} /> : <RegistryStep projectId={c.projectId} /> },
 ];
 
 export default function PaModelingCockpit({
@@ -135,7 +141,11 @@ export default function PaModelingCockpit({
 
       <main className="stage3-scroll-target min-w-0 max-w-full" ref={contentRef} data-testid="stage3-analytical-canvas">
         {step.render({ projectId, go, currentGoldReview })}
-        <StepFooter active={active} go={go} />
+        <StepFooter
+          active={active}
+          go={go}
+          suppressNext={Boolean(currentGoldReview) && ["calibration", "simulation", "champion"].includes(active)}
+        />
       </main>
 
       <CockpitDrawer open={workflowNavigatorOpen} onClose={() => setWorkflowNavigatorOpen(false)} title="Workflow navigator" description="All nine program stages and all fifteen Stage 3 steps remain available without occupying the analytical canvas." eyebrow="MLB modeling workflow" returnFocusRef={workflowTriggerRef} side="left" widthClassName="max-w-3xl" testId="stage3-workflow-navigator">
@@ -434,10 +444,10 @@ function AutosaveBadge({ status, lastSavedAt, onRetry }: { status: AutosaveStatu
   );
 }
 
-// Consistent Previous / Next workflow footer at the bottom of every cockpit step. Uses the in-scope
-// STEPS order so destinations can never diverge from the left navigator; Step 1 has no Previous and
-// Step 15 has no Next. Navigation is internal step state — it does not route outside the cockpit.
-function StepFooter({ active, go }: { active: string; go: (id: string) => void }) {
+// Consistent Previous / Next workflow footer at the bottom of every cockpit step. Project-bound
+// downstream steps suppress generic Next because their guarded in-page action owns advancement.
+// Step 1 has no Previous and Step 15 has no Next.
+function StepFooter({ active, go, suppressNext = false }: { active: string; go: (id: string) => void; suppressNext?: boolean }) {
   const idx = STEPS.findIndex((s) => s.id === active);
   const prev = idx > 0 ? STEPS[idx - 1] : null;
   const next = idx < STEPS.length - 1 ? STEPS[idx + 1] : null;
@@ -451,7 +461,7 @@ function StepFooter({ active, go }: { active: string; go: (id: string) => void }
         </button>
       ) : <span aria-hidden="true" />}
       <div className="shrink-0 text-xs font-semibold tabular-nums text-slate-500">Step {idx + 1} of {STEPS.length}</div>
-      {next ? (
+      {next && !suppressNext ? (
         <button onClick={() => go(next.id)}
           className="inline-flex min-w-0 items-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800">
           <span className="truncate"><span className="hidden sm:inline">{next.label}</span><span className="sm:hidden">Next</span></span>
