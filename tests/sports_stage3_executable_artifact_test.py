@@ -122,8 +122,28 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
         "expectedProbabilities": pipeline.predict_proba(frame).tolist(),
     }
     artifact._atomic_json(staging / "verification-fixture.json", fixture)
+    raw_probability_validation = {
+        "status": "PASS",
+        "rows": artifact.EXPECTED_OOF_ROWS,
+        "columns": len(GOLD_CLASS_ORDER),
+        "representation": "FLOAT64_PRESERVING_RAW_ESTIMATOR_VALUES",
+        "minimumProbability": 0.01,
+        "maximumProbability": 0.44,
+        "minimumRowSum": 1.0,
+        "maximumRowSum": 1.0,
+        "maximumAbsoluteRowSumDeviation": 0.0,
+        "rowSumRtol": lab.RAW_PROBABILITY_ROW_SUM_RTOL,
+        "rowSumAtol": lab.RAW_PROBABILITY_ROW_SUM_ATOL,
+        "normalizationApplied": False,
+    }
     artifact._atomic_json(
-        staging / "verification-receipt.json", {"status": "PASS"}
+        staging / "verification-receipt.json",
+        {
+            "schemaVersion": artifact.EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION,
+            "status": "PASS",
+            "probabilityContract": artifact._probability_contract(),
+            "rawOofProbabilityValidation": raw_probability_validation,
+        },
     )
     fold_evidence = [
         {
@@ -231,6 +251,7 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
         },
         "targetOrder": list(GOLD_CLASS_ORDER),
         "orderedFeatures": ["alpha", "beta"],
+        "probabilityContract": artifact._probability_contract(),
         "training": {
             "scope": "DEVELOPMENT_ONLY",
             "rows": lab.EXPECTED_DEVELOPMENT[2],
@@ -255,6 +276,7 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
         "verification": {
             "status": "PASS",
             "metricReproduction": {"status": "PASS"},
+            "rawOofProbabilityValidation": raw_probability_validation,
             "reloadVerification": {"status": "PASS", "freshProcess": True},
             "verificationFixture": {"status": "PASS"},
         },
@@ -289,6 +311,89 @@ def test_fitted_pipeline_aligns_classes_and_rejects_feature_drift() -> None:
     with pytest.raises(lab.Stage3ModelLaboratoryError) as missing_class:
         pipeline.predict_proba(frame)
     assert missing_class.value.code == "MODEL_LAB_ESTIMATOR_CLASS_ORDER_INVALID"
+
+
+def test_float32_softmax_roundoff_stays_raw_for_evidence_and_normalizes_for_scoring() -> None:
+    raw = np.asarray(
+        [
+            0.16530278325080872,
+            0.2131487876176834,
+            0.053714070469141006,
+            0.13301485776901245,
+            0.08270382881164551,
+            0.22062674164772034,
+            0.01480624545365572,
+            0.11668261885643005,
+        ],
+        dtype=np.float32,
+    )
+    raw_matrix = raw[np.newaxis, :]
+    raw_as_float64 = raw_matrix.astype(np.float64)
+    deviation = abs(float(raw_as_float64.sum()) - 1.0)
+    assert 1e-8 < deviation < lab.RAW_PROBABILITY_ROW_SUM_ATOL
+    validated = lab._validate_probability_matrix(raw_matrix, expected_rows=1)
+    np.testing.assert_array_equal(validated, raw_as_float64)
+
+    class Float32RoundoffEstimator:
+        classes_ = np.arange(len(GOLD_CLASS_ORDER))
+
+        def predict_proba(self, _values: object) -> np.ndarray:
+            return raw_matrix.copy()
+
+    transformer = FunctionTransformer(validate=False).fit(
+        pd.DataFrame([[1.0, 2.0]], columns=["alpha", "beta"])
+    )
+    pipeline = lab.Stage3FittedPipeline(
+        ordered_features=["alpha", "beta"],
+        target_order=GOLD_CLASS_ORDER,
+        preprocessor=transformer,
+        estimator=Float32RoundoffEstimator(),
+    )
+    executable = pipeline.predict_proba(
+        pd.DataFrame([[1.0, 2.0]], columns=["alpha", "beta"])
+    )
+    assert executable.dtype == np.float64
+    assert executable.sum(axis=1).tolist() == [1.0]
+    assert not np.array_equal(executable, raw_as_float64)
+    np.testing.assert_array_equal(raw_matrix, raw[np.newaxis, :])
+
+    invalid_element = np.zeros((1, len(GOLD_CLASS_ORDER)), dtype=np.float64)
+    invalid_element[0, 0] = 1.0 + 1e-7
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as invalid:
+        lab._validate_probability_matrix(invalid_element, expected_rows=1)
+    assert "maximum=1.0000001" in str(invalid.value)
+    assert "rowSumAtol=1e-06" in str(invalid.value)
+
+
+def test_raw_probability_diagnostics_reject_impossible_pass_summaries() -> None:
+    valid = {
+        "status": "PASS",
+        "rows": artifact.EXPECTED_OOF_ROWS,
+        "columns": len(GOLD_CLASS_ORDER),
+        "representation": "FLOAT64_PRESERVING_RAW_ESTIMATOR_VALUES",
+        "minimumProbability": 0.01,
+        "maximumProbability": 0.44,
+        "minimumRowSum": 1.0 - 1e-8,
+        "maximumRowSum": 1.0 + 2e-8,
+        "maximumAbsoluteRowSumDeviation": 2e-8,
+        "rowSumRtol": lab.RAW_PROBABILITY_ROW_SUM_RTOL,
+        "rowSumAtol": lab.RAW_PROBABILITY_ROW_SUM_ATOL,
+        "normalizationApplied": False,
+    }
+    assert artifact._valid_raw_probability_diagnostics(
+        valid, expected_rows=artifact.EXPECTED_OOF_ROWS
+    )
+
+    impossible_values = (
+        {"minimumProbability": 0.9, "maximumProbability": -1.0},
+        {"minimumRowSum": 1.0000001, "maximumRowSum": 0.9999999},
+        {"maximumAbsoluteRowSumDeviation": -99.0},
+        {"maximumAbsoluteRowSumDeviation": 0.0},
+    )
+    for mutation in impossible_values:
+        assert not artifact._valid_raw_probability_diagnostics(
+            {**valid, **mutation}, expected_rows=artifact.EXPECTED_OOF_ROWS
+        )
 
 
 def test_evaluate_candidate_capture_is_fold_local_and_preserves_fold_seed() -> None:
@@ -335,6 +440,7 @@ def test_evaluate_candidate_capture_is_fold_local_and_preserves_fold_seed() -> N
         },
     }
     captures: list[dict[str, object]] = []
+    progress_events: list[dict[str, object]] = []
     result = lab._evaluate_candidate(
         frame,
         model_family="multinomial_logistic",
@@ -342,6 +448,7 @@ def test_evaluate_candidate_capture_is_fold_local_and_preserves_fold_seed() -> N
         split=split,
         seed=100,
         hyperparameters={"C": 1.0, "max_iter": 100, "tol": 1e-4, "solver": "lbfgs"},
+        progress_callback=progress_events.append,
         artifact_callback=captures.append,
     )
     assert result["foldsCompleted"] == 1
@@ -356,6 +463,10 @@ def test_evaluate_candidate_capture_is_fold_local_and_preserves_fold_seed() -> N
     assert statistic == pytest.approx(7.5)
     assert captured["preprocessing"]["validationRowsUsedForParameters"] == 0
     assert captured["preprocessing"]["finalOotRowsUsedForParameters"] == 0
+    event_names = [event["event"] for event in progress_events]
+    assert event_names.index("FOLD_ESTIMATOR_FIT_COMPLETED") < event_names.index(
+        "FOLD_COMPLETED"
+    )
 
 
 def test_plan_is_immutable_deterministic_and_zero_promotion(

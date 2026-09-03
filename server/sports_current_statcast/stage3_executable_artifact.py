@@ -50,6 +50,8 @@ from .stage3_model_laboratory import (
     EXPECTED_PROJECT_ID,
     EXPECTED_SOURCE_DATASET_ID,
     EXPECTED_SPLIT,
+    RAW_PROBABILITY_ROW_SUM_ATOL,
+    RAW_PROBABILITY_ROW_SUM_RTOL,
     Stage3FittedPipeline,
     Stage3ModelLaboratoryError,
     _bounded_native_workers,
@@ -317,6 +319,107 @@ def _safety_payload() -> dict[str, Any]:
         "modelsPromoted": 0,
         "championsMutated": 0,
     }
+
+
+def _probability_contract() -> dict[str, Any]:
+    return {
+        "schemaVersion": "SPORTS_STAGE3_PROBABILITY_CONTRACT_V1",
+        "rawOof": {
+            "representation": "CLASS_ALIGNED_ESTIMATOR_VALUES_AS_FLOAT64",
+            "normalizationApplied": False,
+            "rowSumValidation": {
+                "rtol": RAW_PROBABILITY_ROW_SUM_RTOL,
+                "atol": RAW_PROBABILITY_ROW_SUM_ATOL,
+            },
+            "scientificUse": "ACCEPTED_METRICS_AND_LEGACY_OOF_DIGEST",
+        },
+        "executable": {
+            "representation": "CLASS_ALIGNED_FLOAT64",
+            "rawValidationBeforeNormalization": True,
+            "normalization": (
+                "DIVIDE_BY_RAW_ROW_SUM_THEN_DETERMINISTIC_FLOAT64_RESIDUAL_CORRECTION"
+            ),
+            "exactRowSum": 1.0,
+            "scientificEvidenceMutated": False,
+        },
+    }
+
+
+def _raw_probability_diagnostics(probabilities: Any) -> dict[str, Any]:
+    values = np.asarray(probabilities, dtype=np.float64)
+    row_sums = values.sum(axis=1, dtype=np.float64)
+    return {
+        "status": "PASS",
+        "rows": int(values.shape[0]),
+        "columns": int(values.shape[1]),
+        "representation": "FLOAT64_PRESERVING_RAW_ESTIMATOR_VALUES",
+        "minimumProbability": float(np.min(values)),
+        "maximumProbability": float(np.max(values)),
+        "minimumRowSum": float(np.min(row_sums)),
+        "maximumRowSum": float(np.max(row_sums)),
+        "maximumAbsoluteRowSumDeviation": float(
+            np.max(np.abs(row_sums - 1.0))
+        ),
+        "rowSumRtol": RAW_PROBABILITY_ROW_SUM_RTOL,
+        "rowSumAtol": RAW_PROBABILITY_ROW_SUM_ATOL,
+        "normalizationApplied": False,
+    }
+
+
+def _valid_raw_probability_diagnostics(
+    value: Any, *, expected_rows: int
+) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    try:
+        minimum = float(value["minimumProbability"])
+        maximum = float(value["maximumProbability"])
+        minimum_sum = float(value["minimumRowSum"])
+        maximum_sum = float(value["maximumRowSum"])
+        maximum_deviation = float(value["maximumAbsoluteRowSumDeviation"])
+        rtol = float(value["rowSumRtol"])
+        atol = float(value["rowSumAtol"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+    expected_maximum_deviation = max(
+        abs(minimum_sum - 1.0), abs(maximum_sum - 1.0)
+    )
+    return bool(
+        value.get("status") == "PASS"
+        and value.get("rows") == expected_rows
+        and value.get("columns") == len(GOLD_CLASS_ORDER)
+        and value.get("representation")
+        == "FLOAT64_PRESERVING_RAW_ESTIMATOR_VALUES"
+        and value.get("normalizationApplied") is False
+        and all(
+            np.isfinite(number)
+            for number in (
+                minimum,
+                maximum,
+                minimum_sum,
+                maximum_sum,
+                maximum_deviation,
+                rtol,
+                atol,
+            )
+        )
+        and minimum >= 0.0
+        and maximum <= 1.0
+        and minimum <= maximum
+        and minimum_sum <= maximum_sum
+        and maximum_deviation >= 0.0
+        and rtol == RAW_PROBABILITY_ROW_SUM_RTOL
+        and atol == RAW_PROBABILITY_ROW_SUM_ATOL
+        and minimum_sum >= 1.0 - RAW_PROBABILITY_ROW_SUM_ATOL
+        and maximum_sum <= 1.0 + RAW_PROBABILITY_ROW_SUM_ATOL
+        and maximum_deviation <= RAW_PROBABILITY_ROW_SUM_ATOL
+        and np.isclose(
+            maximum_deviation,
+            expected_maximum_deviation,
+            rtol=0.0,
+            atol=np.finfo(float).eps,
+        )
+    )
 
 
 def _production_environment(chain: Mapping[str, Any]) -> dict[str, Any]:
@@ -1400,6 +1503,8 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         mismatches.append("orderedFeatures")
     if list(manifest.get("targetOrder") or []) != list(GOLD_CLASS_ORDER):
         mismatches.append("targetOrder")
+    if manifest.get("probabilityContract") != _probability_contract():
+        mismatches.append("probabilityContract")
     expected_training = {
         "scope": "DEVELOPMENT_ONLY",
         "rows": EXPECTED_DEVELOPMENT[2],
@@ -1491,6 +1596,10 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
     if (
         verification.get("status") != "PASS"
         or (verification.get("metricReproduction") or {}).get("status") != "PASS"
+        or not _valid_raw_probability_diagnostics(
+            verification.get("rawOofProbabilityValidation"),
+            expected_rows=EXPECTED_OOF_ROWS,
+        )
         or (verification.get("reloadVerification") or {}).get("status") != "PASS"
         or (verification.get("reloadVerification") or {}).get("freshProcess")
         is not True
@@ -1657,6 +1766,37 @@ def _verify_bundle_directory(
         )
     _validate_manifest_authority(manifest)
     _verify_manifest_members(directory, manifest)
+    receipt_record = manifest["files"]["verificationReceipt"]
+    receipt_path = _require_contained(directory / receipt_record["relativePath"])
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_VERIFICATION_RECEIPT_INVALID",
+            "The checksum-valid verification receipt is not valid JSON.",
+            status_code=409,
+        ) from exc
+    manifest_raw_validation = (manifest.get("verification") or {}).get(
+        "rawOofProbabilityValidation"
+    )
+    if (
+        not isinstance(receipt, Mapping)
+        or receipt.get("schemaVersion")
+        != EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION
+        or receipt.get("status") != "PASS"
+        or receipt.get("probabilityContract") != _probability_contract()
+        or receipt.get("probabilityContract") != manifest.get("probabilityContract")
+        or receipt.get("rawOofProbabilityValidation") != manifest_raw_validation
+        or not _valid_raw_probability_diagnostics(
+            receipt.get("rawOofProbabilityValidation"),
+            expected_rows=EXPECTED_OOF_ROWS,
+        )
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_VERIFICATION_RECEIPT_INVALID",
+            "The verification receipt does not bind the exact raw and executable probability contract.",
+            status_code=409,
+        )
     return {
         "status": "PASS",
         "manifestSha256": expected_manifest_sha256,
@@ -1886,6 +2026,27 @@ def _execute_artifact_job(
                         foldRowsProcessed=0,
                         message=f"Fitting chronological fold {int(event['fold'])} of 5.",
                     )
+                elif event.get("event") == "FOLD_ESTIMATOR_FIT_COMPLETED":
+                    fold_number = int(event["fold"])
+                    _update_progress(
+                        database,
+                        job_id,
+                        started_clock,
+                        state="RUNNING",
+                        currentFold=fold_number,
+                        foldRowsProcessed=0,
+                        latestCheckpoint=(
+                            f"FOLD_{fold_number}_ESTIMATOR_FIT_COMPLETED_AWAITING_VALIDATION"
+                        ),
+                        modelFitsByPurpose={
+                            "oofFold": fold_number,
+                            "finalDevelopment": 0,
+                        },
+                        message=(
+                            f"Fold {fold_number} estimator fit completed; validating raw "
+                            "probabilities before persisting evidence."
+                        ),
+                    )
 
             def capture(payload: dict[str, Any]) -> None:
                 nonlocal oof_rows_persisted
@@ -2066,9 +2227,13 @@ def _execute_artifact_job(
             probability_columns = [
                 f"probability_{class_name}" for class_name in GOLD_CLASS_ORDER
             ]
+            raw_oof_probabilities = oof[probability_columns].to_numpy(dtype=float)
             _validate_probability_matrix(
-                oof[probability_columns].to_numpy(dtype=float),
+                raw_oof_probabilities,
                 expected_rows=EXPECTED_OOF_ROWS,
+            )
+            raw_probability_validation = _raw_probability_diagnostics(
+                raw_oof_probabilities
             )
             oof_path = staging / "oof-predictions.parquet"
             _write_parquet_atomic(oof, oof_path)
@@ -2092,6 +2257,20 @@ def _execute_artifact_job(
                 seed=EXPECTED_CANDIDATE["seed"],
                 hyperparameters=EXPECTED_HYPERPARAMETERS,
                 native_workers=reviewed_plan["execution"]["nativeWorkers"],
+            )
+            _update_progress(
+                database,
+                job_id,
+                started_clock,
+                finalFitState="RUNNING",
+                latestCheckpoint=(
+                    "FINAL_ESTIMATOR_FIT_COMPLETED_AWAITING_VALIDATION"
+                ),
+                modelFitsByPurpose={"oofFold": 5, "finalDevelopment": 1},
+                message=(
+                    "Final development-only estimator fit completed; validating and "
+                    "staging the executable pipeline."
+                ),
             )
             if final_fit["fitRows"] != EXPECTED_DEVELOPMENT[2]:
                 raise Stage3ModelLaboratoryError(
@@ -2147,11 +2326,14 @@ def _execute_artifact_job(
             )
             verification_receipt = {
                 "schemaVersion": EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION,
+                "status": "PASS",
                 "createdAt": now_iso(),
                 "projectId": project_id,
                 "planChecksum": reviewed_plan["checksum"],
                 "metricReproduction": metric_reproduction,
                 "foldReproduction": fold_reproduction,
+                "probabilityContract": _probability_contract(),
+                "rawOofProbabilityValidation": raw_probability_validation,
                 "legacyOofEvidence": {
                     "status": "PASS",
                     "expectedSha256": EXPECTED_OOF_EVIDENCE_SHA256,
@@ -2190,6 +2372,7 @@ def _execute_artifact_job(
                 "candidate": reviewed_plan["candidate"],
                 "orderedFeatures": features,
                 "targetOrder": list(GOLD_CLASS_ORDER),
+                "probabilityContract": _probability_contract(),
                 "training": {
                     "scope": "DEVELOPMENT_ONLY",
                     "rows": EXPECTED_DEVELOPMENT[2],
@@ -2232,6 +2415,7 @@ def _execute_artifact_job(
                 "verification": {
                     "status": "PASS",
                     "metricReproduction": metric_reproduction,
+                    "rawOofProbabilityValidation": raw_probability_validation,
                     "reloadVerification": reload_result,
                     "verificationFixture": verification_receipt[
                         "verificationFixture"

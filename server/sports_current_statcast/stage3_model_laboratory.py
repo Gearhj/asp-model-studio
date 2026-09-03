@@ -110,6 +110,8 @@ EXPECTED_FOLDS = (
 )
 
 DEFAULT_SEED = 2026_0831
+RAW_PROBABILITY_ROW_SUM_RTOL = 0.0
+RAW_PROBABILITY_ROW_SUM_ATOL = 1e-6
 _ALLOWED_MODEL_FAMILIES = {
     "class_frequency_null",
     "multinomial_logistic",
@@ -205,9 +207,11 @@ class Stage3FittedPipeline:
                 status_code=409,
             )
         transformed = self.preprocessor.transform(frame)
-        probabilities = _aligned_probabilities(self.estimator, transformed)
-        _validate_probability_matrix(probabilities, expected_rows=len(frame))
-        return probabilities
+        raw_probabilities = _aligned_probabilities(self.estimator, transformed)
+        validated = _validate_probability_matrix(
+            raw_probabilities, expected_rows=len(frame)
+        )
+        return _normalize_executable_probabilities(validated)
 
 
 @dataclass(frozen=True)
@@ -1380,18 +1384,86 @@ def _validate_probability_matrix(
     probabilities: Any, *, expected_rows: int | None = None
 ) -> np.ndarray:
     values = np.asarray(probabilities, dtype=float)
-    if (
-        values.ndim != 2
-        or values.shape[0] == 0
-        or values.shape[1] != len(GOLD_CLASS_ORDER)
-        or (expected_rows is not None and values.shape[0] != int(expected_rows))
-        or not np.isfinite(values).all()
-        or (values < 0).any()
-        or not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-8)
-    ):
+    shape_valid = (
+        values.ndim == 2
+        and values.shape[0] > 0
+        and values.shape[1] == len(GOLD_CLASS_ORDER)
+        and (expected_rows is None or values.shape[0] == int(expected_rows))
+    )
+    finite = bool(np.isfinite(values).all()) if values.size else False
+    minimum = float(np.min(values)) if finite and values.size else None
+    maximum = float(np.max(values)) if finite and values.size else None
+    row_sums = (
+        values.sum(axis=1, dtype=np.float64)
+        if shape_valid and finite
+        else np.asarray([], dtype=np.float64)
+    )
+    maximum_sum_deviation = (
+        float(np.max(np.abs(row_sums - 1.0))) if row_sums.size else None
+    )
+    valid = (
+        shape_valid
+        and finite
+        and minimum is not None
+        and maximum is not None
+        and minimum >= 0.0
+        and maximum <= 1.0
+        and maximum_sum_deviation is not None
+        and maximum_sum_deviation <= RAW_PROBABILITY_ROW_SUM_ATOL
+    )
+    if not valid:
         raise Stage3ModelLaboratoryError(
             "MODEL_LAB_PROBABILITY_RECONCILIATION_FAILED",
-            "The estimator produced an invalid governed multiclass probability matrix.",
+            "The estimator produced an invalid governed multiclass probability "
+            f"matrix: shape={values.shape}, expectedRows={expected_rows}, "
+            f"finite={finite}, minimum={minimum}, maximum={maximum}, "
+            "maximumAbsoluteRowSumDeviation="
+            f"{maximum_sum_deviation}, rowSumRtol="
+            f"{RAW_PROBABILITY_ROW_SUM_RTOL}, rowSumAtol="
+            f"{RAW_PROBABILITY_ROW_SUM_ATOL}.",
+        )
+    # This array is intentionally not normalized.  The accepted Model Lab
+    # metrics and legacy OOF digest are defined over the class-aligned raw
+    # estimator values (represented as float64 without changing their scalar
+    # values), including ordinary float32 softmax summation roundoff.
+    return values
+
+
+def _normalize_executable_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    """Normalize already-valid raw rows only at the executable scoring boundary."""
+
+    values = np.asarray(probabilities, dtype=np.float64).copy()
+    row_sums = values.sum(axis=1, dtype=np.float64)
+    values /= row_sums[:, np.newaxis]
+
+    # Make NumPy float64 row sums exactly 1.0.  Correcting columns in stable
+    # descending-probability order avoids creating a negative residual for
+    # tiny classes while accommodating the reduction tree used by np.sum.
+    rows = np.arange(values.shape[0])
+    correction_order = np.argsort(-values, axis=1, kind="stable")
+    for rank in range(values.shape[1]):
+        incorrect = values.sum(axis=1, dtype=np.float64) != 1.0
+        if not incorrect.any():
+            break
+        selected_rows = rows[incorrect]
+        selected_columns = correction_order[incorrect, rank]
+        without_selected = values[incorrect].copy()
+        without_selected[np.arange(len(selected_rows)), selected_columns] = 0.0
+        values[selected_rows, selected_columns] = 1.0 - without_selected.sum(
+            axis=1, dtype=np.float64
+        )
+    exact_sums = values.sum(axis=1, dtype=np.float64)
+    if (
+        not np.isfinite(values).all()
+        or (values < 0.0).any()
+        or not np.equal(exact_sums, 1.0).all()
+    ):
+        maximum_deviation = float(np.max(np.abs(exact_sums - 1.0)))
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_EXECUTABLE_PROBABILITY_NORMALIZATION_FAILED",
+            "Already-valid raw probabilities could not be normalized to exact "
+            f"float64 row sums; maximumAbsoluteRowSumDeviation={maximum_deviation}.",
+            status_code=409,
         )
     return values
 
@@ -2072,6 +2144,16 @@ def _evaluate_candidate(
                     progress_callback=progress_callback,
                 )
                 fold_selection_evidence.append(selection_evidence)
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "state": "RUNNING",
+                            "modelFamily": model_family,
+                            "fold": int(fold["foldNumber"]),
+                            "foldCount": len(contract_folds),
+                            "event": "FOLD_ESTIMATOR_FIT_COMPLETED",
+                        }
+                    )
                 validation_values = preprocessor.transform(
                     frame.loc[validation_mask, selected_features]
                 )
@@ -2102,6 +2184,17 @@ def _evaluate_candidate(
                 # otherwise chooses an environment-sized thread pool internally.
                 with threadpool_limits(limits=runtime_workers):
                     estimator.fit(train_values, train_labels)
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            "state": "RUNNING",
+                            "modelFamily": model_family,
+                            "fold": int(fold["foldNumber"]),
+                            "foldCount": len(contract_folds),
+                            "event": "FOLD_ESTIMATOR_FIT_COMPLETED",
+                        }
+                    )
+                with threadpool_limits(limits=runtime_workers):
                     probabilities = _aligned_probabilities(estimator, validation_values)
             complexity = _model_complexity(estimator, train_values)
             interpretability = _native_interpretability(estimator, preprocessor)
