@@ -30,6 +30,7 @@ from . import stage3_eda as eda
 
 
 OUTLIER_DETECTION_METHODS = (
+    "NO_STATISTICAL_DETECTION",
     "IQR_1_5",
     "IQR_3_0",
     "P95_UPPER",
@@ -482,6 +483,8 @@ def _detection_bounds(
 ) -> tuple[float | None, float | None]:
     if method not in OUTLIER_DETECTION_METHODS:
         raise Stage3TreatmentError("OUTLIER_METHOD_UNSUPPORTED", f"Unsupported outlier detection method: {method}.")
+    if method == "NO_STATISTICAL_DETECTION":
+        return None, None
     if int(statistics.get("count") or 0) == 0:
         return None, None
     q1 = float(statistics["q1"])
@@ -550,6 +553,24 @@ def _calculate_outlier_profile(
     methods: dict[str, Any] = {}
     for method in OUTLIER_DETECTION_METHODS:
         if method == "DOMAIN_BOUNDS" and variable not in _GOVERNED_DOMAIN_BOUNDS:
+            continue
+        if method == "NO_STATISTICAL_DETECTION":
+            methods[method] = {
+                "method": method,
+                "lowerThreshold": None,
+                "upperThreshold": None,
+                # The workbook carries semantic recommendations but no exact
+                # outlier-count export.  Null is intentionally different from
+                # a measured zero-outlier result.
+                "lowerTailCount": None,
+                "upperTailCount": None,
+                "outlierCount": None,
+                "outlierPercent": None,
+                "affectedGames": None,
+                "affectedBatters": None,
+                "affectedPitchers": None,
+                "affectedPlayers": None,
+            }
             continue
         lower, upper = _detection_bounds(variable, statistics, method)
         low, high, mask = _outlier_masks(frame[variable], lower, upper)
@@ -636,6 +657,8 @@ def _prime_outlier_profiles(
                 if active is not None and not bool(active.get("included", True)):
                     continue
                 active_method = str((active or {}).get("method") or union_method or DEFAULT_OUTLIER_METHOD)
+                if active_method == "NO_STATISTICAL_DETECTION":
+                    continue
                 method_result = profile["methods"].get(active_method)
                 if method_result is None:
                     continue
@@ -794,8 +817,21 @@ def _outlier_row(
     selected_treatment = str((override or {}).get("treatment") or treatment).upper()
     if selected_treatment not in OUTLIER_TREATMENTS:
         raise Stage3TreatmentError("OUTLIER_TREATMENT_UNSUPPORTED", f"Unsupported outlier treatment: {selected_treatment}.")
+    if (
+        selected_method == "NO_STATISTICAL_DETECTION"
+        and selected_treatment != "RETAIN"
+    ):
+        raise Stage3TreatmentError(
+            "OUTLIER_TREATMENT_INELIGIBLE",
+            "NO_STATISTICAL_DETECTION is compatible only with RETAIN because no detected set exists to transform.",
+        )
     profile = _outlier_profile_all_methods(authority, meta, filters)
     custom_bounds = _custom_outlier_bounds(override or {})
+    if selected_method == "NO_STATISTICAL_DETECTION" and custom_bounds is not None:
+        raise Stage3TreatmentError(
+            "OUTLIER_CUSTOM_THRESHOLD_INELIGIBLE",
+            "Custom detection thresholds cannot be combined with NO_STATISTICAL_DETECTION.",
+        )
     selected = (
         _outlier_result_for_bounds(authority, variable, filters, *custom_bounds)
         if custom_bounds is not None
@@ -805,7 +841,11 @@ def _outlier_row(
     included = (override or {}).get("included", True)
     if not isinstance(included, bool):
         raise Stage3TreatmentError("OUTLIER_INCLUDE_FLAG_INVALID", "included must be a boolean.")
-    treatment_value: Any = "Original values retained"
+    treatment_value: Any = (
+        "No statistical detector is fitted; semantic/domain validation remains declarative."
+        if selected_method == "NO_STATISTICAL_DETECTION"
+        else "Original values retained"
+    )
     if selected_treatment == "CAP_IQR":
         treatment_value = f"Fold-local IQR fences · preview [{selected['lowerThreshold']}, {selected['upperThreshold']}]"
     elif selected_treatment == "WINSORIZE":
@@ -866,10 +906,22 @@ def _outlier_row(
         "affectedPlayers": selected["affectedPlayers"],
         "affectedBatters": selected["affectedBatters"],
         "affectedPitchers": selected["affectedPitchers"],
-        "status": "EXCLUDED_FROM_POLICY" if not included else "OUTLIERS_FOUND" if selected["outlierCount"] else "NO_OUTLIERS_FOUND",
+        "status": (
+            "EXCLUDED_FROM_POLICY"
+            if not included
+            else "NOT_STATISTICALLY_EVALUATED"
+            if selected_method == "NO_STATISTICAL_DETECTION"
+            else "OUTLIERS_FOUND"
+            if selected["outlierCount"]
+            else "NO_OUTLIERS_FOUND"
+        ),
         "override": bool(override),
         "eligibleDetectionMethods": _eligible_detection_methods(variable),
-        "eligibleTreatments": list(OUTLIER_TREATMENTS),
+        "eligibleTreatments": (
+            ["RETAIN"]
+            if selected_method == "NO_STATISTICAL_DETECTION"
+            else list(OUTLIER_TREATMENTS)
+        ),
         "ineligibleReasons": ({"DOMAIN_BOUNDS": "No registered physical or mathematical bounds."} if variable not in _GOVERNED_DOMAIN_BOUNDS else {}),
         "previewLabel": "DESCRIPTIVE PREVIEW — FOLD-LOCAL VALUES WILL DIFFER",
     }
@@ -1168,19 +1220,41 @@ def outlier_table(database: Database, project_id: str, payload: Any) -> dict[str
     all_rows = [*eligible_rows, *[_excluded_outlier_row(meta) for meta in excluded_metas]]
     rows = _filter_catalog_rows(all_rows, payload)
     eligible_count = len(metas)
+    active_evaluated = [
+        row
+        for row in eligible_rows
+        if row.get("active")
+        and row.get("selectedDetectionMethod") != "NO_STATISTICAL_DETECTION"
+        and row.get("numberOfOutliers") is not None
+    ]
     active_affected = [
         row for row in all_rows
         if row.get("active") and int(row.get("numberOfOutliers") or 0) > 0
     ]
     top = max(active_affected, key=lambda row: int(row["numberOfOutliers"]), default=None)
+    statistically_evaluated = bool(active_evaluated)
     active_summary = {
-        "status": "ANALYZED" if active_affected else "NO_OUTLIERS",
+        "status": (
+            "NOT_EVALUATED"
+            if not statistically_evaluated
+            else "ANALYZED"
+            if active_affected
+            else "NO_OUTLIERS"
+        ),
         "eligibleVariables": eligible_count,
-        "variablesWithOutliers": len(active_affected),
-        "totalAffectedRows": int(union.get("affectedRows") or 0),
-        "affectedGames": int(union.get("affectedGames") or 0),
-        "affectedBatters": int(union.get("affectedBatters") or 0),
-        "affectedPitchers": int(union.get("affectedPitchers") or 0),
+        "variablesWithOutliers": len(active_affected) if statistically_evaluated else None,
+        "totalAffectedRows": (
+            int(union.get("affectedRows") or 0) if statistically_evaluated else None
+        ),
+        "affectedGames": (
+            int(union.get("affectedGames") or 0) if statistically_evaluated else None
+        ),
+        "affectedBatters": (
+            int(union.get("affectedBatters") or 0) if statistically_evaluated else None
+        ),
+        "affectedPitchers": (
+            int(union.get("affectedPitchers") or 0) if statistically_evaluated else None
+        ),
         "highestAffectedVariable": top["variable"] if top else None,
         "highestAffectedCount": top["numberOfOutliers"] if top else None,
         "highestAffectedPercent": top["outlierPercent"] if top else None,
@@ -1314,6 +1388,11 @@ def _outlier_detail_data(
     treatment = requested_treatment if included else "RETAIN"
     if requested_treatment not in OUTLIER_TREATMENTS:
         raise Stage3TreatmentError("OUTLIER_TREATMENT_UNSUPPORTED", f"Unsupported outlier treatment: {requested_treatment}.")
+    if method == "NO_STATISTICAL_DETECTION" and treatment != "RETAIN":
+        raise Stage3TreatmentError(
+            "OUTLIER_TREATMENT_INELIGIBLE",
+            "NO_STATISTICAL_DETECTION is compatible only with RETAIN because no detected set exists to transform.",
+        )
     requested = [
         variable,
         *[
@@ -1327,6 +1406,11 @@ def _outlier_detail_data(
     before_stats = _statistics(values)
     lower, upper = _detection_bounds(variable, before_stats, method)
     custom_bounds = _custom_outlier_bounds(payload)
+    if method == "NO_STATISTICAL_DETECTION" and custom_bounds is not None:
+        raise Stage3TreatmentError(
+            "OUTLIER_CUSTOM_THRESHOLD_INELIGIBLE",
+            "Custom detection thresholds cannot be combined with NO_STATISTICAL_DETECTION.",
+        )
     if custom_bounds is not None:
         lower, upper = custom_bounds
     low, high, detected = _outlier_masks(values, lower, upper)
@@ -1421,7 +1505,24 @@ def _outlier_detail_data(
             "categories": category_values,
         }
     warning = None
-    if not included:
+    statistically_evaluated = method != "NO_STATISTICAL_DETECTION"
+    detected_count = int(detected.sum()) if statistically_evaluated else None
+    reported_entity = (
+        entity
+        if statistically_evaluated
+        else {
+            "affectedGames": None,
+            "affectedBatters": None,
+            "affectedPitchers": None,
+            "affectedPlayers": None,
+        }
+    )
+    if not statistically_evaluated:
+        warning = (
+            "NOT EVALUATED: no statistical detector or exact outlier-count claim is active; "
+            "semantic/domain validation remains declarative."
+        )
+    elif not included:
         warning = "Variable excluded from the preprocessing policy; preview retains original values."
     if treatment == "EXCLUDE_ROW":
         warning = "HIGH RISK: row exclusion can bias the modeling population; target/entity concentrations are descriptive development-only evidence."
@@ -1439,6 +1540,9 @@ def _outlier_detail_data(
             else "Explicit variable method" if explicit_method else "Global/default method applies"
         ),
         "treatment": treatment,
+        "evaluationStatus": (
+            "ANALYZED" if statistically_evaluated else "NOT_EVALUATED"
+        ),
         "previewLabel": "DESCRIPTIVE PREVIEW — FOLD-LOCAL VALUES WILL DIFFER",
         "thresholds": {
             "lower": lower,
@@ -1451,16 +1555,25 @@ def _outlier_detail_data(
                 "P05_P95": "value < P05 or value > P95",
                 "P01_P99": "value < P01 or value > P99",
                 "DOMAIN_BOUNDS": "value outside registered mathematical/physical bounds",
+                "NO_STATISTICAL_DETECTION": "no statistical threshold is fitted; validate registered semantic/domain rules",
             }[method],
-            "fittingRule": "Detection parameters are fit on each chronological training fold only.",
+            "fittingRule": (
+                "Detection parameters are fit on each chronological training fold only."
+                if statistically_evaluated
+                else "No statistical detection parameters are fit."
+            ),
         },
         "treatmentBounds": {"lower": treatment_lower, "upper": treatment_upper},
         "detected": {
-            "lowerCount": int(low.sum()),
-            "upperCount": int(high.sum()),
-            "totalCount": int(detected.sum()),
-            "percent": eda._percent(int(detected.sum()), len(frame)),
-            **entity,
+            "lowerCount": int(low.sum()) if statistically_evaluated else None,
+            "upperCount": int(high.sum()) if statistically_evaluated else None,
+            "totalCount": detected_count,
+            "percent": (
+                eda._percent(detected_count, len(frame))
+                if detected_count is not None
+                else None
+            ),
+            **reported_entity,
         },
         "before": before_preview,
         "after": after_preview,
@@ -1477,27 +1590,44 @@ def _outlier_detail_data(
             "populationLossPercent": eda._percent(excluded, len(frame)),
             "original": {key: before_stats.get(key) for key in ("min", "max", "mean", "median", "std")},
             "transformed": {key: after_stats.get(key) for key in ("min", "max", "mean", "median", "std")},
-            **{key: entity[key] for key in ("affectedGames", "affectedBatters", "affectedPitchers")},
+            **{
+                key: reported_entity[key]
+                for key in ("affectedGames", "affectedBatters", "affectedPitchers")
+            },
             "targetCompositionBefore": _target_composition(frame),
             "targetCompositionAfter": _target_composition(after_frame),
             "formula": formula,
         },
         "eligibleDetectionMethods": _eligible_detection_methods(variable),
-        "eligibleTreatments": list(OUTLIER_TREATMENTS),
+        "eligibleTreatments": (
+            ["RETAIN"]
+            if not statistically_evaluated
+            else list(OUTLIER_TREATMENTS)
+        ),
         "warning": warning,
         "previewOnly": True,
         "pendingMissingValueRequirement": treatment == "SET_MISSING",
         "activeSummary": {
-            "status": "ANALYZED" if int(detected.sum()) else "NO_OUTLIERS",
+            "status": (
+                "NOT_EVALUATED"
+                if not statistically_evaluated
+                else "ANALYZED"
+                if detected_count
+                else "NO_OUTLIERS"
+            ),
             "eligibleVariables": 1,
-            "variablesWithOutliers": 1 if int(detected.sum()) else 0,
-            "totalAffectedRows": int(detected.sum()),
-            "affectedGames": entity["affectedGames"],
-            "affectedBatters": entity["affectedBatters"],
-            "affectedPitchers": entity["affectedPitchers"],
-            "highestAffectedVariable": variable if int(detected.sum()) else None,
-            "highestAffectedCount": int(detected.sum()) if int(detected.sum()) else None,
-            "highestAffectedPercent": eda._percent(int(detected.sum()), len(frame)) if int(detected.sum()) else None,
+            "variablesWithOutliers": (
+                1 if detected_count else 0
+            ) if statistically_evaluated else None,
+            "totalAffectedRows": detected_count,
+            "affectedGames": reported_entity["affectedGames"],
+            "affectedBatters": reported_entity["affectedBatters"],
+            "affectedPitchers": reported_entity["affectedPitchers"],
+            "highestAffectedVariable": variable if detected_count else None,
+            "highestAffectedCount": detected_count if detected_count else None,
+            "highestAffectedPercent": (
+                eda._percent(detected_count, len(frame)) if detected_count else None
+            ),
             "activeDetectionMethod": method,
             "activeTreatment": treatment,
             "filtersApplied": dict(filters),
