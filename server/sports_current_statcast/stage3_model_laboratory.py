@@ -163,6 +163,53 @@ class _UnknownCategoryMapper(BaseEstimator, TransformerMixin):
         return np.asarray(input_features, dtype=object)
 
 
+class Stage3FittedPipeline:
+    """Serialization-safe fitted Stage 3 preprocessing/model boundary.
+
+    The wrapper deliberately owns the ordered source-feature and target-class
+    contracts.  A caller cannot accidentally score a reordered, partial, or
+    expanded frame, and estimator-native class ordering is reconciled before a
+    probability matrix leaves the trusted artifact boundary.
+    """
+
+    def __init__(
+        self,
+        *,
+        ordered_features: Sequence[str],
+        target_order: Sequence[str],
+        preprocessor: Any,
+        estimator: Any,
+    ) -> None:
+        self.ordered_features = tuple(str(value) for value in ordered_features)
+        self.target_order = tuple(str(value) for value in target_order)
+        self.preprocessor = preprocessor
+        self.estimator = estimator
+
+    def predict_proba(self, frame: pd.DataFrame) -> np.ndarray:
+        if not isinstance(frame, pd.DataFrame):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_FEATURE_FRAME_REQUIRED",
+                "Stage 3 artifact scoring requires a pandas DataFrame.",
+            )
+        columns = [str(value) for value in frame.columns]
+        if columns != list(self.ordered_features) or len(columns) != len(set(columns)):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_FEATURE_ORDER_MISMATCH",
+                "The scoring frame must contain exactly the artifact's ordered source features.",
+                status_code=409,
+            )
+        if self.target_order != tuple(GOLD_CLASS_ORDER):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_TARGET_ORDER_MISMATCH",
+                "The fitted artifact target order differs from the governed eight-class order.",
+                status_code=409,
+            )
+        transformed = self.preprocessor.transform(frame)
+        probabilities = _aligned_probabilities(self.estimator, transformed)
+        _validate_probability_matrix(probabilities, expected_rows=len(frame))
+        return probabilities
+
+
 @dataclass(frozen=True)
 class ModelLabAuthority:
     eda_authority: Any
@@ -866,8 +913,15 @@ def _date_mask(frame: pd.DataFrame, start: str, end: str) -> np.ndarray:
     return dates.between(start, end).to_numpy(dtype=bool)
 
 
-def _fold_frame(resolved: ModelLabAuthority, features: Sequence[str]) -> pd.DataFrame:
+def _fold_frame(
+    resolved: ModelLabAuthority,
+    features: Sequence[str],
+    *,
+    include_oof_identity: bool = False,
+) -> pd.DataFrame:
     requested = [*features, "game_date", "outcome", "canonicalGameId"]
+    if include_oof_identity:
+        requested.append("canonicalPaId")
     frame = eda._scan(
         resolved.eda_authority,
         requested,
@@ -1304,10 +1358,116 @@ def _model(
 def _aligned_probabilities(model: Any, values: Any) -> np.ndarray:
     raw = np.asarray(model.predict_proba(values), dtype=float)
     classes = [int(value) for value in model.classes_]
+    expected_classes = list(range(len(GOLD_CLASS_ORDER)))
+    if (
+        raw.ndim != 2
+        or raw.shape[1] != len(classes)
+        or len(classes) != len(set(classes))
+        or sorted(classes) != expected_classes
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_ESTIMATOR_CLASS_ORDER_INVALID",
+            "The estimator must expose every governed target class exactly once.",
+            status_code=409,
+        )
     aligned = np.zeros((raw.shape[0], len(GOLD_CLASS_ORDER)), dtype=float)
     for source_index, class_index in enumerate(classes):
         aligned[:, class_index] = raw[:, source_index]
     return aligned
+
+
+def _validate_probability_matrix(
+    probabilities: Any, *, expected_rows: int | None = None
+) -> np.ndarray:
+    values = np.asarray(probabilities, dtype=float)
+    if (
+        values.ndim != 2
+        or values.shape[0] == 0
+        or values.shape[1] != len(GOLD_CLASS_ORDER)
+        or (expected_rows is not None and values.shape[0] != int(expected_rows))
+        or not np.isfinite(values).all()
+        or (values < 0).any()
+        or not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-8)
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_PROBABILITY_RECONCILIATION_FAILED",
+            "The estimator produced an invalid governed multiclass probability matrix.",
+        )
+    return values
+
+
+def fit_stage3_pipeline(
+    frame: pd.DataFrame,
+    *,
+    model_family: str,
+    feature_set: Mapping[str, Any],
+    seed: int,
+    hyperparameters: Mapping[str, Any] | None = None,
+    native_workers: int = 1,
+) -> tuple[Stage3FittedPipeline, dict[str, Any]]:
+    """Fit one exact preprocessing-plus-estimator pipeline on ``frame``.
+
+    This seam is shared by fold reproduction and the final development-only
+    fit.  It never performs a data scan and therefore cannot broaden the
+    caller's authorized population.
+    """
+
+    features = list(feature_set.get("orderedFeatures") or [])
+    if not features or len(features) != len(set(features)):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_FEATURE_ORDER_INVALID",
+            "The fitted pipeline requires one non-empty unique ordered feature contract.",
+            status_code=409,
+        )
+    missing = [name for name in [*features, "outcome"] if name not in frame.columns]
+    if missing:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_FIT_COLUMNS_MISSING",
+            "The authorized fit frame is missing: " + ", ".join(missing),
+            status_code=409,
+        )
+    labels = frame["outcome"].map(
+        {name: index for index, name in enumerate(GOLD_CLASS_ORDER)}
+    )
+    if labels.isna().any():
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_TARGET_ENCODING_FAILED",
+            "A governed target could not be encoded.",
+        )
+    dense = model_family in {
+        "histogram_gradient_boosting",
+        "gaussian_naive_bayes",
+        "mlp",
+        "catboost",
+    }
+    preprocessor, transformation_groups = _preprocessor(
+        frame.loc[:, features], feature_set, dense_categoricals=dense
+    )
+    runtime_workers = _bounded_native_workers(native_workers)
+    train_values = preprocessor.fit_transform(frame.loc[:, features])
+    estimator = _model(
+        model_family,
+        int(seed),
+        hyperparameters=hyperparameters,
+        native_workers=runtime_workers,
+    )
+    with threadpool_limits(limits=runtime_workers):
+        estimator.fit(train_values, labels.to_numpy(dtype=np.int64))
+    pipeline = Stage3FittedPipeline(
+        ordered_features=features,
+        target_order=GOLD_CLASS_ORDER,
+        preprocessor=preprocessor,
+        estimator=estimator,
+    )
+    return pipeline, {
+        "fitRows": int(len(frame)),
+        "seed": int(seed),
+        "nativeWorkers": runtime_workers,
+        "registeredOrderedTransformations": transformation_groups["ordered"],
+        "transformedFeatureCount": int(train_values.shape[1]),
+        "validationRowsUsedForParameters": 0,
+        "finalOotRowsUsedForParameters": 0,
+    }
 
 
 def _ece(probabilities: np.ndarray, labels: np.ndarray, bins: int = 10) -> float:
@@ -1825,6 +1985,7 @@ def _evaluate_candidate(
     fold_local_selector: Mapping[str, Any] | None = None,
     native_workers: int = 1,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    artifact_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     runtime_workers = _bounded_native_workers(native_workers)
@@ -2014,11 +2175,9 @@ def _evaluate_candidate(
                 ).hexdigest(),
                 "foldLocalSelection": selection_evidence if selector else None,
             }
-        if not np.isfinite(probabilities).all() or (probabilities < 0).any() or not np.allclose(probabilities.sum(axis=1), 1.0, atol=1e-8):
-            raise Stage3ModelLaboratoryError(
-                "MODEL_LAB_PROBABILITY_RECONCILIATION_FAILED",
-                f"Fold {fold['foldNumber']} produced invalid multiclass probabilities.",
-            )
+        probabilities = _validate_probability_matrix(
+            probabilities, expected_rows=int(validation_mask.sum())
+        )
         metrics = _metrics(probabilities, validation_labels)
         fold_results.append(
             {
@@ -2040,6 +2199,29 @@ def _evaluate_candidate(
         )
         all_probabilities.append(probabilities)
         all_labels.append(validation_labels)
+        if artifact_callback is not None:
+            if model_family == "class_frequency_null":
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_REFERENCE_ARTIFACT_UNSUPPORTED",
+                    "The class-frequency reference has no executable fitted pipeline.",
+                    status_code=409,
+                )
+            artifact_callback(
+                {
+                    "fold": dict(fold),
+                    "validationMask": validation_mask.copy(),
+                    "validationLabels": validation_labels.copy(),
+                    "probabilities": probabilities.copy(),
+                    "pipeline": Stage3FittedPipeline(
+                        ordered_features=selected_features,
+                        target_order=GOLD_CLASS_ORDER,
+                        preprocessor=preprocessor,
+                        estimator=estimator,
+                    ),
+                    "preprocessing": dict(preprocessing),
+                    "metrics": dict(metrics),
+                }
+            )
         if progress_callback is not None:
             progress_callback(
                 {
@@ -2473,7 +2655,9 @@ def run_model_laboratory(
 
 
 __all__ = [
+    "Stage3FittedPipeline",
     "Stage3ModelLaboratoryError",
+    "fit_stage3_pipeline",
     "list_model_laboratory_runs",
     "model_laboratory_summary",
     "resolve_model_lab_authority",

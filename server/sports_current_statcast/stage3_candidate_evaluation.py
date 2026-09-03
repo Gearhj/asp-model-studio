@@ -2274,6 +2274,155 @@ def _require_current_finalist(
     return resolved, selection_id, candidate
 
 
+def resolve_current_research_challenger(
+    database: Database, project_id: str
+) -> dict[str, Any]:
+    """Resolve the complete, current research-challenger decision chain.
+
+    Artifact construction is materially different from selecting an arbitrary
+    finalist.  It is authorized only by one internally consistent chain:
+    finalist -> calibration disposition -> game-evaluation disposition ->
+    research-challenger decision -> metadata-only research handoff.  The
+    returned private source objects let the artifact worker reproduce the exact
+    representative attempt without treating a later/latest policy or run as an
+    equivalent substitute.
+    """
+
+    resolved, finalist_selection_id, finalists = _current_finalist_details(
+        database, project_id
+    )
+    calibration = _current_downstream_receipt(
+        database, project_id, CALIBRATION_DECISION_RUN_TYPE
+    )
+    game_evaluation = _current_downstream_receipt(
+        database, project_id, GAME_EVALUATION_DECISION_RUN_TYPE
+    )
+    selection = _current_downstream_receipt(
+        database, project_id, CHALLENGER_DECISION_RUN_TYPE
+    )
+    handoff = _current_downstream_receipt(
+        database, project_id, REGISTRY_HANDOFF_RUN_TYPE
+    )
+    fingerprint = str((selection or {}).get("candidateFingerprint") or "")
+    candidate = next(
+        (
+            item
+            for item in finalists
+            if item.get("candidateFingerprint") == fingerprint
+        ),
+        None,
+    )
+    if (
+        not finalist_selection_id
+        or not calibration
+        or not game_evaluation
+        or not selection
+        or not handoff
+        or candidate is None
+        or calibration.get("finalistSelectionId") != finalist_selection_id
+        or calibration.get("candidateFingerprint") != fingerprint
+        or calibration.get("disposition") != "RETAIN_RAW"
+        or calibration.get("calibrationApplied") is not False
+        or game_evaluation.get("finalistSelectionId") != finalist_selection_id
+        or game_evaluation.get("candidateFingerprint") != fingerprint
+        or game_evaluation.get("calibrationDecisionId")
+        != calibration.get("decisionId")
+        or selection.get("finalistSelectionId") != finalist_selection_id
+        or selection.get("calibrationDecisionId") != calibration.get("decisionId")
+        or selection.get("gameEvaluationDecisionId")
+        != game_evaluation.get("decisionId")
+        or selection.get("decision") != "REGISTER_RESEARCH_CHALLENGER"
+        or selection.get("modelStatus") != "RESEARCH_CHALLENGER"
+        or selection.get("promotionStatus") != "NOT_PROMOTED"
+        or selection.get("championSelected") is not False
+        or handoff.get("finalistSelectionId") != finalist_selection_id
+        or handoff.get("selectionDecisionId") != selection.get("decisionId")
+        or handoff.get("candidateFingerprint") != fingerprint
+        or handoff.get("candidateAttemptId") != candidate.get("attemptId")
+        or handoff.get("candidateRunReceiptSha256")
+        != candidate.get("runReceiptSha256")
+        or handoff.get("modelStatus") != "RESEARCH_CHALLENGER"
+        or handoff.get("promotionStatus") != "NOT_PROMOTED"
+        or handoff.get("modelsPromoted") != 0
+        or handoff.get("finalOotTargetAccessed") is not False
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_RESEARCH_CHALLENGER_CHAIN_STALE",
+            "The current finalist, review, challenger, and research-handoff receipts do not form one exact current authority chain.",
+            status_code=409,
+        )
+
+    source_run = next(
+        (
+            run
+            for run in _read_runs(project_id, resolved)
+            if run.get("runId") == candidate.get("runId")
+            and run.get("runReceiptSha256") == candidate.get("runReceiptSha256")
+        ),
+        None,
+    )
+    source_candidate = next(
+        (
+            item
+            for item in (source_run or {}).get("candidates") or []
+            if isinstance(item, Mapping)
+            and item.get("candidateId") == candidate.get("attemptId")
+        ),
+        None,
+    )
+    if (
+        source_run is None
+        or source_candidate is None
+        or source_candidate.get("status") != "COMPLETE"
+        or candidate_specification_fingerprint(source_run, source_candidate)
+        != fingerprint
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_RESEARCH_CHALLENGER_SOURCE_STALE",
+            "The research challenger no longer resolves to its exact verified representative run and attempt.",
+            status_code=409,
+        )
+    experiment = _experiment_for_candidate(source_run, source_candidate)
+    feature_contract = experiment.get("featureSetContract") or {}
+    if not isinstance(feature_contract, Mapping):
+        raise _evidence_shape_error(
+            "The research challenger's feature-set contract must be an object."
+        )
+    attempt_receipt_sha = next(
+        (
+            item.get("candidateReceiptSha256")
+            for item in source_run.get("candidateAttemptReceipts") or []
+            if isinstance(item, Mapping)
+            and item.get("candidateId") == source_candidate.get("candidateId")
+        ),
+        None,
+    )
+    return {
+        "projectId": project_id,
+        "finalistSelectionId": finalist_selection_id,
+        "calibrationDecisionId": calibration.get("decisionId"),
+        "gameEvaluationDecisionId": game_evaluation.get("decisionId"),
+        "selectionDecisionId": selection.get("decisionId"),
+        "researchHandoffId": handoff.get("decisionId"),
+        "registryEntryId": handoff.get("registryEntryId"),
+        "candidateFingerprint": fingerprint,
+        "candidateAttemptId": candidate.get("attemptId"),
+        "candidateAttemptReceiptSha256": attempt_receipt_sha,
+        "candidateRunId": candidate.get("runId"),
+        "candidateRunReceiptSha256": candidate.get("runReceiptSha256"),
+        "candidate": dict(candidate),
+        "sourceRun": source_run,
+        "sourceCandidate": source_candidate,
+        "experiment": dict(experiment),
+        "featureSetContract": dict(feature_contract),
+        "calibration": calibration,
+        "gameEvaluation": game_evaluation,
+        "selection": selection,
+        "handoff": handoff,
+        "resolvedAuthority": resolved,
+    }
+
+
 def _persist_downstream_decision(
     database: Database,
     *,
@@ -2876,6 +3025,7 @@ __all__ = [
     "plan_model_refinement",
     "execute_model_refinement",
     "project_candidate_evaluation",
+    "resolve_current_research_challenger",
     "request_candidate_analysis",
     "save_finalist_selection",
     "project_stage3_downstream",
