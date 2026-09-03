@@ -17,7 +17,15 @@ import {
   Trophy,
 } from "lucide-react";
 import {
+  cancelUnstartedProjectStage3ExecutableArtifact,
+  enqueueProjectStage3ExecutableArtifact,
+  enqueueProjectStage3GameScoring,
+  fetchProjectStage3ExecutableArtifact,
+  fetchProjectStage3ExecutableArtifactJob,
+  fetchProjectStage3GameScoring,
+  fetchProjectStage3GameScoringJob,
   fetchProjectStage3Downstream,
+  planProjectStage3ExecutableArtifact,
   registerProjectResearchHandoff,
   saveProjectCalibrationDecision,
   saveProjectGameEvaluationDecision,
@@ -25,6 +33,14 @@ import {
   type ProjectDownstreamDecision,
   type ProjectDownstreamFinalist,
   type ProjectStage3Downstream,
+  type ProjectStage3ExecutableArtifact,
+  type ProjectStage3GameScoring,
+  type Stage3ExecutableArtifact,
+  type Stage3ExecutableArtifactJob,
+  type Stage3ExecutableArtifactPlan,
+  type Stage3GameReadiness,
+  type Stage3GameScoringJob,
+  type Stage3GovernedGameScore,
 } from "./projectModelLabApi";
 
 type StepProps = { projectId: string; go?: (id: string) => void };
@@ -314,8 +330,128 @@ export function ProjectBoundChampionDecision({ projectId, go }: StepProps) {
   </div> : null}</PageState>;
 }
 
+const activeArtifactStatuses = new Set(["QUEUED", "RUNNING", "CANCEL_REQUESTED"]);
+
+function useExecutableArtifact(projectId: string) {
+  const [summary, setSummary] = useState<ProjectStage3ExecutableArtifact | null>(null);
+  const [plan, setPlan] = useState<Stage3ExecutableArtifactPlan | null>(null);
+  const [job, setJob] = useState<Stage3ExecutableArtifactJob | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const load = useCallback(async () => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    try {
+      const next = await fetchProjectStage3ExecutableArtifact(projectId, controller.signal);
+      if (controller.signal.aborted) return;
+      setSummary(next);
+      setJob(next.currentJob);
+      if (next.currentJob) setPlan(next.currentJob.plan);
+      setError(null);
+    } catch (caught) {
+      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Executable-artifact authority could not be loaded.");
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }, [projectId]);
+  useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
+
+  const activeJobId = job && activeArtifactStatuses.has(job.status)
+    ? job.jobId
+    : summary?.currentJob && activeArtifactStatuses.has(summary.currentJob.status)
+      ? summary.currentJob.jobId
+      : null;
+  useEffect(() => {
+    if (!activeJobId) return undefined;
+    let disposed = false;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const next = await fetchProjectStage3ExecutableArtifactJob(projectId, activeJobId);
+        if (disposed) return;
+        setJob(next);
+        setPlan(next.plan);
+        setError(null);
+        if (!activeArtifactStatuses.has(next.status)) await load();
+      } catch (caught) {
+        if (!disposed) setError(caught instanceof Error ? caught.message : "Executable-artifact progress could not be refreshed.");
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_500);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [activeJobId, load, projectId]);
+  return { summary, setSummary, plan, setPlan, job, setJob, loading, error, setError, load };
+}
+
+const activeScoringStatuses = new Set(["QUEUED", "RUNNING", "CANCEL_REQUESTED"]);
+
+function useGovernedGameScoring(projectId: string) {
+  const [summary, setSummary] = useState<ProjectStage3GameScoring | null>(null);
+  const [job, setJob] = useState<Stage3GameScoringJob | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const load = useCallback(async () => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    try {
+      const next = await fetchProjectStage3GameScoring(projectId, controller.signal);
+      if (controller.signal.aborted) return;
+      setSummary(next);
+      setJob(next.currentJob);
+      setError(null);
+    } catch (caught) {
+      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Governed-game readiness could not be loaded.");
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  }, [projectId]);
+  useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
+  const activeJobId = job && activeScoringStatuses.has(job.status)
+    ? job.jobId
+    : summary?.currentJob && activeScoringStatuses.has(summary.currentJob.status)
+      ? summary.currentJob.jobId
+      : null;
+  useEffect(() => {
+    if (!activeJobId) return undefined;
+    let disposed = false;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const next = await fetchProjectStage3GameScoringJob(projectId, activeJobId);
+        if (disposed) return;
+        setJob(next);
+        setError(null);
+        if (!activeScoringStatuses.has(next.status)) await load();
+      } catch (caught) {
+        if (!disposed) setError(caught instanceof Error ? caught.message : "Governed-game scoring progress could not be refreshed.");
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_500);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [activeJobId, load, projectId]);
+  return { summary, job, setJob, loading, error, setError, load };
+}
+
 export function ProjectBoundRegistryHandoff({ projectId, go }: StepProps) {
   const { data, loading, error, setError, load } = useDownstream(projectId);
+  const artifactState = useExecutableArtifact(projectId);
+  const gameScoringState = useGovernedGameScoring(projectId);
   const missingPrerequisite = useMemo(() => earliestMissingPrerequisite(data, "registry"), [data]);
   const eligible = useMemo(() => (data?.selectionDecisions ?? []).filter((item) =>
     item.decision === "REGISTER_RESEARCH_CHALLENGER"
@@ -324,33 +460,245 @@ export function ProjectBoundRegistryHandoff({ projectId, go }: StepProps) {
     && (item.selectionId || item.decisionId),
   ), [data]);
   const [selectionId, setSelectionId] = useState("");
+  const [nativeWorkers, setNativeWorkers] = useState(4);
   const [saving, setSaving] = useState(false);
+  const [artifactAction, setArtifactAction] = useState<"PLAN" | "LAUNCH" | "CANCEL" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => { setSelectionId((current) => current && eligible.some((item) => (item.selectionId ?? item.decisionId) === current) ? current : String(eligible[0]?.selectionId ?? eligible[0]?.decisionId ?? "")); }, [eligible]);
+  useEffect(() => {
+    setSelectionId((current) => current && eligible.some((item) => (item.selectionId ?? item.decisionId) === current)
+      ? current
+      : String(eligible[0]?.selectionId ?? eligible[0]?.decisionId ?? ""));
+  }, [eligible]);
+
   const save = async () => {
     if (!selectionId) return;
     setSaving(true); setError(null); setNotice(null);
     try {
       await registerProjectResearchHandoff(projectId, selectionId);
-      setNotice("Immutable metadata-only research registry handoff created. No model binary was exported or deployed.");
-      await load();
+      setNotice("Immutable research registry handoff created. The model remains a RESEARCH CHALLENGER and is NOT PROMOTED.");
+      await Promise.all([load(), artifactState.load()]);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "The research registry handoff failed closed."); }
     finally { setSaving(false); }
   };
+
+  const reviewArtifactPlan = async () => {
+    const authoritativeSelection = artifactState.summary?.selection?.selectionDecisionId ?? selectionId;
+    if (!authoritativeSelection) return;
+    setArtifactAction("PLAN"); artifactState.setError(null); setNotice(null);
+    try {
+      const next = await planProjectStage3ExecutableArtifact(projectId, { selectionId: authoritativeSelection, nativeWorkers });
+      artifactState.setPlan(next);
+      artifactState.setJob(null);
+      artifactState.setSummary((current) => current ? { ...current, currentJob: null } : current);
+      setNotice("The immutable executable-artifact plan is ready for review. No fit has started.");
+    } catch (caught) { artifactState.setError(caught instanceof Error ? caught.message : "Executable-artifact planning failed closed."); }
+    finally { setArtifactAction(null); }
+  };
+
+  const launchArtifactJob = async () => {
+    const reviewed = artifactState.plan;
+    const authoritativeSelection = artifactState.summary?.selection?.selectionDecisionId ?? selectionId;
+    if (!reviewed || !reviewed.executable || !authoritativeSelection) return;
+    setArtifactAction("LAUNCH"); artifactState.setError(null); setNotice(null);
+    try {
+      const next = await enqueueProjectStage3ExecutableArtifact(
+        projectId,
+        reviewed,
+        { selectionId: authoritativeSelection, nativeWorkers: reviewed.execution.nativeWorkers },
+      );
+      artifactState.setJob(next);
+      artifactState.setPlan(next.plan);
+      setNotice(`Executable research artifact job ${next.jobId} was queued. Completion will be shown only after persisted verification passes.`);
+    } catch (caught) { artifactState.setError(caught instanceof Error ? caught.message : "Executable-artifact launch failed closed."); }
+    finally { setArtifactAction(null); }
+  };
+
+  const cancelArtifactJob = async () => {
+    const current = artifactState.job ?? artifactState.summary?.currentJob;
+    if (!current || !activeArtifactStatuses.has(current.status)) return;
+    setArtifactAction("CANCEL"); artifactState.setError(null);
+    try {
+      const next = await cancelUnstartedProjectStage3ExecutableArtifact(projectId, current.jobId);
+      artifactState.setJob(next);
+      setNotice("Cancel-unstarted was recorded. Completed evidence is retained and active work may finish draining.");
+    } catch (caught) { artifactState.setError(caught instanceof Error ? caught.message : "Cancel-unstarted failed closed."); }
+    finally { setArtifactAction(null); }
+  };
+
+  const artifactJob = artifactState.job ?? artifactState.summary?.currentJob ?? null;
+  const persistedArtifact = artifactState.summary?.artifact ?? null;
+  const artifactVerificationFailure = persistedArtifact?.status === "EXECUTABLE_RESEARCH_ARTIFACT_VERIFICATION_FAILED"
+    ? persistedArtifact.verificationError
+    : null;
+  const artifact = persistedArtifact?.status === "EXECUTABLE_RESEARCH_ARTIFACT_MATERIALIZED"
+    ? persistedArtifact
+    : persistedArtifact === null && artifactJob?.status === "COMPLETE"
+      ? artifactJob.artifact
+      : null;
+  const registered = artifactState.summary?.selection != null;
+  const artifactRetryable = artifactVerificationFailure != null
+    || (artifactJob != null && ["FAILED", "CANCELLED", "INTERRUPTED"].includes(artifactJob.status));
+  useEffect(() => {
+    if (artifact?.artifactId) void gameScoringState.load();
+  }, [artifact?.artifactId, gameScoringState.load]);
+
   return <PageState loading={loading} error={error} retry={load}>{data ? missingPrerequisite ? <PrerequisiteRedirect prerequisite={missingPrerequisite} onGo={() => go?.(missingPrerequisite.id)} /> : <div className="min-w-0 space-y-4" data-testid="project-bound-registry-handoff">
-    <StepHeader icon={<ClipboardList size={14} />} eyebrow="Step 15 · Registry, Export & Implementation" title="Register evidence without pretending a deployable model exists" description="This bounded handoff can create an immutable research-candidate metadata entry. It cannot export or implement the candidate because the current receipt has no reloadable fitted estimator and has not completed game, final-OOT, or promotion review." data={data} />
+    <StepHeader icon={<ClipboardList size={14} />} eyebrow="Step 15 · Registry, Artifact & Governed Scoring" title="Materialize a verified research artifact without promotion" description="Bind the immutable research-challenger selection, review its frozen artifact plan, follow persisted job progress, and score only games with complete point-in-time pregame authority. This step never promotes or opens final OOT." data={data} />
+
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><ClipboardList size={15} className="text-cyan-700" />Research registry state</div>{data.registryEntries.length ? <div className="mt-3 space-y-2">{data.registryEntries.map((entry, index) => <div key={String(entry.registryEntryId ?? entry.checksum ?? index)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-emerald-950">{String(entry.registryEntryId ?? "Immutable research registry entry")}</b><div className="flex gap-1"><Pill tone="amber" label={String(entry.modelStatus ?? "RESEARCH_CHALLENGER")} /><Pill tone="rose" label={String(entry.deploymentStatus ?? "NOT_DEPLOYABLE")} /></div></div><p className="mt-2 truncate font-mono text-[9px] text-emerald-700" title={String(entry.receiptSha256 ?? entry.checksum ?? "")}>{String(entry.receiptSha256 ?? entry.checksum ?? "Checksum bound by registry response")}</p></div>)}</div> : <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-700">No metadata-only research entry has been created yet. First save a <b>REGISTER RESEARCH CHALLENGER</b> decision, then bind that immutable selection below.</div>}
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Readiness state="AVAILABLE" title="Development OOF" detail="Immutable aggregate evidence." /><Readiness state="MISSING" title="Fitted estimator" detail="Not persisted in receipt." /><Readiness state="MISSING" title="Game simulation" detail="Explicitly deferred." /><Readiness state="LOCKED" title="Final OOT" detail="Still untouched." /></div>
-        <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-xs leading-5 text-cyan-950"><b>Exact next step</b><br />Run a separately governed artifact-producing experiment that persists the fitted estimator and genuine cross-fitted row-level OOF probabilities. Then evaluate recalibration, game simulation with pregame lineup/starter authority, untouched final OOT, and an explicit promotion decision. Until those steps pass, this entry stays research-only.</div>
+      <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><ClipboardList size={15} className="text-cyan-700" />Research registry state</div>
+        {data.registryEntries.length ? <div className="mt-3 space-y-2">{data.registryEntries.map((entry, index) => <div key={String(entry.registryEntryId ?? entry.checksum ?? index)} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-emerald-950">{String(entry.registryEntryId ?? "Immutable research registry entry")}</b><div className="flex gap-1"><Pill tone="amber" label="RESEARCH CHALLENGER" /><Pill tone="rose" label="NOT PROMOTED" /></div></div><p className="mt-2 truncate font-mono text-[9px] text-emerald-700" title={String(entry.receiptSha256 ?? entry.checksum ?? "")}>{String(entry.receiptSha256 ?? entry.checksum ?? "Checksum bound by registry response")}</p></div>)}</div> : <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-700">No immutable research entry exists yet. Bind the current <b>REGISTER RESEARCH CHALLENGER</b> selection before planning an artifact.</div>}
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><Readiness state="AVAILABLE" title="Development OOF" detail="Immutable five-fold aggregate evidence." /><Readiness state={artifact ? "AVAILABLE" : "MISSING"} title="Fitted estimator" detail={artifact ? "Verified and independently reloadable." : "Artifact verification has not completed."} /><Readiness state={artifact ? "AVAILABLE" : "MISSING"} title="Whole-game scoring" detail={artifact ? "Artifact ready; each game still requires pregame authority." : "Blocked until artifact materialization."} /><Readiness state="LOCKED" title="Final OOT" detail="LOCKED · target not accessed or scored." /></div>
       </article>
-      <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><FileCheck2 size={15} className="text-cyan-700" />Metadata-only handoff</div>{eligible.length ? <><label className="mt-3 block text-[10px] font-semibold uppercase text-slate-500">Research-challenger selection<select value={selectionId} onChange={(event) => setSelectionId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal normal-case text-slate-800">{eligible.map((item) => { const id = String(item.selectionId ?? item.decisionId); return <option key={id} value={id}>{id}</option>; })}</select></label><button type="button" disabled={saving || !selectionId} onClick={() => void save()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{saving ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}Create immutable research entry</button></> : <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><Lock size={14} className="mr-1 inline" />No compatible research-challenger selection is available. Return to Step 14 and save one, or deliberately keep/defer the decision.</div>}<div className="mt-4 space-y-2"><StatusLine label="Registry classification" value="RESEARCH CHALLENGER" /><StatusLine label="Promotion" value="NOT PROMOTED" danger /><StatusLine label="Deployment" value="NOT DEPLOYABLE" danger /><StatusLine label="Export" value="NOT EXPORTED" danger /><StatusLine label="Final OOT" value="LOCKED" danger /></div></aside>
+      <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><FileCheck2 size={15} className="text-cyan-700" />Immutable research handoff</div>
+        {!registered ? eligible.length ? <><label className="mt-3 block text-[10px] font-semibold uppercase text-slate-500">Research-challenger selection<select value={selectionId} onChange={(event) => setSelectionId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal normal-case text-slate-800">{eligible.map((item) => { const id = String(item.selectionId ?? item.decisionId); return <option key={id} value={id}>{id}</option>; })}</select></label><button type="button" disabled={saving || !selectionId} onClick={() => void save()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{saving ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}Create immutable research entry</button></> : <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><Lock size={14} className="mr-1 inline" />No compatible research-challenger selection is available. Return to Step 14.</div> : <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><CheckCircle2 size={14} className="mr-1 inline" />The exact research selection and registry entry are bound.</div>}
+        <div className="mt-4 space-y-2"><StatusLine label="Model status" value="RESEARCH CHALLENGER" /><StatusLine label="Promotion" value="NOT PROMOTED" danger /><StatusLine label="Final OOT" value="LOCKED" danger /></div>
+      </aside>
     </section>
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="stage3-executable-artifact">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Database size={15} className="text-cyan-700" />BUILD EXECUTABLE RESEARCH ARTIFACT</div><p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">Reproduce five chronological OOF folds, persist their row-level probabilities, fit the final development-only pipeline, reload it in a fresh process, and publish only after checksum and fixture verification.</p></div>{artifactState.loading ? <span className="inline-flex items-center gap-2 text-xs text-slate-500"><Loader2 size={13} className="animate-spin" />Restoring persisted state…</span> : null}</div>
+      {artifactState.error ? <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900" role="alert"><b>Artifact workflow held closed:</b> {artifactState.error}<button type="button" onClick={() => void artifactState.load()} className="ml-2 underline">Retry</button></div> : null}
+      {artifactVerificationFailure ? <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs text-rose-950" role="alert"><b>{artifactVerificationFailure.code}:</b> {artifactVerificationFailure.message}<p className="mt-1 text-[10px]">The prior job record is retained, but the artifact is not treated as materialized or scoreable.</p></div> : null}
+      {!artifact && !artifactJob && !artifactState.plan ? <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]"><div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-xs leading-5 text-cyan-950"><b>Review comes before execution.</b><br />Planning reconciles the current project, Gold/contextual manifests, selection receipt, 234-feature order, five-fold split, frozen XGBoost configuration, zero-OOT guarantee, and no-promotion state. Planning starts zero model fits.</div><div><label className="block text-[10px] font-semibold uppercase text-slate-500">Native workers<select value={nativeWorkers} onChange={(event) => setNativeWorkers(Number(event.target.value))} disabled={!registered} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal normal-case text-slate-800"><option value={1}>1 worker</option><option value={2}>2 workers</option><option value={3}>3 workers</option><option value={4}>4 workers</option></select></label><button type="button" disabled={!registered || artifactAction !== null || artifactState.summary?.gates.artifactPlanReady !== true} onClick={() => void reviewArtifactPlan()} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{artifactAction === "PLAN" ? <Loader2 size={13} className="animate-spin" /> : <FileCheck2 size={13} />}Review artifact build plan</button></div></div> : null}
+      {artifactState.plan ? <ArtifactPlanReview plan={artifactState.plan} job={artifactJob} onLaunch={launchArtifactJob} launching={artifactAction === "LAUNCH"} /> : null}
+      {artifactJob ? <ArtifactJobProgress job={artifactJob} cancelling={artifactAction === "CANCEL"} onCancel={cancelArtifactJob} /> : null}
+      {artifactRetryable ? <button type="button" disabled={artifactAction !== null || artifactState.summary?.gates.artifactPlanReady !== true} onClick={() => void reviewArtifactPlan()} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-cyan-300 bg-white px-3 py-2 text-xs font-semibold text-cyan-950 disabled:cursor-not-allowed disabled:opacity-50">{artifactAction === "PLAN" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}Review a fresh retry plan</button> : null}
+      {artifact ? <ArtifactCompletion artifact={artifact} /> : null}
+    </section>
+
+    <GovernedGameScoringPanel projectId={projectId} artifact={artifact} state={gameScoringState} />
+
     {notice ? <Notice>{notice}</Notice> : null}
     <SafetyStrip />
-    <div className="flex flex-wrap items-center justify-between gap-2"><button type="button" onClick={() => go?.("champion")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800">Return to development decision</button><p className="inline-flex cursor-default select-none items-center gap-2 text-xs font-semibold text-rose-800" role="status" aria-label="Implementation status"><Ban size={13} />Status: implementation held closed until a deployable artifact exists</p></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><button type="button" onClick={() => go?.("champion")} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-800">Return to development decision</button><p className="inline-flex cursor-default select-none items-center gap-2 text-xs font-semibold text-slate-800" role="status" aria-label="Implementation status"><ShieldCheck size={13} />Status: {artifact ? "verified executable research artifact available" : artifactJob ? human(artifactJob.status) : "artifact not materialized"}</p></div>
   </div> : null}</PageState>;
 }
+
+function ArtifactPlanReview({ plan, job, onLaunch, launching }: { plan: Stage3ExecutableArtifactPlan; job: Stage3ExecutableArtifactJob | null; onLaunch: () => Promise<void>; launching: boolean }) {
+  const locked = job != null;
+  return <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4" data-testid="stage3-artifact-plan-review">
+    <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-xs text-slate-950">Exact reviewed plan</b><div className="flex gap-1"><Pill tone="amber" label="RESEARCH CHALLENGER" /><Pill tone="rose" label="NOT PROMOTED" /><Pill tone="rose" label="OOT LOCKED" /></div></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><PlanFact label="Project" value={`${plan.authority.projectName} · ${plan.projectId}`} /><PlanFact label="Candidate" value={`${human(plan.candidate.modelFamily)} · ${plan.selection.candidateAttemptId}`} /><PlanFact label="Data authority" value={`${plan.authority.goldDatasetId} · ${plan.authority.goldManifestSha}`} /><PlanFact label="Feature contract" value={`${int(plan.candidate.featureCount)} · ${plan.candidate.featureSetChecksum}`} /><PlanFact label="Ordered features SHA" value={plan.candidate.orderedFeaturesSha256} /><PlanFact label="Split" value={`${plan.authority.splitContractId} · ${plan.authority.splitChecksum}`} /><PlanFact label="Five-fold OOF" value={`${int(plan.workload.oofRows)} rows · ${plan.workload.foldCount} folds`} /><PlanFact label="Final development fit" value={`${int(plan.workload.finalFitRows)} rows through ${plan.authority.developmentEnd}`} /><PlanFact label="Compute" value={`${plan.execution.computeClass} · ${plan.execution.nativeWorkers} native workers · ${plan.workload.modelFits} fits`} /><PlanFact label="Zero-OOT guarantee" value={`Final OOT ${plan.authority.finalOotStart} → ${plan.authority.finalOotEnd} stays LOCKED`} /><PlanFact label="Plan identity" value={`${plan.planId} · ${plan.checksum}`} /><PlanFact label="Contextual manifest" value={plan.authority.contextualManifestSha} /></div>
+    <div className="mt-3"><div className="text-[9px] font-semibold uppercase text-slate-500">Governed target order</div><div className="mt-1 flex flex-wrap gap-1">{plan.candidate.targetOrder.map((target, index) => <Pill key={target} tone="slate" label={`${index + 1}. ${target}`} />)}</div></div>
+    <div className="mt-3"><div className="text-[9px] font-semibold uppercase text-slate-500">Expected artifacts</div><ul className="mt-1 grid gap-1 text-[10px] text-slate-700 sm:grid-cols-2">{plan.expectedArtifacts.map((item) => <li key={item}>• {item}</li>)}</ul></div>
+    {plan.executionBlocker ? <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"><b>Plan blocked:</b> {plan.executionBlocker}</div> : null}
+    {!locked ? <button type="button" disabled={launching || !plan.executable} onClick={() => void onLaunch()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{launching ? <Loader2 size={13} className="animate-spin" /> : <ArrowRight size={13} />}Launch exact reviewed artifact job</button> : null}
+  </div>;
+}
+
+function ArtifactJobProgress({ job, cancelling, onCancel }: { job: Stage3ExecutableArtifactJob; cancelling: boolean; onCancel: () => Promise<void> }) {
+  const progress = job.progress;
+  const percent = job.plan.workload.oofRows > 0 ? Math.min(100, (progress.oofRowsPersisted / job.plan.workload.oofRows) * 100) : 0;
+  const active = activeArtifactStatuses.has(job.status);
+  return <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4" data-testid="stage3-artifact-job-progress" role="status">
+    <div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-xs text-cyan-950">Persisted job {job.jobId}</b><p className="mt-1 text-[10px] text-cyan-800">{progress.message}</p></div><Pill tone={job.status === "COMPLETE" ? "emerald" : job.status === "FAILED" || job.status === "INTERRUPTED" ? "rose" : "cyan"} label={job.status} /></div>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-cyan-700 transition-[width]" style={{ width: `${percent}%` }} /></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><PlanFact label="Current fold" value={progress.currentFold == null ? "Not running" : `${progress.currentFold}/${job.plan.workload.foldCount}`} /><PlanFact label="Fold rows processed" value={int(progress.foldRowsProcessed)} /><PlanFact label="OOF rows persisted" value={`${int(progress.oofRowsPersisted)} / ${int(job.plan.workload.oofRows)}`} /><PlanFact label="Elapsed" value={`${Math.round(progress.elapsedSeconds)} seconds`} /><PlanFact label="Final fit" value={progress.finalFitState} /><PlanFact label="Artifact staging" value={progress.artifactStagingState} /><PlanFact label="Fresh-process reload" value={progress.reloadVerificationState} /><PlanFact label="Latest checkpoint" value={progress.latestCheckpoint ?? "None persisted yet"} /></div>
+    {job.error ? <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"><b>{job.error.code}:</b> {job.error.message}</div> : null}
+    {active ? <button type="button" disabled={cancelling || job.status === "CANCEL_REQUESTED"} onClick={() => void onCancel()} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-cyan-300 bg-white px-3 py-2 text-xs font-semibold text-cyan-950 disabled:cursor-not-allowed disabled:opacity-50">{cancelling ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}Cancel unstarted work</button> : null}
+  </div>;
+}
+
+function ArtifactCompletion({ artifact }: { artifact: Stage3ExecutableArtifact }) {
+  return <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4" data-testid="stage3-artifact-completion">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 text-sm font-semibold text-emerald-950"><CheckCircle2 size={16} />EXECUTABLE RESEARCH ARTIFACT MATERIALIZED</div><div className="flex gap-1"><Pill tone="amber" label="RESEARCH CHALLENGER" /><Pill tone="rose" label="NOT PROMOTED" /><Pill tone="rose" label="OOT LOCKED" /></div></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><PlanFact label="Artifact ID" value={artifact.artifactId} /><PlanFact label="Manifest SHA" value={artifact.manifestSha256} /><PlanFact label="Model binary SHA" value={artifact.modelSha256} /><PlanFact label="Preprocessing SHA" value={artifact.preprocessingSha256} /><PlanFact label="OOF artifact SHA" value={artifact.oofArtifactSha256} /><PlanFact label="OOF rows" value={int(artifact.oofRows)} /><PlanFact label="Metric reproduction" value={`${artifact.metricReproduction.status} · max Δ ${artifact.metricReproduction.maxAbsoluteDifference}`} /><PlanFact label="Fresh-process reload" value={`${artifact.reloadVerification.status} · ${artifact.reloadVerification.freshProcess ? "verified" : "not verified"}`} /><PlanFact label="Verification fixture" value={`${artifact.verificationFixture.status} · max Δ ${artifact.verificationFixture.maxAbsoluteDifference}`} /><PlanFact label="Final training" value={`${int(artifact.trainingRows)} rows through ${artifact.trainingCutoff}`} /></div>
+    <p className="mt-3 text-[10px] leading-4 text-emerald-900">This verified object is research-only. Artifact completion does not imply champion, production, export, deployment, or final-OOT approval.</p>
+  </div>;
+}
+
+function GovernedGameScoringPanel({
+  projectId,
+  artifact,
+  state,
+}: {
+  projectId: string;
+  artifact: Stage3ExecutableArtifact | null;
+  state: ReturnType<typeof useGovernedGameScoring>;
+}) {
+  const [selectedGameIds, setSelectedGameIds] = useState<Set<string>>(new Set());
+  const [draws, setDraws] = useState(10_000);
+  const [seed, setSeed] = useState(20260901);
+  const [launching, setLaunching] = useState(false);
+  const scoreableGames = useMemo(() => (state.summary?.games ?? []).filter((game) => game.scoreable && game.gameId), [state.summary]);
+  useEffect(() => {
+    setSelectedGameIds((current) => {
+      const allowed = new Set(scoreableGames.map((game) => String(game.gameId)));
+      const retained = new Set([...current].filter((gameId) => allowed.has(gameId)));
+      if (!retained.size && scoreableGames[0]?.gameId) retained.add(scoreableGames[0].gameId);
+      return retained;
+    });
+  }, [scoreableGames]);
+
+  const scoringJob = state.job ?? state.summary?.currentJob ?? null;
+  const results = scoringJob?.results.length ? scoringJob.results : state.summary?.results ?? [];
+  const artifactMatches = Boolean(artifact
+    && state.summary?.authority.artifactId === artifact.artifactId
+    && state.summary.authority.artifactManifestSha256 === artifact.manifestSha256);
+  const launch = async () => {
+    if (!artifact || !artifactMatches || !state.summary?.readiness.ready || !selectedGameIds.size) return;
+    setLaunching(true); state.setError(null);
+    try {
+      const next = await enqueueProjectStage3GameScoring(projectId, {
+        artifactId: artifact.artifactId,
+        gameIds: [...selectedGameIds],
+        draws,
+        seed,
+      });
+      state.setJob(next);
+    } catch (caught) {
+      state.setError(caught instanceof Error ? caught.message : "Governed-game scoring failed closed before launch.");
+    } finally {
+      setLaunching(false);
+    }
+  };
+  const toggleGame = (gameId: string) => setSelectedGameIds((current) => {
+    const next = new Set(current);
+    if (next.has(gameId)) next.delete(gameId); else next.add(gameId);
+    return next;
+  });
+
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="stage3-governed-game-scoring">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Orbit size={15} className="text-cyan-700" />SCORE GOVERNED GAMES</div><p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">Only canonical games with confirmed point-in-time lineups, announced starters, a pre-first-pitch feature cutoff, and a complete 234-feature vector can launch. Missing or ambiguous games fail closed independently.</p></div>{state.loading ? <span className="inline-flex items-center gap-2 text-xs text-slate-500"><Loader2 size={13} className="animate-spin" />Checking provider-free readiness…</span> : null}</div>
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><Readiness state={artifact ? "AVAILABLE" : "MISSING"} title="Verified artifact" detail={artifact ? artifact.artifactId : "Build and verify the research artifact first."} /><Readiness state={state.summary?.readiness.ready ? "AVAILABLE" : "MISSING"} title="Current game readiness" detail={state.summary?.readiness.ready ? `${scoreableGames.length} scoreable game(s).` : "BLOCKED · no scoreable current game authority."} /><Readiness state={scoreableGames.some((game) => game.lineupEvidence) ? "AVAILABLE" : "MISSING"} title="Lineup evidence" detail={scoreableGames.some((game) => game.lineupEvidence) ? "Confirmed point-in-time authority bound." : "Confirmed point-in-time lineup authority absent."} /><Readiness state={scoreableGames.some((game) => game.starterEvidence) ? "AVAILABLE" : "MISSING"} title="Starter evidence" detail={scoreableGames.some((game) => game.starterEvidence) ? "Announced-starter authority bound." : "Announced-starter authority absent."} /></div>
+    {state.error ? <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900" role="alert"><b>Scoring held closed:</b> {state.error}<button type="button" onClick={() => void state.load()} className="ml-2 underline">Retry readiness</button></div> : null}
+    {state.summary && !state.summary.readiness.ready ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950" role="status" data-testid="stage3-game-readiness-blocked"><b>Current game readiness: BLOCKED</b>{state.summary.readiness.blockers.map((blocker) => <div key={blocker.code} className="mt-2"><span className="font-mono text-[10px] font-semibold">{blocker.code}</span><br />{blocker.message}</div>)}<p className="mt-2 text-[10px]">No provider was called, no game was fabricated, and no scoring job was created.</p></div> : null}
+    {state.summary?.games.length ? <div className="mt-4 space-y-2"><div className="text-[10px] font-semibold uppercase text-slate-500">Game-by-game pregame evidence</div>{state.summary.games.map((game, index) => <GameReadinessRow key={game.gameId ?? `blocked-${index}`} game={game} selected={Boolean(game.gameId && selectedGameIds.has(game.gameId))} onToggle={toggleGame} />)}</div> : <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700"><b>No governed games are available.</b> Prospective scoring remains empty until Model Studio receives a separately governed pregame inventory. Public reads do not discover schedules or call providers.</div>}
+    {scoreableGames.length ? <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_1fr_auto]"><label className="text-[10px] font-semibold uppercase text-slate-500">Draws per game<input type="number" min={32} max={1_000_000} value={draws} onChange={(event) => setDraws(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal text-slate-900" /></label><label className="text-[10px] font-semibold uppercase text-slate-500">Fixed seed<input type="number" min={0} value={seed} onChange={(event) => setSeed(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal text-slate-900" /></label><button type="button" disabled={launching || !artifactMatches || state.summary?.readiness.ready !== true || !selectedGameIds.size || !Number.isSafeInteger(draws) || draws < 32 || draws > 1_000_000 || !Number.isSafeInteger(seed) || seed < 0} onClick={() => void launch()} className="self-end rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">{launching ? <Loader2 size={13} className="mr-1 inline animate-spin" /> : <Orbit size={13} className="mr-1 inline" />}Score selected governed games</button></div> : null}
+    {scoringJob ? <ScoringJobProgress job={scoringJob} /> : null}
+    {results.length ? <div className="mt-4 space-y-3" data-testid="stage3-genuine-scoring-results"><div className="text-[10px] font-semibold uppercase text-slate-500">Verified whole-game results</div>{results.map((result) => <GovernedGameResultCard key={result.scoringReceiptSha256} result={result} game={state.summary?.games.find((game) => game.gameId === result.gameId)} />)}</div> : null}
+    <div className="mt-4 flex flex-wrap gap-2"><Pill tone="amber" label="RESEARCH CHALLENGER" /><Pill tone="rose" label="NOT PROMOTED" /><Pill tone="rose" label="OOT LOCKED" /><Pill tone="emerald" label="0 PROVIDER CALLS" /></div>
+  </section>;
+}
+
+function GameReadinessRow({ game, selected, onToggle }: { game: Stage3GameReadiness; selected: boolean; onToggle: (gameId: string) => void }) {
+  return <div className={`rounded-xl border p-3 ${game.scoreable ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+    <div className="flex flex-wrap items-start justify-between gap-2"><label className="flex min-w-0 items-start gap-2"><input type="checkbox" checked={selected} disabled={!game.scoreable || !game.gameId} onChange={() => game.gameId && onToggle(game.gameId)} className="mt-0.5" /><span><b className="text-xs text-slate-950">{game.gameId ?? "AMBIGUOUS GAME ID"}</b><span className="mt-1 block text-[10px] text-slate-600">{game.awayTeamId ?? "unknown away team"} @ {game.homeTeamId ?? "unknown home team"} · {game.gameDate ?? "date missing"}</span></span></label><Pill tone={game.scoreable ? "emerald" : "amber"} label={game.status} /></div>
+    <div className="mt-2 grid gap-1 text-[10px] text-slate-700 sm:grid-cols-2 lg:grid-cols-4"><span>First pitch <b>{game.scheduledFirstPitch ?? "MISSING"}</b></span><span>Lineup <b>{game.lineupEvidence?.status ?? "MISSING"}</b></span><span>Starters <b>{game.starterEvidence?.status ?? "MISSING"}</b></span><span>Feature cutoff <b>{game.featureCutoff ?? "MISSING"}</b></span></div>
+    {game.missingPredictors.length ? <p className="mt-2 text-[10px] text-amber-900"><b>Missing predictors:</b> {game.missingPredictors.join(", ")}</p> : null}
+    {game.blockedReasons.map((reason) => <p key={`${reason.code}-${reason.message}`} className="mt-2 text-[10px] text-amber-950"><b>{reason.code}:</b> {reason.message}</p>)}
+  </div>;
+}
+
+function ScoringJobProgress({ job }: { job: Stage3GameScoringJob }) {
+  const percent = job.progress.gamesTotal > 0 ? Math.min(100, (job.progress.gamesCompleted / job.progress.gamesTotal) * 100) : 0;
+  return <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4" role="status" data-testid="stage3-scoring-job-progress"><div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-xs text-cyan-950">Persisted scoring job {job.jobId}</b><p className="mt-1 text-[10px] text-cyan-800">{job.progress.statusMessage}</p></div><Pill tone={job.status === "COMPLETE" ? "emerald" : job.status === "FAILED" ? "rose" : "cyan"} label={job.status} /></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-white"><div className="h-full bg-cyan-700" style={{ width: `${percent}%` }} /></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><PlanFact label="Games" value={`${job.progress.gamesCompleted}/${job.progress.gamesTotal}`} /><PlanFact label="Current game" value={job.progress.currentGameId ?? "None"} /><PlanFact label="Draws per game" value={int(job.progress.drawsPerGame)} /><PlanFact label="Latest checkpoint" value={job.progress.latestCheckpoint ?? "None"} /></div>{job.error ? <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"><b>{job.error.code}:</b> {job.error.message}</div> : null}</div>;
+}
+
+function GovernedGameResultCard({ result, game }: { result: Stage3GovernedGameScore; game?: Stage3GameReadiness }) {
+  return <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+    <div className="flex flex-wrap items-start justify-between gap-2"><div><b className="text-sm text-emerald-950">{game ? `${game.awayTeamId} @ ${game.homeTeamId}` : result.gameId}</b><p className="mt-1 text-[10px] text-emerald-800">{result.gameDate} · {result.evidenceStatus} · {result.scoringMode}</p></div><Pill tone="emerald" label="RECONCILED" /></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><PlanFact label="Expected score" value={`Away ${result.expectedAwayRuns.toFixed(3)} · Home ${result.expectedHomeRuns.toFixed(3)}`} /><PlanFact label="Win probabilities" value={`Away ${(result.awayWinProbability * 100).toFixed(2)}% · Home ${(result.homeWinProbability * 100).toFixed(2)}%`} /><PlanFact label="First five" value={`Away ${result.firstFive.expectedAwayRuns.toFixed(3)} · Home ${result.firstFive.expectedHomeRuns.toFixed(3)} · Tie ${(result.firstFive.tieProbability * 100).toFixed(2)}%`} /><PlanFact label="Extra innings" value={`${(result.extraInningProbability * 100).toFixed(2)}%`} /><PlanFact label="Model used" value={result.foldModelUsed ?? `Final development through ${result.trainedThrough}`} /><PlanFact label="Draws / seed" value={`${int(result.draws)} · ${result.seed}`} /><PlanFact label="Feature cutoff" value={result.featureCutoff} /><PlanFact label="Stability" value={`Home-win spread ${result.stability.maxHomeWinProbabilitySpread.toFixed(5)} · ${result.stability.method}`} /></div>
+    <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.65fr)]"><div className="overflow-auto rounded-lg border border-emerald-200 bg-white"><table className="w-full min-w-[420px] text-left text-[10px]"><thead className="bg-emerald-100 text-emerald-950"><tr><th className="px-3 py-2">Most likely final score</th><th className="px-3 py-2">Draws</th><th className="px-3 py-2">Probability</th></tr></thead><tbody>{result.mostLikelyScores.map((row) => <tr key={`${row.awayRuns}-${row.homeRuns}`}><td className="border-t border-emerald-100 px-3 py-2">Away {row.awayRuns} · Home {row.homeRuns}</td><td className="border-t border-emerald-100 px-3 py-2">{int(row.count)}</td><td className="border-t border-emerald-100 px-3 py-2">{(row.probability * 100).toFixed(2)}%</td></tr>)}</tbody></table></div><div className="space-y-2"><StatusLine label="Joint distribution" value={`${result.jointScoreDistribution.length} cells · NORMALIZED`} /><StatusLine label="Margins / totals" value="RECONCILED" /><StatusLine label="First five" value="RECONCILED" /><StatusLine label="Legal base/out states" value={result.reconciliation.legalBaseOutStates ? "PASS" : "FAIL"} danger={!result.reconciliation.legalBaseOutStates} /><StatusLine label="All draws terminated" value={result.reconciliation.allDrawsTerminated ? "PASS" : "FAIL"} danger={!result.reconciliation.allDrawsTerminated} /></div></div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><PlanFact label="Artifact manifest SHA" value={result.artifactManifestSha256} /><PlanFact label="Model binary SHA" value={result.modelBinarySha256} /><PlanFact label="Feature vector SHA" value={result.featureVectorSha256} /><PlanFact label="Transition SHA" value={result.transitionModelSha256} /><PlanFact label="Lineup authority" value={`${result.lineupAuthority.authorityId} · ${result.lineupAuthority.checksumSha256}`} /><PlanFact label="Starter authority" value={`${result.starterAuthority.authorityId} · ${result.starterAuthority.checksumSha256}`} /><PlanFact label="Scoring receipt SHA" value={result.scoringReceiptSha256} /><PlanFact label="90% total interval" value={`${result.predictionIntervals.totalRuns90.p05}–${result.predictionIntervals.totalRuns90.p95}`} /></div>
+    <p className="mt-3 text-[10px] text-emerald-900">No target-game outcome, actual substitution, actual reliever, sportsbook predictor, or external provider call was used.</p>
+  </article>;
+}
+
+function PlanFact({ label, value }: { label: string; value: string }) { return <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2"><div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 break-all text-[10px] font-semibold leading-4 text-slate-900" title={value}>{value}</div></div>; }
 
 function DarkFact({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "rose" }) { return <div className="min-w-0 bg-slate-950 px-4 py-4"><div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">{label}</div><div className={`mt-1 truncate text-sm font-semibold ${tone === "rose" ? "text-rose-300" : "text-white"}`}>{value}</div><div className="mt-1 truncate text-[9px] text-slate-400">{detail}</div></div>; }
 function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-slate-200 bg-slate-50 p-2"><div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 text-xs font-semibold text-slate-950">{value}</div></div>; }

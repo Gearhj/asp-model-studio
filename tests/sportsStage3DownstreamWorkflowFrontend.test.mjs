@@ -22,8 +22,8 @@ test("Steps 12-15 expose a project-bound research decision path", () => {
   assert.match(workflow, /NOT EVALUATED/);
   assert.match(workflow, /No reloadable row-level OOF probability artifact was persisted/);
   assert.match(workflow, /Current Gold does not provide governed target-game lineup and starter authority/);
-  assert.match(workflow, /NOT DEPLOYABLE/);
-  assert.match(workflow, /NOT EXPORTED/);
+  assert.match(workflow, /BUILD EXECUTABLE RESEARCH ARTIFACT/);
+  assert.match(workflow, /SCORE GOVERNED GAMES/);
   assert.match(workflow, /Final OOT locked/);
 });
 
@@ -52,7 +52,8 @@ test("downstream navigation cannot bypass the earliest missing prerequisite", ()
 
 test("held-closed messages are explicit non-interactive status text", () => {
   assert.match(workflow, /role="status" aria-label="Implementation status"/);
-  assert.match(workflow, /Status: implementation held closed until a deployable artifact exists/);
+  assert.match(workflow, /"artifact not materialized"/);
+  assert.match(workflow, /Current game readiness: BLOCKED/);
   assert.match(guidedWorkflow, /role="status" aria-label="Workflow status"/);
   assert.match(guidedWorkflow, /Status: project-bound development only · promotion unavailable/);
 });

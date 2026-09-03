@@ -104,6 +104,20 @@ from ..sports_current_statcast.stage3_candidate_evaluation import (
     save_project_challenger_decision,
     save_project_game_evaluation_decision,
 )
+from ..sports_current_statcast.stage3_executable_artifact import (
+    cancel_unstarted_executable_artifact_work,
+    enqueue_executable_artifact_job,
+    executable_artifact_summary,
+    get_executable_artifact_job,
+    list_executable_artifact_jobs,
+    plan_executable_artifact,
+)
+from ..sports_current_statcast.stage3_game_scoring import (
+    Stage3GameScoringError,
+    enqueue_game_scoring_job,
+    game_scoring_summary,
+    get_game_scoring_job,
+)
 
 
 router = APIRouter()
@@ -784,6 +798,7 @@ def _run_stage3_prepare(operation: Callable[[], Dict[str, Any]]) -> Dict[str, An
         Stage3FeatureEngineeringError,
         Stage3SplitBalanceError,
         Stage3ModelLaboratoryError,
+        Stage3GameScoringError,
     ) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
     except Stage3TreatmentError as exc:
@@ -1085,6 +1100,167 @@ def post_sports_stage3_model_laboratory_cancel_unstarted(
             job_id,
             actor_user_id=actor,
         )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact")
+def get_sports_stage3_executable_artifact(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read exact challenger/artifact readiness without fitting or opening OOT."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: executable_artifact_summary(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-executable-artifact/plan")
+def post_sports_stage3_executable_artifact_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Review one immutable six-fit artifact plan before any work is queued."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: plan_executable_artifact(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact/jobs")
+def get_sports_stage3_executable_artifact_jobs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List persisted artifact jobs without touching scientific data."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_executable_artifact_jobs(_service().database, project_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs",
+    status_code=202,
+)
+def post_sports_stage3_executable_artifact_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Queue the exact reviewed OOF-reproduction and final-fit plan."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_executable_artifact_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}"
+)
+def get_sports_stage3_executable_artifact_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read genuine persisted artifact progress and terminal verification."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_executable_artifact_job(
+            _service().database,
+            project_id,
+            job_id,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/cancel-unstarted"
+)
+def post_sports_stage3_executable_artifact_cancel_unstarted(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Cancel only unstarted work while retaining verified fold checkpoints."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: cancel_unstarted_executable_artifact_work(
+            _service().database,
+            project_id,
+            job_id,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-game-scoring")
+def get_sports_stage3_game_scoring(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read provider-free governed-game readiness and verified results."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: game_scoring_summary(_service().database, project_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-game-scoring/jobs",
+    status_code=202,
+)
+def post_sports_stage3_game_scoring_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Queue only games with complete governed point-in-time evidence."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_game_scoring_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-game-scoring/jobs/{job_id}")
+def get_sports_stage3_game_scoring_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read one persisted governed-game scoring job."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_game_scoring_job(_service().database, project_id, job_id)
     )
 
 
