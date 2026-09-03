@@ -75,6 +75,9 @@ EXECUTABLE_ARTIFACT_MANIFEST_SCHEMA_VERSION = (
 EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION = (
     "SPORTS_STAGE3_EXECUTABLE_ARTIFACT_VERIFICATION_V1"
 )
+EXECUTABLE_ARTIFACT_RECOVERY_SCHEMA_VERSION = (
+    "SPORTS_STAGE3_EXECUTABLE_ARTIFACT_PUBLICATION_RECOVERY_V1"
+)
 EXECUTABLE_ARTIFACT_JOB_TYPE = "sports_stage3_executable_artifact"
 
 EXPECTED_SELECTION = {
@@ -145,6 +148,10 @@ _METRIC_ATOL = 1e-12
 _ACTIVE_STATUSES = {"QUEUED", "RUNNING", "CANCEL_REQUESTED"}
 _TERMINAL_STATUSES = {"COMPLETE", "FAILED", "CANCELLED", "INTERRUPTED"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_WINDOWS_TRANSIENT_PUBLICATION_ERRORS = {5, 32, 33}
+_PUBLICATION_RETRY_ATTEMPTS = 12
+_PUBLICATION_RETRY_INITIAL_DELAY_SECONDS = 0.05
+_PUBLICATION_RETRY_MAX_DELAY_SECONDS = 1.0
 _FORBIDDEN_PLAN_KEYS = {
     "candidateFingerprint",
     "candidateAttemptId",
@@ -171,6 +178,7 @@ _SUBMISSION_GUARD = threading.Lock()
 _FUTURES_GUARD = threading.Lock()
 _COORDINATOR_INSTANCE_ID = f"{os.getpid()}-{uuid.uuid4().hex}"
 _FUTURES: dict[str, Future[None]] = {}
+_SYNCHRONOUS_RECOVERY_JOBS: set[str] = set()
 
 
 def _artifact_root() -> Path:
@@ -742,6 +750,7 @@ def _decode_job(row: Mapping[str, Any]) -> dict[str, Any]:
         "plan": json_loads(row.get("parameters_json"), {}),
         "progress": json_loads(row.get("metrics_json"), {}),
         "artifact": artifacts.get("artifact"),
+        "publicationRecovery": artifacts.get("publicationRecovery"),
         "safety": artifacts.get("safety") or _safety_payload(),
         "error": normalized_error,
     }
@@ -759,7 +768,52 @@ def _upsert_job(database: Database, record: Mapping[str, Any]) -> dict[str, Any]
     return RunRepository(database).upsert(dict(record))
 
 
+def _windows_process_alive(pid: int) -> bool:
+    """Query Windows without using ``os.kill(pid, 0)``.
+
+    Windows does not implement the POSIX signal-zero existence probe.  A
+    failed query is treated conservatively as alive unless Windows positively
+    reports that the PID does not exist.
+    """
+
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    error_invalid_parameter = 87
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    )
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    ctypes.set_last_error(0)
+    handle = kernel32.OpenProcess(
+        process_query_limited_information, False, int(pid)
+    )
+    if not handle:
+        return ctypes.get_last_error() != error_invalid_parameter
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return int(exit_code.value) == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _process_alive(value: Any) -> bool:
+    if isinstance(value, bool):
+        return True
     try:
         pid = int(value)
     except (TypeError, ValueError):
@@ -768,12 +822,19 @@ def _process_alive(value: Any) -> bool:
         return True
     if pid == os.getpid():
         return True
+    if os.name == "nt":
+        try:
+            return _windows_process_alive(pid)
+        except Exception:  # inconclusive OS diagnostic must not orphan live work
+            return True
     try:
         os.kill(pid, 0)
         return True
     except ProcessLookupError:
         return False
     except OSError:
+        return True
+    except Exception:
         return True
 
 
@@ -790,8 +851,11 @@ def _reconcile_interrupted_job(
     if int(pid or -1) == os.getpid() and instance == _COORDINATOR_INSTANCE_ID:
         with _FUTURES_GUARD:
             future = _FUTURES.get(job_id)
-        alive = future is not None and not future.done()
-        if future is None:
+            synchronous_recovery_active = job_id in _SYNCHRONOUS_RECOVERY_JOBS
+        alive = synchronous_recovery_active or (
+            future is not None and not future.done()
+        )
+        if future is None and not synchronous_recovery_active:
             registered = float(artifacts.get("coordinatorRegisteredClock") or 0.0)
             alive = bool(registered and time.time() - registered <= 30.0)
     if alive:
@@ -1903,6 +1967,56 @@ def load_executable_artifact(
     )
 
 
+def _is_transient_windows_publication_error(exc: OSError) -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        winerror = int(getattr(exc, "winerror", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return winerror in _WINDOWS_TRANSIENT_PUBLICATION_ERRORS
+
+
+def _verified_public_artifact_target(
+    target: Path, manifest_sha256: str
+) -> dict[str, Any]:
+    root = _artifact_root()
+    relative_path = target.relative_to(root).as_posix()
+    return verify_artifact_bundle(
+        relative_path, expected_manifest_sha256=manifest_sha256
+    )
+
+
+def _discard_redundant_staging(staging: Path) -> bool:
+    """Best-effort cleanup after another publisher produced the exact object."""
+
+    try:
+        if not staging.exists():
+            return True
+        if _path_is_reparse_point(staging) or any(
+            _path_is_reparse_point(path) for path in staging.rglob("*")
+        ):
+            return False
+        shutil.rmtree(staging)
+    except OSError:
+        return False
+    return not staging.exists()
+
+
+def _reuse_verified_public_target(
+    staging: Path, target: Path, manifest_sha256: str
+) -> tuple[Path, bool]:
+    verified = _verified_public_artifact_target(target, manifest_sha256)
+    if verified["status"] != "PASS":  # pragma: no cover - defensive
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_CONTENT_ADDRESS_COLLISION",
+            "An existing artifact address did not verify.",
+            status_code=409,
+        )
+    _discard_redundant_staging(staging)
+    return target, True
+
+
 def _finalize_staging(staging: Path, manifest_sha256: str) -> tuple[Path, bool]:
     root = _artifact_root()
     staging = _require_contained(staging, root)
@@ -1912,21 +2026,37 @@ def _finalize_staging(staging: Path, manifest_sha256: str) -> tuple[Path, bool]:
     # first atomic rename can make it addressable.
     _verify_staged_bundle(staging, expected_manifest_sha256=manifest_sha256)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        verified = verify_artifact_bundle(
-            f"objects/sha256/{manifest_sha256}",
-            expected_manifest_sha256=manifest_sha256,
-        )
-        if verified["status"] != "PASS":  # pragma: no cover - defensive
-            raise Stage3ModelLaboratoryError(
-                "STAGE3_ARTIFACT_CONTENT_ADDRESS_COLLISION",
-                "An existing artifact address did not verify.",
-                status_code=409,
+    for attempt in range(1, _PUBLICATION_RETRY_ATTEMPTS + 1):
+        if target.exists():
+            return _reuse_verified_public_target(staging, target, manifest_sha256)
+        try:
+            os.replace(staging, target)
+        except OSError as exc:
+            # Another same-content publisher can win between the existence
+            # check and rename. Verify that object immediately, including on
+            # the final retry, before treating it as an idempotent reuse.
+            if target.exists():
+                return _reuse_verified_public_target(
+                    staging, target, manifest_sha256
+                )
+            if not _is_transient_windows_publication_error(exc):
+                raise
+            if attempt >= _PUBLICATION_RETRY_ATTEMPTS:
+                raise Stage3ModelLaboratoryError(
+                    "STAGE3_ARTIFACT_PUBLICATION_RETRY_EXHAUSTED",
+                    "The complete verified artifact remains privately staged after "
+                    "bounded Windows sharing-error retries were exhausted.",
+                    status_code=503,
+                ) from exc
+            delay = min(
+                _PUBLICATION_RETRY_INITIAL_DELAY_SECONDS * (2 ** (attempt - 1)),
+                _PUBLICATION_RETRY_MAX_DELAY_SECONDS,
             )
-        shutil.rmtree(staging)
-        return target, True
-    os.replace(staging, target)
-    return target, False
+            time.sleep(delay)
+            continue
+        _verified_public_artifact_target(target, manifest_sha256)
+        return target, False
+    raise AssertionError("publication retry loop ended without a terminal result")
 
 
 def _execute_artifact_job(
@@ -2433,6 +2563,20 @@ def _execute_artifact_job(
                     "The written manifest differs from its canonical bytes.",
                     status_code=409,
                 )
+            _update_progress(
+                database,
+                job_id,
+                started_clock,
+                artifactStagingState="PUBLICATION_PENDING",
+                reloadVerificationState="COMPLETE",
+                latestCheckpoint="COMPLETE_BUNDLE_VERIFIED_AWAITING_PUBLICATION",
+                stagedManifestSha256=manifest_sha,
+                sourcePlanChecksum=reviewed_plan["checksum"],
+                message=(
+                    "The complete bundle and fresh-process receipt are staged; "
+                    "publishing the immutable content-addressed directory."
+                ),
+            )
             target, reused = _finalize_staging(staging, manifest_sha)
             relative_path = target.relative_to(root).as_posix()
             loaded = load_executable_artifact(
@@ -2540,6 +2684,541 @@ def _execute_artifact_job(
 
 class _CancelAfterCheckpoint(RuntimeError):
     pass
+
+
+def _path_is_reparse_point(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        return bool(callable(is_junction) and is_junction())
+    except OSError:
+        return True
+
+
+def _recovery_staging_path(
+    source_job: Mapping[str, Any],
+    source_job_id: str,
+    *,
+    inspect_contents: bool = True,
+) -> Path:
+    root = _artifact_root()
+    artifacts = json_loads(source_job.get("artifacts_json"), {})
+    raw_value = str(artifacts.get("stagingPath") or "")
+    raw_path = Path(raw_value)
+    if not raw_value or not raw_path.is_absolute() or _path_is_reparse_point(raw_path):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_STAGING_PATH_INVALID",
+            "The failed job does not bind one ordinary absolute private staging path.",
+            status_code=409,
+        )
+    staging = _require_contained(raw_path, root)
+    private_root = _require_contained(root / "staging", root)
+    if (
+        staging.parent != private_root
+        or not (
+            staging.name == source_job_id
+            or staging.name.startswith(f"{source_job_id}-")
+        )
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_STAGING_PATH_INVALID",
+            "The failed job staging path is not its direct private child under the artifact root.",
+            status_code=409,
+        )
+    if staging.exists():
+        if not staging.is_dir():
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_RECOVERY_STAGING_PATH_INVALID",
+                "The failed job staging path is not a directory.",
+                status_code=409,
+            )
+        if inspect_contents and any(
+            _path_is_reparse_point(path) for path in staging.rglob("*")
+        ):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_RECOVERY_STAGING_REPARSE_POINT",
+                "Publication recovery rejects symlinks and junctions in private staging.",
+                status_code=409,
+            )
+    return staging
+
+
+def _source_plan_for_recovery(
+    source_job: Mapping[str, Any], expected_plan_checksum: str
+) -> dict[str, Any]:
+    plan = json_loads(source_job.get("parameters_json"), {})
+    if (
+        not isinstance(plan, Mapping)
+        or plan.get("schemaVersion") != EXECUTABLE_ARTIFACT_PLAN_SCHEMA_VERSION
+        or plan.get("checksum") != expected_plan_checksum
+        or not _SHA256_RE.fullmatch(expected_plan_checksum)
+        or _sha(_plan_identity(plan)) != expected_plan_checksum
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_SOURCE_PLAN_INVALID",
+            "The failed job does not preserve the exact reviewed artifact plan checksum.",
+            status_code=409,
+        )
+    return dict(plan)
+
+
+def _validate_recovery_source_progress(source_job: Mapping[str, Any]) -> None:
+    artifacts = json_loads(source_job.get("artifacts_json"), {})
+    progress = json_loads(source_job.get("metrics_json"), {})
+    fits = progress.get("modelFitsByPurpose") or {}
+    try:
+        exact_counts = (
+            int(progress.get("oofRowsPersisted") or 0) == EXPECTED_OOF_ROWS
+            and int(fits.get("oofFold") or 0) == 5
+            and int(fits.get("finalDevelopment") or 0) == 1
+        )
+    except (TypeError, ValueError, OverflowError):
+        exact_counts = False
+    if (
+        str(source_job.get("status") or "").upper()
+        not in {"FAILED", "INTERRUPTED"}
+        or artifacts.get("artifact") is not None
+        or progress.get("finalFitState") != "COMPLETE"
+        or not exact_counts
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_SOURCE_JOB_INELIGIBLE",
+            "Only a terminal no-artifact job with five OOF fits, one final fit, and complete OOF evidence may recover publication.",
+            status_code=409,
+        )
+
+
+def _verify_recovery_bundle_binding(
+    *,
+    directory: Path,
+    is_private_staging: bool,
+    manifest_sha256: str,
+    source_plan: Mapping[str, Any],
+    chain: Mapping[str, Any],
+) -> dict[str, Any]:
+    if is_private_staging:
+        verified = _verify_staged_bundle(
+            directory, expected_manifest_sha256=manifest_sha256
+        )
+    else:
+        verified = _verified_public_artifact_target(directory, manifest_sha256)
+    manifest = verified["manifest"]
+    expected_artifact_id = (
+        "stage3-executable-artifact-" + str(source_plan["checksum"])[:32]
+    )
+    mismatches: list[str] = []
+    if manifest.get("projectId") != chain.get("projectId"):
+        mismatches.append("projectId")
+    if manifest.get("artifactId") != expected_artifact_id:
+        mismatches.append("artifactId")
+    if manifest.get("authority") != _authority_payload(chain):
+        mismatches.append("authority")
+    if manifest.get("selection") != _selection_payload(chain):
+        mismatches.append("selection")
+    if manifest.get("authority") != source_plan.get("authority"):
+        mismatches.append("sourcePlan.authority")
+    if manifest.get("selection") != source_plan.get("selection"):
+        mismatches.append("sourcePlan.selection")
+    if manifest.get("candidate") != source_plan.get("candidate"):
+        mismatches.append("sourcePlan.candidate")
+    if manifest.get("environment") != source_plan.get("environment"):
+        mismatches.append("sourcePlan.environment")
+    if list(manifest.get("orderedFeatures") or []) != list(
+        (chain.get("featureSetContract") or {}).get("orderedFeatures") or []
+    ):
+        mismatches.append("orderedFeatures")
+    receipt_record = (manifest.get("files") or {}).get("verificationReceipt") or {}
+    receipt_path = _require_contained(
+        directory / str(receipt_record.get("relativePath") or "")
+    )
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_RECEIPT_INVALID",
+            "The checksum-valid recovery source receipt is unreadable.",
+            status_code=409,
+        ) from exc
+    if not isinstance(receipt, Mapping) or receipt.get("planChecksum") != source_plan.get(
+        "checksum"
+    ):
+        mismatches.append("verificationReceipt.planChecksum")
+    if mismatches:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_AUTHORITY_MISMATCH",
+            "Publication recovery stopped because staged evidence differs at: "
+            + ", ".join(mismatches),
+            status_code=409,
+        )
+    return verified
+
+
+def _recovered_artifact_payload(
+    *,
+    manifest: Mapping[str, Any],
+    manifest_sha256: str,
+    relative_path: str,
+    reload_result: Mapping[str, Any],
+    reused: bool,
+) -> dict[str, Any]:
+    files = manifest["files"]
+    verification = manifest["verification"]
+    metric_reproduction = verification["metricReproduction"]
+    return {
+        "artifactId": manifest["artifactId"],
+        "status": "EXECUTABLE_RESEARCH_ARTIFACT_MATERIALIZED",
+        "registryEntryId": manifest["selection"]["registryEntryId"],
+        "researchHandoffId": manifest["selection"]["researchHandoffId"],
+        "selectionDecisionId": manifest["selection"]["selectionDecisionId"],
+        "candidateFingerprint": manifest["selection"]["candidateFingerprint"],
+        "relativePath": relative_path,
+        "manifestSha256": manifest_sha256,
+        "modelSha256": files["model"]["sha256"],
+        "preprocessingSha256": files["preprocessor"]["sha256"],
+        "oofArtifactSha256": files["oofPredictions"]["sha256"],
+        "legacyOofEvidenceSha256": manifest["oof"]["legacyEvidenceSha256"],
+        "oofRows": int(manifest["oof"]["rows"]),
+        "metricReproduction": {
+            "status": metric_reproduction["status"],
+            "maxAbsoluteDifference": float(
+                metric_reproduction["maxAbsoluteDifference"]
+            ),
+        },
+        "reloadVerification": {
+            "status": reload_result["status"],
+            "freshProcess": bool(reload_result["freshProcess"]),
+        },
+        "verificationFixture": {
+            "status": reload_result["status"],
+            "maxAbsoluteDifference": float(reload_result["maxAbsoluteDifference"]),
+        },
+        "trainingRows": int(manifest["training"]["rows"]),
+        "trainingCutoff": manifest["training"]["cutoff"],
+        "modelStatus": "RESEARCH_CHALLENGER",
+        "promotionStatus": "NOT_PROMOTED",
+        "finalOotLocked": True,
+        "idempotentContentReplay": bool(reused),
+    }
+
+
+def recover_failed_executable_artifact_publication(
+    database: Database,
+    project_id: str,
+    source_job_id: str,
+    payload: Mapping[str, Any],
+    *,
+    actor_user_id: str,
+) -> dict[str, Any]:
+    """Publish an already-complete verified bundle without performing any fit."""
+
+    if not isinstance(payload, Mapping):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_REQUEST_INVALID",
+            "The publication-recovery request must be an object.",
+        )
+    allowed = {"expectedManifestSha256", "expectedSourcePlanChecksum"}
+    unknown = sorted(set(payload) - allowed)
+    manifest_sha256 = str(payload.get("expectedManifestSha256") or "")
+    expected_plan_checksum = str(payload.get("expectedSourcePlanChecksum") or "")
+    if unknown or not _SHA256_RE.fullmatch(manifest_sha256) or not _SHA256_RE.fullmatch(
+        expected_plan_checksum
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_RECOVERY_EXACT_REVIEW_REQUIRED",
+            "Recovery requires only the exact reviewed manifest and source-plan checksums.",
+            status_code=409,
+        )
+
+    claim = _artifact_root() / "locks" / f"{project_id}.job-claim.lock"
+    with _SUBMISSION_GUARD:
+        try:
+            with interprocess_lock(
+                claim, blocking=True, timeout=10.0, stale_after=120.0
+            ), interprocess_lock(
+                _job_state_lock(project_id),
+                blocking=True,
+                timeout=10.0,
+                stale_after=120.0,
+            ), interprocess_lock(
+                _project_fit_lock(project_id),
+                blocking=True,
+                timeout=30.0,
+                stale_after=6 * 60 * 60,
+            ):
+                repository = RunRepository(database)
+                source_job = repository.get(source_job_id)
+                if (
+                    source_job is None
+                    or source_job.get("project_id") != project_id
+                    or source_job.get("run_type") != EXECUTABLE_ARTIFACT_JOB_TYPE
+                ):
+                    raise Stage3ModelLaboratoryError(
+                        "STAGE3_EXECUTABLE_ARTIFACT_JOB_NOT_FOUND",
+                        "The project-scoped recovery source job was not found.",
+                        status_code=404,
+                    )
+                _validate_recovery_source_progress(source_job)
+                source_plan = _source_plan_for_recovery(
+                    source_job, expected_plan_checksum
+                )
+                chain = _resolved_chain(database, project_id)
+
+                for prior in repository.list_for_project(project_id):
+                    prior_artifacts = json_loads(prior.get("artifacts_json"), {})
+                    recovery = prior_artifacts.get("publicationRecovery") or {}
+                    if (
+                        prior.get("run_type") == EXECUTABLE_ARTIFACT_JOB_TYPE
+                        and str(prior.get("status") or "").upper() == "COMPLETE"
+                        and recovery.get("sourceJobId") == source_job_id
+                        and recovery.get("manifestSha256") == manifest_sha256
+                        and recovery.get("sourcePlanChecksum")
+                        == expected_plan_checksum
+                    ):
+                        decoded = _decode_job(prior)
+                        published_artifact = decoded.get("artifact") or {}
+                        prior_verified = verify_artifact_bundle(
+                            str(published_artifact.get("relativePath") or ""),
+                            expected_manifest_sha256=str(
+                                published_artifact.get("manifestSha256") or ""
+                            ),
+                        )
+                        _verify_recovery_bundle_binding(
+                            directory=prior_verified["artifactPath"],
+                            is_private_staging=False,
+                            manifest_sha256=manifest_sha256,
+                            source_plan=source_plan,
+                            chain=chain,
+                        )
+                        return {
+                            "ok": True,
+                            "job": {**decoded, "idempotentReplay": True},
+                        }
+
+                active = _active_job(database, project_id)
+                if active is not None:
+                    raise Stage3ModelLaboratoryError(
+                        "STAGE3_EXECUTABLE_ARTIFACT_JOB_ALREADY_ACTIVE",
+                        f"Artifact job {active.get('run_id')} is already active.",
+                        status_code=409,
+                    )
+
+                root = _artifact_root()
+                target = _require_contained(
+                    root / "objects" / "sha256" / manifest_sha256, root
+                )
+                staging = _recovery_staging_path(
+                    source_job,
+                    source_job_id,
+                    inspect_contents=not target.exists(),
+                )
+                if target.exists():
+                    verified = _verify_recovery_bundle_binding(
+                        directory=target,
+                        is_private_staging=False,
+                        manifest_sha256=manifest_sha256,
+                        source_plan=source_plan,
+                        chain=chain,
+                    )
+                elif staging.exists():
+                    verified = _verify_recovery_bundle_binding(
+                        directory=staging,
+                        is_private_staging=True,
+                        manifest_sha256=manifest_sha256,
+                        source_plan=source_plan,
+                        chain=chain,
+                    )
+                else:
+                    raise Stage3ModelLaboratoryError(
+                        "STAGE3_ARTIFACT_RECOVERY_EVIDENCE_MISSING",
+                        "Neither the exact private staging bundle nor its public content address exists.",
+                        status_code=409,
+                    )
+                manifest = verified["manifest"]
+                recovery_job_id = (
+                    "stage3-executable-artifact-recovery-" + uuid.uuid4().hex
+                )
+                recovery_started_clock = time.perf_counter()
+                started_at = now_iso()
+                source_error = json_loads(source_job.get("error_json"), {})
+                recovery_evidence = {
+                    "schemaVersion": EXECUTABLE_ARTIFACT_RECOVERY_SCHEMA_VERSION,
+                    "sourceJobId": source_job_id,
+                    "sourceJobStatus": str(source_job.get("status") or "").upper(),
+                    "sourceJobError": source_error,
+                    "manifestSha256": manifest_sha256,
+                    "sourcePlanChecksum": expected_plan_checksum,
+                    "recoveryImplementationSha256": _sha_file(Path(__file__)),
+                    "fitPerformed": False,
+                    "reusedModelFitsByPurpose": {
+                        "oofFold": 5,
+                        "finalDevelopment": 1,
+                    },
+                }
+                recovery_row = _upsert_job(
+                    database,
+                    {
+                        "run_id": recovery_job_id,
+                        "project_id": project_id,
+                        "run_type": EXECUTABLE_ARTIFACT_JOB_TYPE,
+                        "workflow_type": (
+                            "sports_stage3_executable_artifact_publication_recovery"
+                        ),
+                        "status": "RUNNING",
+                        "started_at": started_at,
+                        "completed_at": None,
+                        "parameters_json": source_plan,
+                        "metrics_json": {
+                            "state": "RUNNING",
+                            "startedAt": started_at,
+                            "currentFold": None,
+                            "foldRowsProcessed": 0,
+                            "oofRowsPersisted": EXPECTED_OOF_ROWS,
+                            "finalFitState": "COMPLETE",
+                            "artifactStagingState": "VERIFYING",
+                            "reloadVerificationState": "PENDING",
+                            "elapsedSeconds": 0.0,
+                            "latestCheckpoint": (
+                                "VERIFIED_STAGED_BUNDLE_RECOVERY_CLAIMED"
+                            ),
+                            "resumability": "PUBLICATION_ONLY_NO_REFIT",
+                            "modelFitsByPurpose": {
+                                "oofFold": 5,
+                                "finalDevelopment": 1,
+                            },
+                            "modelFitsPerformedByThisJob": {
+                                "oofFold": 0,
+                                "finalDevelopment": 0,
+                            },
+                            "message": (
+                                "Recovering an exact verified staged bundle; no model fit is authorized."
+                            ),
+                        },
+                        "artifacts_json": {
+                            "coordinatorProcessId": os.getpid(),
+                            "coordinatorInstanceId": _COORDINATOR_INSTANCE_ID,
+                            "coordinatorRegisteredClock": time.time(),
+                            "stagingPath": str(staging),
+                            "artifact": None,
+                            "publicationRecovery": recovery_evidence,
+                            "safety": _safety_payload(),
+                        },
+                        "error_json": {},
+                        "created_by": actor_user_id,
+                    },
+                )
+                with _FUTURES_GUARD:
+                    _SYNCHRONOUS_RECOVERY_JOBS.add(recovery_job_id)
+                try:
+                    if target.exists():
+                        _verified_public_artifact_target(target, manifest_sha256)
+                        _discard_redundant_staging(staging)
+                        reused = True
+                    elif staging.exists():
+                        target, reused = _finalize_staging(staging, manifest_sha256)
+                    else:
+                        raise Stage3ModelLaboratoryError(
+                            "STAGE3_ARTIFACT_RECOVERY_EVIDENCE_MISSING",
+                            "The verified recovery evidence disappeared before publication.",
+                            status_code=409,
+                        )
+                    relative_path = target.relative_to(root).as_posix()
+                    final_verified = verify_artifact_bundle(
+                        relative_path,
+                        expected_manifest_sha256=manifest_sha256,
+                    )
+                    model_record = final_verified["manifest"]["files"]["model"]
+                    fixture_record = final_verified["manifest"]["files"][
+                        "verificationFixture"
+                    ]
+                    reload_result = _fresh_process_reload_check(
+                        target,
+                        expected_model_sha256=model_record["sha256"],
+                        expected_fixture_sha256=fixture_record["sha256"],
+                    )
+                    if (
+                        reload_result.get("status") != "PASS"
+                        or reload_result.get("freshProcess") is not True
+                    ):
+                        raise Stage3ModelLaboratoryError(
+                            "STAGE3_ARTIFACT_RECOVERY_RELOAD_FAILED",
+                            "The recovered public artifact did not pass a fresh-process reload.",
+                            status_code=409,
+                        )
+                    load_executable_artifact(
+                        relative_path,
+                        expected_manifest_sha256=manifest_sha256,
+                    )
+                    artifact_payload = _recovered_artifact_payload(
+                        manifest=final_verified["manifest"],
+                        manifest_sha256=manifest_sha256,
+                        relative_path=relative_path,
+                        reload_result=reload_result,
+                        reused=reused,
+                    )
+                    completed_at = now_iso()
+                    completed_recovery = {
+                        **recovery_evidence,
+                        "publishedAt": completed_at,
+                        "publicRelativePath": relative_path,
+                        "publicBundleVerified": True,
+                        "freshProcessReloadVerified": True,
+                        "existingTargetReused": bool(reused),
+                        "privateStagingCleanupPending": staging.exists(),
+                    }
+                    completed = _upsert_job(
+                        database,
+                        {
+                            **dict(recovery_row),
+                            "status": "COMPLETE",
+                            "completed_at": completed_at,
+                            "parameters_json": source_plan,
+                            "metrics_json": {
+                                **json_loads(recovery_row.get("metrics_json"), {}),
+                                "state": "COMPLETE",
+                                "artifactStagingState": "COMPLETE",
+                                "reloadVerificationState": "COMPLETE",
+                                "elapsedSeconds": float(
+                                    time.perf_counter() - recovery_started_clock
+                                ),
+                                "latestCheckpoint": (
+                                    "IMMUTABLE_ARTIFACT_RECOVERED_AND_RELOADED"
+                                ),
+                                "resumability": "NOT_REQUIRED_COMPLETE",
+                                "message": (
+                                    "Verified staged evidence was published and reloaded without refitting."
+                                ),
+                            },
+                            "artifacts_json": {
+                                **json_loads(recovery_row.get("artifacts_json"), {}),
+                                "artifact": artifact_payload,
+                                "publicationRecovery": completed_recovery,
+                                "safety": _safety_payload(),
+                            },
+                            "error_json": {},
+                        },
+                    )
+                except Stage3ModelLaboratoryError as exc:
+                    _fail_job(database, recovery_job_id, exc.code, str(exc))
+                    raise
+                except Exception as exc:
+                    code = "STAGE3_ARTIFACT_PUBLICATION_RECOVERY_FAILED"
+                    _fail_job(database, recovery_job_id, code, str(exc))
+                    raise Stage3ModelLaboratoryError(
+                        code,
+                        "The verified publication recovery failed; no refit was performed and recoverable evidence remains preserved.",
+                        status_code=503,
+                    ) from exc
+                finally:
+                    with _FUTURES_GUARD:
+                        _SYNCHRONOUS_RECOVERY_JOBS.discard(recovery_job_id)
+                return {"ok": True, "job": _decode_job(completed)}
+        except LockBusy as exc:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_PUBLICATION_RECOVERY_LOCK_BUSY",
+                "Another artifact operation owns the project publication lock.",
+                status_code=409,
+            ) from exc
 
 
 def list_executable_artifact_jobs(
@@ -2725,6 +3404,7 @@ __all__ = [
     "EXECUTABLE_ARTIFACT_JOB_TYPE",
     "EXECUTABLE_ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "EXECUTABLE_ARTIFACT_PLAN_SCHEMA_VERSION",
+    "EXECUTABLE_ARTIFACT_RECOVERY_SCHEMA_VERSION",
     "EXECUTABLE_ARTIFACT_SUMMARY_SCHEMA_VERSION",
     "LoadedStage3Artifact",
     "cancel_unstarted_executable_artifact_work",
@@ -2734,6 +3414,7 @@ __all__ = [
     "list_executable_artifact_jobs",
     "load_executable_artifact",
     "plan_executable_artifact",
+    "recover_failed_executable_artifact_publication",
     "resolve_executable_artifact_path",
     "verify_artifact_bundle",
     "verify_staged_model",

@@ -23,6 +23,10 @@ def test_executable_artifact_and_game_scoring_routes_require_authentication() ->
             "POST",
             "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/cancel-unstarted",
         ),
+        (
+            "POST",
+            "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/recover-publication",
+        ),
         ("GET", "/projects/{project_id}/sports/stage3-game-scoring"),
         ("POST", "/projects/{project_id}/sports/stage3-game-scoring/jobs"),
         (

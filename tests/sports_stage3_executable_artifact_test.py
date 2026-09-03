@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +28,26 @@ class _FixedEstimator:
             [0.21, 0.11, 0.03, 0.15, 0.04, 0.01, 0.44, 0.01], dtype=float
         )
         return np.tile(probability_by_class[self.classes_], (rows, 1))
+
+
+class _MemoryRunRepository:
+    def __init__(self, *rows: dict[str, object]) -> None:
+        self.rows = {str(row["run_id"]): dict(row) for row in rows}
+
+    def get(self, run_id: str) -> dict[str, object] | None:
+        row = self.rows.get(run_id)
+        return dict(row) if row is not None else None
+
+    def list_for_project(self, project_id: str) -> list[dict[str, object]]:
+        return [
+            dict(row)
+            for row in reversed(list(self.rows.values()))
+            if row.get("project_id") == project_id
+        ]
+
+    def upsert(self, row: dict[str, object]) -> dict[str, object]:
+        self.rows[str(row["run_id"])] = dict(row)
+        return dict(row)
 
 
 @pytest.fixture
@@ -61,9 +82,9 @@ def _pipeline() -> lab.Stage3FittedPipeline:
 def _chain() -> dict[str, object]:
     eda = SimpleNamespace(
         source_dataset_id="asp.mlb.statcast.current-pa.v1",
-        source_manifest_sha="1" * 64,
+        source_manifest_sha=artifact.EXPECTED_SOURCE_MANIFEST_SHA256,
         gold_manifest_sha=lab.EXPECTED_GOLD_MANIFEST_SHA,
-        contextual_manifest_sha="2" * 64,
+        contextual_manifest_sha=artifact.EXPECTED_CONTEXTUAL_MANIFEST_SHA256,
     )
     resolved = SimpleNamespace(
         project_name="MLB 2026 Current-Data Game Forecast Challenger",
@@ -104,7 +125,9 @@ def _chain() -> dict[str, object]:
     }
 
 
-def _write_bundle(root: Path) -> tuple[str, str, Path]:
+def _write_bundle(
+    root: Path, *, source_plan: dict[str, object] | None = None
+) -> tuple[str, str, Path]:
     staging = root / "staging" / "unit"
     staging.mkdir(parents=True)
     pipeline = _pipeline()
@@ -136,14 +159,16 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
         "rowSumAtol": lab.RAW_PROBABILITY_ROW_SUM_ATOL,
         "normalizationApplied": False,
     }
+    verification_receipt = {
+        "schemaVersion": artifact.EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION,
+        "status": "PASS",
+        "probabilityContract": artifact._probability_contract(),
+        "rawOofProbabilityValidation": raw_probability_validation,
+    }
+    if source_plan is not None:
+        verification_receipt["planChecksum"] = source_plan["checksum"]
     artifact._atomic_json(
-        staging / "verification-receipt.json",
-        {
-            "schemaVersion": artifact.EXECUTABLE_ARTIFACT_VERIFICATION_SCHEMA_VERSION,
-            "status": "PASS",
-            "probabilityContract": artifact._probability_contract(),
-            "rawOofProbabilityValidation": raw_probability_validation,
-        },
+        staging / "verification-receipt.json", verification_receipt
     )
     fold_evidence = [
         {
@@ -191,14 +216,23 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
     }
     manifest = {
         "schemaVersion": artifact.EXECUTABLE_ARTIFACT_MANIFEST_SCHEMA_VERSION,
-        "artifactId": "stage3-executable-artifact-unit",
-        "authority": {
+        "artifactId": (
+            "stage3-executable-artifact-" + str(source_plan["checksum"])[:32]
+            if source_plan is not None
+            else "stage3-executable-artifact-unit"
+        ),
+        "projectId": lab.EXPECTED_PROJECT_ID,
+        "authority": source_plan["authority"]
+        if source_plan is not None
+        else {
             "projectId": lab.EXPECTED_PROJECT_ID,
+            "projectName": "MLB 2026 Current-Data Game Forecast Challenger",
             "sourceDatasetId": lab.EXPECTED_SOURCE_DATASET_ID,
             "sourceManifestSha": artifact.EXPECTED_SOURCE_MANIFEST_SHA256,
             "goldDatasetId": "gold-table:gold_mlb_current_pa_v1",
             "goldManifestSha": lab.EXPECTED_GOLD_MANIFEST_SHA,
             "contextualManifestSha": artifact.EXPECTED_CONTEXTUAL_MANIFEST_SHA256,
+            "authorityKey": "authority-key",
             "splitContractId": lab.EXPECTED_SPLIT["splitContractId"],
             "splitVersion": lab.EXPECTED_SPLIT["version"],
             "splitChecksum": lab.EXPECTED_SPLIT["checksum"],
@@ -216,8 +250,11 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
             "finalOotEnd": lab.EXPECTED_FINAL_OOT[1],
             "finalOotLocked": True,
             "finalOotTargetAccessed": False,
+            "targetOrder": list(GOLD_CLASS_ORDER),
         },
-        "selection": {
+        "selection": source_plan["selection"]
+        if source_plan is not None
+        else {
             **artifact.EXPECTED_SELECTION,
             **{
                 key: artifact.EXPECTED_CANDIDATE[key]
@@ -229,8 +266,12 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
                     "candidateRunReceiptSha256",
                 )
             },
+            "modelStatus": "RESEARCH_CHALLENGER",
+            "promotionStatus": "NOT_PROMOTED",
         },
-        "candidate": {
+        "candidate": source_plan["candidate"]
+        if source_plan is not None
+        else {
             "modelFamily": "xgboost",
             "estimatorClass": "XGBClassifier",
             "objective": "multi:softprob",
@@ -268,14 +309,19 @@ def _write_bundle(root: Path) -> tuple[str, str, Path]:
             "legacyEvidenceSha256": artifact.EXPECTED_OOF_EVIDENCE_SHA256,
             "folds": fold_evidence,
         },
-        "environment": {
+        "environment": source_plan["environment"]
+        if source_plan is not None
+        else {
             "acceptedCandidateRun": {
                 "modelLabImplementationSha256": artifact.EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
             }
         },
         "verification": {
             "status": "PASS",
-            "metricReproduction": {"status": "PASS"},
+            "metricReproduction": {
+                "status": "PASS",
+                "maxAbsoluteDifference": 0.0,
+            },
             "rawOofProbabilityValidation": raw_probability_validation,
             "reloadVerification": {"status": "PASS", "freshProcess": True},
             "verificationFixture": {"status": "PASS"},
@@ -718,3 +764,410 @@ def test_manifest_is_canonical_content_address(artifact_root: Path) -> None:
     artifact._atomic_json(path, value)
     assert path.read_bytes() == artifact.canonical_json_bytes(value)
     assert artifact._sha_file(path) == artifact._sha(value)
+
+
+def test_windows_process_liveness_is_positive_only_and_system_error_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if artifact.os.name != "nt":
+        pytest.skip("Windows liveness contract")
+    monkeypatch.setattr(artifact, "_windows_process_alive", lambda _pid: False)
+    assert artifact._process_alive(987654321) is False
+    monkeypatch.setattr(artifact, "_windows_process_alive", lambda _pid: True)
+    assert artifact._process_alive(987654321) is True
+
+    def system_error(_pid: int) -> bool:
+        raise SystemError("inconclusive Windows process query")
+
+    monkeypatch.setattr(artifact, "_windows_process_alive", system_error)
+    assert artifact._process_alive(987654321) is True
+    assert artifact._process_alive(True) is True
+    assert artifact._process_alive(None) is True
+
+
+def test_active_synchronous_recovery_is_not_reconciled_after_startup_grace() -> None:
+    job_id = "stage3-executable-artifact-recovery-live"
+    row = {
+        "run_id": job_id,
+        "project_id": lab.EXPECTED_PROJECT_ID,
+        "run_type": artifact.EXECUTABLE_ARTIFACT_JOB_TYPE,
+        "status": "RUNNING",
+        "parameters_json": "{}",
+        "metrics_json": json.dumps({"state": "RUNNING"}),
+        "artifacts_json": json.dumps(
+            {
+                "coordinatorProcessId": artifact.os.getpid(),
+                "coordinatorInstanceId": artifact._COORDINATOR_INSTANCE_ID,
+                "coordinatorRegisteredClock": artifact.time.time() - 31.0,
+            }
+        ),
+        "error_json": "{}",
+    }
+    with artifact._FUTURES_GUARD:
+        artifact._SYNCHRONOUS_RECOVERY_JOBS.add(job_id)
+    try:
+        reconciled = artifact._reconcile_interrupted_job(object(), row)
+    finally:
+        with artifact._FUTURES_GUARD:
+            artifact._SYNCHRONOUS_RECOVERY_JOBS.discard(job_id)
+    assert reconciled["status"] == "RUNNING"
+
+
+def test_publication_retries_transient_windows_sharing_error_then_verifies(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    calls: list[int] = []
+
+    def sharing_then_success(source: object, destination: object) -> None:
+        calls.append(len(calls) + 1)
+        if len(calls) < 3:
+            raise PermissionError(
+                13, "transient sharing violation", str(source), 32
+            )
+        shutil.copytree(Path(source), Path(destination))
+        shutil.rmtree(Path(source))
+
+    monkeypatch.setattr(artifact.os, "replace", sharing_then_success)
+    monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
+    finalized, reused = artifact._finalize_staging(staging, checksum)
+    assert finalized == target
+    assert reused is False
+    assert calls == [1, 2, 3]
+    assert artifact.verify_artifact_bundle(
+        f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+    )["status"] == "PASS"
+
+
+def test_publication_retry_exhaustion_is_typed_and_preserves_staging(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    calls: list[int] = []
+
+    def sharing_failure(_source: object, _destination: object) -> None:
+        calls.append(len(calls) + 1)
+        raise PermissionError(
+            13, "persistent sharing violation", "staging", 32
+        )
+
+    monkeypatch.setattr(artifact.os, "replace", sharing_failure)
+    monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 3)
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as exhausted:
+        artifact._finalize_staging(staging, checksum)
+    assert exhausted.value.code == "STAGE3_ARTIFACT_PUBLICATION_RETRY_EXHAUSTED"
+    assert calls == [1, 2, 3]
+    assert staging.is_dir()
+    assert not target.exists()
+
+
+def test_publication_race_reuses_only_a_verified_existing_target(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    calls: list[int] = []
+
+    def concurrent_winner(source: object, destination: object) -> None:
+        calls.append(len(calls) + 1)
+        if len(calls) < 3:
+            raise PermissionError(
+                13, "transient sharing violation", str(source), 32
+            )
+        shutil.copytree(Path(source), Path(destination))
+        raise PermissionError(13, "another publisher won", str(source), 32)
+
+    monkeypatch.setattr(artifact.os, "replace", concurrent_winner)
+    monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 3)
+    finalized, reused = artifact._finalize_staging(staging, checksum)
+    assert finalized == target
+    assert reused is True
+    assert target.is_dir()
+    assert not staging.exists()
+    assert calls == [1, 2, 3]
+
+
+def test_publication_does_not_retry_nonsharing_error_or_accept_corrupt_race_target(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    attempts = 0
+
+    def nonsharing_failure(_source: object, _destination: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError(13, "permission failure without a sharing winerror")
+
+    monkeypatch.setattr(artifact.os, "replace", nonsharing_failure)
+    with pytest.raises(PermissionError):
+        artifact._finalize_staging(staging, checksum)
+    assert attempts == 1
+    assert staging.is_dir()
+
+    def corrupt_concurrent_winner(source: object, destination: object) -> None:
+        shutil.copytree(Path(source), Path(destination))
+        (Path(destination) / "model.joblib").write_bytes(b"corrupt race target")
+        raise PermissionError(
+            13, "another publisher won with corrupt bytes", str(source), 32
+        )
+
+    monkeypatch.setattr(artifact.os, "replace", corrupt_concurrent_winner)
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as corrupt:
+        artifact._finalize_staging(staging, checksum)
+    assert corrupt.value.code == "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH"
+    assert staging.is_dir()
+
+
+def _recovery_source_row(
+    *, source_job_id: str, plan: dict[str, object], staging: Path
+) -> dict[str, object]:
+    return {
+        "run_id": source_job_id,
+        "project_id": lab.EXPECTED_PROJECT_ID,
+        "run_type": artifact.EXECUTABLE_ARTIFACT_JOB_TYPE,
+        "workflow_type": "sports_stage3_executable_artifact",
+        "status": "FAILED",
+        "started_at": "2026-09-03T17:57:52+00:00",
+        "completed_at": "2026-09-03T18:32:32+00:00",
+        "parameters_json": plan,
+        "metrics_json": {
+            "state": "FAILED",
+            "oofRowsPersisted": artifact.EXPECTED_OOF_ROWS,
+            "finalFitState": "COMPLETE",
+            "modelFitsByPurpose": {"oofFold": 5, "finalDevelopment": 1},
+        },
+        "artifacts_json": {
+            "artifact": None,
+            "stagingPath": str(staging),
+            "safety": artifact._safety_payload(),
+        },
+        "error_json": {
+            "code": "STAGE3_EXECUTABLE_ARTIFACT_EXECUTION_FAILED",
+            "message": "transient Windows publication failure",
+        },
+        "created_by": "source-actor",
+    }
+
+
+def _prepare_recovery_test(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[_MemoryRunRepository, dict[str, object], str, Path, Path]:
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    chain = _chain()
+    chain["featureSetContract"] = {
+        **chain["featureSetContract"],
+        "orderedFeatures": ["alpha", "beta"],
+    }
+    monkeypatch.setattr(artifact, "_resolved_chain", lambda _db, _project: chain)
+    plan = artifact.plan_executable_artifact(
+        object(), lab.EXPECTED_PROJECT_ID, {"nativeWorkers": 2}, actor_user_id="a"
+    )["plan"]
+    _relative, manifest_sha, target = _write_bundle(
+        artifact_root, source_plan=plan
+    )
+    staging = artifact_root / "staging" / "unit"
+    source = _recovery_source_row(source_job_id="unit", plan=plan, staging=staging)
+    repository = _MemoryRunRepository(source)
+    monkeypatch.setattr(artifact, "RunRepository", lambda _database: repository)
+    monkeypatch.setattr(
+        artifact, "interprocess_lock", lambda *_args, **_kwargs: nullcontext()
+    )
+    monkeypatch.setattr(
+        artifact,
+        "_fresh_process_reload_check",
+        lambda *_args, **_kwargs: {
+            "status": "PASS",
+            "freshProcess": True,
+            "maxAbsoluteDifference": 0.0,
+            "rows": 2,
+        },
+    )
+    return repository, plan, manifest_sha, staging, target
+
+
+def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempotent(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, plan, manifest_sha, staging, target = _prepare_recovery_test(
+        artifact_root, monkeypatch
+    )
+    shutil.rmtree(target)
+
+    def publish(source: object, destination: object) -> None:
+        shutil.copytree(Path(source), Path(destination))
+        shutil.rmtree(Path(source))
+
+    monkeypatch.setattr(artifact.os, "replace", publish)
+    monkeypatch.setattr(
+        artifact,
+        "fit_stage3_pipeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("publication recovery must not fit")
+        ),
+    )
+    # Recovery intentionally preserves the fit-time production identity in the
+    # frozen source plan. It must not regenerate a plan from newly edited
+    # recovery code.
+    monkeypatch.setattr(
+        artifact,
+        "_production_environment",
+        lambda _chain: {"artifactProduction": {"changedAfterFit": True}},
+    )
+    payload = {
+        "expectedManifestSha256": manifest_sha,
+        "expectedSourcePlanChecksum": plan["checksum"],
+    }
+    first = artifact.recover_failed_executable_artifact_publication(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        "unit",
+        payload,
+        actor_user_id="recovery-actor",
+    )["job"]
+    assert first["status"] == "COMPLETE"
+    assert first["publicationRecovery"]["fitPerformed"] is False
+    assert first["progress"]["modelFitsPerformedByThisJob"] == {
+        "oofFold": 0,
+        "finalDevelopment": 0,
+    }
+    assert first["progress"]["artifactStagingState"] == "COMPLETE"
+    assert isinstance(first["progress"]["elapsedSeconds"], float)
+    assert first["progress"]["elapsedSeconds"] >= 0.0
+    assert repository.get("unit")["status"] == "FAILED"
+    assert len(repository.rows) == 2
+    assert target.is_dir()
+    assert not staging.exists()
+    summary = artifact.executable_artifact_summary(
+        object(), lab.EXPECTED_PROJECT_ID
+    )
+    assert summary["currentJob"]["jobId"] == first["jobId"]
+    assert summary["currentJob"]["status"] == "COMPLETE"
+    assert summary["artifact"]["manifestSha256"] == manifest_sha
+    assert repository.get("unit")["status"] == "FAILED"
+
+    second = artifact.recover_failed_executable_artifact_publication(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        "unit",
+        payload,
+        actor_user_id="recovery-actor",
+    )["job"]
+    assert second["jobId"] == first["jobId"]
+    assert second["idempotentReplay"] is True
+    assert len(repository.rows) == 2
+
+
+def test_recovery_completes_after_crash_window_when_only_public_target_exists(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, plan, manifest_sha, staging, target = _prepare_recovery_test(
+        artifact_root, monkeypatch
+    )
+    shutil.rmtree(staging)
+    monkeypatch.setattr(
+        artifact,
+        "_finalize_staging",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("existing target recovery must not republish")
+        ),
+    )
+    result = artifact.recover_failed_executable_artifact_publication(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        "unit",
+        {
+            "expectedManifestSha256": manifest_sha,
+            "expectedSourcePlanChecksum": plan["checksum"],
+        },
+        actor_user_id="recovery-actor",
+    )["job"]
+    assert result["status"] == "COMPLETE"
+    assert result["publicationRecovery"]["existingTargetReused"] is True
+    assert repository.get("unit")["status"] == "FAILED"
+    assert target.is_dir()
+
+
+def test_recovery_prefers_verified_public_target_over_partial_redundant_staging(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, plan, manifest_sha, staging, target = _prepare_recovery_test(
+        artifact_root, monkeypatch
+    )
+    (staging / "model.joblib").write_bytes(b"partially cleaned private staging")
+    result = artifact.recover_failed_executable_artifact_publication(
+        object(),
+        lab.EXPECTED_PROJECT_ID,
+        "unit",
+        {
+            "expectedManifestSha256": manifest_sha,
+            "expectedSourcePlanChecksum": plan["checksum"],
+        },
+        actor_user_id="recovery-actor",
+    )["job"]
+    assert result["status"] == "COMPLETE"
+    assert result["publicationRecovery"]["existingTargetReused"] is True
+    assert target.is_dir()
+    assert not staging.exists()
+    assert repository.get("unit")["status"] == "FAILED"
+
+
+def test_recovery_rejects_tampered_staging_before_creating_audit_run(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, plan, manifest_sha, staging, target = _prepare_recovery_test(
+        artifact_root, monkeypatch
+    )
+    shutil.rmtree(target)
+    (staging / "model.joblib").write_bytes(b"tampered")
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as rejected:
+        artifact.recover_failed_executable_artifact_publication(
+            object(),
+            lab.EXPECTED_PROJECT_ID,
+            "unit",
+            {
+                "expectedManifestSha256": manifest_sha,
+                "expectedSourcePlanChecksum": plan["checksum"],
+            },
+            actor_user_id="recovery-actor",
+        )
+    assert rejected.value.code == "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH"
+    assert list(repository.rows) == ["unit"]
+    assert repository.get("unit")["status"] == "FAILED"

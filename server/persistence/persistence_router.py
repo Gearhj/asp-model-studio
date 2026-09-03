@@ -111,6 +111,7 @@ from ..sports_current_statcast.stage3_executable_artifact import (
     get_executable_artifact_job,
     list_executable_artifact_jobs,
     plan_executable_artifact,
+    recover_failed_executable_artifact_publication,
 )
 from ..sports_current_statcast.stage3_game_scoring import (
     Stage3GameScoringError,
@@ -1209,6 +1210,30 @@ def post_sports_stage3_executable_artifact_cancel_unstarted(
             _service().database,
             project_id,
             job_id,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/recover-publication"
+)
+def post_sports_stage3_executable_artifact_recover_publication(
+    project_id: str,
+    job_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Recover a fully verified private bundle without repeating any fit."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: recover_failed_executable_artifact_publication(
+            _service().database,
+            project_id,
+            job_id,
+            payload,
             actor_user_id=actor,
         )
     )
