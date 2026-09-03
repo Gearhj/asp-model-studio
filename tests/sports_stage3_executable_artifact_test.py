@@ -730,7 +730,7 @@ def test_finalize_rehashes_every_staged_member_before_atomic_rename(
         replace_called = True
         raise AssertionError("publication rename must not run")
 
-    monkeypatch.setattr(artifact.os, "replace", forbidden_replace)
+    monkeypatch.setattr(artifact, "_directory_replace", forbidden_replace)
     with pytest.raises(lab.Stage3ModelLaboratoryError) as mismatch:
         artifact._finalize_staging(staging, checksum)
     assert mismatch.value.code == "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH"
@@ -836,18 +836,20 @@ def test_publication_retries_transient_windows_sharing_error_then_verifies(
         shutil.copytree(Path(source), Path(destination))
         shutil.rmtree(Path(source))
 
-    monkeypatch.setattr(artifact.os, "replace", sharing_then_success)
+    monkeypatch.setattr(artifact, "_directory_replace", sharing_then_success)
     monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
-    finalized, reused = artifact._finalize_staging(staging, checksum)
-    assert finalized == target
-    assert reused is False
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.artifact_path == target
+    assert publication.reused is False
+    assert publication.protocol == artifact._ATOMIC_DIRECTORY_RENAME_PROTOCOL
+    assert publication.fallback_used is False
     assert calls == [1, 2, 3]
     assert artifact.verify_artifact_bundle(
         f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
     )["status"] == "PASS"
 
 
-def test_publication_retry_exhaustion_is_typed_and_preserves_staging(
+def test_publication_retry_exhaustion_commits_manifest_last_after_pre_marker_rejection(
     artifact_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -859,7 +861,9 @@ def test_publication_retry_exhaustion_is_typed_and_preserves_staging(
     _relative, checksum, target = _write_bundle(artifact_root)
     shutil.rmtree(target)
     staging = artifact_root / "staging" / "unit"
+    expected_manifest_bytes = (staging / "manifest.json").read_bytes()
     calls: list[int] = []
+    pre_commit_observations: list[str] = []
 
     def sharing_failure(_source: object, _destination: object) -> None:
         calls.append(len(calls) + 1)
@@ -867,15 +871,276 @@ def test_publication_retry_exhaustion_is_typed_and_preserves_staging(
             13, "persistent sharing violation", "staging", 32
         )
 
-    monkeypatch.setattr(artifact.os, "replace", sharing_failure)
+    original_install = artifact._install_manifest_commit_marker
+
+    def observe_pre_marker(**kwargs: object) -> bool:
+        assert target.is_dir()
+        assert staging.is_dir()
+        assert not (target / "manifest.json").exists()
+        with pytest.raises(lab.Stage3ModelLaboratoryError) as unpublished:
+            artifact.verify_artifact_bundle(
+                f"objects/sha256/{checksum}",
+                expected_manifest_sha256=checksum,
+            )
+        pre_commit_observations.append(unpublished.value.code)
+        return original_install(**kwargs)
+
+    monkeypatch.setattr(artifact, "_directory_replace", sharing_failure)
+    monkeypatch.setattr(
+        artifact, "_install_manifest_commit_marker", observe_pre_marker
+    )
     monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 3)
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.artifact_path == target
+    assert publication.reused is False
+    assert publication.protocol == artifact._MANIFEST_COMMIT_PROTOCOL
+    assert publication.fallback_used is True
+    assert calls == [1, 2, 3]
+    assert pre_commit_observations == [
+        "STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH"
+    ]
+    assert (target / "manifest.json").read_bytes() == expected_manifest_bytes
+    assert not staging.exists()
+    assert artifact.verify_artifact_bundle(
+        f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+    )["status"] == "PASS"
+
+
+def test_manifest_commit_marker_failure_preserves_verified_source_and_unpublished_target(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+
+    def sharing_failure(_source: object, _destination: object) -> None:
+        raise PermissionError(13, "persistent sharing violation", "staging", 32)
+
+    marker_attempts = 0
+
+    def marker_failure(_source: object, _destination: object) -> None:
+        nonlocal marker_attempts
+        marker_attempts += 1
+        raise PermissionError(13, "manifest marker sharing violation", "manifest", 32)
+
+    monkeypatch.setattr(artifact, "_directory_replace", sharing_failure)
+    monkeypatch.setattr(artifact, "_manifest_rename", marker_failure)
+    monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
+    monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 2)
     with pytest.raises(lab.Stage3ModelLaboratoryError) as exhausted:
         artifact._finalize_staging(staging, checksum)
-    assert exhausted.value.code == "STAGE3_ARTIFACT_PUBLICATION_RETRY_EXHAUSTED"
-    assert calls == [1, 2, 3]
+    assert (
+        exhausted.value.code
+        == "STAGE3_ARTIFACT_MANIFEST_COMMIT_RETRY_EXHAUSTED"
+    )
+    assert marker_attempts == 2
     assert staging.is_dir()
-    assert not target.exists()
+    assert target.is_dir()
+    assert not (target / "manifest.json").exists()
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as unpublished:
+        artifact.load_executable_artifact(
+            f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+        )
+    assert unpublished.value.code == "STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH"
+
+
+def test_manifest_commit_resumes_exact_valid_subset_and_cleans_only_recognized_temp(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+    model_relative = manifest["files"]["model"]["relativePath"]
+    target.mkdir()
+    shutil.copy2(staging / model_relative, target / model_relative)
+    temporary = target / artifact._manifest_commit_temp_name(
+        target / "preprocessor.joblib", checksum, token="a" * 32
+    )
+    temporary.write_bytes(b"interrupted copy")
+
+    monkeypatch.setattr(
+        artifact,
+        "_directory_replace",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("an existing manifestless target must resume directly")
+        ),
+    )
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.artifact_path == target
+    assert publication.protocol == artifact._MANIFEST_COMMIT_PROTOCOL
+    assert publication.fallback_used is True
+    assert publication.reused is False
+    assert not temporary.exists()
+    assert not staging.exists()
+    assert artifact.verify_artifact_bundle(
+        f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+    )["status"] == "PASS"
+
+
+def test_manifest_commit_reuses_valid_member_that_wins_atomic_name_race(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    raced_destination: Path | None = None
+    raced_file_id: int | None = None
+    original_member_rename = artifact._member_rename
+
+    def directory_failure(_source: object, _destination: object) -> None:
+        raise PermissionError(13, "persistent sharing violation", "staging", 32)
+
+    def member_race(source: Path, destination: Path) -> None:
+        nonlocal raced_destination, raced_file_id
+        if raced_destination is None:
+            relative = destination.relative_to(target)
+            shutil.copy2(staging / relative, destination)
+            raced_destination = destination
+            raced_file_id = destination.stat().st_ino
+            raise FileExistsError(17, "another publisher installed member", destination, 183)
+        original_member_rename(source, destination)
+
+    monkeypatch.setattr(artifact, "_directory_replace", directory_failure)
+    monkeypatch.setattr(artifact, "_member_rename", member_race)
+    monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 1)
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.protocol == artifact._MANIFEST_COMMIT_PROTOCOL
+    assert publication.fallback_used is True
+    assert raced_destination is not None
+    assert raced_destination.stat().st_ino == raced_file_id
+    assert artifact.verify_artifact_bundle(
+        f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+    )["status"] == "PASS"
+
+
+def test_manifest_commit_removes_losing_temp_before_verifying_marker_race(
+    artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    winning_manifest_file_id: int | None = None
+
+    def directory_failure(_source: object, _destination: object) -> None:
+        raise PermissionError(13, "persistent sharing violation", "staging", 32)
+
+    def manifest_race(_source: Path, destination: Path) -> None:
+        nonlocal winning_manifest_file_id
+        shutil.copy2(staging / "manifest.json", destination)
+        winning_manifest_file_id = destination.stat().st_ino
+        raise FileExistsError(17, "another publisher installed manifest", destination, 183)
+
+    monkeypatch.setattr(artifact, "_directory_replace", directory_failure)
+    monkeypatch.setattr(artifact, "_manifest_rename", manifest_race)
+    monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 1)
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.protocol == artifact._MANIFEST_COMMIT_PROTOCOL
+    assert publication.fallback_used is True
+    assert publication.reused is True
+    assert (target / "manifest.json").stat().st_ino == winning_manifest_file_id
+    assert not any(
+        artifact._MANIFEST_COMMIT_TEMP_TAG in path.name
+        for path in target.rglob("*")
+    )
+    assert not staging.exists()
+    assert artifact.verify_artifact_bundle(
+        f"objects/sha256/{checksum}", expected_manifest_sha256=checksum
+    )["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        (
+            "tampered-member",
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_MEMBER_MISMATCH",
+        ),
+        (
+            "unexpected-file",
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_UNEXPECTED_CONTENT",
+        ),
+        (
+            "unexpected-directory",
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_UNEXPECTED_CONTENT",
+        ),
+        (
+            "unrecognized-temp",
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_UNEXPECTED_CONTENT",
+        ),
+        ("reparse-member", "STAGE3_ARTIFACT_REPARSE_POINT_REJECTED"),
+    ],
+)
+def test_manifest_commit_resume_rejects_tamper_unexpected_and_reparse_content(
+    artifact_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    expected_code: str,
+) -> None:
+    monkeypatch.setattr(
+        artifact,
+        "EXPECTED_CANDIDATE",
+        {**artifact.EXPECTED_CANDIDATE, "featureCount": 2},
+    )
+    monkeypatch.setenv("ATLAS_STAGE3_EXECUTABLE_ARTIFACT_ROOT", str(artifact_root))
+    _relative, checksum, target = _write_bundle(artifact_root)
+    shutil.rmtree(target)
+    staging = artifact_root / "staging" / "unit"
+    target.mkdir()
+    if mutation in {"tampered-member", "reparse-member"}:
+        shutil.copy2(staging / "model.joblib", target / "model.joblib")
+    if mutation == "tampered-member":
+        (target / "model.joblib").write_bytes(b"tampered resume member")
+    elif mutation == "unexpected-file":
+        (target / "undeclared.txt").write_text("unexpected", encoding="utf-8")
+    elif mutation == "unexpected-directory":
+        (target / "undeclared-directory").mkdir()
+    elif mutation == "unrecognized-temp":
+        lookalike = (
+            f".model.joblib{artifact._MANIFEST_COMMIT_TEMP_TAG}"
+            f"{checksum[:16]}-not-a-uuid.tmp"
+        )
+        (target / lookalike).write_bytes(b"must not be cleaned")
+    else:
+        original_reparse_check = artifact._path_is_reparse_point
+        poisoned = (target / "model.joblib").resolve()
+        monkeypatch.setattr(
+            artifact,
+            "_path_is_reparse_point",
+            lambda path: Path(path).resolve() == poisoned
+            or original_reparse_check(Path(path)),
+        )
+
+    with pytest.raises(lab.Stage3ModelLaboratoryError) as rejected:
+        artifact._finalize_staging(staging, checksum)
+    assert rejected.value.code == expected_code
+    assert staging.is_dir()
+    assert not (target / "manifest.json").exists()
 
 
 def test_publication_race_reuses_only_a_verified_existing_target(
@@ -901,12 +1166,14 @@ def test_publication_race_reuses_only_a_verified_existing_target(
         shutil.copytree(Path(source), Path(destination))
         raise PermissionError(13, "another publisher won", str(source), 32)
 
-    monkeypatch.setattr(artifact.os, "replace", concurrent_winner)
+    monkeypatch.setattr(artifact, "_directory_replace", concurrent_winner)
     monkeypatch.setattr(artifact.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(artifact, "_PUBLICATION_RETRY_ATTEMPTS", 3)
-    finalized, reused = artifact._finalize_staging(staging, checksum)
-    assert finalized == target
-    assert reused is True
+    publication = artifact._finalize_staging(staging, checksum)
+    assert publication.artifact_path == target
+    assert publication.reused is True
+    assert publication.protocol == artifact._VERIFIED_EXISTING_TARGET_PROTOCOL
+    assert publication.fallback_used is False
     assert target.is_dir()
     assert not staging.exists()
     assert calls == [1, 2, 3]
@@ -931,7 +1198,7 @@ def test_publication_does_not_retry_nonsharing_error_or_accept_corrupt_race_targ
         attempts += 1
         raise PermissionError(13, "permission failure without a sharing winerror")
 
-    monkeypatch.setattr(artifact.os, "replace", nonsharing_failure)
+    monkeypatch.setattr(artifact, "_directory_replace", nonsharing_failure)
     with pytest.raises(PermissionError):
         artifact._finalize_staging(staging, checksum)
     assert attempts == 1
@@ -944,7 +1211,9 @@ def test_publication_does_not_retry_nonsharing_error_or_accept_corrupt_race_targ
             13, "another publisher won with corrupt bytes", str(source), 32
         )
 
-    monkeypatch.setattr(artifact.os, "replace", corrupt_concurrent_winner)
+    monkeypatch.setattr(
+        artifact, "_directory_replace", corrupt_concurrent_winner
+    )
     with pytest.raises(lab.Stage3ModelLaboratoryError) as corrupt:
         artifact._finalize_staging(staging, checksum)
     assert corrupt.value.code == "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH"
@@ -1030,12 +1299,19 @@ def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempo
         artifact_root, monkeypatch
     )
     shutil.rmtree(target)
-
-    def publish(source: object, destination: object) -> None:
-        shutil.copytree(Path(source), Path(destination))
-        shutil.rmtree(Path(source))
-
-    monkeypatch.setattr(artifact.os, "replace", publish)
+    target.mkdir()
+    shutil.copy2(staging / "model.joblib", target / "model.joblib")
+    interrupted_temp = target / artifact._manifest_commit_temp_name(
+        target / "preprocessor.joblib", manifest_sha, token="b" * 32
+    )
+    interrupted_temp.write_bytes(b"interrupted recovery publication")
+    monkeypatch.setattr(
+        artifact,
+        "_directory_replace",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("recovery must resume the exact manifestless target")
+        ),
+    )
     monkeypatch.setattr(
         artifact,
         "fit_stage3_pipeline",
@@ -1064,16 +1340,30 @@ def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempo
     )["job"]
     assert first["status"] == "COMPLETE"
     assert first["publicationRecovery"]["fitPerformed"] is False
+    assert (
+        first["publicationRecovery"]["publicationProtocol"]
+        == artifact._MANIFEST_COMMIT_PROTOCOL
+    )
+    assert first["publicationRecovery"]["publicationFallbackUsed"] is True
+    assert first["publicationRecovery"]["existingTargetReused"] is False
     assert first["progress"]["modelFitsPerformedByThisJob"] == {
         "oofFold": 0,
         "finalDevelopment": 0,
     }
     assert first["progress"]["artifactStagingState"] == "COMPLETE"
+    assert (
+        first["progress"]["publicationProtocol"]
+        == artifact._MANIFEST_COMMIT_PROTOCOL
+    )
+    assert first["progress"]["publicationFallbackUsed"] is True
+    assert first["artifact"]["publicationProtocol"] == artifact._MANIFEST_COMMIT_PROTOCOL
+    assert first["artifact"]["publicationFallbackUsed"] is True
     assert isinstance(first["progress"]["elapsedSeconds"], float)
     assert first["progress"]["elapsedSeconds"] >= 0.0
     assert repository.get("unit")["status"] == "FAILED"
     assert len(repository.rows) == 2
     assert target.is_dir()
+    assert not interrupted_temp.exists()
     assert not staging.exists()
     summary = artifact.executable_artifact_summary(
         object(), lab.EXPECTED_PROJECT_ID

@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -152,6 +153,10 @@ _WINDOWS_TRANSIENT_PUBLICATION_ERRORS = {5, 32, 33}
 _PUBLICATION_RETRY_ATTEMPTS = 12
 _PUBLICATION_RETRY_INITIAL_DELAY_SECONDS = 0.05
 _PUBLICATION_RETRY_MAX_DELAY_SECONDS = 1.0
+_ATOMIC_DIRECTORY_RENAME_PROTOCOL = "ATOMIC_DIRECTORY_RENAME_V1"
+_MANIFEST_COMMIT_PROTOCOL = "MANIFEST_COMMIT_V1"
+_VERIFIED_EXISTING_TARGET_PROTOCOL = "VERIFIED_EXISTING_TARGET_V1"
+_MANIFEST_COMMIT_TEMP_TAG = ".stage3-manifest-commit-"
 _FORBIDDEN_PLAN_KEYS = {
     "candidateFingerprint",
     "candidateAttemptId",
@@ -1471,6 +1476,14 @@ class LoadedStage3Artifact:
     fold_number: int | None = None
 
 
+@dataclass(frozen=True)
+class ArtifactPublication:
+    artifact_path: Path
+    reused: bool
+    protocol: str
+    fallback_used: bool
+
+
 def resolve_executable_artifact_path(relative_path: str) -> Path:
     normalized = str(relative_path or "").replace("\\", "/")
     parts = Path(normalized).parts
@@ -1738,31 +1751,100 @@ def _manifest_member_records(
     return required_records
 
 
-def _verify_manifest_members(
-    directory: Path, manifest: Mapping[str, Any]
-) -> None:
-    """Hash and size every declared member and reject undeclared staged files."""
-
-    directory = _require_contained(directory)
-    required_records = _manifest_member_records(manifest)
-    declared_paths: set[str] = set()
-    for record in required_records:
+def _canonical_manifest_member_records(
+    manifest: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    declared: dict[str, Mapping[str, Any]] = {}
+    for record in _manifest_member_records(manifest):
         relative = str(record.get("relativePath") or "")
         checksum = str(record.get("sha256") or "")
         relative_path = Path(relative)
+        try:
+            size = int(record.get("sizeBytes"))
+        except (TypeError, ValueError, OverflowError):
+            size = -1
         if (
             not relative
+            or relative == "manifest.json"
             or relative_path.is_absolute()
+            or bool(relative_path.drive)
             or relative_path.as_posix() != relative
             or any(part in {"", ".", ".."} for part in relative_path.parts)
-            or relative in declared_paths
+            or relative in declared
+            or not _SHA256_RE.fullmatch(checksum)
+            or size < 0
         ):
             raise Stage3ModelLaboratoryError(
                 "STAGE3_ARTIFACT_MEMBER_PATH_INVALID",
-                "Every manifest member must have one unique canonical relative path.",
+                "Every manifest member must have one unique canonical path, checksum, and size.",
                 status_code=409,
             )
-        declared_paths.add(relative)
+        declared[relative] = record
+    return declared
+
+
+def _declared_member_directories(
+    declared: Mapping[str, Mapping[str, Any]],
+) -> set[str]:
+    directories: set[str] = set()
+    for relative in declared:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return directories
+
+
+def _ordinary_tree_inventory(directory: Path) -> tuple[set[str], set[str]]:
+    """Inventory ordinary files/directories and fail closed on reparse or special entries."""
+
+    directory = _require_contained(directory)
+    if not directory.is_dir() or _path_is_reparse_point(directory):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_TREE_INVALID",
+            "An artifact bundle root must be one ordinary contained directory.",
+            status_code=409,
+        )
+    files: set[str] = set()
+    directories: set[str] = set()
+    try:
+        entries = list(directory.rglob("*"))
+    except OSError as exc:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_TREE_INVALID",
+            "The artifact bundle tree could not be safely inventoried.",
+            status_code=409,
+        ) from exc
+    for path in entries:
+        relative = path.relative_to(directory).as_posix()
+        if _path_is_reparse_point(path):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_REPARSE_POINT_REJECTED",
+                f"Artifact entry {relative} is a symlink or junction.",
+                status_code=409,
+            )
+        if path.is_file():
+            files.add(relative)
+        elif path.is_dir():
+            directories.add(relative)
+        else:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_TREE_INVALID",
+                f"Artifact entry {relative} is not an ordinary file or directory.",
+                status_code=409,
+            )
+    return files, directories
+
+
+def _verify_manifest_members(
+    directory: Path, manifest: Mapping[str, Any]
+) -> None:
+    """Hash every member and reject undeclared files, directories, and reparses."""
+
+    directory = _require_contained(directory)
+    declared = _canonical_manifest_member_records(manifest)
+    for relative, record in declared.items():
+        checksum = str(record.get("sha256") or "")
         path = _require_contained(directory / relative)
         try:
             path.relative_to(directory)
@@ -1776,22 +1858,22 @@ def _verify_manifest_members(
             not path.is_file()
             or not _SHA256_RE.fullmatch(checksum)
             or _sha_file(path) != checksum
-            or int(record.get("sizeBytes") or -1) != path.stat().st_size
+            or int(record.get("sizeBytes")) != path.stat().st_size
         ):
             raise Stage3ModelLaboratoryError(
                 "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH",
                 f"Artifact member {relative or '<missing>'} is missing or modified.",
                 status_code=409,
             )
-    actual_paths = {
-        path.relative_to(directory).as_posix()
-        for path in directory.rglob("*")
-        if path.is_file() and path != directory / "manifest.json"
-    }
-    if actual_paths != declared_paths:
+    actual_files, actual_directories = _ordinary_tree_inventory(directory)
+    actual_files.discard("manifest.json")
+    if (
+        actual_files != set(declared)
+        or actual_directories != _declared_member_directories(declared)
+    ):
         raise Stage3ModelLaboratoryError(
             "STAGE3_ARTIFACT_PARTIAL_PUBLICATION",
-            "The artifact directory contains missing or undeclared bundle members.",
+            "The artifact directory contains missing or undeclared bundle files or directories.",
             status_code=409,
         )
 
@@ -1878,6 +1960,12 @@ def _verify_staged_bundle(
         raise Stage3ModelLaboratoryError(
             "STAGE3_ARTIFACT_EXPECTED_MANIFEST_REQUIRED",
             "An exact 64-character manifest checksum is required.",
+            status_code=409,
+        )
+    if _path_is_reparse_point(staging):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_REPARSE_POINT_REJECTED",
+            "The private staging root must not be a symlink or junction.",
             status_code=409,
         )
     return _verify_bundle_directory(
@@ -2003,9 +2091,330 @@ def _discard_redundant_staging(staging: Path) -> bool:
     return not staging.exists()
 
 
+def _directory_replace(source: Path, destination: Path) -> None:
+    os.replace(source, destination)
+
+
+def _member_rename(source: Path, destination: Path) -> None:
+    # The manifest-last fallback is Windows-only, where os.rename refuses to
+    # replace an existing destination. This preserves immutable member names.
+    os.rename(source, destination)
+
+
+def _manifest_rename(source: Path, destination: Path) -> None:
+    # Destination must remain absent until this no-overwrite commit operation.
+    os.rename(source, destination)
+
+
+def _content_address_target(root: Path, manifest_sha256: str) -> Path:
+    if not _SHA256_RE.fullmatch(str(manifest_sha256 or "")):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_EXPECTED_MANIFEST_REQUIRED",
+            "An exact 64-character manifest checksum is required.",
+            status_code=409,
+        )
+    lexical_objects = root / "objects"
+    lexical_parent = lexical_objects / "sha256"
+    for directory in (lexical_objects, lexical_parent):
+        if _path_entry_exists(directory) and _path_is_reparse_point(directory):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_PUBLICATION_TARGET_INVALID",
+                "The content-addressed publication ancestry contains a reparse point.",
+                status_code=409,
+            )
+    lexical_parent.mkdir(parents=True, exist_ok=True)
+    if any(
+        _path_is_reparse_point(directory)
+        for directory in (lexical_objects, lexical_parent)
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_INVALID",
+            "The content-addressed publication ancestry contains a reparse point.",
+            status_code=409,
+        )
+    parent = _require_contained(lexical_parent, root)
+    candidate = lexical_parent / manifest_sha256
+    if _path_is_reparse_point(candidate):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_INVALID",
+            "The exact content-addressed publication target is a reparse point.",
+            status_code=409,
+        )
+    target = _require_contained(candidate, root)
+    if target.parent != parent or target.name != manifest_sha256:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_INVALID",
+            "Publication is restricted to the exact direct content-addressed target.",
+            status_code=409,
+        )
+    return target
+
+
+def _manifest_commit_temp_name(
+    destination: Path, manifest_sha256: str, token: str | None = None
+) -> str:
+    return (
+        f".{destination.name}{_MANIFEST_COMMIT_TEMP_TAG}"
+        f"{manifest_sha256[:16]}-{token or uuid.uuid4().hex}.tmp"
+    )
+
+
+def _recognized_manifest_commit_temp(
+    relative: str,
+    declared: Mapping[str, Mapping[str, Any]],
+    manifest_sha256: str,
+) -> bool:
+    candidate = Path(relative)
+    possible_destinations = [Path("manifest.json"), *map(Path, declared)]
+    for destination in possible_destinations:
+        prefix = (
+            f".{destination.name}{_MANIFEST_COMMIT_TEMP_TAG}"
+            f"{manifest_sha256[:16]}-"
+        )
+        if candidate.parent != destination.parent:
+            continue
+        if not candidate.name.startswith(prefix) or not candidate.name.endswith(
+            ".tmp"
+        ):
+            continue
+        token = candidate.name[len(prefix) : -4]
+        return bool(re.fullmatch(r"[0-9a-f]{32}", token))
+    return False
+
+
+def _target_has_manifest_marker(target: Path) -> bool:
+    if not target.exists():
+        return False
+    files, _directories = _ordinary_tree_inventory(target)
+    return "manifest.json" in files
+
+
+def _path_entry_exists(path: Path) -> bool:
+    return os.path.lexists(path)
+
+
+def _verify_partial_target_member(
+    path: Path, relative: str, record: Mapping[str, Any]
+) -> None:
+    if (
+        _path_is_reparse_point(path)
+        or not path.is_file()
+        or _sha_file(path) != str(record.get("sha256") or "")
+        or path.stat().st_size != int(record.get("sizeBytes"))
+    ):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_MEMBER_MISMATCH",
+            f"Unpublished target member {relative} is modified.",
+            status_code=409,
+        )
+
+
+def _validate_partial_manifest_commit_target(
+    target: Path,
+    manifest: Mapping[str, Any],
+    manifest_sha256: str,
+) -> set[str]:
+    """Validate and clean a crash-resumable target whose commit marker is absent."""
+
+    declared = _canonical_manifest_member_records(manifest)
+    files, directories = _ordinary_tree_inventory(target)
+    if "manifest.json" in files:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_ALREADY_COMMITTED",
+            "The publication target acquired a manifest commit marker during resume.",
+            status_code=409,
+        )
+    expected_directories = _declared_member_directories(declared)
+    if not directories.issubset(expected_directories):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_UNEXPECTED_CONTENT",
+            "An unpublished target contains an undeclared directory.",
+            status_code=409,
+        )
+    existing_members: set[str] = set()
+    recognized_temporaries: list[Path] = []
+    for relative in sorted(files):
+        record = declared.get(relative)
+        path = _require_contained(target / relative)
+        if record is not None:
+            _verify_partial_target_member(path, relative, record)
+            existing_members.add(relative)
+            continue
+        if _recognized_manifest_commit_temp(relative, declared, manifest_sha256):
+            recognized_temporaries.append(path)
+            continue
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TARGET_UNEXPECTED_CONTENT",
+            f"Unpublished target entry {relative} is not declared or safely resumable.",
+            status_code=409,
+        )
+    for temporary in recognized_temporaries:
+        try:
+            temporary.unlink()
+        except OSError as exc:
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_PUBLICATION_TEMP_CLEANUP_FAILED",
+                "A recognized incomplete publication temporary file could not be removed.",
+                status_code=503,
+            ) from exc
+    return existing_members
+
+
+def _rename_member_with_retries(
+    source: Path, destination: Path, record: Mapping[str, Any]
+) -> None:
+    relative = str(record.get("relativePath") or destination.name)
+    for attempt in range(1, _PUBLICATION_RETRY_ATTEMPTS + 1):
+        if _path_entry_exists(destination):
+            _verify_partial_target_member(destination, relative, record)
+            return
+        try:
+            _member_rename(source, destination)
+            return
+        except OSError as exc:
+            if _path_entry_exists(destination):
+                _verify_partial_target_member(destination, relative, record)
+                return
+            if not _is_transient_windows_publication_error(exc):
+                raise
+            if attempt >= _PUBLICATION_RETRY_ATTEMPTS:
+                raise Stage3ModelLaboratoryError(
+                    "STAGE3_ARTIFACT_MANIFEST_COMMIT_MEMBER_RETRY_EXHAUSTED",
+                    "A verified member remains temporary after bounded Windows "
+                    "sharing-error retries.",
+                    status_code=503,
+                ) from exc
+            delay = min(
+                _PUBLICATION_RETRY_INITIAL_DELAY_SECONDS * (2 ** (attempt - 1)),
+                _PUBLICATION_RETRY_MAX_DELAY_SECONDS,
+            )
+            time.sleep(delay)
+
+
+def _copy_manifest_member_for_commit(
+    source: Path,
+    destination: Path,
+    record: Mapping[str, Any],
+    manifest_sha256: str,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.parent / _manifest_commit_temp_name(
+        destination, manifest_sha256
+    )
+    digest = hashlib.sha256()
+    copied = 0
+    try:
+        with source.open("rb") as reader, temporary.open("xb") as writer:
+            for chunk in iter(lambda: reader.read(1024 * 1024), b""):
+                writer.write(chunk)
+                digest.update(chunk)
+                copied += len(chunk)
+            writer.flush()
+            os.fsync(writer.fileno())
+        if (
+            digest.hexdigest() != str(record.get("sha256") or "")
+            or copied != int(record.get("sizeBytes"))
+        ):
+            raise Stage3ModelLaboratoryError(
+                "STAGE3_ARTIFACT_MANIFEST_COMMIT_COPY_MISMATCH",
+                f"Copied artifact member {destination.name} differs from its manifest.",
+                status_code=409,
+            )
+        _rename_member_with_retries(temporary, destination, record)
+        _verify_partial_target_member(destination, destination.name, record)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            # A future recovery accepts and safely cleans only this exact name shape.
+            pass
+
+
+def _remove_losing_manifest_temporary(temporary: Path) -> None:
+    try:
+        temporary.unlink(missing_ok=True)
+    except OSError as exc:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TEMP_CLEANUP_FAILED",
+            "The losing manifest temporary could not be removed before "
+            "winner verification.",
+            status_code=503,
+        ) from exc
+    if _path_entry_exists(temporary):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_PUBLICATION_TEMP_CLEANUP_FAILED",
+            "The losing manifest temporary remains before winner verification.",
+            status_code=503,
+        )
+
+
+def _install_manifest_commit_marker(
+    *,
+    source_manifest: Path,
+    target: Path,
+    manifest_sha256: str,
+) -> bool:
+    """Install manifest last. Return False if a valid concurrent marker wins."""
+
+    manifest_path = target / "manifest.json"
+    manifest_bytes = source_manifest.read_bytes()
+    if hashlib.sha256(manifest_bytes).hexdigest() != manifest_sha256:
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH",
+            "The private source manifest changed before publication commit.",
+            status_code=409,
+        )
+    temporary = target / _manifest_commit_temp_name(
+        manifest_path, manifest_sha256
+    )
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(manifest_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        for attempt in range(1, _PUBLICATION_RETRY_ATTEMPTS + 1):
+            if _path_entry_exists(manifest_path):
+                _remove_losing_manifest_temporary(temporary)
+                _verified_public_artifact_target(target, manifest_sha256)
+                return False
+            try:
+                _manifest_rename(temporary, manifest_path)
+                return True
+            except OSError as exc:
+                if _path_entry_exists(manifest_path):
+                    _remove_losing_manifest_temporary(temporary)
+                    _verified_public_artifact_target(target, manifest_sha256)
+                    return False
+                if not _is_transient_windows_publication_error(exc):
+                    raise
+                if attempt >= _PUBLICATION_RETRY_ATTEMPTS:
+                    raise Stage3ModelLaboratoryError(
+                        "STAGE3_ARTIFACT_MANIFEST_COMMIT_RETRY_EXHAUSTED",
+                        "The verified bundle remains unpublished because its "
+                        "manifest commit marker could not be installed.",
+                        status_code=503,
+                    ) from exc
+                delay = min(
+                    _PUBLICATION_RETRY_INITIAL_DELAY_SECONDS
+                    * (2 ** (attempt - 1)),
+                    _PUBLICATION_RETRY_MAX_DELAY_SECONDS,
+                )
+                time.sleep(delay)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _reuse_verified_public_target(
-    staging: Path, target: Path, manifest_sha256: str
-) -> tuple[Path, bool]:
+    staging: Path,
+    target: Path,
+    manifest_sha256: str,
+    *,
+    protocol: str = _VERIFIED_EXISTING_TARGET_PROTOCOL,
+    fallback_used: bool = False,
+) -> ArtifactPublication:
     verified = _verified_public_artifact_target(target, manifest_sha256)
     if verified["status"] != "PASS":  # pragma: no cover - defensive
         raise Stage3ModelLaboratoryError(
@@ -2014,40 +2423,154 @@ def _reuse_verified_public_target(
             status_code=409,
         )
     _discard_redundant_staging(staging)
-    return target, True
+    return ArtifactPublication(
+        artifact_path=target,
+        reused=True,
+        protocol=protocol,
+        fallback_used=fallback_used,
+    )
 
 
-def _finalize_staging(staging: Path, manifest_sha256: str) -> tuple[Path, bool]:
+def _commit_staging_manifest_last(
+    staging: Path,
+    target: Path,
+    manifest_sha256: str,
+    verified_staging: Mapping[str, Any],
+) -> ArtifactPublication:
+    if os.name != "nt":
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_MANIFEST_COMMIT_PLATFORM_UNSUPPORTED",
+            "Manifest-last publication is enabled only on Windows, where file "
+            "rename is atomic and no-overwrite.",
+            status_code=503,
+        )
+    manifest = verified_staging["manifest"]
+    declared = _canonical_manifest_member_records(manifest)
+    if target.exists() and _target_has_manifest_marker(target):
+        return _reuse_verified_public_target(
+            staging,
+            target,
+            manifest_sha256,
+            protocol=_MANIFEST_COMMIT_PROTOCOL,
+            fallback_used=True,
+        )
+    if not target.exists():
+        try:
+            target.mkdir(exist_ok=False)
+        except FileExistsError:
+            pass
+    if _target_has_manifest_marker(target):
+        return _reuse_verified_public_target(
+            staging,
+            target,
+            manifest_sha256,
+            protocol=_MANIFEST_COMMIT_PROTOCOL,
+            fallback_used=True,
+        )
+    try:
+        existing = _validate_partial_manifest_commit_target(
+            target, manifest, manifest_sha256
+        )
+    except Stage3ModelLaboratoryError as exc:
+        if (
+            exc.code
+            != "STAGE3_ARTIFACT_PUBLICATION_TARGET_ALREADY_COMMITTED"
+        ):
+            raise
+        return _reuse_verified_public_target(
+            staging,
+            target,
+            manifest_sha256,
+            protocol=_MANIFEST_COMMIT_PROTOCOL,
+            fallback_used=True,
+        )
+    for relative, record in sorted(declared.items()):
+        if relative in existing:
+            continue
+        if _target_has_manifest_marker(target):
+            return _reuse_verified_public_target(
+                staging,
+                target,
+                manifest_sha256,
+                protocol=_MANIFEST_COMMIT_PROTOCOL,
+                fallback_used=True,
+            )
+        source = _require_contained(staging / relative)
+        destination = _require_contained(target / relative)
+        _copy_manifest_member_for_commit(
+            source, destination, record, manifest_sha256
+        )
+    # This validates exact files, exact directories, hashes, and sizes while
+    # manifest.json is deliberately absent and therefore no loader can accept it.
+    _verify_manifest_members(target, manifest)
+    installed = _install_manifest_commit_marker(
+        source_manifest=_require_contained(staging / "manifest.json"),
+        target=target,
+        manifest_sha256=manifest_sha256,
+    )
+    _verified_public_artifact_target(target, manifest_sha256)
+    _discard_redundant_staging(staging)
+    return ArtifactPublication(
+        artifact_path=target,
+        reused=not installed,
+        protocol=_MANIFEST_COMMIT_PROTOCOL,
+        fallback_used=True,
+    )
+
+
+def _finalize_staging(
+    staging: Path, manifest_sha256: str
+) -> ArtifactPublication:
     root = _artifact_root()
+    if _path_is_reparse_point(staging):
+        raise Stage3ModelLaboratoryError(
+            "STAGE3_ARTIFACT_REPARSE_POINT_REJECTED",
+            "The private staging root must not be a symlink or junction.",
+            status_code=409,
+        )
     staging = _require_contained(staging, root)
-    target = _require_contained(root / "objects" / "sha256" / manifest_sha256, root)
+    target = _content_address_target(root, manifest_sha256)
     # This is the publication boundary.  The private directory must already be
     # complete and every byte must match the canonical manifest before the
     # first atomic rename can make it addressable.
-    _verify_staged_bundle(staging, expected_manifest_sha256=manifest_sha256)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    verified_staging = _verify_staged_bundle(
+        staging, expected_manifest_sha256=manifest_sha256
+    )
+    if target.exists():
+        if _target_has_manifest_marker(target):
+            return _reuse_verified_public_target(staging, target, manifest_sha256)
+        return _commit_staging_manifest_last(
+            staging, target, manifest_sha256, verified_staging
+        )
     for attempt in range(1, _PUBLICATION_RETRY_ATTEMPTS + 1):
         if target.exists():
-            return _reuse_verified_public_target(staging, target, manifest_sha256)
+            if _target_has_manifest_marker(target):
+                return _reuse_verified_public_target(
+                    staging, target, manifest_sha256
+                )
+            return _commit_staging_manifest_last(
+                staging, target, manifest_sha256, verified_staging
+            )
         try:
-            os.replace(staging, target)
+            _directory_replace(staging, target)
         except OSError as exc:
             # Another same-content publisher can win between the existence
             # check and rename. Verify that object immediately, including on
             # the final retry, before treating it as an idempotent reuse.
             if target.exists():
-                return _reuse_verified_public_target(
-                    staging, target, manifest_sha256
+                if _target_has_manifest_marker(target):
+                    return _reuse_verified_public_target(
+                        staging, target, manifest_sha256
+                    )
+                return _commit_staging_manifest_last(
+                    staging, target, manifest_sha256, verified_staging
                 )
             if not _is_transient_windows_publication_error(exc):
                 raise
             if attempt >= _PUBLICATION_RETRY_ATTEMPTS:
-                raise Stage3ModelLaboratoryError(
-                    "STAGE3_ARTIFACT_PUBLICATION_RETRY_EXHAUSTED",
-                    "The complete verified artifact remains privately staged after "
-                    "bounded Windows sharing-error retries were exhausted.",
-                    status_code=503,
-                ) from exc
+                return _commit_staging_manifest_last(
+                    staging, target, manifest_sha256, verified_staging
+                )
             delay = min(
                 _PUBLICATION_RETRY_INITIAL_DELAY_SECONDS * (2 ** (attempt - 1)),
                 _PUBLICATION_RETRY_MAX_DELAY_SECONDS,
@@ -2055,7 +2578,12 @@ def _finalize_staging(staging: Path, manifest_sha256: str) -> tuple[Path, bool]:
             time.sleep(delay)
             continue
         _verified_public_artifact_target(target, manifest_sha256)
-        return target, False
+        return ArtifactPublication(
+            artifact_path=target,
+            reused=False,
+            protocol=_ATOMIC_DIRECTORY_RENAME_PROTOCOL,
+            fallback_used=False,
+        )
     raise AssertionError("publication retry loop ended without a terminal result")
 
 
@@ -2577,7 +3105,8 @@ def _execute_artifact_job(
                     "publishing the immutable content-addressed directory."
                 ),
             )
-            target, reused = _finalize_staging(staging, manifest_sha)
+            publication = _finalize_staging(staging, manifest_sha)
+            target = publication.artifact_path
             relative_path = target.relative_to(root).as_posix()
             loaded = load_executable_artifact(
                 relative_path, expected_manifest_sha256=manifest_sha
@@ -2625,7 +3154,9 @@ def _execute_artifact_job(
                 "modelStatus": "RESEARCH_CHALLENGER",
                 "promotionStatus": "NOT_PROMOTED",
                 "finalOotLocked": True,
-                "idempotentContentReplay": reused,
+                "idempotentContentReplay": publication.reused,
+                "publicationProtocol": publication.protocol,
+                "publicationFallbackUsed": publication.fallback_used,
             }
             current = RunRepository(database).get(job_id) or {}
             current_artifacts = json_loads(current.get("artifacts_json"), {})
@@ -2645,6 +3176,8 @@ def _execute_artifact_job(
                         "finalFitState": "COMPLETE",
                         "artifactStagingState": "COMPLETE",
                         "reloadVerificationState": "COMPLETE",
+                        "publicationProtocol": publication.protocol,
+                        "publicationFallbackUsed": publication.fallback_used,
                         "elapsedSeconds": float(
                             time.perf_counter() - started_clock
                         ),
@@ -2688,10 +3221,18 @@ class _CancelAfterCheckpoint(RuntimeError):
 
 def _path_is_reparse_point(path: Path) -> bool:
     try:
+        metadata = path.lstat()
+        file_attributes = int(getattr(metadata, "st_file_attributes", 0) or 0)
+        if file_attributes & int(
+            getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0) or 0
+        ):
+            return True
         if path.is_symlink():
             return True
         is_junction = getattr(path, "is_junction", None)
         return bool(callable(is_junction) and is_junction())
+    except FileNotFoundError:
+        return False
     except OSError:
         return True
 
@@ -2860,7 +3401,7 @@ def _recovered_artifact_payload(
     manifest_sha256: str,
     relative_path: str,
     reload_result: Mapping[str, Any],
-    reused: bool,
+    publication: ArtifactPublication,
 ) -> dict[str, Any]:
     files = manifest["files"]
     verification = manifest["verification"]
@@ -2898,7 +3439,9 @@ def _recovered_artifact_payload(
         "modelStatus": "RESEARCH_CHALLENGER",
         "promotionStatus": "NOT_PROMOTED",
         "finalOotLocked": True,
-        "idempotentContentReplay": bool(reused),
+        "idempotentContentReplay": bool(publication.reused),
+        "publicationProtocol": publication.protocol,
+        "publicationFallbackUsed": publication.fallback_used,
     }
 
 
@@ -3004,15 +3547,11 @@ def recover_failed_executable_artifact_publication(
                     )
 
                 root = _artifact_root()
-                target = _require_contained(
-                    root / "objects" / "sha256" / manifest_sha256, root
-                )
+                target = _content_address_target(root, manifest_sha256)
                 staging = _recovery_staging_path(
-                    source_job,
-                    source_job_id,
-                    inspect_contents=not target.exists(),
+                    source_job, source_job_id, inspect_contents=False
                 )
-                if target.exists():
+                if target.exists() and _target_has_manifest_marker(target):
                     verified = _verify_recovery_bundle_binding(
                         directory=target,
                         is_private_staging=False,
@@ -3110,18 +3649,19 @@ def recover_failed_executable_artifact_publication(
                 with _FUTURES_GUARD:
                     _SYNCHRONOUS_RECOVERY_JOBS.add(recovery_job_id)
                 try:
-                    if target.exists():
-                        _verified_public_artifact_target(target, manifest_sha256)
-                        _discard_redundant_staging(staging)
-                        reused = True
+                    if target.exists() and _target_has_manifest_marker(target):
+                        publication = _reuse_verified_public_target(
+                            staging, target, manifest_sha256
+                        )
                     elif staging.exists():
-                        target, reused = _finalize_staging(staging, manifest_sha256)
+                        publication = _finalize_staging(staging, manifest_sha256)
                     else:
                         raise Stage3ModelLaboratoryError(
                             "STAGE3_ARTIFACT_RECOVERY_EVIDENCE_MISSING",
                             "The verified recovery evidence disappeared before publication.",
                             status_code=409,
                         )
+                    target = publication.artifact_path
                     relative_path = target.relative_to(root).as_posix()
                     final_verified = verify_artifact_bundle(
                         relative_path,
@@ -3154,7 +3694,7 @@ def recover_failed_executable_artifact_publication(
                         manifest_sha256=manifest_sha256,
                         relative_path=relative_path,
                         reload_result=reload_result,
-                        reused=reused,
+                        publication=publication,
                     )
                     completed_at = now_iso()
                     completed_recovery = {
@@ -3163,7 +3703,9 @@ def recover_failed_executable_artifact_publication(
                         "publicRelativePath": relative_path,
                         "publicBundleVerified": True,
                         "freshProcessReloadVerified": True,
-                        "existingTargetReused": bool(reused),
+                        "existingTargetReused": bool(publication.reused),
+                        "publicationProtocol": publication.protocol,
+                        "publicationFallbackUsed": publication.fallback_used,
                         "privateStagingCleanupPending": staging.exists(),
                     }
                     completed = _upsert_job(
@@ -3178,6 +3720,10 @@ def recover_failed_executable_artifact_publication(
                                 "state": "COMPLETE",
                                 "artifactStagingState": "COMPLETE",
                                 "reloadVerificationState": "COMPLETE",
+                                "publicationProtocol": publication.protocol,
+                                "publicationFallbackUsed": (
+                                    publication.fallback_used
+                                ),
                                 "elapsedSeconds": float(
                                     time.perf_counter() - recovery_started_clock
                                 ),
