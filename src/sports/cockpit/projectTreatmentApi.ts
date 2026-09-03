@@ -11,6 +11,7 @@ export type TreatmentKind = "outliers" | "missing";
 export type QueryStatus = "idle" | "loading" | "ready" | "error";
 
 export type OutlierDetectionMethod =
+  | "NO_STATISTICAL_DETECTION"
   | "IQR_1_5"
   | "IQR_3_0"
   | "P95_UPPER"
@@ -64,6 +65,70 @@ export type TreatmentEnvelope<T> = {
   queryDurationMs?: number;
   data: T;
 };
+
+export type TreatmentSpecificationFeature = Record<string, unknown> & {
+  featureName?: string;
+  feature?: string;
+  canonicalDisposition?: string;
+  disposition?: string;
+  executionStatus?: string;
+};
+
+export type TreatmentAdditionalBackendFeature = Record<string, unknown> & {
+  featureName: string;
+  proposedDisposition: string;
+  executableStatus: string;
+  executableSelectable: boolean;
+  blockedReason: string;
+};
+
+export type TreatmentSpecificationData = {
+  specification: {
+    specificationId: string;
+    sourceWorkbookFilename: string;
+    sourceWorkbookSha256: string;
+    manifestChecksum: string;
+    compilerVersion: string;
+  };
+  reconciliation: {
+    workbookFeatureCount: number;
+    backendFeatureCount: number;
+    exactMatchCount: number;
+    unmatchedWorkbookFeatures: string[];
+    additionalBackendFeatures: TreatmentAdditionalBackendFeature[];
+    status: string;
+  };
+  dispositionCounts: Record<string, number>;
+  executionSummary: Record<string, unknown>;
+  exceptions: Array<Record<string, unknown>>;
+  features: TreatmentSpecificationFeature[];
+  priorPolicies: {
+    outlier: Record<string, unknown> | null;
+    missing: Record<string, unknown> | null;
+  };
+  draft: {
+    specificationDraftId: string;
+    version: number;
+    status: "DRAFT";
+    outlierPolicyRef: Record<string, unknown> | string;
+    missingPolicyRef: Record<string, unknown> | string;
+    manifestChecksum: string;
+  } | null;
+  status: "AVAILABLE" | "DRAFT_CURRENT" | "DRAFT_STALE" | "BLOCKED";
+  canCreateDraft: boolean;
+  canAdopt: boolean;
+  blockers: string[];
+};
+
+export function hasCurrentTreatmentSpecificationDraft(
+  data: TreatmentSpecificationData | null | undefined,
+): boolean {
+  return Boolean(
+    data?.status === "DRAFT_CURRENT" &&
+      data.draft?.status === "DRAFT" &&
+      data.draft.manifestChecksum === data.specification.manifestChecksum,
+  );
+}
 
 export type TreatmentPolicyVersion = {
   policyId?: string | null;
@@ -242,9 +307,9 @@ export type OutlierDetail = {
       median: number | null;
       std: number | null;
     };
-    affectedGames: number;
-    affectedBatters: number;
-    affectedPitchers: number;
+    affectedGames: number | null;
+    affectedBatters: number | null;
+    affectedPitchers: number | null;
     populationLossPercent: number;
     targetCompositionBefore: {
       value: string;
@@ -719,4 +784,185 @@ export function useTreatmentMutation<T>(
     setState({ status: "idle", value: null, error: null });
   }, []);
   return { ...state, run, reset };
+}
+
+export function useTreatmentSpecification(
+  projectId: string,
+  authorityKey: string,
+  enabled: boolean,
+) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [state, setState] = useState<
+    TreatmentQueryState<TreatmentSpecificationData>
+  >({
+    requestKey: "",
+    status: enabled ? "loading" : "idle",
+    value: null,
+    error: null,
+  });
+  const [draftStatus, setDraftStatus] = useState<QueryStatus>("idle");
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [adoptStatus, setAdoptStatus] = useState<QueryStatus>("idle");
+  const [adoptError, setAdoptError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const mutationController = useRef<AbortController | null>(null);
+  const path = `/projects/${encodeURIComponent(projectId)}/sports/stage3-treatment/specification`;
+
+  const load = useCallback(async () => {
+    if (!enabled) return null;
+    const current = ++generation.current;
+    const requestKey = `${path}:${authorityKey}:${refreshKey}`;
+    setState({ requestKey, status: "loading", value: null, error: null });
+    try {
+      const value = await getJSON<
+        TreatmentEnvelope<TreatmentSpecificationData>
+      >(path, { headers: { "X-Stage3-Authority-Key": authorityKey } });
+      if (current !== generation.current) return null;
+      if (!safeResponse(value, projectId, authorityKey))
+        throw new Error(
+          "Treatment specification did not preserve project authority and the final-OOT lock.",
+        );
+      setState({ requestKey, status: "ready", value, error: null });
+      return value;
+    } catch (error) {
+      if (current === generation.current)
+        setState({
+          requestKey,
+          status: "error",
+          value: null,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Treatment specification could not be loaded.",
+        });
+      return null;
+    }
+  }, [authorityKey, enabled, path, projectId, refreshKey]);
+
+  useEffect(() => {
+    if (!enabled) {
+      generation.current += 1;
+      mutationController.current?.abort();
+      mutationController.current = null;
+      setState({ requestKey: "", status: "idle", value: null, error: null });
+      return undefined;
+    }
+    setDraftStatus("idle");
+    setDraftError(null);
+    setAdoptStatus("idle");
+    setAdoptError(null);
+    void load();
+    return () => {
+      generation.current += 1;
+      mutationController.current?.abort();
+      mutationController.current = null;
+    };
+  }, [enabled, load]);
+
+  const createDraft = useCallback(async () => {
+    const currentSpecification = state.value?.data;
+    if (!currentSpecification?.canCreateDraft) return null;
+    mutationController.current?.abort();
+    const controller = new AbortController();
+    mutationController.current = controller;
+    const current = ++generation.current;
+    setDraftStatus("loading");
+    setDraftError(null);
+    try {
+      const value = await postJSON<
+        TreatmentEnvelope<TreatmentSpecificationData>
+      >(`${path}/draft`, {
+        authorityKey,
+        expectedManifestChecksum:
+          currentSpecification.specification.manifestChecksum,
+      }, { signal: controller.signal });
+      if (controller.signal.aborted || current !== generation.current)
+        return null;
+      if (!safeResponse(value, projectId, authorityKey))
+        throw new Error(
+          "Treatment specification draft failed authority or OOT validation.",
+        );
+      setState({
+        requestKey: `${path}:${authorityKey}:draft`,
+        status: "ready",
+        value,
+        error: null,
+      });
+      setDraftStatus("ready");
+      return value;
+    } catch (error) {
+      if (controller.signal.aborted || current !== generation.current)
+        return null;
+      setDraftStatus("error");
+      setDraftError(
+        error instanceof Error
+          ? error.message
+          : "Combined treatment specification draft could not be created.",
+      );
+      return null;
+    }
+  }, [authorityKey, path, projectId, state.value]);
+
+  const adoptSpecification = useCallback(async () => {
+    const currentSpecification = state.value?.data;
+    const currentDraft = currentSpecification?.draft;
+    if (
+      !currentSpecification?.canAdopt ||
+      !currentDraft ||
+      !hasCurrentTreatmentSpecificationDraft(currentSpecification)
+    )
+      return null;
+    mutationController.current?.abort();
+    const controller = new AbortController();
+    mutationController.current = controller;
+    const current = ++generation.current;
+    setAdoptStatus("loading");
+    setAdoptError(null);
+    try {
+      const value = await postJSON<
+        TreatmentEnvelope<TreatmentSpecificationData>
+      >(`${path}/adopt`, {
+        authorityKey,
+        specificationDraftId:
+          currentDraft.specificationDraftId,
+        expectedManifestChecksum:
+          currentDraft.manifestChecksum,
+      }, { signal: controller.signal });
+      if (controller.signal.aborted || current !== generation.current)
+        return null;
+      if (!safeResponse(value, projectId, authorityKey))
+        throw new Error(
+          "Treatment specification adoption failed authority or OOT validation.",
+        );
+      setState({
+        requestKey: `${path}:${authorityKey}:adopt`,
+        status: "ready",
+        value,
+        error: null,
+      });
+      setAdoptStatus("ready");
+      return value;
+    } catch (error) {
+      if (controller.signal.aborted || current !== generation.current)
+        return null;
+      setAdoptStatus("error");
+      setAdoptError(
+        error instanceof Error
+          ? error.message
+          : "Combined treatment specification could not be adopted.",
+      );
+      return null;
+    }
+  }, [authorityKey, path, projectId, state.value]);
+
+  return {
+    ...state,
+    draftStatus,
+    draftError,
+    adoptStatus,
+    adoptError,
+    retry: () => setRefreshKey((value) => value + 1),
+    createDraft,
+    adoptSpecification,
+  };
 }

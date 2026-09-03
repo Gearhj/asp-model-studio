@@ -45,6 +45,10 @@ type AsyncState<T> = { status: "loading" | "ready" | "error"; data: T | null; er
 const fmtInt = (value: number | null | undefined) => value == null ? "—" : value.toLocaleString();
 const fmtPct = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(2)}%`;
 const human = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const adoptedPolicyLabel = (policy: { policyId: string; version: number }) =>
+  policy.policyId && policy.policyId !== "NOT_ADOPTED" && policy.version > 0
+    ? `v${policy.version}`
+    : "Not adopted";
 
 const DEFAULT_QUERY = {
   page: 1,
@@ -282,8 +286,8 @@ export function ProjectBoundFeatureEngineering({
         <DecisionMetric label="Contextual candidates" value={fmtInt(s.contextualFeatureCount)} detail={`${fmtInt(s.eligibleContextualCount)} eligible · ${fmtInt(s.inactiveFeatureCount)} inactive · ${fmtInt(s.unavailableFeatureCount)} unavailable`} tone="cyan" />
         <DecisionMetric label="Feature families" value={fmtInt(s.familyCount)} detail="Chronological ablation candidates" />
         <DecisionMetric label="Interactions" value={fmtInt(s.interactionCount)} detail={`${fmtInt(s.materializedInteractionCount)} materialized · ${fmtInt(s.inactiveInteractionCount)} inactive · ${fmtInt(s.unavailableInteractionCount)} unavailable`} />
-        <DecisionMetric label="Outlier policy" value={`v${summary.data.treatmentPolicies.outlier.version}`} detail="Latest adopted immutable project policy" />
-        <DecisionMetric label="Missing policy" value={`v${summary.data.treatmentPolicies.missing.version}`} detail="Latest adopted immutable project policy" />
+        <DecisionMetric label="Outlier policy" value={adoptedPolicyLabel(summary.data.treatmentPolicies.outlier)} detail="Latest adopted immutable project policy" />
+        <DecisionMetric label="Missing policy" value={adoptedPolicyLabel(summary.data.treatmentPolicies.missing)} detail="Latest adopted immutable project policy" />
         <DecisionMetric label="Registered sets" value={fmtInt(registered.length)} detail="Candidate contracts, not champions" tone="emerald" />
       </section>
 
@@ -407,7 +411,7 @@ export function ProjectBoundFeatureEngineering({
           ["Numeric", "Retain raw · log1p when domain permits · standardization · robust scaling · fold-local quantile/bounded transform"],
           ["Categorical", "Unknown handling · one-hot encoding · no global target encoding"],
           ["Binary / flags", "Binary passthrough · retain missing/insufficient-history indicator"],
-          ["Treatment handoff", `Outlier ${summary.data.treatmentPolicies.outlier.version} · Missing ${summary.data.treatmentPolicies.missing.version}`],
+          ["Treatment handoff", `Outlier ${adoptedPolicyLabel(summary.data.treatmentPolicies.outlier)} · Missing ${adoptedPolicyLabel(summary.data.treatmentPolicies.missing)}`],
         ].map(([label, text]) => <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold text-slate-900">{label}</div><p className="mt-1 text-[11px] leading-5 text-slate-600">{text}</p></div>)}</div>
       </Card>
 

@@ -333,6 +333,40 @@ def _catalog(authority: eda._Authority) -> tuple[list[dict[str, Any]], dict[str,
     return rows, {str(row["name"]): row for row in rows}
 
 
+def _apply_treatment_spec_draft_gates(
+    rows: Sequence[dict[str, Any]], database: Database, authority: eda._Authority
+) -> dict[str, Any] | None:
+    """Apply only fail-closed gates from a combined DRAFT.
+
+    A draft cannot positively authorize a feature or transformation.  Adopted
+    Outlier/Missing policies remain the only executable preprocessing refs.
+    """
+
+    from .stage3_feature_treatment_spec import (
+        Stage3FeatureTreatmentSpecError,
+        current_draft_execution_overlay,
+    )
+
+    try:
+        overlay, reference = current_draft_execution_overlay(database, authority)
+    except Stage3FeatureTreatmentSpecError as exc:
+        raise Stage3FeatureEngineeringError(exc.code, str(exc), status_code=exc.status_code) from exc
+    for row in rows:
+        resolution = overlay.get(str(row["name"]))
+        row["treatmentSpecificationDraft"] = reference
+        row["treatmentSpecificationResolution"] = resolution
+        if resolution and not resolution["executableSelectable"]:
+            row["eligible"] = False
+            row["featureState"] = "INACTIVE"
+            row["governanceStatus"] = "HELD_CLOSED_BY_TREATMENT_SPEC_DRAFT"
+            row["inactiveReason"] = (
+                resolution.get("blockedReason")
+                or "The current combined treatment specification draft holds this feature closed."
+            )
+            row["stateReason"] = row["inactiveReason"]
+    return reference
+
+
 def _interaction_contracts(selected_features: Sequence[str] = ()) -> list[dict[str, Any]]:
     selected = set(selected_features)
     output: list[dict[str, Any]] = []
@@ -678,6 +712,9 @@ def _feature_set_state_data(database: Database, authority: eda._Authority) -> di
 def feature_studio_summary(project_id: str, database: Database) -> dict[str, Any]:
     authority = eda._resolve_authority(database, project_id)
     rows, catalog = _catalog(authority)
+    treatment_specification_draft = _apply_treatment_spec_draft_gates(
+        rows, database, authority
+    )
     families = _family_summaries(catalog)
     interactions = _interaction_contracts()
     state = _feature_set_state_data(database, authority)
@@ -765,6 +802,7 @@ def feature_studio_summary(project_id: str, database: Database) -> dict[str, Any
             "visualizations": visualizations,
             "treatmentPolicies": _treatment_policy_refs(database, authority),
             "featureSetState": state,
+            "treatmentSpecificationDraft": treatment_specification_draft,
         },
     )
 
@@ -783,6 +821,7 @@ def feature_inventory(
     _reject_oot_request(payload)
     authority = eda._resolve_authority(database, project_id)
     rows, _ = _catalog(authority)
+    _apply_treatment_spec_draft_gates(rows, database, authority)
     _enrich_adopted_treatments(rows, database, authority)
     state = _feature_set_state_data(database, authority)
     for row in rows:
@@ -1028,7 +1067,8 @@ def _development_summary(frame: pd.DataFrame, feature: Mapping[str, Any]) -> dic
 
 def feature_detail(project_id: str, database: Database, feature_name: str) -> dict[str, Any]:
     authority = eda._resolve_authority(database, project_id)
-    _, catalog = _catalog(authority)
+    rows, catalog = _catalog(authority)
+    _apply_treatment_spec_draft_gates(rows, database, authority)
     feature = catalog.get(feature_name)
     if not feature:
         raise Stage3FeatureEngineeringError(
@@ -1280,7 +1320,8 @@ def _validate_draft(
 ) -> dict[str, Any]:
     _reject_oot_request(payload)
     _assert_authority(authority, payload)
-    _, catalog = _catalog(authority)
+    rows, catalog = _catalog(authority)
+    _apply_treatment_spec_draft_gates(rows, database, authority)
     recommended = {item["setId"]: item for item in _recommended_sets(catalog)}
     recommended_id = str(payload.get("recommendedSetId") or "").strip()
     selected_template = recommended.get(recommended_id)
@@ -1305,7 +1346,7 @@ def _validate_draft(
     if ineligible:
         raise Stage3FeatureEngineeringError(
             "FEATURE_SET_INACTIVE_FEATURE",
-            "Inactive rivalry features cannot enter a feature set before explicit mapping approval: "
+            "Ineligible features cannot enter a feature set without explicit governed approval: "
             + ", ".join(sorted(ineligible)),
             status_code=409,
         )

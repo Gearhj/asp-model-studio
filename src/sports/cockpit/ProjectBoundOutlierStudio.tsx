@@ -58,6 +58,11 @@ const DETECTION_METHODS: {
   label: string;
   detail: string;
 }[] = [
+  {
+    value: "NO_STATISTICAL_DETECTION",
+    label: "No statistical detector",
+    detail: "No fitted thresholds or exact outlier-count claim",
+  },
   { value: "IQR_1_5", label: "IQR 1.5", detail: "Q1 − 1.5×IQR / Q3 + 1.5×IQR" },
   { value: "IQR_3_0", label: "IQR 3.0", detail: "Extreme-outlier sensitivity" },
   {
@@ -969,7 +974,7 @@ export function ProjectBoundOutlierStudio({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
-  const hydrated = useRef(false);
+  const hydratedPolicyIdentity = useRef<string | null>(null);
   const enabled = state.status === "ready" && Boolean(review);
   const metadata = useProjectEdaMetadata(projectId, authority, enabled);
   const pendingMissingRequirements = useMemo(() => {
@@ -1037,15 +1042,17 @@ export function ProjectBoundOutlierStudio({
   );
   const policy = policyQuery.value?.data ?? summary.value?.data.policy ?? null;
   useEffect(() => {
-    if (!policy || hydrated.current) return;
-    hydrated.current = true;
+    if (!policy) return;
+    const policyIdentity = `${authority}:${policy.policyId ?? "none"}:${policy.checksum ?? "none"}`;
+    if (hydratedPolicyIdentity.current === policyIdentity) return;
+    hydratedPolicyIdentity.current = policyIdentity;
     if (policy.globalMethod)
       setGlobalDetection(policy.globalMethod as OutlierDetectionMethod);
     if (policy.globalTreatment)
       setGlobalTreatment(policy.globalTreatment as OutlierTreatmentMethod);
     setOverrides(policy.overrides ?? {});
     setNotesValue(policy.notes ?? "");
-  }, [policy]);
+  }, [authority, policy]);
   const tableRequest = useMemo(
     () =>
       enabled
@@ -1147,7 +1154,6 @@ export function ProjectBoundOutlierStudio({
         policy.notes,
       );
   const refreshPolicy = () => {
-    hydrated.current = false;
     setRefreshKey((value) => value + 1);
   };
   const reset = () => {
@@ -1190,6 +1196,8 @@ export function ProjectBoundOutlierStudio({
   const summaryTitle =
     table.status !== "ready"
       ? "Analysis not yet run"
+      : activeSummaryData?.status === "NOT_EVALUATED"
+        ? "Outlier counts not evaluated under the active declarative method"
       : activeSummaryData?.status === "NO_OUTLIERS"
         ? "No outliers under the active governed method"
         : activeSummaryData?.status === "ANALYZED"
@@ -1221,6 +1229,8 @@ export function ProjectBoundOutlierStudio({
   return (
     <TreatmentStudioShell
       kind="outliers"
+      projectId={projectId}
+      authorityKey={authority}
       review={review}
       title="Project-bound Outlier Treatment Studio"
       description="Detect, compare, and version outlier fitting rules on the accepted Current Gold development population without modifying registered values."
@@ -1761,7 +1771,10 @@ export function ProjectBoundOutlierStudio({
           })
         }
         adopt={() =>
-          void adoptMutation.run("policy/adopt", policyBody).then((value) => {
+          void adoptMutation.run("policy/adopt", {
+            policyId: policy?.policyId,
+            expectedChecksum: policy?.checksum,
+          }).then((value) => {
             if (value) refreshPolicy();
           })
         }

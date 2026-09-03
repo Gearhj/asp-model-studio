@@ -16,6 +16,8 @@ import WorkflowLibrary from "../sports/WorkflowLibrary";
 import ForecastWorkflow from "../sports/ForecastWorkflow";
 import GuidedWorkflow from "../sports/workflow/GuidedWorkflow";
 import WorkflowReturnBar from "../sports/workflow/WorkflowReturnBar";
+import { useProjectStage3DataAuthority } from "../sports/workflow/currentGoldDataReview";
+import { useCanonicalSportsProject } from "../sports/workflow/useCanonicalSportsProject";
 import NewSportsProject from "../sports/NewSportsProject";
 import SportsProjects from "../sports/SportsProjects";
 import SportAwareWorkflowRoute from "../sports/shared/SportAwareWorkflowRoute";
@@ -318,11 +320,33 @@ function StandaloneCockpitRoute() {
   const [params] = useSearchParams();
   const urlProjectId = (params.get("projectId") || "").trim();
   const storeProjectId = useWorkflowStore((s) => s.projectId);
+  const projectName = useWorkflowStore((s) => s.projectName);
   const projectId = urlProjectId || (storeProjectId || "").trim();
+  const projectIdentity = useCanonicalSportsProject(projectId, storeProjectId);
+  const currentGoldReview = useProjectStage3DataAuthority(
+    projectId,
+    Boolean(projectId) && projectIdentity.status === "ready",
+  );
   return (
     <RetainedToolRoute label="MLB PA Modeling Cockpit">
-      {projectId ? (
-        <PaModelingCockpit projectId={projectId} />
+      {projectId && projectIdentity.status === "ready" ? (
+        <PaModelingCockpit
+          projectId={projectId}
+          projectName={projectName}
+          currentGoldReview={currentGoldReview}
+        />
+      ) : projectId ? (
+        <section
+          className={`grid min-h-[40vh] place-items-center rounded-2xl border p-8 text-center ${projectIdentity.status === "error" ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-white"}`}
+          role={projectIdentity.status === "error" ? "alert" : "status"}
+        >
+          <div className="max-w-md">
+            <p className={`text-sm font-semibold ${projectIdentity.status === "error" ? "text-rose-900" : "text-slate-700"}`}>
+              {projectIdentity.status === "error" ? "Project authority unavailable" : "Reopening the canonical ASP Model Studio project…"}
+            </p>
+            {projectIdentity.error ? <p className="mt-2 text-sm text-rose-800">{projectIdentity.error}</p> : null}
+          </div>
+        </section>
       ) : (
         <section className="grid min-h-[40vh] place-items-center rounded-2xl border border-amber-300 bg-amber-50 p-8 text-center">
           <div className="max-w-md">

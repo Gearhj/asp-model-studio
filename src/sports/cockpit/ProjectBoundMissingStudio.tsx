@@ -1290,7 +1290,7 @@ export function ProjectBoundMissingStudio({
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const detailTrigger = useRef<HTMLElement | null>(null);
-  const hydrated = useRef(false);
+  const hydratedPolicyIdentity = useRef<string | null>(null);
   const enabled = state.status === "ready" && Boolean(review);
   const metadata = useProjectEdaMetadata(projectId, authority, enabled);
   const summary = useTreatmentGet<MissingSummary>(
@@ -1311,8 +1311,10 @@ export function ProjectBoundMissingStudio({
   );
   const policy = policyQuery.value?.data ?? summary.value?.data.policy ?? null;
   useEffect(() => {
-    if (!policy || hydrated.current) return;
-    hydrated.current = true;
+    if (!policy) return;
+    const policyIdentity = `${authority}:${policy.policyId ?? "none"}:${policy.checksum ?? "none"}`;
+    if (hydratedPolicyIdentity.current === policyIdentity) return;
+    hydratedPolicyIdentity.current = policyIdentity;
     setGlobalMethod(policy.globalMethod || "DATA_TYPE_AWARE");
     setOverrides(
       sanitizeColdStartOverrides(
@@ -1321,7 +1323,7 @@ export function ProjectBoundMissingStudio({
       ),
     );
     setNotesValue(policy.notes ?? "");
-  }, [policy]);
+  }, [authority, policy]);
   const tableRequest = useMemo(
     () =>
       enabled
@@ -1414,7 +1416,6 @@ export function ProjectBoundMissingStudio({
         policy.notes,
       );
   const refreshPolicy = () => {
-    hydrated.current = false;
     setRefreshKey((value) => value + 1);
   };
   const reset = () => {
@@ -1483,6 +1484,8 @@ export function ProjectBoundMissingStudio({
   return (
     <TreatmentStudioShell
       kind="missing"
+      projectId={projectId}
+      authorityKey={authority}
       review={review}
       title="Project-bound Missing-Value Treatment Studio"
       description="Separate physical missingness, legitimate cold start, insufficient history, and source/computation failure before versioning fold-local imputation rules."
@@ -2014,7 +2017,10 @@ export function ProjectBoundMissingStudio({
           })
         }
         adopt={() =>
-          void adoptMutation.run("policy/adopt", policyBody).then((value) => {
+          void adoptMutation.run("policy/adopt", {
+            policyId: policy?.policyId,
+            expectedChecksum: policy?.checksum,
+          }).then((value) => {
             if (value) refreshPolicy();
           })
         }

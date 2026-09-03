@@ -60,6 +60,12 @@ from ..sports_current_statcast.stage3_treatments import (
     save_treatment_policy_draft,
     treatment_policy,
 )
+from ..sports_current_statcast.stage3_feature_treatment_spec import (
+    Stage3FeatureTreatmentSpecError,
+    adopt_treatment_specification,
+    save_treatment_specification_draft,
+    treatment_specification,
+)
 from ..sports_current_statcast.stage3_feature_engineering import (
     Stage3FeatureEngineeringError,
     feature_detail,
@@ -642,6 +648,8 @@ def _run_stage3_treatment(operation: Callable[[], Dict[str, Any]]) -> Dict[str, 
         _raise_forecast_contract_error(exc)
     except Stage3TreatmentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3FeatureTreatmentSpecError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
     except Stage3EdaError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
     except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
@@ -755,6 +763,68 @@ def post_sports_stage3_treatment_policy_adopt(
             _service().database,
             project_id,
             kind,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/specification")
+def get_sports_stage3_treatment_specification(
+    project_id: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Resolve the canonical workbook authority against the live feature catalog."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_treatment(
+        lambda: treatment_specification(
+            _service().database,
+            project_id,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/draft")
+def post_sports_stage3_treatment_specification_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Atomically append linked Outlier/Missing drafts and one binding receipt."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: save_treatment_specification_draft(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/adopt")
+def post_sports_stage3_treatment_specification_adopt(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Fail closed until every combined-spec semantic/executable blocker is resolved."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: adopt_treatment_specification(
+            _service().database,
+            project_id,
             payload,
             actor_user_id=actor,
         )

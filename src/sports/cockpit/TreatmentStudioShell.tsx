@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   Archive,
@@ -12,6 +19,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import type { CurrentGoldDataReview } from "../workflow/currentGoldDataReview";
 import { CockpitDrawer } from "./CockpitDrawer";
@@ -21,6 +29,10 @@ import type {
   TreatmentKind,
   TreatmentPolicy,
   TreatmentPolicyVersion,
+} from "./projectTreatmentApi";
+import {
+  hasCurrentTreatmentSpecificationDraft,
+  useTreatmentSpecification,
 } from "./projectTreatmentApi";
 
 export function formatInteger(value: number | null | undefined): string {
@@ -489,6 +501,7 @@ export function TreatmentPolicyActions({
   continueLabel: string;
   onContinue: () => void;
 }) {
+  const combinedSpecification = useContext(TreatmentSpecificationContext);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [confirmAdopt, setConfirmAdopt] = useState(false);
@@ -496,10 +509,28 @@ export function TreatmentPolicyActions({
   const compareTrigger = useRef<HTMLButtonElement>(null);
   const savedDraftAvailable =
     Boolean(policy?.policyId) && policy?.status === "DRAFT";
-  const canAdopt = savedDraftAvailable && !hasUnsavedChanges;
+  const manualDraftReady = savedDraftAvailable && !hasUnsavedChanges;
+  const canAdopt =
+    manualDraftReady &&
+    combinedSpecification.specificationReady &&
+    combinedSpecification.canonicalCanAdopt &&
+    !combinedSpecification.hasCombinedDraft;
+  const continueBlocked =
+    kind === "missing" &&
+    (!combinedSpecification.specificationReady ||
+      combinedSpecification.blockerCount === null ||
+      combinedSpecification.blockerCount > 0);
   useEffect(() => {
     if (hasUnsavedChanges) setConfirmAdopt(false);
-  }, [hasUnsavedChanges]);
+    if (combinedSpecification.hasCombinedDraft) setConfirmAdopt(false);
+    if (!combinedSpecification.specificationReady) setConfirmAdopt(false);
+    if (!combinedSpecification.canonicalCanAdopt) setConfirmAdopt(false);
+  }, [
+    combinedSpecification.canonicalCanAdopt,
+    combinedSpecification.hasCombinedDraft,
+    combinedSpecification.specificationReady,
+    hasUnsavedChanges,
+  ]);
   return (
     <>
       <section
@@ -590,6 +621,10 @@ export function TreatmentPolicyActions({
                     ? "Adopt the saved draft"
                     : hasUnsavedChanges
                       ? "Visible controls differ from the saved draft; save these changes before adoption"
+                      : combinedSpecification.hasCombinedDraft
+                        ? "This policy belongs to a combined specification draft and must be adopted atomically"
+                      : !combinedSpecification.canonicalCanAdopt
+                        ? "Resolve every canonical feature-treatment blocker before adoption"
                       : "Save a draft policy before adoption"
                 }
                 className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -603,7 +638,13 @@ export function TreatmentPolicyActions({
             <button
               type="button"
               onClick={onContinue}
-              className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+              disabled={continueBlocked}
+              title={
+                continueBlocked
+                  ? "Resolve every canonical feature-treatment blocker before continuing to Feature Engineering"
+                  : undefined
+              }
+              className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {continueLabel}
             </button>
@@ -618,7 +659,25 @@ export function TreatmentPolicyActions({
           </div>
         ) : null}
         {!canAdopt && !saveError && !adoptError ? (
-          hasUnsavedChanges ? (
+          combinedSpecification.hasCombinedDraft ? (
+            <div
+              role="status"
+              data-testid="stage3-combined-draft-atomic-adoption"
+              className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-950"
+            >
+              <b>Combined specification draft.</b> Partial {kind} adoption is
+              disabled. Use the atomic specification action above so linked
+              outlier and missing policies move together.
+            </div>
+          ) : !combinedSpecification.specificationReady ? (
+            <div
+              role="status"
+              className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700"
+            >
+              Canonical specification status must load successfully before an
+              individual manual draft can be adopted.
+            </div>
+          ) : hasUnsavedChanges ? (
             <div
               role="alert"
               data-testid="stage3-policy-unsaved-warning"
@@ -633,6 +692,19 @@ export function TreatmentPolicyActions({
               Save a draft policy before adoption.
             </p>
           )
+        ) : null}
+        {continueBlocked ? (
+          <div
+            role="status"
+            data-testid="stage3-feature-engineering-progression-blocked"
+            className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs leading-5 text-amber-950"
+          >
+            <b>Feature Engineering progression is held closed.</b> Resolve every
+            canonical treatment-specification blocker first. The Feature
+            Engineering page remains independently inspectable as a read-only
+            preview, but no candidate set can be registered without adopted
+            treatment authority.
+          </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-[10px]">
           <span className="rounded-full bg-slate-900 px-2 py-1 font-semibold text-white">
@@ -679,8 +751,381 @@ export function TreatmentPolicyActions({
   );
 }
 
+const TreatmentSpecificationContext = createContext({
+  hasCombinedDraft: false,
+  specificationReady: false,
+  canonicalCanAdopt: false,
+  blockerCount: null as number | null,
+});
+
+function specificationValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function policyReference(value: Record<string, unknown> | string | null): string {
+  if (!value) return "None";
+  if (typeof value === "string") return value;
+  return String(
+    value.policyId ?? value.id ?? value.checksum ?? value.status ?? "Present",
+  );
+}
+
+function TreatmentSpecificationPanel({
+  specification,
+}: {
+  specification: ReturnType<typeof useTreatmentSpecification>;
+}) {
+  const data = specification.value?.data;
+  const currentDraft = hasCurrentTreatmentSpecificationDraft(data);
+  const featureColumns = data?.features.length
+    ? [...new Set(data.features.flatMap((row) => Object.keys(row)))]
+    : [];
+  const statusTone =
+    data?.reconciliation.status === "READY"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : data?.reconciliation.status === "READY_WITH_EXPLICIT_FALLBACK" ||
+          data?.reconciliation.status === "RECONCILED_WITH_EXPLICIT_HOLDS"
+        ? "border-amber-200 bg-amber-50 text-amber-950"
+        : "border-rose-200 bg-rose-50 text-rose-950";
+
+  return (
+    <section
+      className="min-w-0 rounded-2xl border border-cyan-200 bg-white p-4 shadow-sm"
+      data-testid="stage3-treatment-specification"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">
+            Canonical feature-treatment authority
+          </div>
+          <h2 className="mt-1 text-base font-semibold text-slate-950">
+            Workbook specification → one linked draft
+          </h2>
+          <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-600">
+            Review exact-name reconciliation, scientific dispositions, and
+            executable resolutions before creating linked outlier and missing
+            policy drafts. This action never adopts a policy.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={
+            !data?.canCreateDraft ||
+            specification.draftStatus === "loading" ||
+            specification.status !== "ready"
+          }
+          onClick={() => void specification.createDraft()}
+          className="inline-flex items-center gap-1 rounded-lg bg-cyan-800 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Sparkles size={13} />
+          {specification.draftStatus === "loading"
+            ? "Creating linked draft…"
+            : data?.draft
+              ? "Reapply / verify canonical spec draft"
+              : "Load / apply canonical spec as DRAFT"}
+        </button>
+        <button
+          type="button"
+          disabled={
+            !data?.canAdopt ||
+            !currentDraft ||
+            specification.adoptStatus === "loading" ||
+            specification.status !== "ready"
+          }
+          onClick={() => void specification.adoptSpecification()}
+          title={
+            data?.canAdopt && currentDraft
+              ? "Adopt both linked policy drafts atomically"
+              : data?.draft && !currentDraft
+                ? "Create or reload the current exact manifest draft before adoption"
+                : "Resolve every listed blocker before adoption"
+          }
+          className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <CheckCircle2 size={13} />
+          {specification.adoptStatus === "loading"
+            ? "Adopting reviewed specification…"
+            : "Adopt reviewed specification"}
+        </button>
+      </div>
+
+      {specification.status === "loading" ? (
+        <p className="mt-3 text-xs text-slate-500">
+          Loading the project-bound canonical specification…
+        </p>
+      ) : null}
+      {specification.status === "error" ? (
+        <div
+          role="alert"
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-950"
+        >
+          <b>Canonical specification held closed.</b> {specification.error}
+          <button
+            type="button"
+            onClick={specification.retry}
+            className="ml-auto rounded border border-rose-300 px-2 py-1 font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {specification.draftError ? (
+        <div
+          role="alert"
+          className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-950"
+        >
+          <b>Draft was not created.</b> {specification.draftError}
+        </div>
+      ) : null}
+      {specification.adoptError ? (
+        <div
+          role="alert"
+          className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-950"
+        >
+          <b>Specification was not adopted.</b> {specification.adoptError}
+        </div>
+      ) : null}
+
+      {data ? (
+        <>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <SpecificationFact
+              label="Reconciliation"
+              value={data.reconciliation.status}
+              detail={`${data.reconciliation.exactMatchCount} exact matches · ${data.reconciliation.workbookFeatureCount} workbook / ${data.reconciliation.backendFeatureCount} backend`}
+              className={statusTone}
+            />
+            <SpecificationFact
+              label="Manifest checksum"
+              value={data.specification.manifestChecksum}
+              detail={data.specification.specificationId}
+              mono
+            />
+            <SpecificationFact
+              label="Source workbook"
+              value={data.specification.sourceWorkbookFilename}
+              detail={`SHA-256 ${data.specification.sourceWorkbookSha256}`}
+              mono
+            />
+            <SpecificationFact
+              label="Compiler"
+              value={data.specification.compilerVersion}
+              detail={`${data.features.length} fully inspectable manifest rows`}
+            />
+          </div>
+
+          {data.blockers.length ? (
+            <div
+              role="alert"
+              className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-950"
+            >
+              <b>Adoption blockers:</b>
+              <ul className="mt-1 list-disc pl-5">
+                {data.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            <details open className="rounded-xl border border-slate-200 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-900">
+                Disposition and execution summary
+              </summary>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {Object.entries(data.dispositionCounts).map(([label, count]) => (
+                  <div
+                    key={label}
+                    className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px]"
+                  >
+                    <span className="min-w-0 flex-1 break-words font-medium text-slate-700">
+                      {label}
+                    </span>
+                    <b className="tabular-nums text-slate-950">{count}</b>
+                  </div>
+                ))}
+              </div>
+              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                {Object.entries(data.executionSummary).map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-slate-100 p-2">
+                    <dt className="text-[9px] font-semibold uppercase text-slate-500">
+                      {label}
+                    </dt>
+                    <dd className="mt-1 break-words text-xs text-slate-800">
+                      {specificationValue(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+
+            <details open className="rounded-xl border border-slate-200 p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-900">
+                Prior policies → canonical draft
+              </summary>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <SpecificationFact
+                  label="Prior outlier policy"
+                  value={policyReference(data.priorPolicies.outlier)}
+                  detail="Preserved immutable authority"
+                  mono
+                />
+                <SpecificationFact
+                  label="Prior missing policy"
+                  value={policyReference(data.priorPolicies.missing)}
+                  detail="Preserved immutable authority"
+                  mono
+                />
+                <SpecificationFact
+                  label="Linked outlier draft"
+                  value={
+                    data.draft
+                      ? policyReference(data.draft.outlierPolicyRef)
+                      : "Not created"
+                  }
+                  detail="Draft only; separate adoption required"
+                  mono
+                />
+                <SpecificationFact
+                  label="Linked missing draft"
+                  value={
+                    data.draft
+                      ? policyReference(data.draft.missingPolicyRef)
+                      : "Not created"
+                  }
+                  detail="Draft only; separate adoption required"
+                  mono
+                />
+              </div>
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] leading-4 text-amber-950">
+                {data.draft
+                  ? `${data.draft.specificationDraftId} · v${data.draft.version} · ${data.draft.status} · ${data.draft.manifestChecksum}`
+                  : "No combined draft is persisted yet."}{" "}
+                Adoption remains a separate explicit policy action; canAdopt is
+                currently {String(data.canAdopt)}.
+              </p>
+            </details>
+          </div>
+
+          <details className="mt-3 rounded-xl border border-amber-200 bg-amber-50/30 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-900">
+              Priority exceptions · {data.exceptions.length}
+            </summary>
+            <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {data.exceptions.length ? (
+                data.exceptions.map((exception, index) => (
+                  <article
+                    key={`${specificationValue(exception.featureName ?? exception.feature)}:${index}`}
+                    className="rounded-lg border border-amber-100 bg-white p-2"
+                  >
+                    <div className="font-mono text-[11px] font-semibold text-slate-900">
+                      {specificationValue(
+                        exception.featureName ?? exception.feature ?? `Exception ${index + 1}`,
+                      )}
+                    </div>
+                    <dl className="mt-1 grid gap-x-3 gap-y-1 sm:grid-cols-2">
+                      {Object.entries(exception).map(([label, value]) => (
+                        <div key={label} className="min-w-0 text-[10px]">
+                          <dt className="inline font-semibold text-slate-500">
+                            {label}: {" "}
+                          </dt>
+                          <dd className="inline break-words text-slate-700">
+                            {specificationValue(value)}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </article>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500">No priority exceptions.</p>
+              )}
+            </div>
+          </details>
+
+          <details className="mt-3 rounded-xl border border-slate-200 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-900">
+              Full canonical manifest rows · {data.features.length}
+            </summary>
+            <div
+              role="region"
+              aria-label="Full canonical feature treatment manifest"
+              tabIndex={0}
+              className="mt-3 max-h-[32rem] max-w-full overflow-auto rounded-lg border border-slate-200"
+            >
+              <table className="min-w-max text-left text-[10px]">
+                <caption className="sr-only">
+                  Every exact feature-treatment specification row and executable resolution
+                </caption>
+                <thead className="sticky top-0 z-10 bg-slate-100 uppercase text-slate-500">
+                  <tr>
+                    {featureColumns.map((column) => (
+                      <th key={column} scope="col" className="whitespace-nowrap border-b px-2 py-2">
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.features.map((feature, index) => (
+                    <tr key={`${specificationValue(feature.featureName ?? feature.feature)}:${index}`}>
+                      {featureColumns.map((column) => (
+                        <td key={column} className="max-w-72 border-b px-2 py-2 align-top">
+                          <span className="block max-h-24 overflow-auto whitespace-pre-wrap break-words">
+                            {specificationValue(feature[column])}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function SpecificationFact({
+  label,
+  value,
+  detail,
+  mono = false,
+  className = "border-slate-200 bg-slate-50 text-slate-900",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  mono?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={`min-w-0 rounded-lg border p-2 ${className}`}>
+      <div className="text-[9px] font-semibold uppercase tracking-wide opacity-70">
+        {label}
+      </div>
+      <div
+        className={`mt-1 break-all text-xs font-semibold ${mono ? "font-mono" : ""}`}
+      >
+        {value}
+      </div>
+      <div className={`mt-1 break-all text-[9px] opacity-70 ${mono ? "font-mono" : ""}`}>
+        {detail}
+      </div>
+    </div>
+  );
+}
+
 export function TreatmentStudioShell({
   kind,
+  projectId,
+  authorityKey,
   review,
   title,
   description,
@@ -688,12 +1133,19 @@ export function TreatmentStudioShell({
   children,
 }: {
   kind: TreatmentKind;
+  projectId: string;
+  authorityKey: string;
   review: CurrentGoldDataReview;
   title: string;
   description: string;
   policy: TreatmentPolicy | null;
   children: ReactNode;
 }) {
+  const specification = useTreatmentSpecification(
+    projectId,
+    authorityKey,
+    Boolean(projectId && authorityKey),
+  );
   return (
     <div
       className="space-y-4"
@@ -740,7 +1192,17 @@ export function TreatmentStudioShell({
           </div>
         </div>
       </section>
-      {children}
+      <TreatmentSpecificationContext.Provider
+        value={{
+          hasCombinedDraft: Boolean(specification.value?.data.draft),
+          specificationReady: specification.status === "ready",
+          canonicalCanAdopt: specification.value?.data.canAdopt === true,
+          blockerCount: specification.value?.data.blockers.length ?? null,
+        }}
+      >
+        <TreatmentSpecificationPanel specification={specification} />
+        {children}
+      </TreatmentSpecificationContext.Provider>
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">
         <Archive size={13} className="mr-1 inline" />
         <b>Authority reminder:</b> Current Gold and contextual candidates remain
