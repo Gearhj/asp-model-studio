@@ -32,6 +32,8 @@ import {
   fetchFeatureStudioSummary,
   mutateFeatureSet,
   type FeatureFamily,
+  type GovernedInteractionAuthority,
+  type GovernedInteractionAuthoritySummary,
   type GovernedPreprocessingPriorAuthority,
   type FeatureInventory,
   type FeatureInventoryRow,
@@ -275,6 +277,14 @@ export function ProjectBoundFeatureEngineering({
   if (summary.status === "loading" && !summary.data) return <StudioLoading label="Loading the project-bound candidate library…" />;
   if (summary.status === "error" || !summary.data || !authority) return <StudioError title="Feature Engineering is held closed" message={summary.error || "The project-bound feature authority was incomplete."} />;
   const s = summary.data.summary;
+  const outlierPolicyAdopted =
+    adoptedPolicyLabel(summary.data.treatmentPolicies.outlier) !== "Not adopted";
+  const missingPolicyAdopted =
+    adoptedPolicyLabel(summary.data.treatmentPolicies.missing) !== "Not adopted";
+  const treatmentRegistrationReady =
+    outlierPolicyAdopted &&
+    missingPolicyAdopted &&
+    summary.data.treatmentSpecificationDraft === null;
 
   return (
     <div className="min-w-0 space-y-4" data-testid="project-bound-feature-engineering-studio">
@@ -324,6 +334,11 @@ export function ProjectBoundFeatureEngineering({
         draft={summary.data.treatmentSpecificationDraft}
       />
 
+      <GovernedInteractionSummaryPanel
+        authority={summary.data.interactionAuthority}
+        draft={summary.data.treatmentSpecificationDraft}
+      />
+
       <Card title="Recommended experimental plan" icon={Sparkles} description="Ablations isolate whether a contextual family adds stable value. Coverage and descriptive association alone do not prove predictive usefulness.">
         <div className="grid gap-3 lg:grid-cols-3">
           <Recommendation title="Required baseline" items={["BASELINE_CORE_48"]} tone="cyan" />
@@ -358,7 +373,7 @@ export function ProjectBoundFeatureEngineering({
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs leading-5 text-cyan-950"><ShieldCheck size={14} className="mr-1 inline" /> Every transformation rule states: <b>Fit independently within each chronological training fold.</b> Rules are persisted; transformed Gold rows are not.</div>
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={mutation.busy || !draftName.trim()} onClick={saveDraft} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"><Save size={14} /> Save immutable draft</button>
-              <button type="button" disabled={mutation.busy || !featureSets.draft || editorDirty} title={editorDirty ? "Save this exact editor state before registration." : undefined} onClick={registerDraft} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"><CheckCircle2 size={14} /> Register candidate set</button>
+              <button type="button" disabled={mutation.busy || !featureSets.draft || editorDirty || !treatmentRegistrationReady} title={!treatmentRegistrationReady ? "Adopt an exact blocker-free combined treatment specification before registration." : editorDirty ? "Save this exact editor state before registration." : undefined} onClick={registerDraft} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white disabled:bg-slate-300"><CheckCircle2 size={14} /> Register candidate set</button>
               <button type="button" onClick={() => { setDraftName(`${draftName} copy`); setEditorDirty(true); setMutation({ busy: false, error: null, message: "Draft duplicated in the editor. Save to create a new immutable version." }); }} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"><Copy size={14} /> Duplicate</button>
               <button type="button" onClick={() => void refreshFeatureSets()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"><RefreshCw size={14} /> Reload</button>
             </div>
@@ -436,8 +451,86 @@ export function ProjectBoundFeatureEngineering({
         ].map(([label, text]) => <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-semibold text-slate-900">{label}</div><p className="mt-1 text-[11px] leading-5 text-slate-600">{text}</p></div>)}</div>
       </Card>
 
-      <Card title="Bounded interaction workspace" icon={Layers3} description="All eleven declared interactions are visible. Inactive or source-unavailable interactions remain null and cannot enter a registered candidate set.">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{interactions.map((item) => <article key={item.name} className={`rounded-xl border p-3 ${item.status === "MATERIALIZED" ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/50"}`}><div className="flex items-start justify-between gap-2"><code className="break-all text-xs font-semibold text-slate-900">{item.name}</code><Pill label={item.status} tone={item.status === "MATERIALIZED" ? "emerald" : "amber"} /></div><p className="mt-2 text-[11px] leading-4 text-slate-600">{item.reason || "No additional warning."}</p><dl className="mt-2 grid grid-cols-2 gap-2 text-[10px]"><MiniStat label="Coverage" value={fmtPct(item.coveragePercent)} /><MiniStat label="Missing" value={fmtPct(item.missingPercent)} /></dl><div className="mt-2 font-mono text-[10px] text-slate-500">Parents: {item.parentVariables?.length ? item.parentVariables.join(" × ") : "NOT_AVAILABLE"}</div><div className="mt-1 font-mono text-[10px] text-slate-500">Formula: {item.formula || "NOT_AVAILABLE"}</div><div className="mt-1 text-[10px] text-slate-600">PIT: {item.pointInTimeStatus || "NOT_EVALUATED"}</div><div className="mt-1 text-[10px] text-slate-600">Selected sets: {item.selectedCandidateSets?.length ? item.selectedCandidateSets.join(", ") : "None"}</div></article>)}</div>
+      <Card title="Bounded interaction workspace" icon={Layers3} description="All declared interactions remain visible with governed formula, parent-first treatment order, and fail-closed status. Inactive or source-unavailable interactions remain nonselectable.">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {interactions.map((item) => {
+            const ready =
+              item.executableStatus.toUpperCase().includes("READY") ||
+              item.status === "MATERIALIZED";
+            const parents = item.orderedParents.length
+              ? item.orderedParents
+              : item.parentVariables;
+            return (
+              <article
+                key={item.name}
+                className={`min-w-0 rounded-xl border p-3 ${
+                  ready
+                    ? "border-emerald-200 bg-emerald-50/40"
+                    : "border-amber-200 bg-amber-50/50"
+                }`}
+                data-testid="feature-studio-governed-interaction"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <code className="min-w-0 break-all text-xs font-semibold text-slate-900">
+                    {item.name}
+                  </code>
+                  <Pill
+                    label={item.executableStatus}
+                    tone={ready ? "emerald" : "amber"}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] leading-4 text-slate-600">
+                  {item.reason || "No additional warning."}
+                </p>
+                <dl className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
+                  <MiniStat label="Coverage" value={fmtPct(item.coveragePercent)} />
+                  <MiniStat label="Missing" value={fmtPct(item.missingPercent)} />
+                </dl>
+                <div className="mt-2 break-words font-mono text-[10px] text-slate-600">
+                  <b>Formula {item.formulaVersion || "NOT_REPORTED"}:</b>{" "}
+                  {item.formula || "NOT_AVAILABLE"}
+                </div>
+                <div className="mt-1 break-words font-mono text-[10px] text-slate-500">
+                  <b>Ordered parents:</b>{" "}
+                  {parents.length ? parents.join(" → ") : "NOT_AVAILABLE"}
+                </div>
+                <div className="mt-1 text-[10px] text-slate-600">
+                  <b>Operation order:</b>{" "}
+                  {item.operationOrder.length
+                    ? item.operationOrder.join(" → ")
+                    : "NOT_REPORTED"}
+                </div>
+                <div className="mt-1 text-[10px] text-slate-600">
+                  PIT {item.pointInTimeStatus || "NOT_EVALUATED"} · Fold-local {item.foldLocal}
+                </div>
+                <details className="mt-2 rounded border border-white bg-white/70 p-2">
+                  <summary className="cursor-pointer text-[9px] font-semibold uppercase text-slate-500">
+                    Parent treatment authorities · {item.parentTreatmentAuthorities.length}
+                  </summary>
+                  <ol className="mt-1 space-y-1 pl-4 text-[9px] leading-4 text-slate-600">
+                    {item.parentTreatmentAuthorities.length ? (
+                      item.parentTreatmentAuthorities.map((parent, index) => (
+                        <li key={`${item.name}:authority:${index}`} className="break-words">
+                          {interactionAuthorityValue(parent)}
+                        </li>
+                      ))
+                    ) : (
+                      <li>NOT_REPORTED</li>
+                    )}
+                  </ol>
+                </details>
+                {item.blockedReason ? (
+                  <p className="mt-2 rounded border border-amber-300 bg-white p-2 text-[10px] text-amber-950">
+                    <b>BLOCKED:</b> {item.blockedReason}
+                  </p>
+                ) : null}
+                <div className="mt-2 text-[10px] text-slate-600">
+                  Selected sets: {item.selectedCandidateSets.length ? item.selectedCandidateSets.join(", ") : "None"}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </Card>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="feature-engineering-audit-strip">
@@ -561,6 +654,161 @@ function GovernedPriorSummaryPanel({
   );
 }
 
+function interactionAuthorityValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return String(value ?? "NOT_REPORTED");
+}
+
+function GovernedInteractionBinding({
+  binding,
+}: {
+  binding: GovernedInteractionAuthority;
+}) {
+  const ready = binding.status.toUpperCase().includes("READY");
+  return (
+    <article
+      className={`min-w-0 rounded-xl border p-3 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/60"
+      }`}
+      data-testid={`feature-engineering-governed-interaction-${ready ? "ready" : "blocked"}`}
+    >
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <code className="break-all text-[11px] font-semibold text-slate-950">
+            {binding.featureName}
+          </code>
+          <div className="mt-1 break-all text-[9px] text-slate-500">
+            Backend {binding.backendFeatureIdentity} · {binding.formulaVersion}
+          </div>
+        </div>
+        <Pill label={binding.status} tone={ready ? "emerald" : "amber"} />
+      </div>
+      <dl className="mt-3 grid gap-2 text-[10px] leading-4 sm:grid-cols-2">
+        <MiniStat label="Exact formula" value={binding.formula} />
+        <MiniStat
+          label="Ordered parents"
+          value={binding.orderedParents.join(" → ") || "NOT_REPORTED"}
+        />
+        <MiniStat
+          label="Operation order"
+          value={binding.operationOrder.join(" → ") || "NOT_REPORTED"}
+        />
+        <MiniStat
+          label="Fold-local / PIT"
+          value={`Fold-local ${binding.foldLocal} · PIT ${binding.pointInTime}`}
+        />
+      </dl>
+      <details className="mt-2 rounded-lg border border-white bg-white/70 p-2">
+        <summary className="cursor-pointer text-[9px] font-semibold uppercase text-slate-600">
+          Parent treatment authorities · {binding.parentTreatmentAuthorities.length}
+        </summary>
+        <ol className="mt-1 space-y-1 pl-4 text-[9px] leading-4 text-slate-700">
+          {binding.parentTreatmentAuthorities.length ? (
+            binding.parentTreatmentAuthorities.map((parent, index) => (
+              <li key={`${binding.featureName}:parent:${index}`} className="break-words">
+                {interactionAuthorityValue(parent)}
+              </li>
+            ))
+          ) : (
+            <li>NOT_REPORTED</li>
+          )}
+        </ol>
+      </details>
+      {!ready && binding.blockedReason ? (
+        <p className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-[10px] leading-4 text-amber-950">
+          <b>BLOCKED:</b> {binding.blockedReason}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function GovernedInteractionSummaryPanel({
+  authority,
+  draft,
+}: {
+  authority: GovernedInteractionAuthoritySummary | null;
+  draft: TreatmentSpecificationDraftAuthority | null;
+}) {
+  if (!authority) return null;
+  const execution = draft?.executionSummary ?? {};
+  const before = Number(
+    execution.interactionBlockersBefore ?? authority.featureCount ?? 0,
+  );
+  const cleared = Number(
+    execution.interactionBlockersCleared ?? authority.readyFeatureCount ?? 0,
+  );
+  const remaining = Number(
+    execution.interactionBlockersRemaining ?? authority.blockedFeatureCount ?? 0,
+  );
+  const semanticRemaining = Number(
+    execution.semanticFieldsRemaining ?? execution.semanticReview ?? 0,
+  );
+  const rivalryHeld = Number(
+    execution.rivalryFieldsHeldClosed ?? execution.additionalHeldClosed ?? 0,
+  );
+  const totalBlockers = Number(execution.blocked ?? 0);
+  return (
+    <section
+      className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4"
+      data-testid="feature-engineering-governed-interaction-authority"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">
+            Governed interaction recomputation
+          </div>
+          <h3 className="mt-1 text-sm font-semibold text-slate-950">
+            {authority.authorityName}
+          </h3>
+          <p className="mt-1 max-w-4xl text-[11px] leading-5 text-slate-600">
+            Exact formulas, ordered parent lineage, parent treatment
+            authorities, and parent-first operation order are inspectable as
+            read-only preprocessing evidence. This page does not fit, tune,
+            register, or adopt this authority.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">
+          <Pill label={`Fold-local ${authority.foldLocal}`} tone="emerald" />
+          <Pill label={`PIT ${authority.pointInTime}`} tone="emerald" />
+          <Pill label={draft?.status ?? "DRAFT"} tone="violet" />
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-3 text-[11px] sm:grid-cols-2 xl:grid-cols-4">
+        <AuthorityFact label="Authority ID" value={authority.authorityId} />
+        <AuthorityFact
+          label="Authority checksum"
+          value={authority.authorityChecksum}
+        />
+        <AuthorityFact
+          label="Interactions before / cleared / remaining"
+          value={`${fmtInt(before)} / ${fmtInt(cleared)} / ${fmtInt(remaining)}`}
+        />
+        <AuthorityFact
+          label="Remaining governance"
+          value={`${fmtInt(semanticRemaining)} semantic · ${fmtInt(rivalryHeld)} rivalry held · ${fmtInt(totalBlockers)} total blockers`}
+        />
+      </dl>
+      <details open className="mt-3 rounded-lg border border-cyan-100 bg-white/70 p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-slate-900">
+          Exact governed interactions · {authority.bindings.length}
+        </summary>
+        <div className="mt-2 grid max-h-[36rem] gap-2 overflow-y-auto lg:grid-cols-2">
+          {authority.bindings.map((binding) => (
+            <GovernedInteractionBinding
+              key={binding.featureName}
+              binding={binding}
+            />
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
 function FamilyCard({ family, selected, onSelect }: { family: FeatureFamily; selected: boolean; onSelect: () => void }) {
   return <article className={`rounded-xl border p-4 ${selected ? "border-cyan-500 bg-cyan-50/50 ring-1 ring-cyan-200" : "border-slate-200 bg-white"}`}><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase text-cyan-800">{family.familyId}</div><h3 className="mt-0.5 font-semibold text-slate-950">{family.friendlyName}</h3></div><button type="button" onClick={onSelect} aria-pressed={selected} className={`inline-flex h-6 w-6 items-center justify-center rounded border ${selected ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 text-transparent"}`} aria-label={`Select ${family.friendlyName}`}>{selected ? <Check size={14} /> : "·"}</button></div><dl className="mt-3 grid grid-cols-3 gap-1 text-center"><MiniStat label="Ordered" value={fmtInt(family.featureCount)} /><MiniStat label="Eligible" value={fmtInt(family.eligibleFeatureCount)} /><MiniStat label="Inactive" value={fmtInt(family.inactiveFeatureCount + family.unavailableFeatureCount)} /></dl><p className="mt-2 text-[11px] leading-4 text-slate-600">Coverage {fmtPct(family.physicalMissingPercent == null ? null : 100 - family.physicalMissingPercent)} · cold start {fmtPct(family.coldStartExposurePercent)} · {family.interactionCount} interactions</p><p className="mt-1 text-[11px] leading-4 text-slate-600">Forecast {human(family.forecastTimeAvailability)} · {human(family.pointInTimeStatus)} · {family.modelCompatibility.join(", ") || "Compatibility not declared"}</p>{family.excludedFeatures.length ? <details className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-950"><summary className="cursor-pointer font-semibold">{family.excludedFeatures.length} exact exclusion{family.excludedFeatures.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-1">{family.excludedFeatures.map((item) => <li key={item.feature}><code>{item.feature}</code> — {item.reason}</li>)}</ul></details> : null}{family.governanceWarnings.length ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] leading-4 text-amber-900">{family.governanceWarnings.join(" · ")}</p> : null}</article>;
 }
@@ -645,6 +893,42 @@ function GovernedPriorRowSummary({
   );
 }
 
+function GovernedInteractionRowSummary({
+  resolution,
+}: {
+  resolution: TreatmentSpecificationResolution | null;
+}) {
+  const authority = resolution?.interactionAuthority;
+  if (!authority) return null;
+  const ready = authority.status.toUpperCase().includes("READY");
+  return (
+    <div
+      className={`mt-2 rounded-lg border p-2 text-[9px] leading-4 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+      data-testid="feature-row-governed-interaction"
+    >
+      <div className="flex flex-wrap items-center gap-1">
+        <b>Governed interaction · {authority.status}</b>
+        <span className="ml-auto">Fold-local {authority.foldLocal}</span>
+      </div>
+      <div className="mt-1 break-words font-mono">
+        {authority.formulaVersion}: {authority.formula}
+      </div>
+      <div className="mt-1 break-words">
+        Parents: {authority.orderedParents.join(" → ") || "NOT_REPORTED"}
+      </div>
+      {!ready && authority.blockedReason ? (
+        <div className="mt-1">
+          <b>BLOCKED:</b> {authority.blockedReason}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelectedFeatures, transformationOverrides, setTransformationOverrides, inspect }: { inventory: FeatureInventory; query: InventoryQuery; setQuery: (query: InventoryQuery) => void; selectedFeatures: string[]; setSelectedFeatures: (features: string[]) => void; transformationOverrides: Record<string, string[]>; setTransformationOverrides: (overrides: Record<string, string[]>) => void; inspect: (row: FeatureInventoryRow, trigger: HTMLButtonElement) => void }) {
   const sort = (field: string) => setQuery({ ...query, page: 1, sortField: field, sortDirection: query.sortField === field && query.sortDirection === "asc" ? "desc" : "asc" });
   const pages = Math.max(1, Math.ceil(inventory.total / inventory.pageSize));
@@ -681,7 +965,7 @@ function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelecte
             <td className="max-w-80 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.definition}</div><div className="mt-1 break-all font-mono text-[9px] text-slate-500">{row.sourceLineage}</div><div className="mt-1 text-slate-500">{row.earliestAvailableDate || "Earliest date not published"} → {row.latestDevelopmentDate}</div></td>
             <td className="max-w-60 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.range || (row.cardinality == null ? "Range/cardinality not published" : `${fmtInt(row.cardinality)} levels`)}</div><div className="mt-1">Cold start: {row.coldStartRelevant ? "Relevant" : "No special flag"}</div><div className="mt-1 text-slate-500">{row.interactionMembership.length ? row.interactionMembership.join(", ") : "No declared interaction"}</div></td>
             <td className="w-56 border-b border-slate-100 px-2 py-2"><select aria-label={`Transformation for ${row.featureName}`} disabled={!selected || row.status !== "ACTIVE"} value={currentTransform} onChange={(event) => { const next = { ...transformationOverrides }; if (!event.target.value) delete next[row.featureName]; else next[row.featureName] = event.target.value.split("|"); setTransformationOverrides(next); }} className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-[10px] disabled:bg-slate-100"><option value="">Governed default</option>{transformOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><div className="mt-1 text-[9px] leading-3 text-slate-500">Fit independently within each chronological training fold.</div></td>
-            <td className="max-w-72 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.missingValueTreatment}</div><div className="text-slate-500">{row.pointInTimeTreatment}</div><div className="text-cyan-800">{row.forecastTimeAvailability}</div>{row.simulationGeneratedState ? <div className="font-semibold text-violet-700">SIMULATION_GENERATED_STATE</div> : null}<GovernedPriorRowSummary resolution={row.treatmentSpecificationResolution} /></td>
+            <td className="max-w-72 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.missingValueTreatment}</div><div className="text-slate-500">{row.pointInTimeTreatment}</div><div className="text-cyan-800">{row.forecastTimeAvailability}</div>{row.simulationGeneratedState ? <div className="font-semibold text-violet-700">SIMULATION_GENERATED_STATE</div> : null}<GovernedPriorRowSummary resolution={row.treatmentSpecificationResolution} /><GovernedInteractionRowSummary resolution={row.treatmentSpecificationResolution} /></td>
             <td className="max-w-72 border-b border-slate-100 px-2 py-2 text-amber-800"><div>{row.unavailableReason || "—"}</div><div className="mt-1 text-slate-500">{row.selectedCandidateSets.length ? `Sets: ${row.selectedCandidateSets.join(", ")}` : "No registered set membership"}</div></td>
             <td className="border-b border-slate-100 px-2 py-2"><button type="button" onClick={(event) => void inspect(row, event.currentTarget)} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-700"><Eye size={11} /> Inspect</button></td>
           </tr>;
@@ -770,6 +1054,75 @@ function GovernedPriorFeatureDetail({
   );
 }
 
+function GovernedInteractionFeatureDetail({
+  resolution,
+}: {
+  resolution: TreatmentSpecificationResolution | null;
+}) {
+  const authority = resolution?.interactionAuthority;
+  if (!authority) return null;
+  return (
+    <section
+      data-testid="feature-detail-governed-interaction"
+      className={`rounded-xl border p-4 ${
+        authority.status.toUpperCase().includes("READY")
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/60"
+      }`}
+    >
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Governed interaction recomputation
+          </div>
+          <code className="mt-1 block break-all text-xs font-semibold text-slate-950">
+            {authority.featureName} · {authority.backendFeatureIdentity}
+          </code>
+        </div>
+        <Pill
+          label={authority.status}
+          tone={authority.status.toUpperCase().includes("READY") ? "emerald" : "amber"}
+        />
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+        <MiniStat
+          label="Exact formula / version"
+          value={`${authority.formula} · ${authority.formulaVersion}`}
+        />
+        <MiniStat
+          label="Ordered parents"
+          value={authority.orderedParents.join(" → ") || "NOT_REPORTED"}
+        />
+        <MiniStat
+          label="Operation order"
+          value={authority.operationOrder.join(" → ") || "NOT_REPORTED"}
+        />
+        <MiniStat
+          label="Fold-local / point in time"
+          value={`Fold-local ${authority.foldLocal} · PIT ${authority.pointInTime}`}
+        />
+      </dl>
+      <details open className="mt-3 rounded-lg border border-white bg-white/70 p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-slate-800">
+          Parent treatment authorities · {authority.parentTreatmentAuthorities.length}
+        </summary>
+        <ol className="mt-2 space-y-1 pl-4 text-[10px] leading-4 text-slate-700">
+          {authority.parentTreatmentAuthorities.map((parent, index) => (
+            <li key={`${authority.featureName}:detail:${index}`} className="break-words">
+              {interactionAuthorityValue(parent)}
+            </li>
+          ))}
+        </ol>
+      </details>
+      {authority.blockedReason ? (
+        <p className="mt-3 rounded-lg border border-amber-300 bg-white p-2 text-[11px] leading-5 text-amber-950">
+          <b>BLOCKED:</b> {authority.blockedReason}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function FeatureDetail({ row }: { row: FeatureInventoryRow }) {
   const seasonMissing = row.missingnessBySeason ?? [];
   const monthMissing = row.missingnessByMonth ?? [];
@@ -784,6 +1137,9 @@ function FeatureDetail({ row }: { row: FeatureInventoryRow }) {
       <div className="mt-3 text-xs text-slate-600"><b>Interaction membership:</b> {row.interactionMembership.length ? row.interactionMembership.join(", ") : "None declared"}</div>
     </section>
     <GovernedPriorFeatureDetail
+      resolution={row.treatmentSpecificationResolution}
+    />
+    <GovernedInteractionFeatureDetail
       resolution={row.treatmentSpecificationResolution}
     />
     <div className="grid gap-4 lg:grid-cols-2">

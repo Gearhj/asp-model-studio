@@ -64,12 +64,47 @@ export type GovernedPreprocessingPriorAuthority = {
   featureCount: number | null;
 };
 
+export type GovernedInteractionParentTreatmentAuthority =
+  | string
+  | (Record<string, unknown> & {
+      parentFeature?: string;
+      backendFeatureIdentity?: string;
+      status?: string;
+    });
+
+export type GovernedInteractionAuthority = {
+  featureName: string;
+  backendFeatureIdentity: string;
+  formula: string;
+  formulaVersion: string;
+  orderedParents: string[];
+  parentTreatmentAuthorities: GovernedInteractionParentTreatmentAuthority[];
+  operationOrder: string[];
+  pointInTime: string;
+  foldLocal: string;
+  status: string;
+  blockedReason: string | null;
+};
+
+export type GovernedInteractionAuthoritySummary = {
+  authorityName: string;
+  authorityId: string;
+  authorityChecksum: string;
+  foldLocal: string;
+  pointInTime: string;
+  featureCount: number | null;
+  readyFeatureCount: number | null;
+  blockedFeatureCount: number | null;
+  bindings: GovernedInteractionAuthority[];
+};
+
 export type TreatmentSpecificationResolution = {
   executableStatus: string;
   executableSelectable: boolean;
   blockedReason: string | null;
   scientificRecommendation: string;
   priorAuthority: GovernedPreprocessingPriorAuthority | null;
+  interactionAuthority: GovernedInteractionAuthority | null;
   derivedPriorOutputs: string[];
 };
 
@@ -79,6 +114,7 @@ export type TreatmentSpecificationDraftAuthority = {
   manifestChecksum: string;
   status: string;
   priorAuthority: GovernedPreprocessingPriorAuthority | null;
+  interactionAuthority: GovernedInteractionAuthoritySummary | null;
   executionSummary: Record<string, unknown>;
 };
 
@@ -146,9 +182,16 @@ export type InteractionContract = {
   reason: string;
   parentVariables: string[];
   formula: string;
+  formulaVersion: string;
+  orderedParents: string[];
+  parentTreatmentAuthorities: GovernedInteractionParentTreatmentAuthority[];
+  operationOrder: string[];
   coveragePercent: number | null;
   missingPercent: number | null;
   pointInTimeStatus: string;
+  foldLocal: string;
+  executableStatus: string;
+  blockedReason: string | null;
   selectedCandidateSets: string[];
 };
 
@@ -211,6 +254,7 @@ export type FeatureStudioSummary = {
   };
   treatmentSpecificationDraft: TreatmentSpecificationDraftAuthority | null;
   priorAuthority: GovernedPreprocessingPriorAuthority | null;
+  interactionAuthority: GovernedInteractionAuthoritySummary | null;
   featureSetState: FeatureSetState;
 };
 
@@ -402,16 +446,137 @@ function normalizedFamily(raw: any): FeatureFamily {
   };
 }
 
+function normalizedParentTreatmentAuthorities(
+  raw: unknown,
+): GovernedInteractionParentTreatmentAuthority[] {
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (value): value is GovernedInteractionParentTreatmentAuthority =>
+        typeof value === "string" || Boolean(value && typeof value === "object"),
+    );
+  }
+  if (raw && typeof raw === "object") {
+    return Object.entries(raw as Record<string, unknown>).map(
+      ([parentFeature, authority]) =>
+        authority && typeof authority === "object"
+          ? { parentFeature, ...(authority as Record<string, unknown>) }
+          : `${parentFeature}: ${String(authority ?? "NOT_REPORTED")}`,
+    );
+  }
+  return [];
+}
+
+function normalizedInteractionAuthority(
+  raw: any,
+): GovernedInteractionAuthority | null {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    featureName: String(
+      raw.featureName ??
+        raw.interactionFeature ??
+        raw.interactionFeatureName ??
+        raw.feature ??
+        raw.name ??
+        "",
+    ),
+    backendFeatureIdentity: String(
+      raw.backendFeatureIdentity ?? raw.featureName ?? raw.feature ?? raw.name ?? "",
+    ),
+    formula: String(raw.formula ?? "NOT_REGISTERED"),
+    formulaVersion: String(raw.formulaVersion ?? "NOT_REGISTERED"),
+    orderedParents: normalizedStringList(
+      raw.orderedParents ?? raw.parentFeatures ?? raw.parentVariables,
+    ),
+    parentTreatmentAuthorities: normalizedParentTreatmentAuthorities(
+      raw.parentTreatmentAuthorities ??
+        (Array.isArray(raw.parents)
+          ? raw.parents.map(
+              (parent: any) => parent?.parentTreatmentAuthority ?? parent,
+            )
+          : undefined),
+    ),
+    operationOrder: normalizedStringList(
+      raw.operationOrder ?? raw.transformationOrder,
+    ),
+    pointInTime: String(
+      raw.pointInTime ?? raw.pointInTimeStatus ?? "NOT_REPORTED",
+    ).toUpperCase(),
+    foldLocal: String(
+      raw.foldLocal ?? raw.foldLocalStatus ?? "NOT_REPORTED",
+    ).toUpperCase(),
+    status: String(raw.status ?? raw.executableStatus ?? "NOT_REPORTED"),
+    blockedReason:
+      raw.blockedReason == null ? null : String(raw.blockedReason),
+  };
+}
+
+function normalizedInteractionAuthoritySummary(
+  raw: any,
+): GovernedInteractionAuthoritySummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    authorityName: String(raw.authorityName ?? "NOT_REPORTED"),
+    authorityId: String(raw.authorityId ?? "NOT_REPORTED"),
+    authorityChecksum: String(raw.authorityChecksum ?? "NOT_REPORTED"),
+    foldLocal: String(raw.foldLocal ?? "NOT_REPORTED").toUpperCase(),
+    pointInTime: String(raw.pointInTime ?? "NOT_REPORTED").toUpperCase(),
+    featureCount: raw.featureCount == null ? null : Number(raw.featureCount),
+    readyFeatureCount:
+      raw.readyFeatureCount == null ? null : Number(raw.readyFeatureCount),
+    blockedFeatureCount:
+      raw.blockedFeatureCount == null ? null : Number(raw.blockedFeatureCount),
+    bindings: (Array.isArray(raw.bindings) ? (raw.bindings as unknown[]) : [])
+      .map((binding: unknown) => normalizedInteractionAuthority(binding))
+      .filter(
+        (
+          value: GovernedInteractionAuthority | null,
+        ): value is GovernedInteractionAuthority => value !== null,
+      ),
+  };
+}
+
 function normalizedInteraction(raw: any): InteractionContract {
+  const governed = normalizedInteractionAuthority(
+    raw?.interactionAuthority ??
+      raw?.authorityBinding ??
+      (raw?.formulaVersion || raw?.orderedParents || raw?.operationOrder
+        ? raw
+        : null),
+  );
   return {
     name: String(raw?.name ?? "interaction"),
-    status: String(raw?.status ?? "INACTIVE"),
+    status: String(governed?.status ?? raw?.status ?? "INACTIVE"),
     reason: String(raw?.reason ?? ""),
-    parentVariables: raw?.parentVariables ?? raw?.selectedPhysicalFeatures ?? [],
-    formula: String(raw?.formula ?? ""),
+    parentVariables: normalizedStringList(
+      raw?.parentVariables ?? raw?.selectedPhysicalFeatures,
+    ),
+    formula: String(governed?.formula ?? raw?.formula ?? ""),
+    formulaVersion: String(
+      governed?.formulaVersion ?? raw?.formulaVersion ?? "",
+    ),
+    orderedParents: governed?.orderedParents.length
+      ? governed.orderedParents
+      : normalizedStringList(raw?.orderedParents ?? raw?.parentVariables),
+    parentTreatmentAuthorities: governed?.parentTreatmentAuthorities.length
+      ? governed.parentTreatmentAuthorities
+      : normalizedParentTreatmentAuthorities(raw?.parentTreatmentAuthorities),
+    operationOrder: governed?.operationOrder.length
+      ? governed.operationOrder
+      : normalizedStringList(raw?.operationOrder),
     coveragePercent: raw?.coveragePercent == null ? null : Number(raw.coveragePercent),
     missingPercent: raw?.missingPercent == null ? null : Number(raw.missingPercent),
-    pointInTimeStatus: String(raw?.pointInTimeStatus ?? "PROJECT_BOUND_POINT_IN_TIME"),
+    pointInTimeStatus: String(
+      governed?.pointInTime ??
+        raw?.pointInTimeStatus ??
+        "PROJECT_BOUND_POINT_IN_TIME",
+    ),
+    foldLocal: String(governed?.foldLocal ?? raw?.foldLocal ?? "NOT_REPORTED"),
+    executableStatus: String(
+      governed?.status ?? raw?.executableStatus ?? raw?.status ?? "NOT_REPORTED",
+    ),
+    blockedReason:
+      governed?.blockedReason ??
+      (raw?.blockedReason == null ? null : String(raw.blockedReason)),
     selectedCandidateSets: raw?.selectedCandidateSets ?? [],
   };
 }
@@ -479,6 +644,9 @@ function normalizedTreatmentSpecificationResolution(
       raw.priorAuthority,
       derivedPriorOutputs,
     ),
+    interactionAuthority: normalizedInteractionAuthority(
+      raw.interactionAuthority,
+    ),
     derivedPriorOutputs,
   };
 }
@@ -496,6 +664,9 @@ function normalizedTreatmentSpecificationDraft(
     manifestChecksum: String(raw.manifestChecksum ?? ""),
     status: String(raw.status ?? "DRAFT"),
     priorAuthority: normalizedPriorAuthority(raw.priorAuthority),
+    interactionAuthority: normalizedInteractionAuthoritySummary(
+      raw.interactionAuthority,
+    ),
     executionSummary:
       raw.executionSummary && typeof raw.executionSummary === "object"
         ? raw.executionSummary
@@ -602,6 +773,10 @@ function normalizedFeatureSummary(raw: any): FeatureStudioSummary {
     visualizations: { familyCoverage, familyMissingness, featureAvailabilityBySeason: [] },
     treatmentSpecificationDraft,
     priorAuthority: treatmentSpecificationDraft?.priorAuthority ?? null,
+    interactionAuthority:
+      normalizedInteractionAuthoritySummary(raw?.interactionAuthority) ??
+      treatmentSpecificationDraft?.interactionAuthority ??
+      null,
     featureSetState: normalizedFeatureSetState(raw?.featureSetState),
   };
 }

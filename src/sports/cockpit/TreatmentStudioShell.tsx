@@ -25,6 +25,8 @@ import type { CurrentGoldDataReview } from "../workflow/currentGoldDataReview";
 import { CockpitDrawer } from "./CockpitDrawer";
 import type { ProjectEdaFilters } from "./projectEdaApi";
 import type {
+  GovernedInteractionAuthority,
+  GovernedInteractionAuthoritySummary,
   GovernedPriorAuthority,
   QueryStatus,
   TreatmentKind,
@@ -799,6 +801,36 @@ function featurePriorAuthorityEntries(
   });
 }
 
+function featureInteractionAuthority(
+  feature: TreatmentSpecificationFeature,
+): GovernedInteractionAuthority | null {
+  const authority = feature.execution_contract?.interactionAuthority;
+  return isRecord(authority)
+    ? (authority as GovernedInteractionAuthority)
+    : null;
+}
+
+function featureInteractionAuthorityEntries(
+  features: TreatmentSpecificationFeature[],
+): GovernedInteractionAuthority[] {
+  return features.flatMap((feature) => {
+    const authority = featureInteractionAuthority(feature);
+    if (!authority) return [];
+    const featureName = feature.featureName ?? feature.feature;
+    return [
+      {
+        ...authority,
+        featureName:
+          typeof authority.featureName === "string" && authority.featureName
+            ? authority.featureName
+            : typeof featureName === "string"
+              ? featureName
+              : "NOT_REPORTED",
+      },
+    ];
+  });
+}
+
 export function useGovernedPriorAuthority(
   featureName: string | null | undefined,
 ): GovernedPriorAuthority | null {
@@ -1063,6 +1095,266 @@ function GovernedPriorAuthorityPanel({
   );
 }
 
+function interactionStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === "string" && Boolean(item),
+      )
+    : [];
+}
+
+function normalizedInteractionBindingForDisplay(
+  binding: GovernedInteractionAuthority,
+): GovernedInteractionAuthority {
+  const rawParents = Array.isArray(binding.parents) ? binding.parents : [];
+  const parentTreatmentAuthorities = Array.isArray(
+    binding.parentTreatmentAuthorities,
+  )
+    ? binding.parentTreatmentAuthorities
+    : rawParents.flatMap((parent) => {
+        if (!isRecord(parent)) return [];
+        const authority = parent.parentTreatmentAuthority;
+        return typeof authority === "string" && authority ? [authority] : [];
+      });
+  return {
+    ...binding,
+    featureName: priorField(
+      binding.featureName ??
+        binding.interactionFeature ??
+        binding.feature ??
+        binding.backendFeatureIdentity,
+      "NOT_REPORTED",
+    ),
+    parentTreatmentAuthorities,
+    pointInTime: priorField(
+      binding.pointInTime ?? binding.pointInTimeStatus,
+      "NOT_REPORTED",
+    ),
+    foldLocal: priorField(
+      binding.foldLocal ?? binding.foldLocalStatus,
+      "NOT_REPORTED",
+    ),
+    status: priorField(
+      binding.status ?? binding.executableStatus,
+      "NOT_REPORTED",
+    ),
+  };
+}
+
+function InteractionAuthorityBindingCard({
+  binding,
+}: {
+  binding: GovernedInteractionAuthority;
+}) {
+  const name = priorField(
+    binding.featureName ?? binding.feature ?? binding.backendFeatureIdentity,
+  );
+  const parents = interactionStringList(binding.orderedParents);
+  const operationOrder = interactionStringList(binding.operationOrder);
+  const parentAuthorities = Array.isArray(binding.parentTreatmentAuthorities)
+    ? binding.parentTreatmentAuthorities
+    : [];
+  const status = priorField(binding.status, "NOT REPORTED");
+  const ready = status.toUpperCase().includes("READY");
+  return (
+    <article
+      className={`min-w-0 rounded-xl border p-3 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/60"
+      }`}
+      data-testid={`stage3-governed-interaction-${ready ? "ready" : "blocked"}`}
+    >
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <code className="break-all text-[11px] font-semibold text-slate-950">
+            {name}
+          </code>
+          <div className="mt-1 break-all text-[9px] text-slate-500">
+            Backend {priorField(binding.backendFeatureIdentity, name)} · formula {priorField(binding.formulaVersion)}
+          </div>
+        </div>
+        <span
+          className={`rounded-full px-2 py-1 text-[9px] font-bold ${
+            ready
+              ? "bg-emerald-700 text-white"
+              : "border border-amber-300 bg-white text-amber-950"
+          }`}
+        >
+          {status}
+        </span>
+      </div>
+      <dl className="mt-3 grid gap-2 text-[10px] leading-4 sm:grid-cols-2">
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Exact formula</dt>
+          <dd className="mt-0.5 break-words font-mono text-slate-800">
+            {priorField(binding.formula)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Ordered parents</dt>
+          <dd className="mt-0.5 break-words font-mono text-slate-800">
+            {parents.length ? parents.join(" → ") : "Not reported"}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Operation order</dt>
+          <dd className="mt-0.5 break-words text-slate-800">
+            {operationOrder.length ? operationOrder.join(" → ") : "Not reported"}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Fold-local / PIT</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">
+            Fold-local {priorGateStatus(binding.foldLocal)} · PIT {priorGateStatus(binding.pointInTime)}
+          </dd>
+        </div>
+      </dl>
+      <details className="mt-2 rounded-lg border border-white/80 bg-white/70 p-2">
+        <summary className="cursor-pointer text-[9px] font-semibold uppercase text-slate-600">
+          Parent treatment authorities · {parentAuthorities.length}
+        </summary>
+        <ol className="mt-1 space-y-1 pl-4 text-[9px] leading-4 text-slate-700">
+          {parentAuthorities.length ? (
+            parentAuthorities.map((authority, index) => (
+              <li key={`${name}:parent:${index}`} className="break-words">
+                {specificationValue(authority)}
+              </li>
+            ))
+          ) : (
+            <li>Not reported</li>
+          )}
+        </ol>
+      </details>
+      {!ready && binding.blockedReason ? (
+        <p className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-[10px] leading-4 text-amber-950">
+          <b>BLOCKED:</b> {binding.blockedReason}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function GovernedInteractionAuthorityPanel({
+  features,
+  summary,
+  executionSummary,
+  draftStatus,
+  canAdopt,
+  totalBlockers,
+}: {
+  features: TreatmentSpecificationFeature[];
+  summary: GovernedInteractionAuthoritySummary | null | undefined;
+  executionSummary: Record<string, unknown>;
+  draftStatus: string;
+  canAdopt: boolean;
+  totalBlockers: number;
+}) {
+  const featureBindings = featureInteractionAuthorityEntries(features);
+  // Feature rows carry the compiler-normalized display contract (including
+  // parent authority IDs and normalized fold/PIT/status keys).  The top-level
+  // manifest bindings are the immutable execution authority and deliberately
+  // retain their lower-level key names, so use them only as a fallback when a
+  // response has no feature rows.
+  const bindings = featureBindings.length
+    ? featureBindings.map(normalizedInteractionBindingForDisplay)
+    : summary?.bindings?.length
+      ? summary.bindings.map(normalizedInteractionBindingForDisplay)
+      : [];
+  if (!summary && !bindings.length) return null;
+  const inferredReady = bindings.filter((binding) =>
+    priorField(binding.status, "").toUpperCase().includes("READY"),
+  ).length;
+  const featureCount =
+    typeof summary?.featureCount === "number"
+      ? summary.featureCount
+      : bindings.length;
+  const readyCount =
+    typeof summary?.readyFeatureCount === "number"
+      ? summary.readyFeatureCount
+      : inferredReady;
+  const blockedCount =
+    typeof summary?.blockedFeatureCount === "number"
+      ? summary.blockedFeatureCount
+      : Math.max(0, featureCount - readyCount);
+  const semanticRemaining = Number(executionSummary.semanticReview ?? 0);
+  const rivalryHeld = Number(executionSummary.additionalHeldClosed ?? 0);
+
+  return (
+    <section
+      className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/30 p-3"
+      data-testid="stage3-governed-interaction-authority"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-800">
+            Governed interaction recomputation
+          </div>
+          <h3 className="mt-1 break-words text-sm font-semibold text-slate-950">
+            {priorField(summary?.authorityName)}
+          </h3>
+          <p className="mt-1 max-w-4xl text-[10px] leading-4 text-slate-600">
+            Read-only formula and lineage evidence. Parents are treated first
+            inside each chronological training fold, the interaction is then
+            recomputed, and downstream encoding or scaling follows. No formula
+            editing, fitting, registration, or adoption occurs here.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[9px] font-semibold">
+          <span className="rounded-full bg-emerald-700 px-2 py-1 text-white">
+            {readyCount} READY
+          </span>
+          <span className="rounded-full border border-amber-300 bg-white px-2 py-1 text-amber-950">
+            {blockedCount} BLOCKED
+          </span>
+          <span className="rounded-full border border-cyan-200 bg-white px-2 py-1 text-cyan-900">
+            Fold-local {priorGateStatus(summary?.foldLocal)}
+          </span>
+          <span className="rounded-full border border-cyan-200 bg-white px-2 py-1 text-cyan-900">
+            PIT {priorGateStatus(summary?.pointInTime)}
+          </span>
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <SpecificationFact
+          label="Authority ID"
+          value={priorField(summary?.authorityId)}
+          detail={`Checksum ${priorField(summary?.authorityChecksum)}`}
+          mono
+        />
+        <SpecificationFact
+          label="Interactions before / cleared / remaining"
+          value={`${featureCount} / ${readyCount} / ${blockedCount}`}
+          detail="Exact persisted interaction treatment inventory"
+        />
+        <SpecificationFact
+          label="Semantic / rivalry"
+          value={`${semanticRemaining} semantic remaining · ${rivalryHeld} rivalry held`}
+          detail="Rivalry candidates remain held closed"
+        />
+        <SpecificationFact
+          label="Draft / adoption"
+          value={`${draftStatus} · canAdopt ${String(canAdopt)}`}
+          detail={`${totalBlockers} total blocker${totalBlockers === 1 ? "" : "s"}`}
+        />
+      </dl>
+      <details open className="mt-3 rounded-lg border border-cyan-100 bg-white/70 p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-slate-900">
+          Exact formula and parent lineage · {bindings.length}
+        </summary>
+        <div className="mt-2 grid max-h-[36rem] gap-2 overflow-y-auto lg:grid-cols-2">
+          {bindings.map((binding, index) => (
+            <InteractionAuthorityBindingCard
+              key={`${priorField(binding.featureName ?? binding.feature)}:${index}`}
+              binding={binding}
+            />
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
 function TreatmentSpecificationPanel({
   specification,
 }: {
@@ -1210,6 +1502,19 @@ function TreatmentSpecificationPanel({
           <GovernedPriorAuthorityPanel
             features={data.features}
             summary={data.priorAuthority}
+          />
+
+          <GovernedInteractionAuthorityPanel
+            features={data.features}
+            summary={data.interactionAuthority}
+            executionSummary={data.executionSummary}
+            draftStatus={data.draft?.status ?? data.status}
+            canAdopt={data.canAdopt}
+            totalBlockers={Number(
+              data.executionSummary.currentTotalBlockers ??
+                data.executionSummary.blocked ??
+                data.blockers.length,
+            )}
           />
 
           {data.blockers.length ? (

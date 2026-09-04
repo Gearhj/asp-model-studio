@@ -87,6 +87,40 @@ export type GovernedPriorAuthoritySummary = GovernedPriorAuthority & {
   featureCount?: number;
 };
 
+export type GovernedInteractionParentTreatmentAuthority =
+  | string
+  | (Record<string, unknown> & {
+      parentFeature?: string;
+      backendFeatureIdentity?: string;
+      status?: string;
+    });
+
+export type GovernedInteractionAuthority = Record<string, unknown> & {
+  featureName?: string;
+  feature?: string;
+  backendFeatureIdentity?: string;
+  formula?: string;
+  formulaVersion?: string;
+  orderedParents?: string[];
+  parentTreatmentAuthorities?: GovernedInteractionParentTreatmentAuthority[];
+  operationOrder?: string[];
+  pointInTime?: boolean | string;
+  foldLocal?: boolean | string;
+  status?: string;
+  blockedReason?: string | null;
+};
+
+export type GovernedInteractionAuthoritySummary =
+  GovernedInteractionAuthority & {
+    authorityName?: string;
+    authorityId?: string;
+    authorityChecksum?: string;
+    featureCount?: number;
+    readyFeatureCount?: number;
+    blockedFeatureCount?: number;
+    bindings?: GovernedInteractionAuthority[];
+  };
+
 export type TreatmentSpecificationFeature = Record<string, unknown> & {
   featureName?: string;
   feature?: string;
@@ -97,6 +131,7 @@ export type TreatmentSpecificationFeature = Record<string, unknown> & {
     missing?: Record<string, unknown> & {
       priorAuthority?: GovernedPriorAuthority | null;
     };
+    interactionAuthority?: GovernedInteractionAuthority | null;
   };
 };
 
@@ -127,6 +162,7 @@ export type TreatmentSpecificationData = {
   dispositionCounts: Record<string, number>;
   executionSummary: Record<string, unknown>;
   priorAuthority?: GovernedPriorAuthoritySummary | null;
+  interactionAuthority?: GovernedInteractionAuthoritySummary | null;
   exceptions: Array<Record<string, unknown>>;
   features: TreatmentSpecificationFeature[];
   priorPolicies: {
