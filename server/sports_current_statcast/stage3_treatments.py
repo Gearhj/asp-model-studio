@@ -27,6 +27,11 @@ from ..persistence.repositories.stage3_treatment_repository import (
 from ..sports_datasets.consumer import canonical_json_bytes
 from ..sports_gold.contracts import GOLD_CLASS_ORDER
 from . import stage3_eda as eda
+from .stage3_player_prior_authority import (
+    AUTHORITY_NAME as PLAYER_PRIOR_AUTHORITY_NAME,
+    SUPPORTED_PRIOR_FEATURES,
+    feature_binding as player_prior_binding,
+)
 
 
 OUTLIER_DETECTION_METHODS = (
@@ -116,10 +121,10 @@ _GOVERNED_DOMAIN_BOUNDS: Mapping[str, tuple[float, float]] = {
     "context_outs_before": (0.0, 2.0),
     "context_bases_mask": (0.0, 7.0),
 }
-# No Current-Gold V1 feature definition registers a reusable hierarchical
-# imputation-prior contract. This explicit empty authority prevents a rate or
-# mathematical bound from being mistaken for scientific prior authority.
-_GOVERNED_PRIOR_FEATURES: frozenset[str] = frozenset()
+# Only features with a statistic-specific opportunity denominator and a
+# canonical executable contract enter this set.  In particular, a nearby PA or
+# BF count never makes a different rate scientifically eligible.
+_GOVERNED_PRIOR_FEATURES: frozenset[str] = SUPPORTED_PRIOR_FEATURES
 
 _RESULT_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _PROFILE_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -2196,6 +2201,11 @@ def _frontend_policy(state: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
     # immutable history until the successor is explicitly adopted.
     selected = state.get("latestDraft") or state.get("adopted")
     policy = dict((selected or {}).get("policy") or {})
+    persisted_prior_features = (
+        list(policy.get("governedPriorEligibleVariables") or [])
+        if selected
+        else sorted(_GOVERNED_PRIOR_FEATURES)
+    )
     history = []
     adopted_id = (state.get("adopted") or {}).get("policyId")
     for item in state.get("history") or []:
@@ -2230,9 +2240,9 @@ def _frontend_policy(state: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
             if kind == "IMPUTATION"
             else None
         ),
-        "governedPriorAvailable": bool(_GOVERNED_PRIOR_FEATURES) if kind == "IMPUTATION" else None,
+        "governedPriorAvailable": bool(persisted_prior_features) if kind == "IMPUTATION" else None,
         "governedPriorEligibleVariables": (
-            sorted(_GOVERNED_PRIOR_FEATURES) if kind == "IMPUTATION" else []
+            persisted_prior_features if kind == "IMPUTATION" else []
         ),
         "canonicalPredictedPreviewSeed": (
             PREDICTED_PREVIEW_SEED if kind == "IMPUTATION" else None
@@ -2672,6 +2682,7 @@ def _missing_detail_data(
     fill_value: Any = None
     fill_policy = ""
     formula = "x' = x"
+    binding: dict[str, Any] | None = None
     retained_missing = int(missing.sum())
     fill_count = 0
     domain_violations = 0
@@ -2738,11 +2749,20 @@ def _missing_detail_data(
         fill_policy = "Explicit UNKNOWN category"
         formula = "missing x' = explicit UNKNOWN category"
     elif method == "GOVERNED_PRIOR":
-        fill_value = float(original.dropna().mean()) if meta.get("dataType") == "numeric" and int((~missing).sum()) else None
-        transformed.loc[missing] = fill_value
-        imputed = missing & transformed.notna()
-        fill_policy = "Descriptive league-prior preview; hierarchy is refit from cutoff-valid training history"
-        formula = "missing x' = the most specific available governed prior learned inside the training fold"
+        # Page load/detail previews may not fit preprocessing authority against
+        # the live workflow.  Do not misrepresent a development-wide mean as a
+        # hierarchical prior; the executable transformer fits only when a
+        # chronological training fold is explicitly supplied.
+        fill_value = None
+        imputed = pd.Series(False, index=original.index)
+        binding = player_prior_binding(variable)
+        fill_policy = (
+            f"{PLAYER_PRIOR_AUTHORITY_NAME} · parameter fit deferred to the authorized training fold"
+        )
+        formula = (
+            "posterior = (prior_strength × training_prior_mean + exact_exposure × raw_rate) "
+            "/ (prior_strength + exact_exposure); source/computation failures remain missing"
+        )
     elif method == "PREDICTED":
         fill_policy = "Row-specific · OOF preview available" if predicted else "Row-specific · preview not run"
         formula = "one deterministic imputer per variable and training fold; target, same-game labels, and final OOT are excluded"
@@ -2823,6 +2843,21 @@ def _missing_detail_data(
             None
             if variable in _GOVERNED_PRIOR_FEATURES
             else "No registered hierarchical or league-prior authority exists for this variable."
+        ),
+        "governedPriorAuthority": (
+            {
+                "authorityName": PLAYER_PRIOR_AUTHORITY_NAME,
+                "method": binding["method"],
+                "hierarchy": binding["hierarchy"],
+                "exposureFeature": binding["exposureFeature"],
+                "exposureDefinition": binding["exposureDefinition"],
+                "reliability": "observed_effective_n / (prior_strength + observed_effective_n)",
+                "foldLocal": "PASS",
+                "pointInTime": "PASS",
+                "status": binding["status"],
+            }
+            if method == "GOVERNED_PRIOR" and binding
+            else None
         ),
         "coldStartHandling": "COLD START — LEGITIMATE STATE; preserve reason/indicator and fit the selected rule inside each training fold.",
         "sourceFailureHandling": "SOURCE/COMPUTATION FAILURE remains separately reason-coded and reviewable; it is never silently treated as cold start.",
@@ -3319,9 +3354,14 @@ def _validate_policy_payload(
         cold_start_default = str(payload.get("coldStartDefault") or "RETAIN_WITH_INDICATOR").upper()
         source_failure_default = str(payload.get("sourceFailureDefault") or "REVIEW_REQUIRED").upper()
         indicator_default = str(payload.get("indicatorDefault") or "RETAIN").upper()
+        available_prior_features = sorted(
+            feature
+            for feature in _GOVERNED_PRIOR_FEATURES
+            if feature in catalog and catalog[feature].get("selectable")
+        )
         if cold_start_default not in allowed_cold_start:
             raise Stage3TreatmentError("COLD_START_POLICY_INVALID", f"Unsupported cold-start rule: {cold_start_default}.")
-        if cold_start_default == "GOVERNED_PRIOR_WITH_INDICATOR" and not _GOVERNED_PRIOR_FEATURES:
+        if cold_start_default == "GOVERNED_PRIOR_WITH_INDICATOR" and not available_prior_features:
             raise Stage3TreatmentError(
                 "COLD_START_GOVERNED_PRIOR_UNAVAILABLE",
                 "No Current-Gold predictor has a registered hierarchical/league-prior authority; use RETAIN_WITH_INDICATOR.",
@@ -3431,7 +3471,7 @@ def _validate_policy_payload(
             "coldStartDefault": cold_start_default,
             "sourceFailureDefault": source_failure_default,
             "indicatorDefault": indicator_default,
-            "governedPriorEligibleVariables": sorted(_GOVERNED_PRIOR_FEATURES),
+            "governedPriorEligibleVariables": available_prior_features,
         }
     fitting_rule = {
         "contractVersion": "STAGE3_FOLD_LOCAL_PREPROCESSING_POLICY_V1",

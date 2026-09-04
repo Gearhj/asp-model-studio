@@ -26,6 +26,7 @@ from ..persistence.repositories.stage3_treatment_repository import (
 )
 from ..sports_datasets.consumer import canonical_json_bytes
 from . import stage3_eda as eda
+from . import stage3_player_prior_authority as player_prior
 from . import stage3_treatments as treatments
 
 
@@ -166,7 +167,7 @@ def load_source_specification(path: Path = SOURCE_PATH) -> dict[str, Any]:
     return source
 
 
-def _execution_contract(disposition: str) -> dict[str, Any]:
+def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition in _EXCLUDED_DISPOSITIONS:
         return {
             "executableStatus": "READY",
@@ -194,11 +195,26 @@ def _execution_contract(disposition: str) -> dict[str, Any]:
         "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
         "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
     }:
+        binding = player_prior.feature_binding(feature_name)
+        if binding and binding["executable"]:
+            return {
+                "executableStatus": "READY_GOVERNED_PRIOR_V1",
+                "selectable": True,
+                "resolution": "EXECUTE_GOVERNED_PLAYER_TO_MLB_LEAGUE_EMPIRICAL_BAYES_PRIOR",
+                "blockedReason": None,
+                "treeModel": "RETAIN_RAW_PLUS_GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE",
+                "denseModel": "GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE_WITH_TRAINING_ONLY_SCALING",
+                "fallbackLabel": None,
+            }
         return {
             "executableStatus": "BLOCKED",
             "selectable": False,
             "resolution": "HOLD_NONEXECUTABLE_UNTIL_GOVERNED_PRIOR_AUTHORITY_EXISTS",
-            "blockedReason": "No registered hierarchical, role-aware, or league-aware prior authority exists.",
+            "blockedReason": (
+                str(binding["blockedReason"])
+                if binding
+                else "No exact governed feature binding exists in the player-prior authority."
+            ),
             "treeModel": "NO_NATIVE_MISSING_SUBSTITUTION_IS_CLAIMED_AS_A_PRIOR",
             "denseModel": "NO_MEDIAN_SUBSTITUTION_IS_CLAIMED_AS_A_PRIOR",
             "fallbackLabel": None,
@@ -382,13 +398,18 @@ def _structured_execution_contract(
     disposition = str(source_row["recommended_inclusion"])
     parents = _interaction_parents(name) if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT" else []
     indicators = _paired_indicators(name, disposition)
+    prior_binding = player_prior.feature_binding(name)
     if disposition in _EXCLUDED_DISPOSITIONS:
         missing_strategy = "DROP_VARIABLE_NO_VALUE_REWRITE"
     elif disposition in {
         "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
         "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
     }:
-        missing_strategy = "GOVERNED_PRIOR_REQUIRED_NOT_IMPLEMENTED"
+        missing_strategy = (
+            "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
+            if execution["selectable"]
+            else "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
+        )
     elif not execution["selectable"]:
         missing_strategy = "HOLD_NONEXECUTABLE_WITHOUT_VALUE_SUBSTITUTION"
     elif disposition in _ZERO_WITH_INDICATOR_DISPOSITIONS:
@@ -420,11 +441,36 @@ def _structured_execution_contract(
             "finalOotRowsFitParameters": False,
             "indicatorFeatures": indicators,
             "fallbackLabel": execution["fallbackLabel"],
+            "priorAuthority": (
+                {
+                    "authorityName": player_prior.AUTHORITY_NAME,
+                    "method": prior_binding["method"],
+                    "hierarchy": prior_binding["hierarchy"],
+                    "roleAuthority": prior_binding["roleAuthority"],
+                    "exposureFeature": prior_binding["exposureFeature"],
+                    "exposureDefinition": prior_binding["exposureDefinition"],
+                    "historyWindow": prior_binding["historyWindow"],
+                    "historyCutoff": prior_binding["historyCutoff"],
+                    "decayAuthority": prior_binding["decayAuthority"],
+                    "reliability": "observed_effective_n / (prior_strength + observed_effective_n)",
+                    "foldLocal": "PASS",
+                    "pointInTime": "PASS",
+                    "status": prior_binding["status"],
+                    "blockedReason": prior_binding["blockedReason"],
+                    "derivedOutputs": list(prior_binding["derivedOutputs"].values()),
+                    "derivedOutputMap": prior_binding["derivedOutputs"],
+                    "rawFeatureDecision": prior_binding["rawFeatureDecision"],
+                }
+                if prior_binding
+                else None
+            ),
         },
         "lineage": {
             "sourceIdentity": backend.get("sourceLineage"),
             "parentFeatures": parents,
             "pairedIndicators": indicators,
+            "exposureFeature": prior_binding["exposureFeature"] if prior_binding else None,
+            "derivedPriorOutputs": prior_binding["derivedOutputs"] if prior_binding else None,
             "transformationOrder": (
                 ["TREAT_PARENTS_INSIDE_TRAINING_FOLD", "RECOMPUTE_INTERACTION", "APPLY_FROZEN_PIPELINE"]
                 if parents
@@ -471,7 +517,9 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
             workbook_missing = float(source_row.get("missing_percent") or 0.0)
             if abs(backend_missing - workbook_missing) > 1e-8:
                 row_discrepancies.append("DEVELOPMENT_MISSINGNESS_CONFLICT")
-        execution = _execution_contract(str(source_row.get("recommended_inclusion") or ""))
+        execution = _execution_contract(
+            name, str(source_row.get("recommended_inclusion") or "")
+        )
         structured_execution = _structured_execution_contract(source_row, backend or {}, execution)
         reconciled = {
             **source_row,
@@ -573,7 +621,7 @@ def _exception_rows(
     for row in features:
         status = str(row["executable_status"])
         disposition = str(row["recommended_inclusion"])
-        if status == "READY" and disposition not in _EXCLUDED_DISPOSITIONS:
+        if status in {"READY", "READY_GOVERNED_PRIOR_V1"} and disposition not in _EXCLUDED_DISPOSITIONS:
             continue
         output.append(
             {
@@ -610,6 +658,17 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
     features = reconciliation.pop("features")
     inventory_identity = reconciliation.pop("inventoryIdentity")
     additional = list(reconciliation["additionalBackendFeatures"])
+    prior_authority = player_prior.project_authority_manifest(
+        authority,
+        treatment_specification_key=SPECIFICATION_KEY,
+        treatment_source_sha256=str(source["source_content_sha256"]),
+    )
+    for row in features:
+        feature_prior = (
+            (row.get("execution_contract") or {}).get("missing") or {}
+        ).get("priorAuthority")
+        if isinstance(feature_prior, dict):
+            feature_prior["authorityId"] = prior_authority["authorityId"]
     exceptions = _exception_rows(features, additional)
     disposition_counts = Counter(str(row["recommended_inclusion"]) for row in features)
     status_counts = Counter(str(row["executable_status"]) for row in features)
@@ -622,6 +681,7 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         "sourceContentSha256": source["source_content_sha256"],
         "sourceWorkbook": source["source_workbook"],
         "projectAuthority": treatments._authority_payload(authority),
+        "priorAuthority": prior_authority,
         "developmentBoundary": {
             "startDate": eda.DEVELOPMENT_START,
             "endDate": eda.DEVELOPMENT_END,
@@ -642,6 +702,7 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "workbookFeatures": len(features),
             "additionalHeldClosed": len(additional),
             "ready": int(status_counts["READY"]),
+            "readyGovernedPrior": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
             "readyWithExplicitFallback": int(status_counts["READY_WITH_EXPLICIT_FALLBACK"]),
             "blocked": int(status_counts["BLOCKED"]),
             "automaticRetain": int(disposition_counts["NO_MISSING_TREATMENT"]),
@@ -656,6 +717,16 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "hierarchicalPriorRequired": int(
                 disposition_counts["HIERARCHICAL_PRIOR_PLUS_INDICATOR"]
                 + disposition_counts["ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR"]
+            ),
+            "hierarchicalPriorReady": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "hierarchicalPriorBlocked": sum(
+                row["executable_status"] == "BLOCKED"
+                and row["recommended_inclusion"]
+                in {
+                    "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
+                    "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
+                }
+                for row in features
             ),
             "nativeMissingEligible": int(disposition_counts["NO_PRIOR_GAME_STATE_PLUS_FOLD_LOCAL_FILL"]),
             "foldLocalTechnicalFallback": int(status_counts["READY_WITH_EXPLICIT_FALLBACK"]),
@@ -734,6 +805,18 @@ def _policy_inputs(compiled: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
                 "retainIndicator": True,
                 "resolutionLabel": "INTERIM_TECHNICAL_FALLBACK",
             }
+        elif disposition in {
+            "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
+            "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
+        }:
+            missing_overrides[name] = {
+                "method": "GOVERNED_PRIOR",
+                "coldStartMethod": "GOVERNED_PRIOR_WITH_INDICATOR",
+                "sourceFailureMethod": "REVIEW_REQUIRED",
+                "retainIndicator": True,
+                "priorAuthorityId": compiled["priorAuthority"]["authorityId"],
+                "resolutionLabel": "GOVERNED_EXECUTABLE_PRIOR_AUTHORITY",
+            }
         elif disposition in {"INCLUDE_DERIVED_INDICATOR", "SIMULATOR_REQUIRED"}:
             missing_overrides[name] = {
                 "method": "RETAIN_WITH_INDICATOR",
@@ -805,11 +888,27 @@ def current_draft_execution_overlay(
     overlay: dict[str, dict[str, Any]] = {}
     for row in manifest.get("features") or []:
         if isinstance(row, Mapping) and str(row.get("feature_name") or ""):
+            execution_contract = row.get("execution_contract")
+            execution_contract = (
+                execution_contract if isinstance(execution_contract, Mapping) else {}
+            )
+            missing_contract = execution_contract.get("missing")
+            missing_contract = (
+                missing_contract if isinstance(missing_contract, Mapping) else {}
+            )
+            lineage_contract = execution_contract.get("lineage")
+            lineage_contract = (
+                lineage_contract if isinstance(lineage_contract, Mapping) else {}
+            )
             overlay[str(row["feature_name"])] = {
                 "executableStatus": row.get("executable_status"),
                 "executableSelectable": bool(row.get("executable_selectable")),
                 "blockedReason": row.get("blocked_reason"),
                 "scientificRecommendation": row.get("recommended_inclusion"),
+                # Display-only scientific lineage. A DRAFT still cannot
+                # authorize this preprocessing output or a feature-set entry.
+                "priorAuthority": missing_contract.get("priorAuthority"),
+                "derivedPriorOutputs": lineage_contract.get("derivedPriorOutputs"),
             }
     for row in (manifest.get("reconciliation") or {}).get("additionalBackendFeatures") or []:
         if isinstance(row, Mapping) and str(row.get("featureName") or ""):
@@ -824,6 +923,8 @@ def current_draft_execution_overlay(
         "specificationVersion": draft.get("specificationVersion"),
         "manifestChecksum": draft.get("manifestChecksum"),
         "status": "DRAFT_NEGATIVE_GATES_ONLY",
+        "priorAuthority": manifest.get("priorAuthority"),
+        "executionSummary": manifest.get("executionSummary"),
     }
     return overlay, reference
 
@@ -868,6 +969,7 @@ def _state_data(
         "reconciliation": compiled["reconciliation"],
         "dispositionCounts": compiled["dispositionCounts"],
         "executionSummary": compiled["executionSummary"],
+        "priorAuthority": compiled["priorAuthority"],
         "exceptions": compiled["exceptions"],
         "features": [
             {
