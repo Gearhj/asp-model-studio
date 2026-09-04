@@ -29,6 +29,7 @@ from server.persistence.repositories.stage3_treatment_repository import (
 )
 from server.sports_current_statcast import stage3_feature_engineering as feature_engineering
 from server.sports_current_statcast import stage3_feature_treatment_spec as specification
+from server.sports_current_statcast import stage3_player_prior_authority as player_prior
 from server.sports_current_statcast import stage3_treatments as treatments
 from server.sports_current_statcast.contextual_features import (
     ORDERED_GOLD_PLUS_CONTEXT_FEATURES,
@@ -568,12 +569,29 @@ def test_fold_local_model_family_and_indicator_contracts_are_explicit(
         }
     ]
     assert len(governed_prior_rows) == 24
+    ready_prior_rows = [
+        row
+        for row in governed_prior_rows
+        if row["executable_status"] == "READY_GOVERNED_PRIOR_V1"
+    ]
+    blocked_prior_rows = [
+        row for row in governed_prior_rows if row["executable_status"] == "BLOCKED"
+    ]
+    assert len(ready_prior_rows) == 11
+    assert len(blocked_prior_rows) == 13
     assert all(
         row["execution_contract"]["missing"]["strategy"]
-        == "GOVERNED_PRIOR_REQUIRED_NOT_IMPLEMENTED"
-        for row in governed_prior_rows
+        == "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
+        for row in ready_prior_rows
     )
-    assert all(not row["executable_selectable"] for row in governed_prior_rows)
+    assert all(row["executable_selectable"] for row in ready_prior_rows)
+    assert all(
+        row["execution_contract"]["missing"]["strategy"]
+        == "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
+        for row in blocked_prior_rows
+    )
+    assert all(not row["executable_selectable"] for row in blocked_prior_rows)
+    assert all(row["blocked_reason"] for row in blocked_prior_rows)
 
     indicators = [
         row
@@ -623,7 +641,9 @@ def test_fold_local_model_family_and_indicator_contracts_are_explicit(
     assert paired
     assert paired <= exact_names
 
-    unsupported = specification._execution_contract("UNREGISTERED_RECOMMENDATION")
+    unsupported = specification._execution_contract(
+        "unregistered_feature", "UNREGISTERED_RECOMMENDATION"
+    )
     assert unsupported["executableStatus"] == "BLOCKED"
     assert unsupported["selectable"] is False
     assert unsupported["fallbackLabel"] is None
@@ -810,6 +830,109 @@ def test_combined_draft_blocks_every_individual_policy_adoption(
         assert connection.execute(
             "SELECT COUNT(*) FROM stage3_treatment_policy_versions "
             "WHERE policy_status = 'ADOPTED'"
+        ).fetchone()[0] == 0
+
+
+def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authorizing_them(
+    governed: SimpleNamespace,
+) -> None:
+    saved = _save(governed)["data"]
+    assert saved["draft"]["status"] == "DRAFT"
+    assert saved["canAdopt"] is False
+    overlay, reference = specification.current_draft_execution_overlay(
+        governed.database, governed.authority
+    )
+    assert reference is not None
+    assert reference["status"] == "DRAFT_NEGATIVE_GATES_ONLY"
+    assert reference["priorAuthority"] == saved["priorAuthority"]
+    assert reference["priorAuthority"]["authorityName"] == player_prior.AUTHORITY_NAME
+    assert reference["priorAuthority"]["readyFeatureCount"] == 11
+    assert reference["priorAuthority"]["blockedFeatureCount"] == 13
+
+    ready_name = "batter_so_per_pa"
+    blocked_name = "batter_avg"
+    ready = overlay[ready_name]
+    blocked = overlay[blocked_name]
+    expected_ready_binding = player_prior.feature_binding(ready_name)
+    expected_blocked_binding = player_prior.feature_binding(blocked_name)
+    assert ready["executableStatus"] == "READY_GOVERNED_PRIOR_V1"
+    assert ready["executableSelectable"] is True
+    assert ready["priorAuthority"]["authorityId"] == reference["priorAuthority"]["authorityId"]
+    assert ready["priorAuthority"]["status"] == "READY_GOVERNED_PRIOR_V1"
+    assert ready["priorAuthority"]["rawFeatureDecision"] == (
+        "RETAIN_RAW_AND_ADD_GOVERNED_DERIVED_FAMILY"
+    )
+    assert ready["derivedPriorOutputs"] == expected_ready_binding["derivedOutputs"]
+    assert ready["derivedPriorOutputs"] == ready["priorAuthority"]["derivedOutputMap"]
+    assert set(ready["derivedPriorOutputs"]) == {
+        "posteriorMean",
+        "effectiveN",
+        "priorStrength",
+        "posteriorStrength",
+        "posteriorVariance",
+        "posteriorStd",
+        "posteriorReliability",
+        "historyState",
+        "priorLevel",
+        "observedSuccesses",
+        "observedTrials",
+        "priorAlpha",
+        "priorBeta",
+        "posteriorAlpha",
+        "posteriorBeta",
+        "decayWeight",
+        "observationAgeDays",
+    }
+    # Derived preprocessing columns are lineage, not silently registered raw candidates.
+    assert not (set(ready["derivedPriorOutputs"].values()) & set(overlay))
+
+    assert blocked["executableStatus"] == "BLOCKED"
+    assert blocked["executableSelectable"] is False
+    assert blocked["blockedReason"] == expected_blocked_binding["blockedReason"]
+    assert blocked["priorAuthority"]["status"] == "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
+    assert blocked["priorAuthority"]["blockedReason"] == expected_blocked_binding["blockedReason"]
+
+    # A positive DRAFT resolution is informational only: it cannot reactivate a
+    # row already held closed by the underlying feature authority.
+    initially_closed = {
+        "name": ready_name,
+        "eligible": False,
+        "featureState": "INACTIVE",
+        "governanceStatus": "HELD_CLOSED_BY_SOURCE_AUTHORITY",
+        "inactiveReason": "Pre-existing source hold.",
+        "stateReason": "Pre-existing source hold.",
+    }
+    returned_reference = feature_engineering._apply_treatment_spec_draft_gates(
+        [initially_closed], governed.database, governed.authority
+    )
+    assert returned_reference == reference
+    assert initially_closed["treatmentSpecificationDraft"] == reference
+    assert initially_closed["treatmentSpecificationResolution"] == ready
+    assert initially_closed["eligible"] is False
+    assert initially_closed["featureState"] == "INACTIVE"
+    assert initially_closed["governanceStatus"] == "HELD_CLOSED_BY_SOURCE_AUTHORITY"
+    assert initially_closed["inactiveReason"] == "Pre-existing source hold."
+
+    # A negative DRAFT resolution still performs its existing fail-closed duty.
+    blocked_row = deepcopy(
+        next(row for row in governed.inventory_holder["rows"] if row["name"] == blocked_name)
+    )
+    feature_engineering._apply_treatment_spec_draft_gates(
+        [blocked_row], governed.database, governed.authority
+    )
+    assert blocked_row["eligible"] is False
+    assert blocked_row["featureState"] == "INACTIVE"
+    assert blocked_row["governanceStatus"] == "HELD_CLOSED_BY_TREATMENT_SPEC_DRAFT"
+    assert blocked_row["inactiveReason"] == expected_blocked_binding["blockedReason"]
+
+    assert saved["audit"]["preprocessingFits"] == 0
+    assert saved["audit"]["modelFits"] == 0
+    with governed.database.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_versions"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_events"
         ).fetchone()[0] == 0
 
 

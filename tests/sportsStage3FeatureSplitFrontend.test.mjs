@@ -219,3 +219,48 @@ test("Feature Engineering labels absent adopted treatment authority honestly", (
     /label="Missing policy" value=\{`v\$\{summary\.data\.treatmentPolicies\.missing\.version\}`\}/,
   );
 });
+
+test("Feature Engineering exposes governed prior outputs as read-only preprocessing lineage", () => {
+  includesAll(
+    api,
+    [
+      "GovernedPreprocessingPriorAuthority",
+      "TreatmentSpecificationResolution",
+      "TreatmentSpecificationDraftAuthority",
+      "treatmentSpecificationResolution: TreatmentSpecificationResolution | null",
+      "treatmentSpecificationDraft: TreatmentSpecificationDraftAuthority | null",
+      "raw?.treatmentSpecificationResolution",
+      "raw?.treatmentSpecificationDraft",
+      "raw.derivedPriorOutputs",
+      "normalizedPriorAuthority",
+      "priorAuthority: treatmentSpecificationDraft?.priorAuthority ?? null",
+      "executionSummary",
+    ],
+    "governed prior Feature Engineering contract",
+  );
+  includesAll(
+    feature,
+    [
+      "feature-engineering-governed-prior-authority",
+      "Governed derived preprocessing",
+      "posterior, effective-sample-size, reliability, and uncertainty",
+      "does not fit, tune, register, or adopt the",
+      "Feature resolution",
+      "Fold-local ${authority.foldLocal}",
+      "PIT ${authority.pointInTime}",
+      "feature-row-governed-prior-outputs",
+      "derived outputs",
+      "feature-detail-governed-prior-outputs",
+      "Exposure / effective sample size",
+      "Reliability / uncertainty",
+      "Derived columns carried as one governed preprocessing family",
+      "<b>BLOCKED:</b>",
+    ],
+    "governed prior Feature Engineering visibility",
+  );
+  assert.doesNotMatch(
+    feature,
+    /governedPrior[^\n]*(onClick|mutateFeatureSet)/i,
+    "governed prior visibility must not add fit, adoption, or registration controls",
+  );
+});

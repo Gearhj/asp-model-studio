@@ -680,6 +680,59 @@ test("both treatment studios share one exact, refresh-persistent canonical speci
   );
 });
 
+test("governed player priors are inspectable without fitting or tuning from the treatment UI", () => {
+  includesAll(
+    api,
+    [
+      "GovernedPriorAuthority",
+      "authorityName?: string",
+      "authorityId?: string",
+      "hierarchy?: string | string[]",
+      "exposureFeature?: string | null",
+      "reliability?: string",
+      "foldLocal?: boolean | string",
+      "pointInTime?: boolean | string",
+      "blockedReason?: string | null",
+      "derivedOutputs?: string[]",
+      "priorAuthority?: GovernedPriorAuthority | null",
+    ],
+    "governed prior response contract",
+  );
+  includesAll(
+    shell,
+    [
+      "stage3-governed-player-prior-authority",
+      "Governed preprocessing authority",
+      "global MLB league prior because Current Gold has no governed role",
+      "Exposure / effective sample size",
+      "Reliability / uncertainty",
+      "Fold-local {priorGateStatus(authority.foldLocal)}",
+      "PIT {priorGateStatus(authority.pointInTime)}",
+      "Governed preprocessing outputs:",
+      "<b>BLOCKED:</b> {authority.blockedReason}",
+      "this page does not",
+      "fit priors, models, or validation data",
+      "No tuning controls are exposed in this review surface",
+      "priorAuthorityByFeature",
+    ],
+    "governed prior authority review",
+  );
+  includesAll(
+    missing,
+    [
+      "useGovernedPriorAuthority(row?.variable)",
+      "GovernedPriorAuthorityCard",
+      "governedPriorAuthority",
+    ],
+    "selected-variable governed prior review",
+  );
+  assert.doesNotMatch(
+    `${shell}\n${missing}`,
+    /prior[^\n]*(fit|tune)[^\n]*onClick/i,
+    "the governed-prior authority must remain display-only",
+  );
+});
+
 test("specification mutations reject stale projects and only adopt the exact current receipt", () => {
   includesAll(
     api,
