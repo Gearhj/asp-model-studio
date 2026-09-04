@@ -118,14 +118,74 @@ def aggregate_pitch_history(
         pl.col("_breaking").sum().alias("breaking_count"),
         pl.col("_offspeed").sum().alias("offspeed_count"),
         pl.col("_other_or_unclassified").sum().alias("other_or_unclassified_pitch_count"),
-        pl.col("_fb_velo").sum().fill_null(0.0).alias("fastball_velocity_sum"),
-        pl.col("_fb_velo").pow(2).sum().fill_null(0.0).alias("fastball_velocity_sumsq"),
-        pl.col("_fb_velo").count().alias("fastball_velocity_count"),
     )
     try:
         out = grouped.collect(engine="streaming")
     except TypeError:  # Polars < 1.25 compatibility
         out = grouped.collect(streaming=True)
+
+    # Parallel floating-point group reductions can accumulate the same source
+    # values in a different order on separate executions. That is numerically
+    # negligible but invalid for a content-addressed publication. Sort the
+    # original finite float64 values by immutable PA identity and value, then
+    # reduce each contiguous group in that fixed order. Source precision is
+    # retained: no rounding, truncation, or integer coercion is applied.
+    velocity_lazy = (
+        lazy.filter(pl.col("_fb_velo").is_not_null())
+        .select("canonicalPaId", "_fb_velo")
+        .sort(["canonicalPaId", "_fb_velo"])
+    )
+    try:
+        velocity_rows = velocity_lazy.collect(engine="streaming")
+    except TypeError:  # Polars < 1.25 compatibility
+        velocity_rows = velocity_lazy.collect(streaming=True)
+    if velocity_rows.height:
+        velocity_ids = velocity_rows.get_column("canonicalPaId").to_numpy()
+        velocity_values = velocity_rows.get_column("_fb_velo").to_numpy().astype(
+            np.float64, copy=False
+        )
+        starts = np.concatenate(
+            (
+                np.array([0], dtype=np.int64),
+                np.flatnonzero(velocity_ids[1:] != velocity_ids[:-1]).astype(
+                    np.int64, copy=False
+                )
+                + 1,
+            )
+        )
+        ends = np.concatenate(
+            (starts[1:], np.array([len(velocity_values)], dtype=np.int64))
+        )
+        velocity = pl.DataFrame(
+            {
+                "canonicalPaId": velocity_ids[starts],
+                "fastball_velocity_sum": np.add.reduceat(velocity_values, starts),
+                "fastball_velocity_sumsq": np.add.reduceat(
+                    velocity_values * velocity_values, starts
+                ),
+                "fastball_velocity_count": (ends - starts).astype(
+                    np.int64, copy=False
+                ),
+            }
+        )
+    else:
+        velocity = pl.DataFrame(
+            schema={
+                "canonicalPaId": pl.String,
+                "fastball_velocity_sum": pl.Float64,
+                "fastball_velocity_sumsq": pl.Float64,
+                "fastball_velocity_count": pl.Int64,
+            }
+        )
+    out = (
+        out.join(velocity, on="canonicalPaId", how="left")
+        .with_columns(
+            pl.col("fastball_velocity_sum").fill_null(0.0).cast(pl.Float64),
+            pl.col("fastball_velocity_sumsq").fill_null(0.0).cast(pl.Float64),
+            pl.col("fastball_velocity_count").fill_null(0).cast(pl.Int64),
+        )
+        .sort("canonicalPaId")
+    )
     return out.to_pandas()
 
 

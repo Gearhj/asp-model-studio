@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -174,6 +176,94 @@ def test_pitch_aggregation_preserves_full_composition_moments_and_cutoff() -> No
     assert row["fastball_velocity_count"] == 1
     assert row["fastball_velocity_sum"] == pytest.approx(95.5)
     assert row["fastball_velocity_sumsq"] == pytest.approx(95.5**2)
+
+
+def test_pitch_velocity_moments_are_exactly_repeatable_across_source_order() -> None:
+    # This permutation differs by one ULP under a plain sequential float sum.
+    velocities = [76.0, 95.3, 108.9]
+
+    def aggregate(values: list[float]) -> dict[str, Any]:
+        length = len(values)
+        return aggregate_pitch_history(
+            pa.table(
+                {
+                    "canonicalPaId": ["pa-stable"] * length,
+                    "pitchType": ["FF"] * length,
+                    "releaseSpeed": values,
+                    "pitchResultType": ["called_strike"] * length,
+                }
+            )
+        ).to_dict("records")[0]
+
+    forward = aggregate(velocities)
+    reversed_source = aggregate(list(reversed(velocities)))
+
+    assert forward["fastball_velocity_count"] == len(velocities)
+    assert forward["fastball_velocity_sum"].hex() == reversed_source[
+        "fastball_velocity_sum"
+    ].hex()
+    assert forward["fastball_velocity_sumsq"].hex() == reversed_source[
+        "fastball_velocity_sumsq"
+    ].hex()
+
+
+def test_pitch_velocity_moments_are_thread_and_multifile_repeatable(
+    tmp_path: Path,
+) -> None:
+    columns = {
+        "canonicalPaId": ["pa-b", "pa-a", "pa-b", "pa-a", "pa-b", "pa-a"],
+        "pitchType": ["FF", "FF", "SI", "FC", "SL", "FF"],
+        "releaseSpeed": [
+            90.1234567890123,
+            101.987654321098,
+            94.3333333333333,
+            96.7777777777777,
+            88.0000000000001,
+            99.2222222222222,
+        ],
+        "pitchResultType": ["called_strike"] * 6,
+    }
+    first_path = tmp_path / "first.parquet"
+    second_path = tmp_path / "second.parquet"
+    pq.write_table(pa.table({name: values[:3] for name, values in columns.items()}), first_path)
+    pq.write_table(pa.table({name: values[3:] for name, values in columns.items()}), second_path)
+    repository_root = Path(__file__).resolve().parents[1]
+    program = """
+import json
+import sys
+from pathlib import Path
+from server.sports_gold.features import aggregate_pitch_history
+
+frame = aggregate_pitch_history(tuple(Path(value) for value in sys.argv[1:]))
+frame = frame.sort_values("canonicalPaId", kind="mergesort")
+print(json.dumps([
+    {
+        "canonicalPaId": row.canonicalPaId,
+        "count": int(row.fastball_velocity_count),
+        "sum": float(row.fastball_velocity_sum).hex(),
+        "sumsq": float(row.fastball_velocity_sumsq).hex(),
+    }
+    for row in frame.itertuples(index=False)
+], sort_keys=True, separators=(",", ":")))
+"""
+
+    def run(*, threads: int, paths: tuple[Path, Path]) -> str:
+        environment = dict(os.environ)
+        environment["POLARS_MAX_THREADS"] = str(threads)
+        completed = subprocess.run(
+            [sys.executable, "-c", program, *(str(path) for path in paths)],
+            cwd=repository_root,
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip().splitlines()[-1]
+
+    single_threaded = run(threads=1, paths=(first_path, second_path))
+    parallel_reversed = run(threads=8, paths=(second_path, first_path))
+
+    assert single_threaded == parallel_reversed
 
 
 def _history_inputs(rows: list[tuple[str, str]]) -> tuple[pd.DataFrame, pd.DataFrame]:
