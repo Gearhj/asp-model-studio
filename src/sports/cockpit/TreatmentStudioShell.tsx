@@ -1744,7 +1744,11 @@ export function TreatmentStudioShell({
   const specification = useTreatmentSpecification(
     projectId,
     authorityKey,
-    Boolean(projectId && authorityKey),
+    Boolean(
+      projectId &&
+        authorityKey &&
+        authorityKey !== "authority-pending",
+    ),
   );
   const priorAuthorityByFeature = Object.fromEntries(
     featurePriorAuthorityEntries(specification.value?.data.features ?? []),

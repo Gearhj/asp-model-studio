@@ -643,6 +643,7 @@ test("both treatment studios share one exact, refresh-persistent canonical speci
       "Combined specification draft.",
       "Partial {kind} adoption is",
       "stage3-combined-draft-atomic-adoption",
+      'authorityKey !== "authority-pending"',
     ],
     "shared canonical specification review surface",
   );
