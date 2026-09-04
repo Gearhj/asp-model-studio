@@ -715,6 +715,11 @@ def feature_studio_summary(project_id: str, database: Database) -> dict[str, Any
     treatment_specification_draft = _apply_treatment_spec_draft_gates(
         rows, database, authority
     )
+    interaction_authority = (
+        treatment_specification_draft.get("interactionAuthority")
+        if isinstance(treatment_specification_draft, Mapping)
+        else None
+    )
     families = _family_summaries(catalog)
     interactions = _interaction_contracts()
     state = _feature_set_state_data(database, authority)
@@ -803,6 +808,7 @@ def feature_studio_summary(project_id: str, database: Database) -> dict[str, Any
             "treatmentPolicies": _treatment_policy_refs(database, authority),
             "featureSetState": state,
             "treatmentSpecificationDraft": treatment_specification_draft,
+            "interactionAuthority": interaction_authority,
         },
     )
 
@@ -1453,6 +1459,16 @@ def register_feature_set(
     authority = eda._resolve_authority(database, project_id)
     _reject_oot_request(payload)
     _assert_authority(authority, payload)
+    combined_state = Stage3TreatmentRepository(database).combined_spec_state(
+        authority.project_id, authority.review_digest
+    )
+    combined_history = list(combined_state.get("history") or [])
+    if combined_history and combined_history[0].get("status") == "DRAFT":
+        raise Stage3FeatureEngineeringError(
+            "FEATURE_SET_TREATMENT_SPEC_DRAFT_PENDING",
+            "Adopt or explicitly resolve the newest combined treatment specification before feature-set registration.",
+            status_code=409,
+        )
     draft_id = str(payload.get("draftFeatureSetId") or payload.get("featureSetId") or "").strip()
     checksum = str(payload.get("expectedChecksum") or "").strip()
     if not draft_id:

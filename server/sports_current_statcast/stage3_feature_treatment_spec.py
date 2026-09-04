@@ -26,6 +26,7 @@ from ..persistence.repositories.stage3_treatment_repository import (
 )
 from ..sports_datasets.consumer import canonical_json_bytes
 from . import stage3_eda as eda
+from . import stage3_interaction_recomputation_authority as interaction_authority
 from . import stage3_player_prior_authority as player_prior
 from . import stage3_treatments as treatments
 
@@ -71,6 +72,69 @@ EXPECTED_ADDITIONAL_FEATURES = (
     "fielding_rivalry_mapping_missing",
 )
 
+# These are negative, read-only authority findings for the two reviewed
+# semantic rows.  Neither record is made executable: the landed schedule is
+# deterministic, but its historical snapshots do not preserve original
+# pregame knowledge timestamps, while the embedded holiday rules are not a
+# separately registered/effective-dated calendar authority.  Keeping the
+# exact finding beside the compiler prevents a generic missing-value default
+# from being mistaken for scientific resolution.
+_SEMANTIC_AUTHORITY_DECISIONS: Mapping[str, Mapping[str, Any]] = {
+    "doubleheader_game_number": {
+        "status": "BLOCKED_POINT_IN_TIME_UNPROVEN",
+        "resolution": "HOLD_UNTIL_PREGAME_SCHEDULE_SEQUENCE_AUTHORITY_IS_REGISTERED",
+        "blockedReason": (
+            "Schedule authority MLB_CURRENT_STATCAST_SCHEDULE_AUTHORITY_V1 does not "
+            "preserve original pregame knowledge timestamps or an independent "
+            "{0,1,2} doubleheader-sequence invariant tied to scheduled start order."
+        ),
+        "sourceAuthority": "MLB_CURRENT_STATCAST_SCHEDULE_AUTHORITY_V1",
+        "sourceAuthoritySha256": "44c43a48dda5895dcc19417a1c51b18ccdaed9dd83b3c1b8d50826e42be69c4d",
+        "requiredSemantics": {
+            "0": "VERIFIED_NOT_A_DOUBLEHEADER",
+            "1": "VERIFIED_FIRST_DOUBLEHEADER_GAME",
+            "2": "VERIFIED_SECOND_DOUBLEHEADER_GAME",
+            "unknown": "HELD_NONEXECUTABLE",
+        },
+        "forbiddenTreatment": "MEDIAN_IMPUTATION",
+    },
+    "holiday_name": {
+        "status": "BLOCKED_CALENDAR_AUTHORITY_UNAVAILABLE",
+        "resolution": "HOLD_UNTIL_EFFECTIVE_DATED_VENUE_REGION_CALENDAR_AUTHORITY_IS_REGISTERED",
+        "blockedReason": (
+            "US_CA_ON_BASEBALL_CALENDAR_V1 is embedded code rather than a separately "
+            "registered, sourced, effective-dated holiday calendar; null currently "
+            "cannot prove NONE rather than UNKNOWN_HOLIDAY for every venue region."
+        ),
+        "sourceAuthority": "MLB_CONTEXT_STATIC_AUTHORITY_V1",
+        "sourceAuthoritySha256": "da9740dd90a161202d42ba18d3c89f2569e3711e33b48f86bf3bd0a8a6f2d56d",
+        "embeddedRulesVersion": "US_CA_ON_BASEBALL_CALENDAR_V1",
+        "requiredSemantics": {
+            "holiday": "EXACT_REGISTERED_HOLIDAY_NAME",
+            "none": "VERIFIED_NON_HOLIDAY",
+            "unknown": "UNKNOWN_HOLIDAY_HELD_NONEXECUTABLE",
+        },
+        "forbiddenTreatment": "MODE_IMPUTATION",
+    },
+}
+
+_RIVALRY_PROPOSAL_PATH = Path(__file__).parents[2] / "docs" / "MLB_RIVALRY_MAPPING_PROPOSAL_V1.json"
+_RIVALRY_FORMULAS: Mapping[str, str] = {
+    "rivalry_pair": "None if mapping_missing else int({team_id, opponent_team_id} in approved_pairs)",
+    "rivalry_game": "rivalry_pair",
+    "home_rivalry_game": "None if rivalry_pair is None else rivalry_pair * int(is_home)",
+    "friday_night_home_rivalry": (
+        "None if rivalry_pair is None else rivalry_pair * int(is_home) * "
+        "int(local_day_of_week == FRIDAY) * int(local_start_hour >= 18)"
+    ),
+    "weekend_home_rivalry": (
+        "None if rivalry_pair is None else rivalry_pair * int(is_home) * "
+        "int(local_day_of_week in {SATURDAY, SUNDAY})"
+    ),
+    "home_x_rivalry": "None if rivalry_pair is None else int(is_home) * rivalry_pair",
+    "rivalry_mapping_missing": "int(rivalry_mapping_authority_status != APPROVED)",
+}
+
 _BLOCKED_DISPOSITIONS = frozenset(
     {
         "RECODE_AFTER_SEMANTIC_VALIDATION",
@@ -106,6 +170,10 @@ class Stage3FeatureTreatmentSpecError(RuntimeError):
 
 def _sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(dict(value))).hexdigest()
+
+
+def _normalized_file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _source_without_identity(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -182,11 +250,20 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
         "RECODE_AFTER_SEMANTIC_VALIDATION",
         "RECODE_AFTER_CALENDAR_VALIDATION",
     }:
+        semantic = _SEMANTIC_AUTHORITY_DECISIONS.get(feature_name)
         return {
             "executableStatus": "BLOCKED",
             "selectable": False,
-            "resolution": "HOLD_NONEXECUTABLE_UNTIL_REGISTERED_SEMANTIC_VALIDATION",
-            "blockedReason": "The required semantic/calendar validation authority is not registered.",
+            "resolution": (
+                str(semantic["resolution"])
+                if semantic
+                else "HOLD_NONEXECUTABLE_UNTIL_REGISTERED_SEMANTIC_VALIDATION"
+            ),
+            "blockedReason": (
+                str(semantic["blockedReason"])
+                if semantic
+                else "The required semantic/calendar validation authority is not registered."
+            ),
             "treeModel": "EXCLUDED_PENDING_SEMANTIC_AUTHORITY",
             "denseModel": "EXCLUDED_PENDING_SEMANTIC_AUTHORITY",
             "fallbackLabel": None,
@@ -220,11 +297,25 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
             "fallbackLabel": None,
         }
     if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT":
+        binding = interaction_authority.feature_binding(feature_name)
+        if binding and binding.get("executableStatus") == "READY_GOVERNED_INTERACTION_V1":
+            return {
+                "executableStatus": "READY_GOVERNED_INTERACTION_V1",
+                "selectable": True,
+                "resolution": "EXECUTE_PARENT_FIRST_FOLD_LOCAL_INTERACTION_RECOMPUTATION_V1",
+                "blockedReason": None,
+                "treeModel": "TREAT_PARENTS_WITH_NATIVE_MISSING_THEN_RECOMPUTE_NO_SCALING",
+                "denseModel": "TREAT_PARENTS_WITH_FROZEN_FOLD_PARAMETERS_THEN_RECOMPUTE_THEN_OPTIONAL_SCALE",
+                "fallbackLabel": None,
+            }
         return {
             "executableStatus": "BLOCKED",
             "selectable": False,
             "resolution": "HOLD_UNTIL_PARENT_FIRST_FOLD_LOCAL_RECOMPUTATION_IS_REGISTERED",
-            "blockedReason": "The current model pipeline does not register parent-first interaction recomputation.",
+            "blockedReason": (
+                "No exact formula and ordered-parent binding exists in "
+                "MLB_INTERACTION_RECOMPUTATION_AUTHORITY_V1."
+            ),
             "treeModel": "EXCLUDED_PENDING_PARENT_LINEAGE_EXECUTOR",
             "denseModel": "EXCLUDED_PENDING_PARENT_LINEAGE_EXECUTOR",
             "fallbackLabel": None,
@@ -314,21 +405,8 @@ def _inventory_identity(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _interaction_parents(feature_name: str) -> list[str]:
-    side = "batting" if feature_name.startswith("batting_") else "fielding" if feature_name.startswith("fielding_") else ""
-    suffix = feature_name.removeprefix(f"{side}_") if side else feature_name
-    parents = {
-        "eastward_travel_x_early_start": (
-            "eastward_time_zone_change_hours",
-            "early_start_after_eastward_travel",
-        ),
-        "long_travel_x_short_rest": ("travel_distance_miles", "short_rest_indicator"),
-        "prior_extra_innings_x_travel": (
-            "previous_game_extra_innings",
-            "travel_distance_miles",
-        ),
-        "road_trip_length_x_travel": ("road_trip_game_number", "travel_distance_miles"),
-    }.get(suffix, ())
-    return [f"{side}_{parent}" if side else parent for parent in parents]
+    binding = interaction_authority.feature_binding(feature_name)
+    return list(binding["orderedParents"]) if binding else []
 
 
 def _paired_indicators(feature_name: str, disposition: str) -> list[str]:
@@ -399,6 +477,11 @@ def _structured_execution_contract(
     parents = _interaction_parents(name) if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT" else []
     indicators = _paired_indicators(name, disposition)
     prior_binding = player_prior.feature_binding(name)
+    interaction_binding = (
+        interaction_authority.feature_binding(name)
+        if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT"
+        else None
+    )
     if disposition in _EXCLUDED_DISPOSITIONS:
         missing_strategy = "DROP_VARIABLE_NO_VALUE_REWRITE"
     elif disposition in {
@@ -481,6 +564,111 @@ def _structured_execution_contract(
             "treeNativeMissing": execution["treeModel"],
             "denseMatrix": execution["denseModel"],
         },
+        "interactionAuthority": (
+            {
+                "authorityName": interaction_authority.AUTHORITY_NAME,
+                "formula": interaction_binding["formula"],
+                "sourceFormulaLiteral": interaction_binding["sourceFormulaLiteral"],
+                "formulaVersion": interaction_binding["formulaVersion"],
+                "orderedParents": interaction_binding["orderedParents"],
+                "parentIdentities": [
+                    parent["backendFeatureIdentity"]
+                    for parent in interaction_binding["parents"]
+                ],
+                "parentTreatmentAuthorities": [
+                    parent["parentTreatmentAuthority"]
+                    for parent in interaction_binding["parents"]
+                ],
+                "parents": interaction_binding["parents"],
+                "missingStatePropagation": interaction_binding[
+                    "missingStatePropagation"
+                ],
+                "sourceFailurePropagation": interaction_binding[
+                    "sourceFailurePropagation"
+                ],
+                "computationFailurePropagation": interaction_binding[
+                    "computationFailurePropagation"
+                ],
+                "outputDataType": interaction_binding["outputDataType"],
+                "outputDomain": interaction_binding["outputDomain"],
+                "operationOrder": interaction_binding["operationOrder"],
+                "modelFamilyResolution": interaction_binding[
+                    "modelFamilyResolution"
+                ],
+                "pointInTime": interaction_binding["pointInTimeStatus"],
+                "foldLocal": interaction_binding["foldLocalStatus"],
+                "status": interaction_binding["executableStatus"],
+                "blockedReason": interaction_binding["blockedReason"],
+                "independentImputation": interaction_binding[
+                    "independentImputation"
+                ],
+                "independentCapping": interaction_binding["independentCapping"],
+            }
+            if interaction_binding
+            else None
+        ),
+        "semanticAuthorityDecision": (
+            dict(_SEMANTIC_AUTHORITY_DECISIONS[name])
+            if name in _SEMANTIC_AUTHORITY_DECISIONS
+            else None
+        ),
+    }
+
+
+def _rivalry_authority_audit(feature_name: str) -> dict[str, Any]:
+    """Return a negative-only audit record for one exact backend extra.
+
+    Formula text is copied from the canonical contextual materializer for
+    traceability; it is not an activation or treatment rule.  The referenced
+    mapping is explicitly proposed/inactive and lacks effective dates and an
+    operational-use rights grant, so every record remains held closed.
+    """
+
+    side = "BATTING" if feature_name.startswith("batting_") else "FIELDING"
+    raw_name = feature_name.removeprefix("batting_").removeprefix("fielding_")
+    mapping_bytes = _RIVALRY_PROPOSAL_PATH.read_bytes()
+    substantive = raw_name != "rivalry_mapping_missing"
+    exact_duplicate = (
+        f"{side.lower()}_rivalry_game"
+        if raw_name == "rivalry_pair"
+        else f"{side.lower()}_rivalry_pair"
+        if raw_name == "rivalry_game"
+        else f"{side.lower()}_home_x_rivalry"
+        if raw_name == "home_rivalry_game"
+        else f"{side.lower()}_home_rivalry_game"
+        if raw_name == "home_x_rivalry"
+        else None
+    )
+    indicator = f"{side.lower()}_rivalry_mapping_missing" if substantive else None
+    return {
+        "recommendation": "KEEP_HELD_CLOSED",
+        "side": side,
+        "source": "MLB_TEAM_GAME_CONTEXT_FEATURES_V1_RESEARCH_ONLY_EVIDENCE",
+        "formula": _RIVALRY_FORMULAS[raw_name],
+        "formulaEvidenceOnly": True,
+        "mappingSource": "docs/MLB_RIVALRY_MAPPING_PROPOSAL_V1.json",
+        "mappingSourceSha256": hashlib.sha256(mapping_bytes).hexdigest(),
+        "mappingStatus": "PROPOSED_NOT_APPROVED",
+        "mappingActive": False,
+        "constructObjectivity": (
+            "OBJECTIVE_GOVERNANCE_STATE_INDICATOR"
+            if not substantive
+            else "SUBJECTIVE_RIVALRY_MEMBERSHIP"
+        ),
+        "pointInTimeAvailability": "BLOCKED_NO_APPROVED_EFFECTIVE_DATED_MAPPING",
+        "physicalMissingPercentDevelopment": 100.0 if substantive else 0.0,
+        "coveragePercentDevelopment": 0.0 if substantive else 100.0,
+        "coveragePercentBySeason": {
+            season: 0.0 if substantive else 100.0
+            for season in ("2023", "2024", "2025", "2026")
+        },
+        "pairedMissingnessIndicator": indicator,
+        "exactDuplicateFeature": exact_duplicate,
+        "overlapsObjectiveOpponentContext": substantive,
+        "requiresCuratedRivalryTable": substantive,
+        "sourceRights": "OPERATIONAL_USE_NOT_ESTABLISHED",
+        "currentlyActive": False,
+        "selectable": False,
     }
 
 
@@ -534,8 +722,16 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
             "source_or_lineage_identity": backend.get("sourceLineage") if backend else None,
             "point_in_time_status": backend.get("pointInTimeTreatment") if backend else None,
             "interaction_parent_lineage": (
-                backend.get("sourceLineage")
-                if backend and source_row.get("recommended_inclusion") == "RECOMPUTE_AFTER_PARENT_TREATMENT"
+                {
+                    "sourceLineage": backend.get("sourceLineage"),
+                    "orderedParents": _interaction_parents(name),
+                    "formulaVersion": (
+                        interaction_authority.feature_binding(name) or {}
+                    ).get("formulaVersion"),
+                }
+                if backend
+                and source_row.get("recommended_inclusion")
+                == "RECOMPUTE_AFTER_PARENT_TREATMENT"
                 else None
             ),
             "discrepancy": row_discrepancies,
@@ -559,8 +755,8 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
     additional: list[dict[str, Any]] = []
     for name in additional_names:
         backend = backend_catalog[name]
-        additional.append(
-            {
+        is_expected_rivalry = name in EXPECTED_ADDITIONAL_FEATURES
+        record = {
                 "featureName": name,
                 "backendFeatureIdentity": name,
                 "workbookFeature": None,
@@ -571,7 +767,11 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
                 "backendGovernanceStatus": backend.get("governanceStatus"),
                 "sourceStatus": backend.get("availabilityStatus"),
                 "sourceOrLineageIdentity": backend.get("sourceLineage"),
-                "classification": "ABSENT_UNAPPROVED_RIVALRY_AUTHORITY",
+                "classification": (
+                    "ABSENT_UNAPPROVED_RIVALRY_AUTHORITY"
+                    if is_expected_rivalry
+                    else "UNMATCHED_BACKEND_FEATURE"
+                ),
                 "proposedDisposition": "REVIEW_REQUIRED",
                 "executableStatus": "BLOCKED",
                 "executableResolution": "HELD_CLOSED_NO_TREATMENT_INFERRED",
@@ -581,7 +781,9 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
                     "but the reviewed workbook contains no recommendation for it."
                 ),
             }
-        )
+        if is_expected_rivalry:
+            record["authorityAudit"] = _rivalry_authority_audit(name)
+        additional.append(record)
     fatal = bool(unmatched_workbook or discrepancies or not additional_set_matches)
     inventory_identity = _inventory_identity(backend_rows)
     return {
@@ -621,7 +823,11 @@ def _exception_rows(
     for row in features:
         status = str(row["executable_status"])
         disposition = str(row["recommended_inclusion"])
-        if status in {"READY", "READY_GOVERNED_PRIOR_V1"} and disposition not in _EXCLUDED_DISPOSITIONS:
+        if status in {
+            "READY",
+            "READY_GOVERNED_PRIOR_V1",
+            "READY_GOVERNED_INTERACTION_V1",
+        } and disposition not in _EXCLUDED_DISPOSITIONS:
             continue
         output.append(
             {
@@ -663,12 +869,49 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         treatment_specification_key=SPECIFICATION_KEY,
         treatment_source_sha256=str(source["source_content_sha256"]),
     )
+    interaction_manifest = interaction_authority.project_authority_manifest(
+        authority,
+        treatment_specification_key=SPECIFICATION_KEY,
+        treatment_specification_sha256=str(source["source_content_sha256"]),
+        feature_inventory_sha256=str(reconciliation["featureInventorySha256"]),
+        compiler_version=str(source["compiler_version"]),
+        compiler_sha256=_normalized_file_sha256(Path(__file__)),
+        contextual_formula_source_sha256=_normalized_file_sha256(
+            Path(__file__).with_name("contextual_features.py")
+        ),
+        development_identity={
+            "rows": eda.DEVELOPMENT_ROWS,
+            "start": eda.DEVELOPMENT_START,
+            "end": eda.DEVELOPMENT_END,
+        },
+        final_oot_identity={
+            "rows": eda.FINAL_OOT_ROWS,
+            "start": eda.EXPECTED_FINAL_OOT[0],
+            "end": eda.EXPECTED_FINAL_OOT[1],
+            "status": "LOCKED_UNOPENED",
+            "accessCount": 0,
+        },
+    )
+    rivalry_rows = [
+        row
+        for row in additional
+        if row.get("featureName") in EXPECTED_ADDITIONAL_FEATURES
+        and isinstance(row.get("authorityAudit"), Mapping)
+    ]
     for row in features:
         feature_prior = (
             (row.get("execution_contract") or {}).get("missing") or {}
         ).get("priorAuthority")
         if isinstance(feature_prior, dict):
             feature_prior["authorityId"] = prior_authority["authorityId"]
+        feature_interaction = (row.get("execution_contract") or {}).get(
+            "interactionAuthority"
+        )
+        if isinstance(feature_interaction, dict):
+            feature_interaction["authorityId"] = interaction_manifest["authorityId"]
+            feature_interaction["authorityChecksum"] = interaction_manifest[
+                "authorityChecksum"
+            ]
     exceptions = _exception_rows(features, additional)
     disposition_counts = Counter(str(row["recommended_inclusion"]) for row in features)
     status_counts = Counter(str(row["executable_status"]) for row in features)
@@ -682,6 +925,27 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         "sourceWorkbook": source["source_workbook"],
         "projectAuthority": treatments._authority_payload(authority),
         "priorAuthority": prior_authority,
+        "interactionAuthority": interaction_manifest,
+        "semanticAuthorityAudit": {
+            "status": "HELD_CLOSED",
+            "cleared": 0,
+            "remaining": len(_SEMANTIC_AUTHORITY_DECISIONS),
+            "decisions": {
+                name: dict(decision)
+                for name, decision in _SEMANTIC_AUTHORITY_DECISIONS.items()
+            },
+        },
+        "rivalryAuthorityAudit": {
+            "status": "READ_ONLY_HELD_CLOSED",
+            "recommendation": "KEEP_HELD_CLOSED",
+            "fieldCount": len(rivalry_rows),
+            "activeFieldCount": 0,
+            "mappingStatus": "PROPOSED_NOT_APPROVED",
+            "fields": {
+                str(row["featureName"]): dict(row["authorityAudit"])
+                for row in rivalry_rows
+            },
+        },
         "developmentBoundary": {
             "startDate": eda.DEVELOPMENT_START,
             "endDate": eda.DEVELOPMENT_END,
@@ -703,8 +967,13 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "additionalHeldClosed": len(additional),
             "ready": int(status_counts["READY"]),
             "readyGovernedPrior": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "readyGovernedInteraction": int(
+                status_counts["READY_GOVERNED_INTERACTION_V1"]
+            ),
+            "totalReady": sum(bool(row["executable_selectable"]) for row in features),
             "readyWithExplicitFallback": int(status_counts["READY_WITH_EXPLICIT_FALLBACK"]),
             "blocked": int(status_counts["BLOCKED"]),
+            "currentTotalBlockers": int(status_counts["BLOCKED"]),
             "automaticRetain": int(disposition_counts["NO_MISSING_TREATMENT"]),
             "automaticExclude": int(
                 disposition_counts["EXCLUDE_UNTIL_SOURCE_REPAIRED"]
@@ -713,6 +982,19 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "semanticReview": int(
                 disposition_counts["RECODE_AFTER_SEMANTIC_VALIDATION"]
                 + disposition_counts["RECODE_AFTER_CALENDAR_VALIDATION"]
+            ),
+            "semanticFieldsCleared": 0,
+            "semanticFieldsRemaining": len(_SEMANTIC_AUTHORITY_DECISIONS),
+            "rivalryFieldsHeldClosed": len(rivalry_rows),
+            "interactionBlockersBefore": int(
+                disposition_counts["RECOMPUTE_AFTER_PARENT_TREATMENT"]
+            ),
+            "interactionBlockersCleared": int(
+                status_counts["READY_GOVERNED_INTERACTION_V1"]
+            ),
+            "interactionBlockersRemaining": int(
+                disposition_counts["RECOMPUTE_AFTER_PARENT_TREATMENT"]
+                - status_counts["READY_GOVERNED_INTERACTION_V1"]
             ),
             "hierarchicalPriorRequired": int(
                 disposition_counts["HIERARCHICAL_PRIOR_PLUS_INDICATOR"]
@@ -744,6 +1026,9 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "scores": 0,
             "calibrations": 0,
             "promotions": 0,
+            "featureSetsRegistered": 0,
+            "gameScoringJobs": 0,
+            "historicalArtifactMutations": 0,
             "providerCalls": 0,
         },
     }
@@ -778,6 +1063,21 @@ def _policy_inputs(compiled: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
                 "treatment": "RETAIN",
                 "included": False,
             }
+        elif (
+            disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT"
+            and selectable
+            and row["data_type"] == "numeric"
+        ):
+            numeric_exclusions[name] = {
+                "detectionMethod": "NO_STATISTICAL_DETECTION",
+                "treatment": "RETAIN",
+                "included": True,
+                "interactionAuthorityId": compiled["interactionAuthority"][
+                    "authorityId"
+                ],
+                "parentValidationBeforeRecomputation": True,
+                "independentInteractionCapping": False,
+            }
         if not row["backend_eligibility"]:
             continue
         if not selectable:
@@ -804,6 +1104,19 @@ def _policy_inputs(compiled: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
                 "sourceFailureMethod": "REVIEW_REQUIRED",
                 "retainIndicator": True,
                 "resolutionLabel": "INTERIM_TECHNICAL_FALLBACK",
+            }
+        elif disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT":
+            missing_overrides[name] = {
+                "method": "RETAIN_WITH_INDICATOR",
+                "coldStartMethod": "RETAIN_WITH_INDICATOR",
+                "sourceFailureMethod": "REVIEW_REQUIRED",
+                "retainIndicator": True,
+                "interactionAuthorityId": compiled["interactionAuthority"][
+                    "authorityId"
+                ],
+                "parentFirstRecomputationRequired": True,
+                "independentInteractionImputation": False,
+                "resolutionLabel": "GOVERNED_PARENT_FIRST_INTERACTION_RECOMPUTATION_V1",
             }
         elif disposition in {
             "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
@@ -885,6 +1198,14 @@ def current_draft_execution_overlay(
             "TREATMENT_SPEC_DRAFT_MANIFEST_CHECKSUM_MISMATCH",
             "The current combined treatment draft failed its content-address check.",
         )
+    current_manifest_checksum = compile_project_specification(
+        database, authority.project_id
+    )["manifestChecksum"]
+    if str(draft.get("manifestChecksum") or "") != current_manifest_checksum:
+        raise Stage3FeatureTreatmentSpecError(
+            "TREATMENT_SPEC_DRAFT_STALE",
+            "The current combined treatment draft no longer matches the current project-bound feature authority.",
+        )
     overlay: dict[str, dict[str, Any]] = {}
     for row in manifest.get("features") or []:
         if isinstance(row, Mapping) and str(row.get("feature_name") or ""):
@@ -900,6 +1221,12 @@ def current_draft_execution_overlay(
             lineage_contract = (
                 lineage_contract if isinstance(lineage_contract, Mapping) else {}
             )
+            interaction_contract = execution_contract.get("interactionAuthority")
+            interaction_contract = (
+                interaction_contract
+                if isinstance(interaction_contract, Mapping)
+                else None
+            )
             overlay[str(row["feature_name"])] = {
                 "executableStatus": row.get("executable_status"),
                 "executableSelectable": bool(row.get("executable_selectable")),
@@ -909,6 +1236,7 @@ def current_draft_execution_overlay(
                 # authorize this preprocessing output or a feature-set entry.
                 "priorAuthority": missing_contract.get("priorAuthority"),
                 "derivedPriorOutputs": lineage_contract.get("derivedPriorOutputs"),
+                "interactionAuthority": interaction_contract,
             }
     for row in (manifest.get("reconciliation") or {}).get("additionalBackendFeatures") or []:
         if isinstance(row, Mapping) and str(row.get("featureName") or ""):
@@ -924,6 +1252,9 @@ def current_draft_execution_overlay(
         "manifestChecksum": draft.get("manifestChecksum"),
         "status": "DRAFT_NEGATIVE_GATES_ONLY",
         "priorAuthority": manifest.get("priorAuthority"),
+        "interactionAuthority": manifest.get("interactionAuthority"),
+        "semanticAuthorityAudit": manifest.get("semanticAuthorityAudit"),
+        "rivalryAuthorityAudit": manifest.get("rivalryAuthorityAudit"),
         "executionSummary": manifest.get("executionSummary"),
     }
     return overlay, reference
@@ -970,6 +1301,9 @@ def _state_data(
         "dispositionCounts": compiled["dispositionCounts"],
         "executionSummary": compiled["executionSummary"],
         "priorAuthority": compiled["priorAuthority"],
+        "interactionAuthority": compiled["interactionAuthority"],
+        "semanticAuthorityAudit": compiled["semanticAuthorityAudit"],
+        "rivalryAuthorityAudit": compiled["rivalryAuthorityAudit"],
         "exceptions": compiled["exceptions"],
         "features": [
             {
