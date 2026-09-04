@@ -25,10 +25,12 @@ import type { CurrentGoldDataReview } from "../workflow/currentGoldDataReview";
 import { CockpitDrawer } from "./CockpitDrawer";
 import type { ProjectEdaFilters } from "./projectEdaApi";
 import type {
+  GovernedPriorAuthority,
   QueryStatus,
   TreatmentKind,
   TreatmentPolicy,
   TreatmentPolicyVersion,
+  TreatmentSpecificationFeature,
 } from "./projectTreatmentApi";
 import {
   hasCurrentTreatmentSpecificationDraft,
@@ -751,12 +753,198 @@ export function TreatmentPolicyActions({
   );
 }
 
-const TreatmentSpecificationContext = createContext({
+type TreatmentSpecificationContextValue = {
+  hasCombinedDraft: boolean;
+  specificationReady: boolean;
+  canonicalCanAdopt: boolean;
+  blockerCount: number | null;
+  priorAuthorityByFeature: Record<string, GovernedPriorAuthority>;
+};
+
+const TreatmentSpecificationContext =
+  createContext<TreatmentSpecificationContextValue>({
   hasCombinedDraft: false,
   specificationReady: false,
   canonicalCanAdopt: false,
   blockerCount: null as number | null,
-});
+  priorAuthorityByFeature: {},
+  });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function featurePriorAuthority(
+  feature: TreatmentSpecificationFeature,
+): GovernedPriorAuthority | null {
+  const executionContract = feature.execution_contract;
+  const missing = isRecord(executionContract?.missing)
+    ? executionContract.missing
+    : null;
+  const priorAuthority = missing?.priorAuthority;
+  return isRecord(priorAuthority)
+    ? (priorAuthority as GovernedPriorAuthority)
+    : null;
+}
+
+function featurePriorAuthorityEntries(
+  features: TreatmentSpecificationFeature[],
+): Array<[string, GovernedPriorAuthority]> {
+  return features.flatMap((feature) => {
+    const authority = featurePriorAuthority(feature);
+    const featureName = feature.featureName ?? feature.feature;
+    return authority && typeof featureName === "string" && featureName
+      ? [[featureName, authority]]
+      : [];
+  });
+}
+
+export function useGovernedPriorAuthority(
+  featureName: string | null | undefined,
+): GovernedPriorAuthority | null {
+  const context = useContext(TreatmentSpecificationContext);
+  return featureName ? context.priorAuthorityByFeature[featureName] ?? null : null;
+}
+
+function priorField(value: unknown, fallback = "Not reported"): string {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number") return String(value);
+  return fallback;
+}
+
+function priorHierarchy(value: unknown): string {
+  const raw = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").join(" → ")
+    : priorField(value);
+  return raw
+    .replace(/\s*(?:->|>)\s*/g, " → ")
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/\bMlb\b/g, "MLB");
+}
+
+function priorGateStatus(value: unknown): string {
+  if (value === true) return "PASS";
+  if (value === false) return "FAIL";
+  const status = priorField(value, "NOT REPORTED").toUpperCase();
+  return status === "TRUE" ? "PASS" : status === "FALSE" ? "FAIL" : status;
+}
+
+function priorDerivedOutputs(
+  authority: GovernedPriorAuthority,
+  pattern: RegExp,
+): string[] {
+  return Array.isArray(authority.derivedOutputs)
+    ? authority.derivedOutputs.filter(
+        (value): value is string => typeof value === "string" && pattern.test(value),
+      )
+    : [];
+}
+
+export function GovernedPriorAuthorityCard({
+  authority,
+  featureName,
+}: {
+  authority: GovernedPriorAuthority;
+  featureName: string;
+}) {
+  const status = priorField(authority.status, "NOT REPORTED");
+  const ready = status.toUpperCase().includes("READY");
+  const effectiveOutputs = priorDerivedOutputs(
+    authority,
+    /effective|sample|exposure/i,
+  );
+  const uncertaintyOutputs = priorDerivedOutputs(
+    authority,
+    /reliab|uncert|variance|standard_deviation|posterior_std/i,
+  );
+  const allOutputs = Array.isArray(authority.derivedOutputs)
+    ? authority.derivedOutputs.filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+
+  return (
+    <article
+      className={`min-w-0 rounded-xl border p-3 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/60"
+      }`}
+      data-testid={`stage3-governed-prior-${ready ? "ready" : "blocked"}`}
+    >
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="break-all font-mono text-[11px] font-semibold text-slate-950">
+            {featureName}
+          </div>
+          <div className="mt-1 break-all text-[10px] text-slate-600">
+            {priorField(authority.authorityName)} · {priorField(authority.authorityId)}
+          </div>
+        </div>
+        <span
+          className={`rounded-full px-2 py-1 text-[9px] font-bold ${
+            ready
+              ? "bg-emerald-700 text-white"
+              : "border border-amber-300 bg-white text-amber-950"
+          }`}
+        >
+          {status}
+        </span>
+      </div>
+      <dl className="mt-3 grid gap-2 text-[10px] leading-4 sm:grid-cols-2">
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Method / hierarchy</dt>
+          <dd className="mt-0.5 text-slate-800">
+            {priorField(authority.method)} · {priorHierarchy(authority.hierarchy)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Fold-local / PIT</dt>
+          <dd className="mt-0.5 font-semibold text-slate-800">
+            Fold-local {priorGateStatus(authority.foldLocal)} · PIT {priorGateStatus(authority.pointInTime)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">
+            Exposure / effective sample size
+          </dt>
+          <dd className="mt-0.5 break-words text-slate-800">
+            <span className="font-mono">{priorField(authority.exposureFeature)}</span>
+            {authority.exposureDefinition
+              ? ` · ${authority.exposureDefinition}`
+              : ""}
+            {effectiveOutputs.length
+              ? ` · outputs ${effectiveOutputs.join(", ")}`
+              : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">
+            Reliability / uncertainty
+          </dt>
+          <dd className="mt-0.5 break-words text-slate-800">
+            {priorField(authority.reliability)}
+            {uncertaintyOutputs.length
+              ? ` · outputs ${uncertaintyOutputs.join(", ")}`
+              : ""}
+          </dd>
+        </div>
+      </dl>
+      {allOutputs.length ? (
+        <p className="mt-2 break-words rounded-lg bg-white/70 p-2 text-[9px] leading-4 text-slate-600">
+          <b>Governed preprocessing outputs:</b> {allOutputs.join(", ")}
+        </p>
+      ) : null}
+      {!ready && authority.blockedReason ? (
+        <p className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-[10px] leading-4 text-amber-950">
+          <b>BLOCKED:</b> {authority.blockedReason}
+        </p>
+      ) : null}
+    </article>
+  );
+}
 
 function specificationValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -770,6 +958,108 @@ function policyReference(value: Record<string, unknown> | string | null): string
   if (typeof value === "string") return value;
   return String(
     value.policyId ?? value.id ?? value.checksum ?? value.status ?? "Present",
+  );
+}
+
+function GovernedPriorAuthorityPanel({
+  features,
+  summary,
+}: {
+  features: TreatmentSpecificationFeature[];
+  summary: GovernedPriorAuthority | null | undefined;
+}) {
+  const featureAuthorities = featurePriorAuthorityEntries(features);
+  const representative = summary ?? featureAuthorities[0]?.[1] ?? null;
+  if (!representative) return null;
+
+  const readyCount = featureAuthorities.filter(([, authority]) =>
+    priorField(authority.status, "").toUpperCase().includes("READY"),
+  ).length;
+  const blockedCount = featureAuthorities.length - readyCount;
+  const reportedReady =
+    typeof summary?.readyFeatureCount === "number"
+      ? summary.readyFeatureCount
+      : readyCount;
+  const reportedBlocked =
+    typeof summary?.blockedFeatureCount === "number"
+      ? summary.blockedFeatureCount
+      : blockedCount;
+  const displayRows = featureAuthorities.length
+    ? featureAuthorities
+    : [["Authority summary", representative] as [string, GovernedPriorAuthority]];
+
+  return (
+    <section
+      className="mt-3 rounded-xl border border-violet-200 bg-violet-50/30 p-3"
+      data-testid="stage3-governed-player-prior-authority"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-800">
+            Governed preprocessing authority
+          </div>
+          <h3 className="mt-1 break-words text-sm font-semibold text-slate-950">
+            {priorField(representative.authorityName)}
+          </h3>
+          <p className="mt-1 max-w-4xl text-[10px] leading-4 text-slate-600">
+            Read-only player-history → governed-fallback contracts. V1 uses the
+            global MLB league prior because Current Gold has no governed role
+            taxonomy; this page does not fit priors, models, or validation data.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[9px] font-semibold">
+          <span className="rounded-full bg-emerald-700 px-2 py-1 text-white">
+            {reportedReady} READY
+          </span>
+          <span className="rounded-full border border-amber-300 bg-white px-2 py-1 text-amber-950">
+            {reportedBlocked} BLOCKED
+          </span>
+          <span className="rounded-full border border-violet-200 bg-white px-2 py-1 text-violet-900">
+            Fold-local {priorGateStatus(representative.foldLocal)}
+          </span>
+          <span className="rounded-full border border-violet-200 bg-white px-2 py-1 text-violet-900">
+            PIT {priorGateStatus(representative.pointInTime)}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <SpecificationFact
+          label="Authority ID"
+          value={priorField(representative.authorityId)}
+          detail="Content-addressed, project-bound preprocessing contract"
+          mono
+        />
+        <SpecificationFact
+          label="Method"
+          value={priorField(representative.method)}
+          detail="No tuning controls are exposed in this review surface"
+        />
+        <SpecificationFact
+          label="Hierarchy"
+          value={priorHierarchy(representative.hierarchy)}
+          detail="Player evidence shrinks only through declared fallback levels"
+        />
+        <SpecificationFact
+          label="Safety gates"
+          value={`Fold-local ${priorGateStatus(representative.foldLocal)} · PIT ${priorGateStatus(representative.pointInTime)}`}
+          detail="Training-fold authority only; final OOT remains locked"
+        />
+      </div>
+      <details open className="mt-3 rounded-lg border border-violet-100 bg-white/70 p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold text-slate-900">
+          Per-feature authority · {displayRows.length}
+        </summary>
+        <div className="mt-2 grid max-h-[32rem] gap-2 overflow-y-auto lg:grid-cols-2">
+          {displayRows.map(([featureName, authority]) => (
+            <GovernedPriorAuthorityCard
+              key={featureName}
+              featureName={featureName}
+              authority={authority}
+            />
+          ))}
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -916,6 +1206,11 @@ function TreatmentSpecificationPanel({
               detail={`${data.features.length} fully inspectable manifest rows`}
             />
           </div>
+
+          <GovernedPriorAuthorityPanel
+            features={data.features}
+            summary={data.priorAuthority}
+          />
 
           {data.blockers.length ? (
             <div
@@ -1146,6 +1441,9 @@ export function TreatmentStudioShell({
     authorityKey,
     Boolean(projectId && authorityKey),
   );
+  const priorAuthorityByFeature = Object.fromEntries(
+    featurePriorAuthorityEntries(specification.value?.data.features ?? []),
+  );
   return (
     <div
       className="space-y-4"
@@ -1198,6 +1496,7 @@ export function TreatmentStudioShell({
           specificationReady: specification.status === "ready",
           canonicalCanAdopt: specification.value?.data.canAdopt === true,
           blockerCount: specification.value?.data.blockers.length ?? null,
+          priorAuthorityByFeature,
         }}
       >
         <TreatmentSpecificationPanel specification={specification} />

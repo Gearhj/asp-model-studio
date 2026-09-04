@@ -32,12 +32,15 @@ import {
   fetchFeatureStudioSummary,
   mutateFeatureSet,
   type FeatureFamily,
+  type GovernedPreprocessingPriorAuthority,
   type FeatureInventory,
   type FeatureInventoryRow,
   type FeatureSetState,
   type FeatureSetVersion,
   type FeatureStudioSummary,
   type StudioAuthority,
+  type TreatmentSpecificationDraftAuthority,
+  type TreatmentSpecificationResolution,
 } from "./projectFeatureSplitApi";
 
 type AsyncState<T> = { status: "loading" | "ready" | "error"; data: T | null; error: string | null };
@@ -49,6 +52,20 @@ const adoptedPolicyLabel = (policy: { policyId: string; version: number }) =>
   policy.policyId && policy.policyId !== "NOT_ADOPTED" && policy.version > 0
     ? `v${policy.version}`
     : "Not adopted";
+
+const priorHierarchy = (authority: GovernedPreprocessingPriorAuthority) =>
+  authority.hierarchy.length
+    ? authority.hierarchy.map(human).join(" → ").replace(/\bMlb\b/g, "MLB")
+    : "Not reported";
+
+const focusedPriorOutputs = (outputs: string[]) => {
+  const preferred = outputs.filter((output) =>
+    /posterior_mean|effective_n|posterior_reliability|posterior_(?:variance|std)/i.test(
+      output,
+    ),
+  );
+  return (preferred.length ? preferred : outputs).slice(0, 5);
+};
 
 const DEFAULT_QUERY = {
   page: 1,
@@ -303,6 +320,10 @@ export function ProjectBoundFeatureEngineering({
         </dl>
       </details>
 
+      <GovernedPriorSummaryPanel
+        draft={summary.data.treatmentSpecificationDraft}
+      />
+
       <Card title="Recommended experimental plan" icon={Sparkles} description="Ablations isolate whether a contextual family adds stable value. Coverage and descriptive association alone do not prove predictive usefulness.">
         <div className="grid gap-3 lg:grid-cols-3">
           <Recommendation title="Required baseline" items={["BASELINE_CORE_48"]} tone="cyan" />
@@ -469,6 +490,77 @@ function DiagnosticState({ title, state, text }: { title: string; state: string;
   return <section className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-xs font-semibold text-slate-900">{title}</h3><Pill label={state} tone="cyan" /></div><p className="mt-2 text-[11px] leading-5 text-slate-600">{text}</p></section>;
 }
 
+function GovernedPriorSummaryPanel({
+  draft,
+}: {
+  draft: TreatmentSpecificationDraftAuthority | null;
+}) {
+  const authority = draft?.priorAuthority;
+  if (!draft || !authority) return null;
+  return (
+    <section
+      className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4"
+      data-testid="feature-engineering-governed-prior-authority"
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-800">
+            Governed derived preprocessing
+          </div>
+          <h3 className="mt-1 text-sm font-semibold text-slate-950">
+            {authority.authorityName}
+          </h3>
+          <p className="mt-1 max-w-4xl text-[11px] leading-5 text-slate-600">
+            Read-only visibility into the treatment-specification draft. These
+            posterior, effective-sample-size, reliability, and uncertainty
+            fields are preprocessing outputs—not separately selectable raw
+            predictors. This page does not fit, tune, register, or adopt the
+            prior authority.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">
+          <Pill label={`Fold-local ${authority.foldLocal}`} tone="emerald" />
+          <Pill label={`PIT ${authority.pointInTime}`} tone="emerald" />
+          <Pill label={draft.status} tone="violet" />
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-3 text-[11px] sm:grid-cols-2 xl:grid-cols-4">
+        <AuthorityFact
+          label="Authority ID"
+          value={authority.authorityId}
+        />
+        <AuthorityFact label="Method" value={authority.method} />
+        <AuthorityFact label="Hierarchy" value={priorHierarchy(authority)} />
+        <AuthorityFact
+          label="Feature resolution"
+          value={`${fmtInt(authority.readyFeatureCount)} READY · ${fmtInt(authority.blockedFeatureCount)} BLOCKED · ${fmtInt(authority.featureCount)} governed rows`}
+        />
+        <AuthorityFact
+          label="Draft identity"
+          value={`${draft.specificationDraftId} · v${draft.specificationVersion ?? "—"}`}
+        />
+        <AuthorityFact
+          label="Manifest checksum"
+          value={draft.manifestChecksum}
+        />
+        {Object.entries(draft.executionSummary)
+          .slice(0, 2)
+          .map(([label, value]) => (
+            <AuthorityFact
+              key={label}
+              label={`Execution · ${human(label)}`}
+              value={
+                value && typeof value === "object"
+                  ? JSON.stringify(value)
+                  : String(value ?? "—")
+              }
+            />
+          ))}
+      </dl>
+    </section>
+  );
+}
+
 function FamilyCard({ family, selected, onSelect }: { family: FeatureFamily; selected: boolean; onSelect: () => void }) {
   return <article className={`rounded-xl border p-4 ${selected ? "border-cyan-500 bg-cyan-50/50 ring-1 ring-cyan-200" : "border-slate-200 bg-white"}`}><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><div className="text-[10px] font-semibold uppercase text-cyan-800">{family.familyId}</div><h3 className="mt-0.5 font-semibold text-slate-950">{family.friendlyName}</h3></div><button type="button" onClick={onSelect} aria-pressed={selected} className={`inline-flex h-6 w-6 items-center justify-center rounded border ${selected ? "border-cyan-600 bg-cyan-600 text-white" : "border-slate-300 text-transparent"}`} aria-label={`Select ${family.friendlyName}`}>{selected ? <Check size={14} /> : "·"}</button></div><dl className="mt-3 grid grid-cols-3 gap-1 text-center"><MiniStat label="Ordered" value={fmtInt(family.featureCount)} /><MiniStat label="Eligible" value={fmtInt(family.eligibleFeatureCount)} /><MiniStat label="Inactive" value={fmtInt(family.inactiveFeatureCount + family.unavailableFeatureCount)} /></dl><p className="mt-2 text-[11px] leading-4 text-slate-600">Coverage {fmtPct(family.physicalMissingPercent == null ? null : 100 - family.physicalMissingPercent)} · cold start {fmtPct(family.coldStartExposurePercent)} · {family.interactionCount} interactions</p><p className="mt-1 text-[11px] leading-4 text-slate-600">Forecast {human(family.forecastTimeAvailability)} · {human(family.pointInTimeStatus)} · {family.modelCompatibility.join(", ") || "Compatibility not declared"}</p>{family.excludedFeatures.length ? <details className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] text-amber-950"><summary className="cursor-pointer font-semibold">{family.excludedFeatures.length} exact exclusion{family.excludedFeatures.length === 1 ? "" : "s"}</summary><ul className="mt-1 space-y-1">{family.excludedFeatures.map((item) => <li key={item.feature}><code>{item.feature}</code> — {item.reason}</li>)}</ul></details> : null}{family.governanceWarnings.length ? <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] leading-4 text-amber-900">{family.governanceWarnings.join(" · ")}</p> : null}</article>;
 }
@@ -513,6 +605,46 @@ function AdvancedFeatureFilters({ query, setQuery }: { query: InventoryQuery; se
   </div>;
 }
 
+function GovernedPriorRowSummary({
+  resolution,
+}: {
+  resolution: TreatmentSpecificationResolution | null;
+}) {
+  const authority = resolution?.priorAuthority;
+  if (!authority) return null;
+  const outputs = resolution?.derivedPriorOutputs.length
+    ? resolution.derivedPriorOutputs
+    : authority.derivedOutputs;
+  const focused = focusedPriorOutputs(outputs);
+  const ready = authority.status.toUpperCase().includes("READY");
+  return (
+    <div
+      className={`mt-2 rounded-lg border p-2 text-[9px] leading-3 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+      data-testid="feature-row-governed-prior-outputs"
+    >
+      <div className="flex flex-wrap items-center gap-1">
+        <b>Governed prior · {authority.status}</b>
+        <span className="ml-auto">{outputs.length} derived outputs</span>
+      </div>
+      {focused.length ? (
+        <div className="mt-1 break-words font-mono">
+          {focused.join(", ")}
+          {outputs.length > focused.length ? ` +${outputs.length - focused.length}` : ""}
+        </div>
+      ) : null}
+      {!ready && (authority.blockedReason || resolution?.blockedReason) ? (
+        <div className="mt-1 leading-4">
+          <b>BLOCKED:</b> {authority.blockedReason || resolution?.blockedReason}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelectedFeatures, transformationOverrides, setTransformationOverrides, inspect }: { inventory: FeatureInventory; query: InventoryQuery; setQuery: (query: InventoryQuery) => void; selectedFeatures: string[]; setSelectedFeatures: (features: string[]) => void; transformationOverrides: Record<string, string[]>; setTransformationOverrides: (overrides: Record<string, string[]>) => void; inspect: (row: FeatureInventoryRow, trigger: HTMLButtonElement) => void }) {
   const sort = (field: string) => setQuery({ ...query, page: 1, sortField: field, sortDirection: query.sortField === field && query.sortDirection === "asc" ? "desc" : "asc" });
   const pages = Math.max(1, Math.ceil(inventory.total / inventory.pageSize));
@@ -527,7 +659,7 @@ function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelecte
           <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Definition / lineage / dates</th>
           <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Range / cold start / interactions</th>
           <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Fold-local transformation</th>
-          <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Treatment / PIT / availability</th>
+          <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Treatment / PIT / governed outputs</th>
           <th scope="col" className="border-b border-slate-200 px-2 py-2 uppercase text-slate-500">Unavailable reason / selected sets</th>
           <th scope="col" className="border-b border-slate-200 px-2 py-2">Details</th>
         </tr></thead>
@@ -549,7 +681,7 @@ function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelecte
             <td className="max-w-80 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.definition}</div><div className="mt-1 break-all font-mono text-[9px] text-slate-500">{row.sourceLineage}</div><div className="mt-1 text-slate-500">{row.earliestAvailableDate || "Earliest date not published"} → {row.latestDevelopmentDate}</div></td>
             <td className="max-w-60 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.range || (row.cardinality == null ? "Range/cardinality not published" : `${fmtInt(row.cardinality)} levels`)}</div><div className="mt-1">Cold start: {row.coldStartRelevant ? "Relevant" : "No special flag"}</div><div className="mt-1 text-slate-500">{row.interactionMembership.length ? row.interactionMembership.join(", ") : "No declared interaction"}</div></td>
             <td className="w-56 border-b border-slate-100 px-2 py-2"><select aria-label={`Transformation for ${row.featureName}`} disabled={!selected || row.status !== "ACTIVE"} value={currentTransform} onChange={(event) => { const next = { ...transformationOverrides }; if (!event.target.value) delete next[row.featureName]; else next[row.featureName] = event.target.value.split("|"); setTransformationOverrides(next); }} className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-[10px] disabled:bg-slate-100"><option value="">Governed default</option>{transformOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><div className="mt-1 text-[9px] leading-3 text-slate-500">Fit independently within each chronological training fold.</div></td>
-            <td className="max-w-72 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.missingValueTreatment}</div><div className="text-slate-500">{row.pointInTimeTreatment}</div><div className="text-cyan-800">{row.forecastTimeAvailability}</div>{row.simulationGeneratedState ? <div className="font-semibold text-violet-700">SIMULATION_GENERATED_STATE</div> : null}</td>
+            <td className="max-w-72 border-b border-slate-100 px-2 py-2 leading-4"><div>{row.missingValueTreatment}</div><div className="text-slate-500">{row.pointInTimeTreatment}</div><div className="text-cyan-800">{row.forecastTimeAvailability}</div>{row.simulationGeneratedState ? <div className="font-semibold text-violet-700">SIMULATION_GENERATED_STATE</div> : null}<GovernedPriorRowSummary resolution={row.treatmentSpecificationResolution} /></td>
             <td className="max-w-72 border-b border-slate-100 px-2 py-2 text-amber-800"><div>{row.unavailableReason || "—"}</div><div className="mt-1 text-slate-500">{row.selectedCandidateSets.length ? `Sets: ${row.selectedCandidateSets.join(", ")}` : "No registered set membership"}</div></td>
             <td className="border-b border-slate-100 px-2 py-2"><button type="button" onClick={(event) => void inspect(row, event.currentTarget)} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-700"><Eye size={11} /> Inspect</button></td>
           </tr>;
@@ -558,6 +690,84 @@ function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelecte
     </div>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"><span>{fmtInt(inventory.total)} candidates · page {inventory.page} of {pages}</span><div className="flex gap-2"><button aria-label="Previous feature inventory page" type="button" disabled={inventory.page <= 1} onClick={() => setQuery({ ...query, page: inventory.page - 1 })} className="rounded border border-slate-300 p-1.5 disabled:opacity-40"><ChevronLeft size={14} /></button><button aria-label="Next feature inventory page" type="button" disabled={inventory.page >= pages} onClick={() => setQuery({ ...query, page: inventory.page + 1 })} className="rounded border border-slate-300 p-1.5 disabled:opacity-40"><ChevronRight size={14} /></button></div></div>
   </>;
+}
+
+function GovernedPriorFeatureDetail({
+  resolution,
+}: {
+  resolution: TreatmentSpecificationResolution | null;
+}) {
+  const authority = resolution?.priorAuthority;
+  if (!authority) return null;
+  const outputs = resolution?.derivedPriorOutputs.length
+    ? resolution.derivedPriorOutputs
+    : authority.derivedOutputs;
+  const ready = authority.status.toUpperCase().includes("READY");
+  return (
+    <section
+      className={`rounded-xl border p-4 ${
+        ready
+          ? "border-emerald-200 bg-emerald-50/50"
+          : "border-amber-200 bg-amber-50/60"
+      }`}
+      data-testid="feature-detail-governed-prior-outputs"
+    >
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Governed preprocessing outputs
+          </div>
+          <div className="mt-1 break-all font-mono text-xs font-semibold text-slate-950">
+            {authority.authorityName} · {authority.authorityId}
+          </div>
+        </div>
+        <Pill
+          label={authority.status}
+          tone={ready ? "emerald" : "amber"}
+        />
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+        <MiniStat
+          label="Method / hierarchy"
+          value={`${human(authority.method)} · ${priorHierarchy(authority)}`}
+        />
+        <MiniStat
+          label="Fold-local / point in time"
+          value={`Fold-local ${authority.foldLocal} · PIT ${authority.pointInTime}`}
+        />
+        <MiniStat
+          label="Exposure / effective sample size"
+          value={`${authority.exposureFeature || "NOT_AVAILABLE"}${authority.exposureDefinition ? ` · ${authority.exposureDefinition}` : ""}`}
+        />
+        <MiniStat
+          label="Reliability / uncertainty"
+          value={authority.reliability}
+        />
+      </dl>
+      {outputs.length ? (
+        <div className="mt-3">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+            Derived columns carried as one governed preprocessing family
+          </div>
+          <div className="mt-1 flex max-h-32 flex-wrap gap-1 overflow-y-auto">
+            {outputs.map((output) => (
+              <code
+                key={output}
+                className="rounded border border-white bg-white/80 px-1.5 py-1 text-[9px] text-slate-700"
+              >
+                {output}
+              </code>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {!ready && (authority.blockedReason || resolution?.blockedReason) ? (
+        <p className="mt-3 rounded-lg border border-amber-300 bg-white p-2 text-[11px] leading-5 text-amber-950">
+          <b>BLOCKED:</b> {authority.blockedReason || resolution?.blockedReason}
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 function FeatureDetail({ row }: { row: FeatureInventoryRow }) {
@@ -573,6 +783,9 @@ function FeatureDetail({ row }: { row: FeatureInventoryRow }) {
       <dl className="mt-3 grid gap-2 sm:grid-cols-2"><MiniStat label="Registered formula / definition" value={row.definition || "NOT_PUBLISHED_SEPARATELY"} /><MiniStat label="Source columns / object / manifest" value={row.sourceLineage || "NOT_PUBLISHED_SEPARATELY"} /><MiniStat label="Development dates" value={`${row.earliestAvailableDate || "NOT_PUBLISHED"} → ${row.latestDevelopmentDate}`} /><MiniStat label="Development coverage" value={fmtPct(row.developmentCoveragePercent)} /><MiniStat label="Point-in-time treatment" value={row.pointInTimeTreatment} /><MiniStat label="Leakage risk" value={row.leakageRisk} /><MiniStat label="Range / cardinality" value={row.range || fmtInt(row.cardinality)} /><MiniStat label="Decision reason" value={row.unavailableReason || (row.status === "ACTIVE" ? "Eligible for bounded chronological comparison; predictive value not established." : "Review required before inclusion.")} /></dl>
       <div className="mt-3 text-xs text-slate-600"><b>Interaction membership:</b> {row.interactionMembership.length ? row.interactionMembership.join(", ") : "None declared"}</div>
     </section>
+    <GovernedPriorFeatureDetail
+      resolution={row.treatmentSpecificationResolution}
+    />
     <div className="grid gap-4 lg:grid-cols-2">
       <Card title="Missingness by season" description="Development-only; physical missingness is distinct from cold start.">{seasonMissing.length ? <BarChart categories={seasonMissing.map((item) => item.label)} values={seasonMissing.map((item) => item.value)} height={210} color="#d97706" /> : <DiagnosticEmpty label="NOT_EVALUATED — no season profile was published." />}</Card>
       <Card title="Missingness by month" description="Development-only month profile.">{monthMissing.length ? <BarChart categories={monthMissing.map((item) => item.label)} values={monthMissing.map((item) => item.value)} height={210} color="#ea580c" /> : <DiagnosticEmpty label="NOT_EVALUATED — no month profile was published." />}</Card>

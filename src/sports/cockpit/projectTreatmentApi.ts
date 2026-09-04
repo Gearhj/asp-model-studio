@@ -66,12 +66,38 @@ export type TreatmentEnvelope<T> = {
   data: T;
 };
 
+export type GovernedPriorAuthority = Record<string, unknown> & {
+  authorityName?: string;
+  authorityId?: string;
+  method?: string;
+  hierarchy?: string | string[];
+  exposureFeature?: string | null;
+  exposureDefinition?: string;
+  reliability?: string;
+  foldLocal?: boolean | string;
+  pointInTime?: boolean | string;
+  status?: string;
+  blockedReason?: string | null;
+  derivedOutputs?: string[];
+};
+
+export type GovernedPriorAuthoritySummary = GovernedPriorAuthority & {
+  readyFeatureCount?: number;
+  blockedFeatureCount?: number;
+  featureCount?: number;
+};
+
 export type TreatmentSpecificationFeature = Record<string, unknown> & {
   featureName?: string;
   feature?: string;
   canonicalDisposition?: string;
   disposition?: string;
   executionStatus?: string;
+  execution_contract?: Record<string, unknown> & {
+    missing?: Record<string, unknown> & {
+      priorAuthority?: GovernedPriorAuthority | null;
+    };
+  };
 };
 
 export type TreatmentAdditionalBackendFeature = Record<string, unknown> & {
@@ -100,6 +126,7 @@ export type TreatmentSpecificationData = {
   };
   dispositionCounts: Record<string, number>;
   executionSummary: Record<string, unknown>;
+  priorAuthority?: GovernedPriorAuthoritySummary | null;
   exceptions: Array<Record<string, unknown>>;
   features: TreatmentSpecificationFeature[];
   priorPolicies: {

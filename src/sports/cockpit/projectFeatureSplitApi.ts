@@ -46,6 +46,42 @@ export type StudioEnvelope<T> = {
 
 export type FeatureStatus = "ACTIVE" | "INACTIVE" | "UNAVAILABLE";
 
+export type GovernedPreprocessingPriorAuthority = {
+  authorityName: string;
+  authorityId: string;
+  method: string;
+  hierarchy: string[];
+  exposureFeature: string | null;
+  exposureDefinition: string;
+  reliability: string;
+  foldLocal: string;
+  pointInTime: string;
+  status: string;
+  blockedReason: string | null;
+  derivedOutputs: string[];
+  readyFeatureCount: number | null;
+  blockedFeatureCount: number | null;
+  featureCount: number | null;
+};
+
+export type TreatmentSpecificationResolution = {
+  executableStatus: string;
+  executableSelectable: boolean;
+  blockedReason: string | null;
+  scientificRecommendation: string;
+  priorAuthority: GovernedPreprocessingPriorAuthority | null;
+  derivedPriorOutputs: string[];
+};
+
+export type TreatmentSpecificationDraftAuthority = {
+  specificationDraftId: string;
+  specificationVersion: number | null;
+  manifestChecksum: string;
+  status: string;
+  priorAuthority: GovernedPreprocessingPriorAuthority | null;
+  executionSummary: Record<string, unknown>;
+};
+
 export type FeatureInventoryRow = {
   order: number;
   featureName: string;
@@ -76,6 +112,7 @@ export type FeatureInventoryRow = {
   selectedCandidateSets: string[];
   eligibleTransformations: string[];
   selectedTransformation: string;
+  treatmentSpecificationResolution: TreatmentSpecificationResolution | null;
   targetClassComparison?: { label: string; value: number }[];
   temporalCoverage?: { label: string; value: number }[];
   missingnessBySeason?: { label: string; value: number }[];
@@ -172,6 +209,8 @@ export type FeatureStudioSummary = {
     familyMissingness: { family: string; missingPercent: number }[];
     featureAvailabilityBySeason: { season: number; family: string; coveragePercent: number }[];
   };
+  treatmentSpecificationDraft: TreatmentSpecificationDraftAuthority | null;
+  priorAuthority: GovernedPreprocessingPriorAuthority | null;
   featureSetState: FeatureSetState;
 };
 
@@ -377,6 +416,93 @@ function normalizedInteraction(raw: any): InteractionContract {
   };
 }
 
+function normalizedStringList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+  if (raw && typeof raw === "object") {
+    return Object.values(raw as Record<string, unknown>)
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+  return typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
+}
+
+function normalizedPriorAuthority(
+  raw: any,
+  derivedOutputs?: unknown,
+): GovernedPreprocessingPriorAuthority | null {
+  if (!raw || typeof raw !== "object") return null;
+  const hierarchy = normalizedStringList(raw.hierarchy);
+  return {
+    authorityName: String(raw.authorityName ?? "NOT_REPORTED"),
+    authorityId: String(raw.authorityId ?? "NOT_REPORTED"),
+    method: String(raw.method ?? "NOT_REPORTED"),
+    hierarchy,
+    exposureFeature:
+      raw.exposureFeature == null ? null : String(raw.exposureFeature),
+    exposureDefinition: String(raw.exposureDefinition ?? ""),
+    reliability: String(raw.reliability ?? "NOT_REPORTED"),
+    foldLocal: String(raw.foldLocal ?? "NOT_REPORTED").toUpperCase(),
+    pointInTime: String(raw.pointInTime ?? "NOT_REPORTED").toUpperCase(),
+    status: String(raw.status ?? "SUMMARY"),
+    blockedReason:
+      raw.blockedReason == null ? null : String(raw.blockedReason),
+    derivedOutputs: normalizedStringList(
+      derivedOutputs ?? raw.derivedOutputs ?? raw.derivedOutputMap,
+    ),
+    readyFeatureCount:
+      raw.readyFeatureCount == null ? null : Number(raw.readyFeatureCount),
+    blockedFeatureCount:
+      raw.blockedFeatureCount == null ? null : Number(raw.blockedFeatureCount),
+    featureCount: raw.featureCount == null ? null : Number(raw.featureCount),
+  };
+}
+
+function normalizedTreatmentSpecificationResolution(
+  raw: any,
+): TreatmentSpecificationResolution | null {
+  if (!raw || typeof raw !== "object") return null;
+  const derivedPriorOutputs = normalizedStringList(raw.derivedPriorOutputs);
+  return {
+    executableStatus: String(raw.executableStatus ?? "NOT_REPORTED"),
+    executableSelectable: Boolean(raw.executableSelectable),
+    blockedReason: raw.blockedReason == null ? null : String(raw.blockedReason),
+    scientificRecommendation: String(
+      raw.scientificRecommendation ?? "NOT_REPORTED",
+    ),
+    priorAuthority: normalizedPriorAuthority(
+      raw.priorAuthority,
+      derivedPriorOutputs,
+    ),
+    derivedPriorOutputs,
+  };
+}
+
+function normalizedTreatmentSpecificationDraft(
+  raw: any,
+): TreatmentSpecificationDraftAuthority | null {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    specificationDraftId: String(raw.specificationDraftId ?? ""),
+    specificationVersion:
+      raw.specificationVersion == null
+        ? null
+        : Number(raw.specificationVersion),
+    manifestChecksum: String(raw.manifestChecksum ?? ""),
+    status: String(raw.status ?? "DRAFT"),
+    priorAuthority: normalizedPriorAuthority(raw.priorAuthority),
+    executionSummary:
+      raw.executionSummary && typeof raw.executionSummary === "object"
+        ? raw.executionSummary
+        : {},
+  };
+}
+
 function normalizedFeatureRow(raw: any): FeatureInventoryRow {
   const min = raw?.minimum;
   const max = raw?.maximum;
@@ -411,6 +537,10 @@ function normalizedFeatureRow(raw: any): FeatureInventoryRow {
     selectedCandidateSets: raw?.selectedFeatureSetIds ?? [],
     eligibleTransformations: raw?.compatibleTransformations ?? [],
     selectedTransformation: String(raw?.selectedTransformation ?? "RETAIN_RAW"),
+    treatmentSpecificationResolution:
+      normalizedTreatmentSpecificationResolution(
+        raw?.treatmentSpecificationResolution,
+      ),
     targetClassComparison: raw?.targetClassComparison?.rows ?? [],
     temporalCoverage: raw?.temporalCoverage ?? [],
     missingnessBySeason: (raw?.missingnessBySeason ?? []).map((item: any) => ({ label: String(item.season ?? item.label), value: Number(item.missingPercent ?? item.value ?? 0) })),
@@ -425,6 +555,9 @@ function normalizedFeatureSummary(raw: any): FeatureStudioSummary {
   const interactionRows = (raw?.interactions ?? []).map(normalizedInteraction);
   const familyCoverage = families.map((item: FeatureFamily) => ({ family: item.friendlyName, coveragePercent: item.physicalMissingPercent == null ? 0 : Math.max(0, 100 - item.physicalMissingPercent) }));
   const familyMissingness = families.map((item: FeatureFamily) => ({ family: item.friendlyName, missingPercent: item.physicalMissingPercent ?? 0 }));
+  const treatmentSpecificationDraft = normalizedTreatmentSpecificationDraft(
+    raw?.treatmentSpecificationDraft,
+  );
   return {
     summary: {
       coreFeatureCount: Number(raw?.summary?.coreFeatureCount ?? 0),
@@ -467,6 +600,8 @@ function normalizedFeatureSummary(raw: any): FeatureStudioSummary {
       },
     },
     visualizations: { familyCoverage, familyMissingness, featureAvailabilityBySeason: [] },
+    treatmentSpecificationDraft,
+    priorAuthority: treatmentSpecificationDraft?.priorAuthority ?? null,
     featureSetState: normalizedFeatureSetState(raw?.featureSetState),
   };
 }

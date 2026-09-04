@@ -36,6 +36,7 @@ import {
 } from "./projectTreatmentApi";
 import {
   DownloadAggregatedButton,
+  GovernedPriorAuthorityCard,
   type StudioFilterState,
   StudioRequestState,
   TreatmentDecisionHeader,
@@ -47,6 +48,7 @@ import {
   formatInteger,
   formatPercent,
   formatValue,
+  useGovernedPriorAuthority,
 } from "./TreatmentStudioShell";
 
 const METHODS: { value: ImputationMethod; label: string; detail: string }[] = [
@@ -758,6 +760,7 @@ function MissingDetailDrawer({
   familyActionMessage: string | null;
   handoffFeatures: () => void;
 }) {
+  const governedPriorAuthority = useGovernedPriorAuthority(row?.variable);
   const request = useMemo(
     () =>
       row
@@ -995,6 +998,14 @@ function MissingDetailDrawer({
               : detail?.governedPriorUnavailableReason ||
                 "Governed prior unavailable: no registered hierarchical or league-prior authority exists for this variable. Retain missing with its indicator, or require review."}
           </div>
+          {row && governedPriorAuthority ? (
+            <div className="lg:col-span-4">
+              <GovernedPriorAuthorityCard
+                featureName={row.variable}
+                authority={governedPriorAuthority}
+              />
+            </div>
+          ) : null}
           <label className="text-[10px] font-semibold uppercase text-slate-500">
             Source/computation failure
             <select
