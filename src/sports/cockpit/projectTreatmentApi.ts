@@ -66,7 +66,46 @@ export type TreatmentEnvelope<T> = {
   data: T;
 };
 
+export const GOVERNED_PRIOR_EXECUTABLE_STATUS = "READY_GOVERNED_PRIOR_V1";
+export const GOVERNED_PRIOR_BINDING_READY_STATUS =
+  "BINDING_READY_REQUIRES_WAVE2_ENGINE";
+export const GOVERNED_PRIOR_RETIRED_STATUS =
+  "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION";
+export const GOVERNED_PRIOR_BLOCKED_STATUS =
+  "BLOCKED_REQUIRES_PRIOR_AUTHORITY";
+
+export type GovernedPriorStatus =
+  | typeof GOVERNED_PRIOR_EXECUTABLE_STATUS
+  | typeof GOVERNED_PRIOR_BINDING_READY_STATUS
+  | typeof GOVERNED_PRIOR_RETIRED_STATUS
+  | typeof GOVERNED_PRIOR_BLOCKED_STATUS;
+
+export type GovernedPriorStatusCounts = Partial<
+  Record<GovernedPriorStatus, number>
+>;
+
+export type GovernedPriorBucket =
+  | "executable"
+  | "binding-ready"
+  | "retired"
+  | "blocked";
+
+export function governedPriorBucket(
+  authority:
+    | { status?: unknown; executable?: unknown }
+    | null
+    | undefined,
+): GovernedPriorBucket {
+  const status =
+    typeof authority?.status === "string" ? authority.status : "";
+  if (status === GOVERNED_PRIOR_EXECUTABLE_STATUS) return "executable";
+  if (status === GOVERNED_PRIOR_BINDING_READY_STATUS) return "binding-ready";
+  if (status === GOVERNED_PRIOR_RETIRED_STATUS) return "retired";
+  return "blocked";
+}
+
 export type GovernedPriorAuthority = Record<string, unknown> & {
+  featureName?: string;
   authorityName?: string;
   authorityId?: string;
   method?: string;
@@ -77,14 +116,37 @@ export type GovernedPriorAuthority = Record<string, unknown> & {
   foldLocal?: boolean | string;
   pointInTime?: boolean | string;
   status?: string;
+  executable?: boolean;
+  selectable?: boolean;
   blockedReason?: string | null;
+  resolution?: string | null;
+  retirementReason?: string | null;
   derivedOutputs?: string[];
 };
 
 export type GovernedPriorAuthoritySummary = GovernedPriorAuthority & {
   readyFeatureCount?: number;
+  bindingReadyRequiresWave2EngineFeatureCount?: number;
+  /** Backwards-compatible parser alias; new payloads use the Wave 2-specific name. */
+  bindingReadyFeatureCount?: number;
+  retiredFeatureCount?: number;
   blockedFeatureCount?: number;
   featureCount?: number;
+  bindings?: GovernedPriorAuthority[];
+  statusCounts?: GovernedPriorStatusCounts;
+  featureSets?: {
+    executable?: string[];
+    bindingReadyRequiresWave2Engine?: string[];
+    retiredByScientificDecision?: string[];
+    blockedByMissingEvidence?: string[];
+  };
+};
+
+export type TreatmentExecutionSummary = Record<string, unknown> & {
+  hierarchicalPriorReady?: number;
+  hierarchicalPriorBindingReady?: number;
+  hierarchicalPriorRetired?: number;
+  hierarchicalPriorBlocked?: number;
 };
 
 export type GovernedInteractionParentTreatmentAuthority =
@@ -127,7 +189,12 @@ export type TreatmentSpecificationFeature = Record<string, unknown> & {
   canonicalDisposition?: string;
   disposition?: string;
   executionStatus?: string;
+  executable_status?: string;
+  executable_resolution?: string;
+  executable_selectable?: boolean;
   execution_contract?: Record<string, unknown> & {
+    executable?: boolean;
+    selectable?: boolean;
     missing?: Record<string, unknown> & {
       priorAuthority?: GovernedPriorAuthority | null;
     };
@@ -160,7 +227,7 @@ export type TreatmentSpecificationData = {
     status: string;
   };
   dispositionCounts: Record<string, number>;
-  executionSummary: Record<string, unknown>;
+  executionSummary: TreatmentExecutionSummary;
   priorAuthority?: GovernedPriorAuthoritySummary | null;
   interactionAuthority?: GovernedInteractionAuthoritySummary | null;
   exceptions: Array<Record<string, unknown>>;

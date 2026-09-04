@@ -28,6 +28,8 @@ import type {
   GovernedInteractionAuthority,
   GovernedInteractionAuthoritySummary,
   GovernedPriorAuthority,
+  GovernedPriorAuthoritySummary,
+  GovernedPriorBucket,
   QueryStatus,
   TreatmentKind,
   TreatmentPolicy,
@@ -35,6 +37,8 @@ import type {
   TreatmentSpecificationFeature,
 } from "./projectTreatmentApi";
 import {
+  GOVERNED_PRIOR_EXECUTABLE_STATUS,
+  governedPriorBucket,
   hasCurrentTreatmentSpecificationDraft,
   useTreatmentSpecification,
 } from "./projectTreatmentApi";
@@ -784,9 +788,20 @@ function featurePriorAuthority(
     ? executionContract.missing
     : null;
   const priorAuthority = missing?.priorAuthority;
-  return isRecord(priorAuthority)
-    ? (priorAuthority as GovernedPriorAuthority)
-    : null;
+  if (!isRecord(priorAuthority)) return null;
+  const resolution =
+    feature.executable_resolution ?? feature.executableResolution;
+  const status =
+    typeof priorAuthority.status === "string" ? priorAuthority.status : "";
+  return {
+    ...priorAuthority,
+    executable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
+    selectable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
+    resolution:
+      typeof resolution === "string" && resolution.trim()
+        ? resolution
+        : priorAuthority.resolution,
+  } as GovernedPriorAuthority;
 }
 
 function featurePriorAuthorityEntries(
@@ -863,6 +878,75 @@ function priorGateStatus(value: unknown): string {
   return status === "TRUE" ? "PASS" : status === "FALSE" ? "FAIL" : status;
 }
 
+const PRIOR_BUCKET_VIEW: Record<
+  GovernedPriorBucket,
+  {
+    label: string;
+    cardClass: string;
+    badgeClass: string;
+    reasonLabel: string;
+    reasonClass: string;
+  }
+> = {
+  executable: {
+    label: "EXECUTABLE V1",
+    cardClass: "border-emerald-200 bg-emerald-50/50",
+    badgeClass: "bg-emerald-700 text-white",
+    reasonLabel: "",
+    reasonClass: "",
+  },
+  "binding-ready": {
+    label: "BINDING READY · WAVE 2",
+    cardClass: "border-cyan-200 bg-cyan-50/50",
+    badgeClass: "border border-cyan-300 bg-white text-cyan-950",
+    reasonLabel: "WAVE 2 ENGINE REQUIRED:",
+    reasonClass: "border-cyan-300 text-cyan-950",
+  },
+  retired: {
+    label: "RETIRED · NONSELECTABLE",
+    cardClass: "border-slate-300 bg-slate-100/70",
+    badgeClass: "border border-slate-300 bg-white text-slate-800",
+    reasonLabel: "RETIRED BY SCIENTIFIC DECISION:",
+    reasonClass: "border-slate-300 text-slate-800",
+  },
+  blocked: {
+    label: "BLOCKED · MISSING EVIDENCE",
+    cardClass: "border-rose-200 bg-rose-50/60",
+    badgeClass: "border border-rose-300 bg-white text-rose-950",
+    reasonLabel: "BLOCKED — MISSING EVIDENCE:",
+    reasonClass: "border-rose-300 text-rose-950",
+  },
+};
+
+function priorBucketView(authority: GovernedPriorAuthority) {
+  const bucket = governedPriorBucket(authority);
+  return { bucket, ...PRIOR_BUCKET_VIEW[bucket] };
+}
+
+function priorAuthorityReason(
+  authority: GovernedPriorAuthority,
+  bucket: GovernedPriorBucket,
+): string | null {
+  if (bucket === "binding-ready") {
+    return priorField(authority.resolution, "") || null;
+  }
+  if (bucket === "retired") {
+    return (
+      priorField(authority.retirementReason, "") ||
+      priorField(authority.resolution, "") ||
+      null
+    );
+  }
+  if (bucket === "blocked") {
+    return (
+      priorField(authority.blockedReason, "") ||
+      priorField(authority.resolution, "") ||
+      null
+    );
+  }
+  return null;
+}
+
 function priorDerivedOutputs(
   authority: GovernedPriorAuthority,
   pattern: RegExp,
@@ -882,7 +966,11 @@ export function GovernedPriorAuthorityCard({
   featureName: string;
 }) {
   const status = priorField(authority.status, "NOT REPORTED");
-  const ready = status.toUpperCase().includes("READY");
+  const presentation = priorBucketView(authority);
+  const resolutionReason = priorAuthorityReason(
+    authority,
+    presentation.bucket,
+  );
   const effectiveOutputs = priorDerivedOutputs(
     authority,
     /effective|sample|exposure/i,
@@ -899,12 +987,8 @@ export function GovernedPriorAuthorityCard({
 
   return (
     <article
-      className={`min-w-0 rounded-xl border p-3 ${
-        ready
-          ? "border-emerald-200 bg-emerald-50/50"
-          : "border-amber-200 bg-amber-50/60"
-      }`}
-      data-testid={`stage3-governed-prior-${ready ? "ready" : "blocked"}`}
+      className={`min-w-0 rounded-xl border p-3 ${presentation.cardClass}`}
+      data-testid={`stage3-governed-prior-${presentation.bucket}`}
     >
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -916,14 +1000,13 @@ export function GovernedPriorAuthorityCard({
           </div>
         </div>
         <span
-          className={`rounded-full px-2 py-1 text-[9px] font-bold ${
-            ready
-              ? "bg-emerald-700 text-white"
-              : "border border-amber-300 bg-white text-amber-950"
-          }`}
+          className={`rounded-full px-2 py-1 text-[9px] font-bold ${presentation.badgeClass}`}
         >
-          {status}
+          {presentation.label}
         </span>
+      </div>
+      <div className="mt-2 break-all font-mono text-[9px] text-slate-600">
+        {status} · executable {String(presentation.bucket === "executable")} · selectable {String(presentation.bucket === "executable")}
       </div>
       <dl className="mt-3 grid gap-2 text-[10px] leading-4 sm:grid-cols-2">
         <div>
@@ -969,9 +1052,9 @@ export function GovernedPriorAuthorityCard({
           <b>Governed preprocessing outputs:</b> {allOutputs.join(", ")}
         </p>
       ) : null}
-      {!ready && authority.blockedReason ? (
-        <p className="mt-2 rounded-lg border border-amber-300 bg-white p-2 text-[10px] leading-4 text-amber-950">
-          <b>BLOCKED:</b> {authority.blockedReason}
+      {resolutionReason ? (
+        <p className={`mt-2 rounded-lg border bg-white p-2 text-[10px] leading-4 ${presentation.reasonClass}`}>
+          <b>{presentation.reasonLabel}</b> {resolutionReason}
         </p>
       ) : null}
     </article>
@@ -998,27 +1081,61 @@ function GovernedPriorAuthorityPanel({
   summary,
 }: {
   features: TreatmentSpecificationFeature[];
-  summary: GovernedPriorAuthority | null | undefined;
+  summary: GovernedPriorAuthoritySummary | null | undefined;
 }) {
   const featureAuthorities = featurePriorAuthorityEntries(features);
-  const representative = summary ?? featureAuthorities[0]?.[1] ?? null;
+  const summaryAuthorities: Array<[string, GovernedPriorAuthority]> = (
+    summary?.bindings ?? []
+  ).map((authority, index) => [
+    priorField(
+      authority.featureName ?? authority.feature,
+      `Authority binding ${index + 1}`,
+    ),
+    authority,
+  ]);
+  const representative =
+    summary ?? featureAuthorities[0]?.[1] ?? summaryAuthorities[0]?.[1] ?? null;
   if (!representative) return null;
 
-  const readyCount = featureAuthorities.filter(([, authority]) =>
-    priorField(authority.status, "").toUpperCase().includes("READY"),
-  ).length;
-  const blockedCount = featureAuthorities.length - readyCount;
+  const bindingRows = featureAuthorities.length
+    ? featureAuthorities
+    : summaryAuthorities;
+  const derivedCounts = {
+    executable: 0,
+    bindingReady: 0,
+    retired: 0,
+    blocked: 0,
+  };
+  bindingRows.forEach(([, authority]) => {
+    const bucket = governedPriorBucket(authority);
+    if (bucket === "executable") derivedCounts.executable += 1;
+    else if (bucket === "binding-ready") derivedCounts.bindingReady += 1;
+    else if (bucket === "retired") derivedCounts.retired += 1;
+    else derivedCounts.blocked += 1;
+  });
   const reportedReady =
     typeof summary?.readyFeatureCount === "number"
       ? summary.readyFeatureCount
-      : readyCount;
+      : derivedCounts.executable;
+  const reportedBindingReady =
+    typeof summary?.bindingReadyRequiresWave2EngineFeatureCount === "number"
+      ? summary.bindingReadyRequiresWave2EngineFeatureCount
+      : typeof summary?.bindingReadyFeatureCount === "number"
+        ? summary.bindingReadyFeatureCount
+        : derivedCounts.bindingReady;
+  const reportedRetired =
+    typeof summary?.retiredFeatureCount === "number"
+      ? summary.retiredFeatureCount
+      : derivedCounts.retired;
   const reportedBlocked =
     typeof summary?.blockedFeatureCount === "number"
       ? summary.blockedFeatureCount
-      : blockedCount;
+      : derivedCounts.blocked;
   const displayRows = featureAuthorities.length
     ? featureAuthorities
-    : [["Authority summary", representative] as [string, GovernedPriorAuthority]];
+    : summaryAuthorities.length
+      ? summaryAuthorities
+      : [["Authority summary", representative] as [string, GovernedPriorAuthority]];
 
   return (
     <section
@@ -1034,17 +1151,24 @@ function GovernedPriorAuthorityPanel({
             {priorField(representative.authorityName)}
           </h3>
           <p className="mt-1 max-w-4xl text-[10px] leading-4 text-slate-600">
-            Read-only player-history → governed-fallback contracts. V1 uses the
-            global MLB league prior because Current Gold has no governed role
-            taxonomy; this page does not fit priors, models, or validation data.
+            Read-only player-history → governed-fallback contracts. Executable
+            V1 bindings, Wave 2 engine dependencies, scientific retirements,
+            and true missing-evidence blockers remain separate; this page does
+            not fit priors, models, or validation data.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 text-[9px] font-semibold">
           <span className="rounded-full bg-emerald-700 px-2 py-1 text-white">
-            {reportedReady} READY
+            {reportedReady} EXECUTABLE V1
           </span>
-          <span className="rounded-full border border-amber-300 bg-white px-2 py-1 text-amber-950">
-            {reportedBlocked} BLOCKED
+          <span className="rounded-full border border-cyan-300 bg-white px-2 py-1 text-cyan-950">
+            {reportedBindingReady} BINDING READY · WAVE 2
+          </span>
+          <span className="rounded-full border border-slate-300 bg-white px-2 py-1 text-slate-800">
+            {reportedRetired} RETIRED
+          </span>
+          <span className="rounded-full border border-rose-300 bg-white px-2 py-1 text-rose-950">
+            {reportedBlocked} BLOCKED · MISSING EVIDENCE
           </span>
           <span className="rounded-full border border-violet-200 bg-white px-2 py-1 text-violet-900">
             Fold-local {priorGateStatus(representative.foldLocal)}
@@ -1155,7 +1279,7 @@ function InteractionAuthorityBindingCard({
     ? binding.parentTreatmentAuthorities
     : [];
   const status = priorField(binding.status, "NOT REPORTED");
-  const ready = status.toUpperCase().includes("READY");
+  const ready = status === "READY_GOVERNED_INTERACTION_V1";
   return (
     <article
       className={`min-w-0 rounded-xl border p-3 ${
@@ -1263,7 +1387,7 @@ function GovernedInteractionAuthorityPanel({
       : [];
   if (!summary && !bindings.length) return null;
   const inferredReady = bindings.filter((binding) =>
-    priorField(binding.status, "").toUpperCase().includes("READY"),
+    priorField(binding.status, "") === "READY_GOVERNED_INTERACTION_V1",
   ).length;
   const featureCount =
     typeof summary?.featureCount === "number"

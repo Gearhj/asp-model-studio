@@ -1,4 +1,10 @@
 import { BASE, getJSON, postJSON } from "../../lib/api";
+import {
+  GOVERNED_PRIOR_BINDING_READY_STATUS,
+  GOVERNED_PRIOR_BLOCKED_STATUS,
+  GOVERNED_PRIOR_EXECUTABLE_STATUS,
+  GOVERNED_PRIOR_RETIRED_STATUS,
+} from "./projectTreatmentApi";
 
 export type StudioAudit = {
   finalOotTargetAccessed: false;
@@ -47,6 +53,7 @@ export type StudioEnvelope<T> = {
 export type FeatureStatus = "ACTIVE" | "INACTIVE" | "UNAVAILABLE";
 
 export type GovernedPreprocessingPriorAuthority = {
+  featureName?: string;
   authorityName: string;
   authorityId: string;
   method: string;
@@ -57,11 +64,25 @@ export type GovernedPreprocessingPriorAuthority = {
   foldLocal: string;
   pointInTime: string;
   status: string;
+  executable: boolean;
+  selectable: boolean;
   blockedReason: string | null;
+  resolution: string | null;
+  retirementReason: string | null;
   derivedOutputs: string[];
   readyFeatureCount: number | null;
+  bindingReadyRequiresWave2EngineFeatureCount: number | null;
+  retiredFeatureCount: number | null;
   blockedFeatureCount: number | null;
   featureCount: number | null;
+  bindings: GovernedPreprocessingPriorAuthority[];
+};
+
+export type PriorExecutionSummary = Record<string, unknown> & {
+  hierarchicalPriorReady?: number;
+  hierarchicalPriorBindingReady?: number;
+  hierarchicalPriorRetired?: number;
+  hierarchicalPriorBlocked?: number;
 };
 
 export type GovernedInteractionParentTreatmentAuthority =
@@ -100,8 +121,11 @@ export type GovernedInteractionAuthoritySummary = {
 
 export type TreatmentSpecificationResolution = {
   executableStatus: string;
+  executable: boolean;
   executableSelectable: boolean;
   blockedReason: string | null;
+  resolution: string | null;
+  retirementReason: string | null;
   scientificRecommendation: string;
   priorAuthority: GovernedPreprocessingPriorAuthority | null;
   interactionAuthority: GovernedInteractionAuthority | null;
@@ -115,7 +139,7 @@ export type TreatmentSpecificationDraftAuthority = {
   status: string;
   priorAuthority: GovernedPreprocessingPriorAuthority | null;
   interactionAuthority: GovernedInteractionAuthoritySummary | null;
-  executionSummary: Record<string, unknown>;
+  executionSummary: PriorExecutionSummary;
 };
 
 export type FeatureInventoryRow = {
@@ -597,13 +621,27 @@ function normalizedStringList(raw: unknown): string[] {
   return typeof raw === "string" && raw.trim() ? [raw.trim()] : [];
 }
 
+function isGovernedPriorStatus(status: string): boolean {
+  return (
+    status === GOVERNED_PRIOR_EXECUTABLE_STATUS ||
+    status === GOVERNED_PRIOR_BINDING_READY_STATUS ||
+    status === GOVERNED_PRIOR_RETIRED_STATUS ||
+    status === GOVERNED_PRIOR_BLOCKED_STATUS
+  );
+}
+
 function normalizedPriorAuthority(
   raw: any,
   derivedOutputs?: unknown,
 ): GovernedPreprocessingPriorAuthority | null {
   if (!raw || typeof raw !== "object") return null;
   const hierarchy = normalizedStringList(raw.hierarchy);
+  const status = String(raw.status ?? "SUMMARY");
   return {
+    featureName:
+      raw.featureName == null && raw.feature == null
+        ? undefined
+        : String(raw.featureName ?? raw.feature),
     authorityName: String(raw.authorityName ?? "NOT_REPORTED"),
     authorityId: String(raw.authorityId ?? "NOT_REPORTED"),
     method: String(raw.method ?? "NOT_REPORTED"),
@@ -614,17 +652,39 @@ function normalizedPriorAuthority(
     reliability: String(raw.reliability ?? "NOT_REPORTED"),
     foldLocal: String(raw.foldLocal ?? "NOT_REPORTED").toUpperCase(),
     pointInTime: String(raw.pointInTime ?? "NOT_REPORTED").toUpperCase(),
-    status: String(raw.status ?? "SUMMARY"),
+    status,
+    executable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
+    selectable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
     blockedReason:
       raw.blockedReason == null ? null : String(raw.blockedReason),
+    resolution: raw.resolution == null ? null : String(raw.resolution),
+    retirementReason:
+      raw.retirementReason == null ? null : String(raw.retirementReason),
     derivedOutputs: normalizedStringList(
       derivedOutputs ?? raw.derivedOutputs ?? raw.derivedOutputMap,
     ),
     readyFeatureCount:
       raw.readyFeatureCount == null ? null : Number(raw.readyFeatureCount),
+    bindingReadyRequiresWave2EngineFeatureCount:
+      raw.bindingReadyRequiresWave2EngineFeatureCount == null &&
+      raw.bindingReadyFeatureCount == null
+        ? null
+        : Number(
+            raw.bindingReadyRequiresWave2EngineFeatureCount ??
+              raw.bindingReadyFeatureCount,
+          ),
+    retiredFeatureCount:
+      raw.retiredFeatureCount == null ? null : Number(raw.retiredFeatureCount),
     blockedFeatureCount:
       raw.blockedFeatureCount == null ? null : Number(raw.blockedFeatureCount),
     featureCount: raw.featureCount == null ? null : Number(raw.featureCount),
+    bindings: (Array.isArray(raw.bindings) ? raw.bindings : [])
+      .map((binding: unknown) => normalizedPriorAuthority(binding))
+      .filter(
+        (
+          binding: GovernedPreprocessingPriorAuthority | null,
+        ): binding is GovernedPreprocessingPriorAuthority => binding !== null,
+      ),
   };
 }
 
@@ -633,10 +693,31 @@ function normalizedTreatmentSpecificationResolution(
 ): TreatmentSpecificationResolution | null {
   if (!raw || typeof raw !== "object") return null;
   const derivedPriorOutputs = normalizedStringList(raw.derivedPriorOutputs);
+  const executableStatus = String(
+    raw.executableStatus ?? raw.executable_status ?? "NOT_REPORTED",
+  );
+  const nestedPriorStatus = String(raw.priorAuthority?.status ?? "");
+  const governedPriorStatus =
+    isGovernedPriorStatus(executableStatus) ||
+    isGovernedPriorStatus(nestedPriorStatus);
+  const effectivePriorStatus = isGovernedPriorStatus(executableStatus)
+    ? executableStatus
+    : nestedPriorStatus;
+  const retirementReason =
+    raw.priorAuthority?.retirementReason == null
+      ? null
+      : String(raw.priorAuthority.retirementReason);
   return {
-    executableStatus: String(raw.executableStatus ?? "NOT_REPORTED"),
-    executableSelectable: Boolean(raw.executableSelectable),
+    executableStatus,
+    executable: governedPriorStatus
+      ? effectivePriorStatus === GOVERNED_PRIOR_EXECUTABLE_STATUS
+      : raw.executable === true || raw.execution_contract?.executable === true,
+    executableSelectable: governedPriorStatus
+      ? effectivePriorStatus === GOVERNED_PRIOR_EXECUTABLE_STATUS
+      : raw.executableSelectable === true || raw.executable_selectable === true,
     blockedReason: raw.blockedReason == null ? null : String(raw.blockedReason),
+    resolution: raw.resolution == null ? null : String(raw.resolution),
+    retirementReason,
     scientificRecommendation: String(
       raw.scientificRecommendation ?? "NOT_REPORTED",
     ),
@@ -772,7 +853,10 @@ function normalizedFeatureSummary(raw: any): FeatureStudioSummary {
     },
     visualizations: { familyCoverage, familyMissingness, featureAvailabilityBySeason: [] },
     treatmentSpecificationDraft,
-    priorAuthority: treatmentSpecificationDraft?.priorAuthority ?? null,
+    priorAuthority:
+      normalizedPriorAuthority(raw?.priorAuthority) ??
+      treatmentSpecificationDraft?.priorAuthority ??
+      null,
     interactionAuthority:
       normalizedInteractionAuthoritySummary(raw?.interactionAuthority) ??
       treatmentSpecificationDraft?.interactionAuthority ??

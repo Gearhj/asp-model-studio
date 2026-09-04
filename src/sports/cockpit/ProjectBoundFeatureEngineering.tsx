@@ -44,6 +44,10 @@ import {
   type TreatmentSpecificationDraftAuthority,
   type TreatmentSpecificationResolution,
 } from "./projectFeatureSplitApi";
+import {
+  governedPriorBucket,
+  type GovernedPriorBucket,
+} from "./projectTreatmentApi";
 
 type AsyncState<T> = { status: "loading" | "ready" | "error"; data: T | null; error: string | null };
 
@@ -68,6 +72,107 @@ const focusedPriorOutputs = (outputs: string[]) => {
   );
   return (preferred.length ? preferred : outputs).slice(0, 5);
 };
+
+const PRIOR_BUCKET_PRESENTATION: Record<
+  GovernedPriorBucket,
+  {
+    label: string;
+    tone: "emerald" | "cyan" | "slate" | "rose";
+    cardClass: string;
+    reasonLabel: string;
+    reasonClass: string;
+  }
+> = {
+  executable: {
+    label: "EXECUTABLE V1",
+    tone: "emerald",
+    cardClass: "border-emerald-200 bg-emerald-50/50",
+    reasonLabel: "",
+    reasonClass: "",
+  },
+  "binding-ready": {
+    label: "BINDING READY · WAVE 2",
+    tone: "cyan",
+    cardClass: "border-cyan-200 bg-cyan-50/50",
+    reasonLabel: "WAVE 2 ENGINE REQUIRED:",
+    reasonClass: "border-cyan-200 text-cyan-950",
+  },
+  retired: {
+    label: "RETIRED · NONSELECTABLE",
+    tone: "slate",
+    cardClass: "border-slate-300 bg-slate-100/70",
+    reasonLabel: "RETIRED BY SCIENTIFIC DECISION:",
+    reasonClass: "border-slate-300 text-slate-800",
+  },
+  blocked: {
+    label: "BLOCKED · MISSING EVIDENCE",
+    tone: "rose",
+    cardClass: "border-rose-200 bg-rose-50/60",
+    reasonLabel: "BLOCKED — MISSING EVIDENCE:",
+    reasonClass: "border-rose-300 text-rose-950",
+  },
+};
+
+function priorPresentation(authority: {
+  status?: unknown;
+  executable?: unknown;
+}) {
+  const bucket = governedPriorBucket(authority);
+  return { bucket, ...PRIOR_BUCKET_PRESENTATION[bucket] };
+}
+
+function priorResolutionReason(
+  authority: GovernedPreprocessingPriorAuthority,
+  resolution: TreatmentSpecificationResolution | null,
+  bucket: GovernedPriorBucket,
+): string | null {
+  if (bucket === "binding-ready") {
+    return resolution?.resolution ?? authority.resolution;
+  }
+  if (bucket === "retired") {
+    return (
+      authority.retirementReason ??
+      resolution?.retirementReason ??
+      resolution?.resolution ??
+      null
+    );
+  }
+  if (bucket === "blocked") {
+    return (
+      authority.blockedReason ??
+      resolution?.blockedReason ??
+      resolution?.resolution ??
+      null
+    );
+  }
+  return null;
+}
+
+function priorResolutionCounts(
+  authority: GovernedPreprocessingPriorAuthority,
+) {
+  const derived = {
+    executable: 0,
+    bindingReady: 0,
+    retired: 0,
+    blocked: 0,
+  };
+  authority.bindings.forEach((binding) => {
+    const bucket = governedPriorBucket(binding);
+    if (bucket === "executable") derived.executable += 1;
+    else if (bucket === "binding-ready") derived.bindingReady += 1;
+    else if (bucket === "retired") derived.retired += 1;
+    else derived.blocked += 1;
+  });
+  return {
+    executable: authority.readyFeatureCount ?? derived.executable,
+    bindingReady:
+      authority.bindingReadyRequiresWave2EngineFeatureCount ??
+      derived.bindingReady,
+    retired: authority.retiredFeatureCount ?? derived.retired,
+    blocked: authority.blockedFeatureCount ?? derived.blocked,
+  };
+}
 
 const DEFAULT_QUERY = {
   page: 1,
@@ -331,6 +436,7 @@ export function ProjectBoundFeatureEngineering({
       </details>
 
       <GovernedPriorSummaryPanel
+        authority={summary.data.priorAuthority}
         draft={summary.data.treatmentSpecificationDraft}
       />
 
@@ -455,7 +561,7 @@ export function ProjectBoundFeatureEngineering({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {interactions.map((item) => {
             const ready =
-              item.executableStatus.toUpperCase().includes("READY") ||
+              item.executableStatus === "READY_GOVERNED_INTERACTION_V1" ||
               item.status === "MATERIALIZED";
             const parents = item.orderedParents.length
               ? item.orderedParents
@@ -584,12 +690,15 @@ function DiagnosticState({ title, state, text }: { title: string; state: string;
 }
 
 function GovernedPriorSummaryPanel({
+  authority,
   draft,
 }: {
+  authority: GovernedPreprocessingPriorAuthority | null;
   draft: TreatmentSpecificationDraftAuthority | null;
 }) {
-  const authority = draft?.priorAuthority;
-  if (!draft || !authority) return null;
+  const priorAuthority = authority ?? draft?.priorAuthority ?? null;
+  if (!priorAuthority) return null;
+  const counts = priorResolutionCounts(priorAuthority);
   return (
     <section
       className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4"
@@ -601,10 +710,10 @@ function GovernedPriorSummaryPanel({
             Governed derived preprocessing
           </div>
           <h3 className="mt-1 text-sm font-semibold text-slate-950">
-            {authority.authorityName}
+            {priorAuthority.authorityName}
           </h3>
           <p className="mt-1 max-w-4xl text-[11px] leading-5 text-slate-600">
-            Read-only visibility into the treatment-specification draft. These
+            Read-only visibility into the project-bound prior authority. These
             posterior, effective-sample-size, reliability, and uncertainty
             fields are preprocessing outputs—not separately selectable raw
             predictors. This page does not fit, tune, register, or adopt the
@@ -612,31 +721,35 @@ function GovernedPriorSummaryPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">
-          <Pill label={`Fold-local ${authority.foldLocal}`} tone="emerald" />
-          <Pill label={`PIT ${authority.pointInTime}`} tone="emerald" />
-          <Pill label={draft.status} tone="violet" />
+          <Pill label={`Fold-local ${priorAuthority.foldLocal}`} tone="emerald" />
+          <Pill label={`PIT ${priorAuthority.pointInTime}`} tone="emerald" />
+          {draft ? <Pill label={draft.status} tone="violet" /> : null}
         </div>
       </div>
       <dl className="mt-3 grid gap-3 text-[11px] sm:grid-cols-2 xl:grid-cols-4">
         <AuthorityFact
           label="Authority ID"
-          value={authority.authorityId}
+          value={priorAuthority.authorityId}
         />
-        <AuthorityFact label="Method" value={authority.method} />
-        <AuthorityFact label="Hierarchy" value={priorHierarchy(authority)} />
+        <AuthorityFact label="Method" value={priorAuthority.method} />
+        <AuthorityFact label="Hierarchy" value={priorHierarchy(priorAuthority)} />
         <AuthorityFact
           label="Feature resolution"
-          value={`${fmtInt(authority.readyFeatureCount)} READY · ${fmtInt(authority.blockedFeatureCount)} BLOCKED · ${fmtInt(authority.featureCount)} governed rows`}
+          value={`${fmtInt(counts.executable)} EXECUTABLE V1 · ${fmtInt(counts.bindingReady)} BINDING READY / WAVE 2 · ${fmtInt(counts.retired)} RETIRED · ${fmtInt(counts.blocked)} BLOCKED / MISSING EVIDENCE · ${fmtInt(priorAuthority.featureCount)} governed rows`}
         />
-        <AuthorityFact
-          label="Draft identity"
-          value={`${draft.specificationDraftId} · v${draft.specificationVersion ?? "—"}`}
-        />
-        <AuthorityFact
-          label="Manifest checksum"
-          value={draft.manifestChecksum}
-        />
-        {Object.entries(draft.executionSummary)
+        {draft ? (
+          <AuthorityFact
+            label="Draft identity"
+            value={`${draft.specificationDraftId} · v${draft.specificationVersion ?? "—"}`}
+          />
+        ) : null}
+        {draft ? (
+          <AuthorityFact
+            label="Manifest checksum"
+            value={draft.manifestChecksum}
+          />
+        ) : null}
+        {Object.entries(draft?.executionSummary ?? {})
           .slice(0, 2)
           .map(([label, value]) => (
             <AuthorityFact
@@ -665,7 +778,7 @@ function GovernedInteractionBinding({
 }: {
   binding: GovernedInteractionAuthority;
 }) {
-  const ready = binding.status.toUpperCase().includes("READY");
+  const ready = binding.status === "READY_GOVERNED_INTERACTION_V1";
   return (
     <article
       className={`min-w-0 rounded-xl border p-3 ${
@@ -864,19 +977,24 @@ function GovernedPriorRowSummary({
     ? resolution.derivedPriorOutputs
     : authority.derivedOutputs;
   const focused = focusedPriorOutputs(outputs);
-  const ready = authority.status.toUpperCase().includes("READY");
+  const presentation = priorPresentation(authority);
+  const resolutionReason = priorResolutionReason(
+    authority,
+    resolution,
+    presentation.bucket,
+  );
   return (
     <div
-      className={`mt-2 rounded-lg border p-2 text-[9px] leading-3 ${
-        ready
-          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-          : "border-amber-200 bg-amber-50 text-amber-950"
-      }`}
+      className={`mt-2 rounded-lg border p-2 text-[9px] leading-3 ${presentation.cardClass}`}
       data-testid="feature-row-governed-prior-outputs"
+      data-prior-bucket={presentation.bucket}
     >
       <div className="flex flex-wrap items-center gap-1">
-        <b>Governed prior · {authority.status}</b>
+        <b>Governed prior · {presentation.label}</b>
         <span className="ml-auto">{outputs.length} derived outputs</span>
+      </div>
+      <div className="mt-1 break-all font-mono text-[8px] text-slate-600">
+        {authority.status} · executable {String(authority.executable)} · selectable {String(authority.selectable)}
       </div>
       {focused.length ? (
         <div className="mt-1 break-words font-mono">
@@ -884,9 +1002,10 @@ function GovernedPriorRowSummary({
           {outputs.length > focused.length ? ` +${outputs.length - focused.length}` : ""}
         </div>
       ) : null}
-      {!ready && (authority.blockedReason || resolution?.blockedReason) ? (
-        <div className="mt-1 leading-4">
-          <b>BLOCKED:</b> {authority.blockedReason || resolution?.blockedReason}
+      {resolutionReason ? (
+        <div className={`mt-1 rounded border bg-white p-1 leading-4 ${presentation.reasonClass}`}>
+          <b>{presentation.reasonLabel}</b>{" "}
+          {resolutionReason}
         </div>
       ) : null}
     </div>
@@ -900,7 +1019,7 @@ function GovernedInteractionRowSummary({
 }) {
   const authority = resolution?.interactionAuthority;
   if (!authority) return null;
-  const ready = authority.status.toUpperCase().includes("READY");
+  const ready = authority.status === "READY_GOVERNED_INTERACTION_V1";
   return (
     <div
       className={`mt-2 rounded-lg border p-2 text-[9px] leading-4 ${
@@ -949,11 +1068,13 @@ function FeatureTable({ inventory, query, setQuery, selectedFeatures, setSelecte
         </tr></thead>
         <tbody>{inventory.rows.map((row) => {
           const selected = selectedFeatures.includes(row.featureName);
+          const visiblySelected =
+            row.status === "ACTIVE" && (selected || row.core);
           const currentTransform = transformationOverrides[row.featureName]?.join("|") ?? "";
           const transformOptions = row.eligibleTransformations.filter((item) => item !== "ONE_HOT").map((item) => ({ value: item, label: human(item) }));
           if (row.eligibleTransformations.includes("ONE_HOT") && row.eligibleTransformations.includes("CATEGORICAL_UNKNOWN")) transformOptions.push({ value: "CATEGORICAL_UNKNOWN|ONE_HOT", label: "Unknown handling + one-hot" });
           return <tr key={row.featureName} className="align-top hover:bg-cyan-50/30">
-            <td className="border-b border-slate-100 px-2 py-2"><input aria-label={`Select ${row.featureName}`} type="checkbox" disabled={row.status !== "ACTIVE" || row.core} checked={selected || row.core} onChange={() => setSelectedFeatures(selected ? selectedFeatures.filter((name) => name !== row.featureName) : [...selectedFeatures, row.featureName])} /></td>
+            <td className="border-b border-slate-100 px-2 py-2"><input aria-label={`Select ${row.featureName}`} type="checkbox" disabled={row.status !== "ACTIVE" || row.core} checked={visiblySelected} onChange={() => setSelectedFeatures(selected ? selectedFeatures.filter((name) => name !== row.featureName) : [...selectedFeatures, row.featureName])} /></td>
             <td className="border-b border-slate-100 px-2 py-2 tabular-nums">{row.order}</td>
             <th scope="row" className="border-b border-slate-100 px-2 py-2 text-left"><div className="font-mono font-semibold text-slate-900">{row.featureName}</div><div className="mt-0.5 font-normal text-slate-500">{row.friendlyLabel}</div></th>
             <td className="border-b border-slate-100 px-2 py-2">{row.family}</td>
@@ -986,15 +1107,17 @@ function GovernedPriorFeatureDetail({
   const outputs = resolution?.derivedPriorOutputs.length
     ? resolution.derivedPriorOutputs
     : authority.derivedOutputs;
-  const ready = authority.status.toUpperCase().includes("READY");
+  const presentation = priorPresentation(authority);
+  const resolutionReason = priorResolutionReason(
+    authority,
+    resolution,
+    presentation.bucket,
+  );
   return (
     <section
-      className={`rounded-xl border p-4 ${
-        ready
-          ? "border-emerald-200 bg-emerald-50/50"
-          : "border-amber-200 bg-amber-50/60"
-      }`}
+      className={`rounded-xl border p-4 ${presentation.cardClass}`}
       data-testid="feature-detail-governed-prior-outputs"
+      data-prior-bucket={presentation.bucket}
     >
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -1006,11 +1129,15 @@ function GovernedPriorFeatureDetail({
           </div>
         </div>
         <Pill
-          label={authority.status}
-          tone={ready ? "emerald" : "amber"}
+          label={presentation.label}
+          tone={presentation.tone}
         />
       </div>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+        <MiniStat
+          label="Execution / selection"
+          value={`${authority.status} · executable ${String(authority.executable)} · selectable ${String(authority.selectable)}`}
+        />
         <MiniStat
           label="Method / hierarchy"
           value={`${human(authority.method)} · ${priorHierarchy(authority)}`}
@@ -1045,9 +1172,10 @@ function GovernedPriorFeatureDetail({
           </div>
         </div>
       ) : null}
-      {!ready && (authority.blockedReason || resolution?.blockedReason) ? (
-        <p className="mt-3 rounded-lg border border-amber-300 bg-white p-2 text-[11px] leading-5 text-amber-950">
-          <b>BLOCKED:</b> {authority.blockedReason || resolution?.blockedReason}
+      {resolutionReason ? (
+        <p className={`mt-3 rounded-lg border bg-white p-2 text-[11px] leading-5 ${presentation.reasonClass}`}>
+          <b>{presentation.reasonLabel}</b>{" "}
+          {resolutionReason}
         </p>
       ) : null}
     </section>
@@ -1065,7 +1193,7 @@ function GovernedInteractionFeatureDetail({
     <section
       data-testid="feature-detail-governed-interaction"
       className={`rounded-xl border p-4 ${
-        authority.status.toUpperCase().includes("READY")
+        authority.status === "READY_GOVERNED_INTERACTION_V1"
           ? "border-emerald-200 bg-emerald-50/50"
           : "border-amber-200 bg-amber-50/60"
       }`}
@@ -1081,7 +1209,7 @@ function GovernedInteractionFeatureDetail({
         </div>
         <Pill
           label={authority.status}
-          tone={authority.status.toUpperCase().includes("READY") ? "emerald" : "amber"}
+          tone={authority.status === "READY_GOVERNED_INTERACTION_V1" ? "emerald" : "amber"}
         />
       </div>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">

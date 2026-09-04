@@ -18,6 +18,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import math
+import re
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -38,6 +39,23 @@ HISTORY_CUTOFF = "source.gameDate < target.gameDate (same-date rows excluded)"
 MISSING_REASON_SUFFIX = "__missing_reason"
 NUMERIC_INTEGER_TOLERANCE = 1e-6
 PROBABILITY_EPSILON = 1e-9
+
+READY_GOVERNED_PRIOR_V1 = "READY_GOVERNED_PRIOR_V1"
+BINDING_READY_REQUIRES_WAVE2_ENGINE = "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION = (
+    "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+)
+BLOCKED_REQUIRES_PRIOR_AUTHORITY = "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
+
+SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA = (
+    "MLB_SUFFICIENT_STATISTICS_BINDING_AUTHORITY_V1"
+)
+SUFFICIENT_STATISTICS_DATASET_ID = (
+    "gold-table:gold_mlb_current_pa_sufficient_stats_v1"
+)
+SUFFICIENT_STATISTICS_MANIFEST_CONTRACT = (
+    "MLB_CURRENT_STATCAST_SUFFICIENT_STATS_V1"
+)
 
 
 class PlayerPriorAuthorityError(RuntimeError):
@@ -66,7 +84,7 @@ def _binding(
     player_key = (
         "batterCanonicalPlayerId" if side == "BATTER" else "pitcherCanonicalPlayerId"
     )
-    status = "READY_GOVERNED_PRIOR_V1" if ready else "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
+    status = READY_GOVERNED_PRIOR_V1 if ready else BLOCKED_REQUIRES_PRIOR_AUTHORITY
     output_prefix = f"{feature}__prior_v1"
     return {
         "feature": feature,
@@ -75,7 +93,9 @@ def _binding(
         "method": method,
         "status": status,
         "executable": ready,
+        "selectable": ready,
         "blockedReason": blocked_reason,
+        "bindingEvidence": None,
         "playerIdentityFeature": player_key,
         "exposureFeature": exposure_feature,
         "exposureTransform": exposure_transform,
@@ -176,6 +196,256 @@ _BLOCKED = {
 }
 
 
+_PITCH_COMPOSITION_COLUMNS = (
+    "pitcher_last250_pitch_count",
+    "pitcher_last250_fastball_count",
+    "pitcher_last250_breaking_count",
+    "pitcher_last250_offspeed_count",
+    "pitcher_last250_other_or_unclassified_pitch_count",
+)
+
+_WAVE2_BINDING_REQUIREMENTS: dict[str, dict[str, Any]] = {
+    "pitcher_whip": {
+        "requiredEstimator": "GAMMA_POISSON_COMPONENT_SHRINKAGE",
+        "exposureFeature": "pitcher_prior_ipouts",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_prior_h", "pitcher_prior_bb"),
+        "compositionComponents": ("pitcher_prior_h", "pitcher_prior_bb"),
+        "requiredSufficientStatistics": (
+            "pitcher_prior_ipouts",
+            "pitcher_prior_h",
+            "pitcher_prior_bb",
+        ),
+        "componentDefinition": "3 * (pitcher_prior_bb + pitcher_prior_h) / pitcher_prior_ipouts",
+    },
+    "pitcher_gs_per_g": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_prior_g",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_prior_gs",),
+        "compositionComponents": (
+            "pitcher_prior_gs",
+            "pitcher_prior_non_start_g",
+        ),
+        "derivedComponents": {
+            "pitcher_prior_non_start_g": "pitcher_prior_g - pitcher_prior_gs"
+        },
+        "requiredSufficientStatistics": ("pitcher_prior_g", "pitcher_prior_gs"),
+        "componentDefinition": "pitcher_prior_gs / pitcher_prior_g",
+    },
+    "batter_slg": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_COMPONENT_SHRINKAGE",
+        "exposureFeature": "batter_prior_ab",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": (
+            "batter_prior_h",
+            "batter_prior_2b",
+            "batter_prior_3b",
+            "batter_prior_hr",
+        ),
+        "compositionComponents": (
+            "batter_prior_1b",
+            "batter_prior_2b",
+            "batter_prior_3b",
+            "batter_prior_hr",
+            "batter_prior_ab_out",
+        ),
+        "derivedComponents": {
+            "batter_prior_1b": (
+                "batter_prior_h - batter_prior_2b - batter_prior_3b - batter_prior_hr"
+            ),
+            "batter_prior_ab_out": "batter_prior_ab - batter_prior_h",
+        },
+        "requiredSufficientStatistics": (
+            "batter_prior_ab",
+            "batter_prior_h",
+            "batter_prior_2b",
+            "batter_prior_3b",
+            "batter_prior_hr",
+            "batter_prior_bb",
+            "batter_prior_hbp",
+            "batter_prior_sf",
+            "batter_prior_sh",
+            "batter_prior_so",
+        ),
+        "componentDefinition": "(H + 2B + 2*3B + 3*HR) / AB; estimator operates on the full batting composition",
+    },
+    "batter_avg": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_COMPONENT_SHRINKAGE",
+        "exposureFeature": "batter_prior_ab",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("batter_prior_h",),
+        "compositionComponents": ("batter_prior_h", "batter_prior_ab_out"),
+        "derivedComponents": {
+            "batter_prior_ab_out": "batter_prior_ab - batter_prior_h"
+        },
+        "requiredSufficientStatistics": ("batter_prior_ab", "batter_prior_h"),
+        "componentDefinition": "batter_prior_h / batter_prior_ab",
+    },
+    "pitcher_last250_avg_fastball_velocity": {
+        "requiredEstimator": "NORMAL_NORMAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_last250_fastball_velocity_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": (
+            "pitcher_last250_fastball_velocity_sum",
+            "pitcher_last250_fastball_velocity_sumsq",
+        ),
+        "compositionComponents": (
+            "pitcher_last250_fastball_velocity_count",
+            "pitcher_last250_fastball_velocity_sum",
+            "pitcher_last250_fastball_velocity_sumsq",
+        ),
+        "requiredSufficientStatistics": (
+            "pitcher_last250_fastball_velocity_count",
+            "pitcher_last250_fastball_velocity_sum",
+            "pitcher_last250_fastball_velocity_sumsq",
+        ),
+        "componentDefinition": "finite fastball release-speed count, sum, and sum of squares in the governed last-250-BF window",
+    },
+    "pitcher_last250_whiff_rate": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_last250_swing_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_last250_whiff_count",),
+        "compositionComponents": (
+            "pitcher_last250_whiff_count",
+            "pitcher_last250_contact_count",
+        ),
+        "derivedComponents": {
+            "pitcher_last250_contact_count": (
+                "pitcher_last250_swing_count - pitcher_last250_whiff_count"
+            )
+        },
+        "requiredSufficientStatistics": (
+            "pitcher_last250_swing_count",
+            "pitcher_last250_whiff_count",
+        ),
+        "componentDefinition": "pitcher_last250_whiff_count / pitcher_last250_swing_count",
+    },
+    "pitcher_last250_offspeed_usage": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_last250_pitch_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_last250_offspeed_count",),
+        "compositionComponents": _PITCH_COMPOSITION_COLUMNS[1:],
+        "requiredSufficientStatistics": _PITCH_COMPOSITION_COLUMNS,
+        "componentDefinition": "full {fastball, breaking, offspeed, other_or_unclassified} pitch composition",
+    },
+    "pitcher_last250_fastball_usage": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_last250_pitch_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_last250_fastball_count",),
+        "compositionComponents": _PITCH_COMPOSITION_COLUMNS[1:],
+        "requiredSufficientStatistics": _PITCH_COMPOSITION_COLUMNS,
+        "componentDefinition": "full {fastball, breaking, offspeed, other_or_unclassified} pitch composition",
+    },
+    "pitcher_last250_breaking_usage": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "pitcher_last250_pitch_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("pitcher_last250_breaking_count",),
+        "compositionComponents": _PITCH_COMPOSITION_COLUMNS[1:],
+        "requiredSufficientStatistics": _PITCH_COMPOSITION_COLUMNS,
+        "componentDefinition": "full {fastball, breaking, offspeed, other_or_unclassified} pitch composition",
+    },
+    "batter_last100_whiff_rate": {
+        "requiredEstimator": "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+        "exposureFeature": "batter_last100_swing_count",
+        "exposureTransform": "VALIDATE_INTEGER",
+        "numeratorComponents": ("batter_last100_whiff_count",),
+        "compositionComponents": (
+            "batter_last100_whiff_count",
+            "batter_last100_contact_count",
+        ),
+        "derivedComponents": {
+            "batter_last100_contact_count": (
+                "batter_last100_swing_count - batter_last100_whiff_count"
+            )
+        },
+        "requiredSufficientStatistics": (
+            "batter_last100_swing_count",
+            "batter_last100_whiff_count",
+        ),
+        "componentDefinition": "batter_last100_whiff_count / batter_last100_swing_count",
+    },
+}
+
+_RETIREMENT_DECISIONS: dict[str, dict[str, Any]] = {
+    "pitcher_era9": {
+        "registeredDefinition": "27 * pitcher_prior_er / pitcher_prior_ipouts",
+        "exposureFeature": "pitcher_prior_ipouts",
+        "numeratorComponents": ("pitcher_prior_er",),
+        "compositionComponents": ("pitcher_prior_er", "pitcher_prior_ipouts"),
+        "requiredSufficientStatistics": ("pitcher_prior_er", "pitcher_prior_ipouts"),
+        "retirementReason": (
+            "ERA9 is dominated by component evidence and adds sequencing, defense, "
+            "and scorer noise; ER is not materialized merely to preserve this ratio."
+        ),
+    },
+    "batter_obp": {
+        "registeredDefinition": (
+            "(batter_prior_h + batter_prior_bb + batter_prior_hbp) / "
+            "(batter_prior_ab + batter_prior_bb + batter_prior_hbp + batter_prior_sf)"
+        ),
+        "requiredSufficientStatistics": (
+            "batter_prior_h",
+            "batter_prior_bb",
+            "batter_prior_hbp",
+            "batter_prior_ab",
+            "batter_prior_sf",
+        ),
+        "exposureFeature": None,
+        "denominatorComponents": (
+            "batter_prior_ab",
+            "batter_prior_bb",
+            "batter_prior_hbp",
+            "batter_prior_sf",
+        ),
+        "numeratorComponents": (
+            "batter_prior_h",
+            "batter_prior_bb",
+            "batter_prior_hbp",
+        ),
+        "compositionComponents": (
+            "batter_prior_h",
+            "batter_prior_bb",
+            "batter_prior_hbp",
+            "batter_prior_ab",
+            "batter_prior_sf",
+        ),
+        "retirementReason": (
+            "OBP is a deterministic ratio of published batting components and is "
+            "preserved only as an audit/QA reconstruction."
+        ),
+    },
+    "batter_last100_contact_rate": {
+        "registeredDefinition": (
+            "1 - (batter_last100_whiff_count / batter_last100_swing_count)"
+        ),
+        "requiredSufficientStatistics": (
+            "batter_last100_swing_count",
+            "batter_last100_whiff_count",
+        ),
+        "exposureFeature": "batter_last100_swing_count",
+        "numeratorComponents": ("batter_last100_contact_count",),
+        "compositionComponents": (
+            "batter_last100_whiff_count",
+            "batter_last100_contact_count",
+        ),
+        "derivedComponents": {
+            "batter_last100_contact_count": (
+                "batter_last100_swing_count - batter_last100_whiff_count"
+            )
+        },
+        "retirementReason": (
+            "Contact rate is the exact complement of whiff rate under the frozen "
+            "swing taxonomy and is perfectly redundant."
+        ),
+    },
+}
+
+
 _BINDINGS: tuple[dict[str, Any], ...] = (
     _binding("pitcher_whip", side="PITCHER", statistic="NON_BERNOULLI_RATE", method="GAMMA_POISSON_COMPONENT_SHRINKAGE_REQUIRED", exposure_feature=None, exposure_transform=None, exposure_definition="prior innings pitched from exact IPouts / 3", window="LATEST_ELIGIBLE_PRIOR_SEASON", missing_indicators=("pitcher_prior_missing",), established_threshold=None, ready=False, blocked_reason=_BLOCKED["pitcher_whip"]),
     _binding("pitcher_era9", side="PITCHER", statistic="NON_BERNOULLI_RATE", method="GAMMA_POISSON_COMPONENT_SHRINKAGE_REQUIRED", exposure_feature=None, exposure_transform=None, exposure_definition="prior innings pitched from exact IPouts / 3", window="LATEST_ELIGIBLE_PRIOR_SEASON", missing_indicators=("pitcher_prior_missing",), established_threshold=None, ready=False, blocked_reason=_BLOCKED["pitcher_era9"]),
@@ -203,21 +473,273 @@ _BINDINGS: tuple[dict[str, Any], ...] = (
     _binding("batter_last100_strikeout_rate", side="BATTER", statistic="BOUNDED_PROPORTION", method="BETA_BINOMIAL_EMPIRICAL_BAYES", exposure_feature="batter_last100_pa_count", exposure_transform="VALIDATE_INTEGER", exposure_definition="exact completed prior PA in registered last-100-PA window", window="LAST_100_COMPLETED_PRIOR_PA", missing_indicators=("batter_last100_insufficient",), established_threshold=100, ready=True),
 )
 
+
+def _decorate_binding_template(binding: Mapping[str, Any]) -> dict[str, Any]:
+    decorated = copy.deepcopy(dict(binding))
+    feature = str(decorated["feature"])
+    if feature in _RETIREMENT_DECISIONS:
+        decision = _RETIREMENT_DECISIONS[feature]
+        decorated.update(
+            {
+                "method": "NOT_APPLICABLE_RETIRED_BY_SCIENTIFIC_DECISION",
+                "status": RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION,
+                "executable": False,
+                "selectable": False,
+                "blockedReason": None,
+                "bindingEvidence": None,
+                "evidenceStatus": "DEFINITION_AND_AUDIT_EVIDENCE_PRESERVED",
+                "requiredSufficientStatistics": list(
+                    decision["requiredSufficientStatistics"]
+                ),
+                "exposureFeature": decision.get("exposureFeature"),
+                "exposureTransform": (
+                    "VALIDATE_INTEGER"
+                    if decision.get("exposureFeature") is not None
+                    else None
+                ),
+                "denominatorComponents": list(
+                    decision.get("denominatorComponents", ())
+                ),
+                "numeratorComponents": list(decision["numeratorComponents"]),
+                "compositionComponents": list(decision["compositionComponents"]),
+                "derivedComponents": copy.deepcopy(
+                    decision.get("derivedComponents", {})
+                ),
+                "componentFields": {
+                    "exposure": decision.get("exposureFeature"),
+                    "denominator": list(
+                        decision.get("denominatorComponents", ())
+                    ),
+                    "numerators": list(decision["numeratorComponents"]),
+                    "composition": list(decision["compositionComponents"]),
+                    "derived": copy.deepcopy(
+                        decision.get("derivedComponents", {})
+                    ),
+                },
+                "registeredDefinition": decision["registeredDefinition"],
+                "retirementReason": decision["retirementReason"],
+                "scientificDecisionResolved": True,
+                "populationPriorAuthority": "NOT_APPLICABLE_RETIRED",
+                "rawFeatureDecision": (
+                    "DROP_RAW_FIELD_RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+                ),
+                "derivedOutputs": {},
+            }
+        )
+        return decorated
+    if feature in _WAVE2_BINDING_REQUIREMENTS:
+        requirement = _WAVE2_BINDING_REQUIREMENTS[feature]
+        decorated.update(
+            {
+                "method": requirement["requiredEstimator"],
+                "status": BLOCKED_REQUIRES_PRIOR_AUTHORITY,
+                "executable": False,
+                "selectable": False,
+                "bindingEvidence": None,
+                "evidenceStatus": "REQUIRED_SUFFICIENT_STATISTICS_NOT_VERIFIED",
+                "exposureFeature": requirement["exposureFeature"],
+                "exposureTransform": requirement["exposureTransform"],
+                "numeratorComponents": list(requirement["numeratorComponents"]),
+                "compositionComponents": list(
+                    requirement["compositionComponents"]
+                ),
+                "derivedComponents": copy.deepcopy(
+                    requirement.get("derivedComponents", {})
+                ),
+                "componentFields": {
+                    "exposure": requirement["exposureFeature"],
+                    "numerators": list(requirement["numeratorComponents"]),
+                    "composition": list(requirement["compositionComponents"]),
+                    "derived": copy.deepcopy(
+                        requirement.get("derivedComponents", {})
+                    ),
+                },
+                "requiredSufficientStatistics": list(
+                    requirement["requiredSufficientStatistics"]
+                ),
+                "componentDefinition": requirement["componentDefinition"],
+                "requiredEstimator": requirement["requiredEstimator"],
+                "estimatorImplementationStatus": "NOT_IMPLEMENTED_REQUIRES_WAVE2",
+                "rawFeatureDecision": (
+                    "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+                ),
+                "derivedOutputs": {},
+            }
+        )
+        return decorated
+    decorated.update(
+        {
+            "evidenceStatus": "EXECUTABLE_INPUTS_PRESENT_IN_REGISTERED_CURRENT_GOLD",
+            "estimatorImplementationStatus": "IMPLEMENTED_TESTED_CONTENT_ADDRESSED_V1",
+        }
+    )
+    return decorated
+
+
+_BINDINGS = tuple(_decorate_binding_template(item) for item in _BINDINGS)
+
 _BY_FEATURE = {str(item["feature"]): item for item in _BINDINGS}
 PRIOR_FEATURES = tuple(_BY_FEATURE)
 SUPPORTED_PRIOR_FEATURES = frozenset(
     feature for feature, item in _BY_FEATURE.items() if item["executable"]
 )
-BLOCKED_PRIOR_FEATURES = frozenset(set(PRIOR_FEATURES) - set(SUPPORTED_PRIOR_FEATURES))
+WAVE2_ENGINE_PRIOR_FEATURES = frozenset(_WAVE2_BINDING_REQUIREMENTS)
+RETIRED_PRIOR_FEATURES = frozenset(_RETIREMENT_DECISIONS)
+BLOCKED_PRIOR_FEATURES = WAVE2_ENGINE_PRIOR_FEATURES
 
 
 def _sha256(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(dict(payload))).hexdigest()
 
 
-def feature_binding(feature: str) -> dict[str, Any] | None:
-    binding = _BY_FEATURE.get(feature)
-    return copy.deepcopy(binding) if binding is not None else None
+def _is_sha256(value: Any) -> bool:
+    return bool(re.fullmatch(r"[0-9a-f]{64}", str(value or "")))
+
+
+def _validated_sufficient_statistics_authority(
+    authority: Mapping[str, Any] | None,
+    *,
+    expected_gold_manifest_sha256: str | None = None,
+) -> dict[str, Any] | None:
+    """Return an exact, content-addressed companion binding or fail closed.
+
+    The publisher/resolver may pass either its full verification result or the
+    nested ``bindingAuthority`` mapping.  This module deliberately accepts both
+    shapes while validating the same immutable inner contract.
+    """
+
+    if not isinstance(authority, Mapping):
+        return None
+    nested = authority.get("bindingAuthority")
+    candidate = nested if isinstance(nested, Mapping) else authority
+    content = {
+        str(key): copy.deepcopy(value)
+        for key, value in candidate.items()
+        if key not in {"authorityChecksum", "authorityId"}
+    }
+    checksum = _sha256(content)
+    if str(candidate.get("authorityChecksum") or "") != checksum:
+        return None
+    expected_id = f"{SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA}:sha256:{checksum}"
+    if str(candidate.get("authorityId") or "") != expected_id:
+        return None
+    expected_gold = str(expected_gold_manifest_sha256 or "")
+    source_gold = str(candidate.get("sourceGoldManifestSha256") or "")
+    if not _is_sha256(source_gold) or (expected_gold and source_gold != expected_gold):
+        return None
+    if expected_gold and not _is_sha256(expected_gold):
+        return None
+    object_shas = candidate.get("objectSha256")
+    if (
+        candidate.get("schemaVersion") != SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA
+        or candidate.get("datasetId") != SUFFICIENT_STATISTICS_DATASET_ID
+        or candidate.get("manifestContract")
+        != SUFFICIENT_STATISTICS_MANIFEST_CONTRACT
+        or not _is_sha256(candidate.get("manifestSha256"))
+        or not isinstance(object_shas, Sequence)
+        or isinstance(object_shas, (str, bytes))
+        or not object_shas
+        or any(not _is_sha256(value) for value in object_shas)
+        or not _is_sha256(candidate.get("physicalSchemaSha256"))
+        or not _is_sha256(candidate.get("validationEvidenceSha256"))
+        or candidate.get("verified") is not True
+        or candidate.get("integerValidation") is not True
+        or candidate.get("equivalenceValidation") is not True
+        or candidate.get("finalOotSealed") is not True
+        or candidate.get("rightsStatus") != "GOVERNED_LOCAL_RESEARCH_ONLY"
+    ):
+        return None
+    required_columns = candidate.get("requiredColumns")
+    if (
+        not isinstance(required_columns, Sequence)
+        or isinstance(required_columns, (str, bytes))
+    ):
+        return None
+    published_columns = {str(value) for value in required_columns}
+    required_wave2_columns = {
+        str(column)
+        for requirement in _WAVE2_BINDING_REQUIREMENTS.values()
+        for column in requirement["requiredSufficientStatistics"]
+    }
+    if not required_wave2_columns.issubset(published_columns):
+        return None
+    return {
+        **content,
+        "authorityChecksum": checksum,
+        "authorityId": expected_id,
+    }
+
+
+def _companion_evidence_reference(authority: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "authorityId": authority["authorityId"],
+        "authorityChecksum": authority["authorityChecksum"],
+        "datasetId": authority["datasetId"],
+        "manifestContract": authority["manifestContract"],
+        "manifestSha256": authority["manifestSha256"],
+        "objectSha256": list(authority["objectSha256"]),
+        "sourceGoldManifestSha256": authority["sourceGoldManifestSha256"],
+        "physicalSchemaSha256": authority["physicalSchemaSha256"],
+        "validationEvidenceSha256": authority["validationEvidenceSha256"],
+        "rightsStatus": authority["rightsStatus"],
+        "finalOotSealed": True,
+    }
+
+
+def _binding_with_companion_evidence(
+    binding: Mapping[str, Any],
+    authority: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    resolved = copy.deepcopy(dict(binding))
+    feature = str(resolved["feature"])
+    if feature not in WAVE2_ENGINE_PRIOR_FEATURES or authority is None:
+        return resolved
+    resolved.update(
+        {
+            "status": BINDING_READY_REQUIRES_WAVE2_ENGINE,
+            "executable": False,
+            "selectable": False,
+            "blockedReason": None,
+            "bindingEvidence": _companion_evidence_reference(authority),
+            "evidenceStatus": "VERIFIED_EXACT_SUFFICIENT_STATISTICS_AVAILABLE",
+            "populationPriorAuthority": "REQUIRES_WAVE2_ESTIMATOR_IMPLEMENTATION",
+            "componentPublicationDecision": (
+                "EVIDENCE_ONLY_NO_FEATURE_SET_POLICY_MODEL_FIT_OR_SCORE"
+            ),
+        }
+    )
+    return resolved
+
+
+def _resolved_bindings(
+    sufficient_statistics_authority: Mapping[str, Any] | None = None,
+    *,
+    expected_gold_manifest_sha256: str | None = None,
+) -> tuple[dict[str, Any], ...]:
+    verified = _validated_sufficient_statistics_authority(
+        sufficient_statistics_authority,
+        expected_gold_manifest_sha256=expected_gold_manifest_sha256,
+    )
+    return tuple(
+        _binding_with_companion_evidence(binding, verified) for binding in _BINDINGS
+    )
+
+
+def feature_binding(
+    feature: str,
+    *,
+    sufficient_statistics_authority: Mapping[str, Any] | None = None,
+    expected_gold_manifest_sha256: str | None = None,
+) -> dict[str, Any] | None:
+    """Return one binding under the supplied exact companion evidence."""
+
+    if feature not in _BY_FEATURE:
+        return None
+    bindings = _resolved_bindings(
+        sufficient_statistics_authority,
+        expected_gold_manifest_sha256=expected_gold_manifest_sha256,
+    )
+    return next(item for item in bindings if item["feature"] == feature)
 
 
 def authority_configuration(*, overrides: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -272,6 +794,22 @@ def authority_configuration(*, overrides: Mapping[str, Any] | None = None) -> di
             "scientificValuesIdenticalAcrossFamilies": True,
             "scalingAuthority": "FIT_ON_CORRESPONDING_TRAINING_ROWS_ONLY",
         },
+        "fourStateBindingPolicy": {
+            "executableStatus": READY_GOVERNED_PRIOR_V1,
+            "verifiedComponentsWithoutEstimatorStatus": (
+                BINDING_READY_REQUIRES_WAVE2_ENGINE
+            ),
+            "retiredStatus": RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION,
+            "missingEvidenceStatus": BLOCKED_REQUIRES_PRIOR_AUTHORITY,
+            "componentPublicationImplementsEstimator": False,
+            "bindingReadyIsExecutable": False,
+            "retiredIsSelectable": False,
+        },
+        "featureClasses": {
+            "executable": sorted(SUPPORTED_PRIOR_FEATURES),
+            "wave2EngineCandidates": sorted(WAVE2_ENGINE_PRIOR_FEATURES),
+            "retiredByScientificDecision": sorted(RETIRED_PRIOR_FEATURES),
+        },
         "bindings": [copy.deepcopy(item) for item in _BINDINGS],
     }
     if overrides:
@@ -289,6 +827,7 @@ def project_authority_manifest(
     *,
     treatment_specification_key: str,
     treatment_source_sha256: str,
+    sufficient_statistics_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind the checked-in authority to one exact project/Gold/spec source."""
 
@@ -300,10 +839,52 @@ def project_authority_manifest(
         else {}
     )
     config = authority_configuration()
+    gold_manifest_sha = public.get("goldManifestSha") or getattr(
+        project_authority, "gold_manifest_sha", None
+    )
+    verified_companion = _validated_sufficient_statistics_authority(
+        sufficient_statistics_authority,
+        expected_gold_manifest_sha256=str(gold_manifest_sha or ""),
+    )
+    bindings = tuple(
+        _binding_with_companion_evidence(binding, verified_companion)
+        for binding in _BINDINGS
+    )
+    statuses = (
+        READY_GOVERNED_PRIOR_V1,
+        BINDING_READY_REQUIRES_WAVE2_ENGINE,
+        RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION,
+        BLOCKED_REQUIRES_PRIOR_AUTHORITY,
+    )
+    status_counter = Counter(str(binding["status"]) for binding in bindings)
+    status_counts = {status: int(status_counter[status]) for status in statuses}
+    feature_sets = {
+        "executable": [
+            str(binding["feature"])
+            for binding in bindings
+            if binding["status"] == READY_GOVERNED_PRIOR_V1
+        ],
+        "bindingReadyRequiresWave2Engine": [
+            str(binding["feature"])
+            for binding in bindings
+            if binding["status"] == BINDING_READY_REQUIRES_WAVE2_ENGINE
+        ],
+        "retiredByScientificDecision": [
+            str(binding["feature"])
+            for binding in bindings
+            if binding["status"]
+            == RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION
+        ],
+        "blockedByMissingEvidence": [
+            str(binding["feature"])
+            for binding in bindings
+            if binding["status"] == BLOCKED_REQUIRES_PRIOR_AUTHORITY
+        ],
+    }
     content = {
         "schemaVersion": SCHEMA_VERSION,
         "authorityName": AUTHORITY_NAME,
-        "method": "FEATURE_SPECIFIC_BETA_BINOMIAL_EMPIRICAL_BAYES",
+        "method": "FEATURE_SPECIFIC_FOUR_STATE_PRIOR_BINDING_AUTHORITY",
         "hierarchy": config["hierarchy"]["levels"],
         "reliability": config["reliabilityFormula"],
         "foldLocal": "PASS",
@@ -311,7 +892,7 @@ def project_authority_manifest(
         "configurationChecksum": authority_checksum(configuration=config),
         "projectId": public.get("projectId") or getattr(project_authority, "project_id", None),
         "goldDatasetId": public.get("goldDatasetId"),
-        "goldManifestSha": public.get("goldManifestSha") or getattr(project_authority, "gold_manifest_sha", None),
+        "goldManifestSha": gold_manifest_sha,
         "contextualDatasetId": public.get("contextualDatasetId"),
         "contextualManifestSha": public.get("contextualManifestSha") or getattr(project_authority, "contextual_manifest_sha", None),
         "reviewDigest": public.get("reviewDigest") or getattr(project_authority, "review_digest", None),
@@ -321,10 +902,28 @@ def project_authority_manifest(
         },
         "developmentCutoff": DEVELOPMENT_END,
         "finalOotPolicy": "LOCKED_NOT_OPENED_NOT_FIT",
-        "readyFeatureCount": len(SUPPORTED_PRIOR_FEATURES),
-        "blockedFeatureCount": len(BLOCKED_PRIOR_FEATURES),
+        "sufficientStatisticsAuthority": (
+            _companion_evidence_reference(verified_companion)
+            if verified_companion is not None
+            else None
+        ),
+        "sufficientStatisticsEvidenceDisposition": (
+            "VERIFIED_EXACT_COMPANION"
+            if verified_companion is not None
+            else "MISSING_OR_INVALID_FAIL_CLOSED"
+        ),
+        "statusCounts": status_counts,
+        "featureSets": feature_sets,
+        "readyFeatureCount": status_counts[READY_GOVERNED_PRIOR_V1],
+        "bindingReadyRequiresWave2EngineFeatureCount": status_counts[
+            BINDING_READY_REQUIRES_WAVE2_ENGINE
+        ],
+        "retiredFeatureCount": status_counts[
+            RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION
+        ],
+        "blockedFeatureCount": status_counts[BLOCKED_REQUIRES_PRIOR_AUTHORITY],
         "featureCount": len(PRIOR_FEATURES),
-        "bindings": config["bindings"],
+        "bindings": list(bindings),
     }
     checksum = _sha256(content)
     return {
@@ -1073,13 +1672,22 @@ def _quantiles(values: np.ndarray) -> dict[str, float | None]:
 
 __all__ = [
     "AUTHORITY_NAME",
+    "BINDING_READY_REQUIRES_WAVE2_ENGINE",
     "BLOCKED_PRIOR_FEATURES",
+    "BLOCKED_REQUIRES_PRIOR_AUTHORITY",
     "DEVELOPMENT_END",
     "FITTED_SCHEMA_VERSION",
     "PRIOR_FEATURES",
     "PlayerPriorAuthorityError",
+    "READY_GOVERNED_PRIOR_V1",
+    "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION",
+    "RETIRED_PRIOR_FEATURES",
     "SCHEMA_VERSION",
     "SUPPORTED_PRIOR_FEATURES",
+    "SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA",
+    "SUFFICIENT_STATISTICS_DATASET_ID",
+    "SUFFICIENT_STATISTICS_MANIFEST_CONTRACT",
+    "WAVE2_ENGINE_PRIOR_FEATURES",
     "authority_checksum",
     "authority_configuration",
     "development_diagnostics",

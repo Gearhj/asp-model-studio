@@ -344,10 +344,21 @@ def _apply_treatment_spec_draft_gates(
 
     from .stage3_feature_treatment_spec import (
         Stage3FeatureTreatmentSpecError,
+        compile_project_specification,
         current_draft_execution_overlay,
     )
 
     try:
+        # Prior executability is current project authority, not a property that
+        # springs into existence only after somebody persists the combined
+        # treatment DRAFT.  Resolve it independently first so a missing (or
+        # subsequently stale) DRAFT can never leave Wave-2-only or retired raw
+        # fields selectable in Feature Engineering.
+        compiled = compile_project_specification(database, authority.project_id)
+        _apply_current_prior_authority_gates(
+            rows,
+            compiled.get("priorAuthority"),
+        )
         overlay, reference = current_draft_execution_overlay(database, authority)
     except Stage3FeatureTreatmentSpecError as exc:
         raise Stage3FeatureEngineeringError(exc.code, str(exc), status_code=exc.status_code) from exc
@@ -361,10 +372,65 @@ def _apply_treatment_spec_draft_gates(
             row["governanceStatus"] = "HELD_CLOSED_BY_TREATMENT_SPEC_DRAFT"
             row["inactiveReason"] = (
                 resolution.get("blockedReason")
+                or resolution.get("resolution")
                 or "The current combined treatment specification draft holds this feature closed."
             )
             row["stateReason"] = row["inactiveReason"]
     return reference
+
+
+def _prior_gate_reason(binding: Mapping[str, Any]) -> str:
+    status = str(binding.get("status") or "")
+    if status == "BINDING_READY_REQUIRES_WAVE2_ENGINE":
+        return "VALIDATED_SUFFICIENT_STATISTIC_BINDING_AWAITS_WAVE2_ESTIMATOR"
+    if status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION":
+        return str(
+            binding.get("retirementReason")
+            or "SCIENTIFICALLY_RETIRED_PRESERVE_DEFINITION_AND_AUDIT_EVIDENCE"
+        )
+    return str(
+        binding.get("blockedReason")
+        or "CURRENT_GOVERNED_PRIOR_AUTHORITY_DOES_NOT_AUTHORIZE_EXECUTION"
+    )
+
+
+def _apply_current_prior_authority_gates(
+    rows: Sequence[dict[str, Any]],
+    prior_authority: Any,
+) -> None:
+    """Apply fail-closed prior status directly from the current compiler.
+
+    Only the exact executable V1 status plus both executable/selectable flags
+    may pass this gate.  The gate is deliberately negative-only: it never
+    reactivates a field held closed by another source authority.
+    """
+
+    authority = prior_authority if isinstance(prior_authority, Mapping) else {}
+    raw_bindings = authority.get("bindings")
+    bindings = raw_bindings if isinstance(raw_bindings, Sequence) else ()
+    by_feature = {
+        str(binding.get("feature") or ""): binding
+        for binding in bindings
+        if isinstance(binding, Mapping) and str(binding.get("feature") or "")
+    }
+    for row in rows:
+        binding = by_feature.get(str(row.get("name") or ""))
+        if binding is None:
+            continue
+        status = str(binding.get("status") or "")
+        exact_executable = (
+            status == "READY_GOVERNED_PRIOR_V1"
+            and binding.get("executable") is True
+            and binding.get("selectable") is True
+        )
+        if exact_executable:
+            continue
+        reason = _prior_gate_reason(binding)
+        row["eligible"] = False
+        row["featureState"] = "INACTIVE"
+        row["governanceStatus"] = "HELD_CLOSED_BY_CURRENT_PRIOR_AUTHORITY"
+        row["inactiveReason"] = reason
+        row["stateReason"] = reason
 
 
 def _interaction_contracts(selected_features: Sequence[str] = ()) -> list[dict[str, Any]]:
@@ -1484,6 +1550,44 @@ def register_feature_set(
     if not draft:
         raise Stage3FeatureEngineeringError(
             "FEATURE_SET_DRAFT_NOT_CURRENT", "The requested draft is not a current authority-bound draft.", status_code=409
+        )
+    # Re-resolve current prior authority against the stored immutable contents.
+    # A draft may predate Wave 1 (or any later authority change), so validating
+    # only when it was first saved would allow an obsolete selectable state to
+    # cross the registration boundary.
+    rows, catalog = _catalog(authority)
+    try:
+        from .stage3_feature_treatment_spec import (
+            Stage3FeatureTreatmentSpecError,
+            compile_project_specification,
+        )
+
+        compiled = compile_project_specification(database, authority.project_id)
+        _apply_current_prior_authority_gates(
+            rows,
+            compiled.get("priorAuthority"),
+        )
+    except Stage3FeatureTreatmentSpecError as exc:
+        raise Stage3FeatureEngineeringError(
+            exc.code, str(exc), status_code=exc.status_code
+        ) from exc
+    stored_features = [str(name) for name in draft.get("orderedFeatures") or []]
+    unknown = [name for name in stored_features if name not in catalog]
+    if unknown:
+        raise Stage3FeatureEngineeringError(
+            "FEATURE_SET_UNKNOWN_FEATURE",
+            "The stored draft contains features absent from the current authority: "
+            + ", ".join(sorted(unknown)),
+            status_code=409,
+        )
+    ineligible = [name for name in stored_features if not catalog[name]["eligible"]]
+    if ineligible:
+        raise Stage3FeatureEngineeringError(
+            "FEATURE_SET_INACTIVE_FEATURE",
+            "The stored draft contains features that current governed authority "
+            "holds nonselectable: "
+            + ", ".join(sorted(ineligible)),
+            status_code=409,
         )
     current_refs = _treatment_policy_refs(database, authority)
     stored_refs = draft.get("treatmentPolicies") or {}

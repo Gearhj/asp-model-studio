@@ -29,6 +29,7 @@ from . import stage3_eda as eda
 from . import stage3_interaction_recomputation_authority as interaction_authority
 from . import stage3_player_prior_authority as player_prior
 from . import stage3_treatments as treatments
+from . import sufficient_stats
 
 
 SCHEMA_VERSION = "ASP_MLB_FEATURE_TREATMENT_SPECIFICATION_V1"
@@ -235,10 +236,16 @@ def load_source_specification(path: Path = SOURCE_PATH) -> dict[str, Any]:
     return source
 
 
-def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
+def _execution_contract(
+    feature_name: str,
+    disposition: str,
+    *,
+    prior_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     if disposition in _EXCLUDED_DISPOSITIONS:
         return {
             "executableStatus": "READY",
+            "executable": True,
             "selectable": False,
             "resolution": "EXCLUDE_FEATURE_WITHOUT_VALUE_REWRITE_OR_OUTLIER_FIT",
             "blockedReason": None,
@@ -253,6 +260,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
         semantic = _SEMANTIC_AUTHORITY_DECISIONS.get(feature_name)
         return {
             "executableStatus": "BLOCKED",
+            "executable": False,
             "selectable": False,
             "resolution": (
                 str(semantic["resolution"])
@@ -272,10 +280,15 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
         "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
         "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
     }:
-        binding = player_prior.feature_binding(feature_name)
+        binding = (
+            dict(prior_binding)
+            if prior_binding is not None
+            else player_prior.feature_binding(feature_name)
+        )
         if binding and binding["executable"]:
             return {
                 "executableStatus": "READY_GOVERNED_PRIOR_V1",
+                "executable": True,
                 "selectable": True,
                 "resolution": "EXECUTE_GOVERNED_PLAYER_TO_MLB_LEAGUE_EMPIRICAL_BAYES_PRIOR",
                 "blockedReason": None,
@@ -283,8 +296,32 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
                 "denseModel": "GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE_WITH_TRAINING_ONLY_SCALING",
                 "fallbackLabel": None,
             }
+        binding_status = str((binding or {}).get("status") or "")
+        if binding_status == "BINDING_READY_REQUIRES_WAVE2_ENGINE":
+            return {
+                "executableStatus": binding_status,
+                "executable": False,
+                "selectable": False,
+                "resolution": "VALIDATED_SUFFICIENT_STATISTIC_BINDING_AWAITS_WAVE2_ESTIMATOR",
+                "blockedReason": None,
+                "treeModel": "EXCLUDED_PENDING_WAVE2_PRIOR_ENGINE",
+                "denseModel": "EXCLUDED_PENDING_WAVE2_PRIOR_ENGINE",
+                "fallbackLabel": None,
+            }
+        if binding_status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION":
+            return {
+                "executableStatus": binding_status,
+                "executable": False,
+                "selectable": False,
+                "resolution": "SCIENTIFICALLY_RETIRED_PRESERVE_DEFINITION_AND_AUDIT_EVIDENCE",
+                "blockedReason": None,
+                "treeModel": "RETIRED_NONSELECTABLE",
+                "denseModel": "RETIRED_NONSELECTABLE",
+                "fallbackLabel": None,
+            }
         return {
             "executableStatus": "BLOCKED",
+            "executable": False,
             "selectable": False,
             "resolution": "HOLD_NONEXECUTABLE_UNTIL_GOVERNED_PRIOR_AUTHORITY_EXISTS",
             "blockedReason": (
@@ -301,6 +338,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
         if binding and binding.get("executableStatus") == "READY_GOVERNED_INTERACTION_V1":
             return {
                 "executableStatus": "READY_GOVERNED_INTERACTION_V1",
+                "executable": True,
                 "selectable": True,
                 "resolution": "EXECUTE_PARENT_FIRST_FOLD_LOCAL_INTERACTION_RECOMPUTATION_V1",
                 "blockedReason": None,
@@ -310,6 +348,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
             }
         return {
             "executableStatus": "BLOCKED",
+            "executable": False,
             "selectable": False,
             "resolution": "HOLD_UNTIL_PARENT_FIRST_FOLD_LOCAL_RECOMPUTATION_IS_REGISTERED",
             "blockedReason": (
@@ -323,6 +362,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition in _FALLBACK_DISPOSITIONS:
         return {
             "executableStatus": "READY_WITH_EXPLICIT_FALLBACK",
+            "executable": True,
             "selectable": True,
             "resolution": "MODEL_FAMILY_SPECIFIC_NO_PRIOR_GAME_FALLBACK_WITH_INDICATOR",
             "blockedReason": None,
@@ -333,6 +373,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition in _ZERO_WITH_INDICATOR_DISPOSITIONS:
         return {
             "executableStatus": "READY",
+            "executable": True,
             "selectable": True,
             "resolution": "SEMANTIC_ZERO_FOR_TRUE_NO_HISTORY_ONLY_WITH_INDICATOR",
             "blockedReason": None,
@@ -343,6 +384,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition == "INCLUDE_DERIVED_INDICATOR":
         return {
             "executableStatus": "READY",
+            "executable": True,
             "selectable": True,
             "resolution": "DETERMINISTIC_BOOLEAN_RECOMPUTATION_NO_STATISTICAL_IMPUTATION",
             "blockedReason": None,
@@ -353,6 +395,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition == "SIMULATOR_REQUIRED":
         return {
             "executableStatus": "READY",
+            "executable": True,
             "selectable": True,
             "resolution": "REQUIRE_VALID_SIMULATOR_STATE_NO_IMPUTATION",
             "blockedReason": None,
@@ -363,6 +406,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
     if disposition == "NO_MISSING_TREATMENT":
         return {
             "executableStatus": "READY",
+            "executable": True,
             "selectable": True,
             "resolution": "RETAIN_WITH_SEMANTIC_DOMAIN_VALIDATION_NO_UNNECESSARY_FILL",
             "blockedReason": None,
@@ -372,6 +416,7 @@ def _execution_contract(feature_name: str, disposition: str) -> dict[str, Any]:
         }
     return {
         "executableStatus": "BLOCKED",
+        "executable": False,
         "selectable": False,
         "resolution": "HOLD_FOR_EXPLICIT_SCIENTIFIC_REVIEW",
         "blockedReason": f"Disposition {disposition or '<blank>'} has no registered executable mapping.",
@@ -471,12 +516,25 @@ def _structured_execution_contract(
     source_row: Mapping[str, Any],
     backend: Mapping[str, Any],
     execution: Mapping[str, Any],
+    *,
+    prior_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     name = str(source_row["feature_name"])
     disposition = str(source_row["recommended_inclusion"])
     parents = _interaction_parents(name) if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT" else []
     indicators = _paired_indicators(name, disposition)
-    prior_binding = player_prior.feature_binding(name)
+    prior_binding = (
+        dict(prior_binding)
+        if prior_binding is not None
+        else player_prior.feature_binding(name)
+    )
+    prior_status = str((prior_binding or {}).get("status") or "")
+    prior_executable = bool((prior_binding or {}).get("executable"))
+    executable_prior_outputs = (
+        dict(prior_binding.get("derivedOutputs") or {})
+        if prior_binding and prior_executable
+        else {}
+    )
     interaction_binding = (
         interaction_authority.feature_binding(name)
         if disposition == "RECOMPUTE_AFTER_PARENT_TREATMENT"
@@ -488,11 +546,16 @@ def _structured_execution_contract(
         "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
         "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
     }:
-        missing_strategy = (
-            "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
-            if execution["selectable"]
-            else "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
-        )
+        if execution["selectable"]:
+            missing_strategy = "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
+        elif execution["executableStatus"] == "BLOCKED":
+            missing_strategy = "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
+        elif prior_status == "BINDING_READY_REQUIRES_WAVE2_ENGINE":
+            missing_strategy = "HOLD_FOR_WAVE2_ENGINE_NO_VALUE_SUBSTITUTION"
+        elif prior_status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION":
+            missing_strategy = "DROP_RETIRED_VARIABLE_NO_VALUE_REWRITE"
+        else:
+            missing_strategy = "HOLD_NONEXECUTABLE_WITHOUT_VALUE_SUBSTITUTION"
     elif not execution["selectable"]:
         missing_strategy = "HOLD_NONEXECUTABLE_WITHOUT_VALUE_SUBSTITUTION"
     elif disposition in _ZERO_WITH_INDICATOR_DISPOSITIONS:
@@ -507,8 +570,19 @@ def _structured_execution_contract(
         missing_strategy = "NO_MISSING_TREATMENT"
     return {
         "selectable": bool(execution["selectable"]),
-        "executable": execution["executableStatus"] != "BLOCKED",
-        "exclusionReason": execution["blockedReason"] if not execution["selectable"] else None,
+        "executable": bool(execution["executable"]),
+        "exclusionReason": (
+            None
+            if execution["selectable"]
+            else execution["blockedReason"]
+            or (
+                prior_binding.get("retirementReason")
+                if prior_status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+                and prior_binding
+                else None
+            )
+            or execution["resolution"]
+        ),
         "outlier": {
             "detector": _outlier_detector(source_row, backend),
             "treatment": str(source_row.get("outlier_treatment") or ""),
@@ -539,9 +613,29 @@ def _structured_execution_contract(
                     "foldLocal": "PASS",
                     "pointInTime": "PASS",
                     "status": prior_binding["status"],
+                    "executable": bool(prior_binding["executable"]),
+                    "selectable": bool(prior_binding.get("selectable", prior_binding["executable"])),
                     "blockedReason": prior_binding["blockedReason"],
-                    "derivedOutputs": list(prior_binding["derivedOutputs"].values()),
-                    "derivedOutputMap": prior_binding["derivedOutputs"],
+                    "requiredSufficientStatistics": list(
+                        prior_binding.get("requiredSufficientStatistics") or ()
+                    ),
+                    "numeratorComponents": list(
+                        prior_binding.get("numeratorComponents") or ()
+                    ),
+                    "compositionComponents": list(
+                        prior_binding.get("compositionComponents") or ()
+                    ),
+                    "derivedComponents": prior_binding.get("derivedComponents"),
+                    "componentFields": prior_binding.get("componentFields"),
+                    "bindingEvidence": prior_binding.get("bindingEvidence"),
+                    "registeredDefinition": prior_binding.get("registeredDefinition"),
+                    "componentDefinition": prior_binding.get("componentDefinition"),
+                    "retirementReason": prior_binding.get("retirementReason"),
+                    "scientificDecisionResolved": prior_binding.get(
+                        "scientificDecisionResolved"
+                    ),
+                    "derivedOutputs": list(executable_prior_outputs.values()),
+                    "derivedOutputMap": executable_prior_outputs,
                     "rawFeatureDecision": prior_binding["rawFeatureDecision"],
                 }
                 if prior_binding
@@ -553,7 +647,7 @@ def _structured_execution_contract(
             "parentFeatures": parents,
             "pairedIndicators": indicators,
             "exposureFeature": prior_binding["exposureFeature"] if prior_binding else None,
-            "derivedPriorOutputs": prior_binding["derivedOutputs"] if prior_binding else None,
+            "derivedPriorOutputs": executable_prior_outputs or None,
             "transformationOrder": (
                 ["TREAT_PARENTS_INSIDE_TRAINING_FOLD", "RECOMPUTE_INTERACTION", "APPLY_FROZEN_PIPELINE"]
                 if parents
@@ -672,7 +766,12 @@ def _rivalry_authority_audit(feature_name: str) -> dict[str, Any]:
     }
 
 
-def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str, Any]:
+def _reconcile(
+    authority: eda._Authority,
+    source: Mapping[str, Any],
+    *,
+    prior_bindings: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     # Imported lazily to keep this combined view from becoming a second feature
     # authority and to avoid an import cycle when Feature Engineering asks for
     # the adopted combined binding later.
@@ -705,10 +804,18 @@ def _reconcile(authority: eda._Authority, source: Mapping[str, Any]) -> dict[str
             workbook_missing = float(source_row.get("missing_percent") or 0.0)
             if abs(backend_missing - workbook_missing) > 1e-8:
                 row_discrepancies.append("DEVELOPMENT_MISSINGNESS_CONFLICT")
+        prior_binding = (prior_bindings or {}).get(name)
         execution = _execution_contract(
-            name, str(source_row.get("recommended_inclusion") or "")
+            name,
+            str(source_row.get("recommended_inclusion") or ""),
+            prior_binding=prior_binding,
         )
-        structured_execution = _structured_execution_contract(source_row, backend or {}, execution)
+        structured_execution = _structured_execution_contract(
+            source_row,
+            backend or {},
+            execution,
+            prior_binding=prior_binding,
+        )
         reconciled = {
             **source_row,
             "source_workbook_sha256": source["source_workbook"]["sha256"],
@@ -837,7 +944,17 @@ def _exception_rows(
                 "priority": row["priority"],
                 "scientificRecommendation": disposition,
                 "executableStatus": status,
-                "disposition": "EXCLUDED" if disposition in _EXCLUDED_DISPOSITIONS else "BLOCKING" if status == "BLOCKED" else "FALLBACK",
+                "disposition": (
+                    "EXCLUDED"
+                    if disposition in _EXCLUDED_DISPOSITIONS
+                    else "BLOCKING"
+                    if status == "BLOCKED"
+                    else "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+                    if status == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+                    else "RETIRED"
+                    if status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+                    else "FALLBACK"
+                ),
                 "detail": row["blocked_reason"] or row["executable_resolution"],
             }
         )
@@ -860,15 +977,32 @@ def _exception_rows(
 def compile_project_specification(database: Database, project_id: str) -> dict[str, Any]:
     authority = eda._resolve_authority(database, project_id)
     source = load_source_specification()
-    reconciliation = _reconcile(authority, source)
-    features = reconciliation.pop("features")
-    inventory_identity = reconciliation.pop("inventoryIdentity")
-    additional = list(reconciliation["additionalBackendFeatures"])
+    sufficient_statistics_authority = (
+        sufficient_stats.registered_sufficient_statistics_authority(
+            database,
+            expected_gold_manifest_sha256=authority.gold_manifest_sha,
+            output_root=eda._gold_root(),
+        )
+    )
     prior_authority = player_prior.project_authority_manifest(
         authority,
         treatment_specification_key=SPECIFICATION_KEY,
         treatment_source_sha256=str(source["source_content_sha256"]),
+        sufficient_statistics_authority=sufficient_statistics_authority,
     )
+    prior_bindings = {
+        str(binding["feature"]): binding
+        for binding in prior_authority["bindings"]
+        if isinstance(binding, Mapping) and binding.get("feature")
+    }
+    reconciliation = _reconcile(
+        authority,
+        source,
+        prior_bindings=prior_bindings,
+    )
+    features = reconciliation.pop("features")
+    inventory_identity = reconciliation.pop("inventoryIdentity")
+    additional = list(reconciliation["additionalBackendFeatures"])
     interaction_manifest = interaction_authority.project_authority_manifest(
         authority,
         treatment_specification_key=SPECIFICATION_KEY,
@@ -904,6 +1038,7 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         ).get("priorAuthority")
         if isinstance(feature_prior, dict):
             feature_prior["authorityId"] = prior_authority["authorityId"]
+            feature_prior["authorityChecksum"] = prior_authority["authorityChecksum"]
         feature_interaction = (row.get("execution_contract") or {}).get(
             "interactionAuthority"
         )
@@ -967,6 +1102,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "additionalHeldClosed": len(additional),
             "ready": int(status_counts["READY"]),
             "readyGovernedPrior": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "bindingReadyRequiresWave2": int(
+                status_counts["BINDING_READY_REQUIRES_WAVE2_ENGINE"]
+            ),
+            "retiredByScientificDecision": int(
+                status_counts["RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"]
+            ),
             "readyGovernedInteraction": int(
                 status_counts["READY_GOVERNED_INTERACTION_V1"]
             ),
@@ -1001,6 +1142,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
                 + disposition_counts["ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR"]
             ),
             "hierarchicalPriorReady": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "hierarchicalPriorBindingReady": int(
+                status_counts["BINDING_READY_REQUIRES_WAVE2_ENGINE"]
+            ),
+            "hierarchicalPriorRetired": int(
+                status_counts["RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"]
+            ),
             "hierarchicalPriorBlocked": sum(
                 row["executable_status"] == "BLOCKED"
                 and row["recommended_inclusion"]
@@ -1229,8 +1376,10 @@ def current_draft_execution_overlay(
             )
             overlay[str(row["feature_name"])] = {
                 "executableStatus": row.get("executable_status"),
+                "executable": bool(execution_contract.get("executable")),
                 "executableSelectable": bool(row.get("executable_selectable")),
                 "blockedReason": row.get("blocked_reason"),
+                "resolution": row.get("executable_resolution"),
                 "scientificRecommendation": row.get("recommended_inclusion"),
                 # Display-only scientific lineage. A DRAFT still cannot
                 # authorize this preprocessing output or a feature-set entry.
@@ -1242,8 +1391,10 @@ def current_draft_execution_overlay(
         if isinstance(row, Mapping) and str(row.get("featureName") or ""):
             overlay[str(row["featureName"])] = {
                 "executableStatus": row.get("executableStatus"),
+                "executable": False,
                 "executableSelectable": bool(row.get("executableSelectable")),
                 "blockedReason": row.get("blockedReason"),
+                "resolution": row.get("executableResolution"),
                 "scientificRecommendation": row.get("proposedDisposition"),
             }
     reference = {
