@@ -506,6 +506,8 @@ def build_current_gold(
 def verify_current_gold(
     output_root: Path,
     manifest_sha256: str | None = None,
+    *,
+    metadata_only: bool = False,
 ) -> dict[str, Any]:
     root = Path(output_root).resolve()
     if manifest_sha256 is None:
@@ -525,10 +527,13 @@ def verify_current_gold(
         object_path = root / str(partition["relativePath"])
         if not object_path.is_file() or _sha_file(object_path) != partition["sha256"]:
             raise CurrentStatcastPipelineError("current Gold partition SHA differs")
-        table = pq.read_table(object_path)
-        if table.num_rows != int(partition["rowCount"]):
+        if metadata_only:
+            row_count = int(pq.ParquetFile(object_path).metadata.num_rows)
+        else:
+            row_count = int(pq.read_table(object_path).num_rows)
+        if row_count != int(partition["rowCount"]):
             raise CurrentStatcastPipelineError("current Gold partition row count differs")
-        rows += table.num_rows
+        rows += row_count
         dates.extend([str(partition["minimumDate"]), str(partition["maximumDate"])])
     declared_coverage = manifest.get("dateCoverage") or {}
     if (
@@ -543,6 +548,7 @@ def verify_current_gold(
         "rowCount": rows,
         "featureCount": 48,
         "dateCoverage": manifest["dateCoverage"],
+        "verificationMode": "PARQUET_METADATA_ONLY" if metadata_only else "FULL_TABLE",
         "verified": True,
     }
 

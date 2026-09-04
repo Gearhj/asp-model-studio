@@ -48,26 +48,48 @@ _WALK_HBP_EVENTS = frozenset({"walk", "intent_walk", "hit_by_pitch"})
 _WALK_EVENTS = frozenset({"walk", "intent_walk"})
 
 
-def _pitch_lazy(frame_or_paths: pa.Table | Sequence[Path]) -> pl.LazyFrame:
+def _pitch_lazy(
+    frame_or_paths: pa.Table | Sequence[Path],
+    *,
+    maximum_game_date: str | None = None,
+) -> pl.LazyFrame:
     required = ["canonicalPaId", "pitchType", "releaseSpeed", "pitchResultType"]
+    projection = [*required, "gameDate"] if maximum_game_date is not None else required
     if isinstance(frame_or_paths, pa.Table):
-        missing = sorted(set(required) - set(frame_or_paths.column_names))
+        missing = sorted(set(projection) - set(frame_or_paths.column_names))
         if missing:
             raise GoldFeatureError(f"pitch input columns missing: {missing}")
-        return pl.from_arrow(frame_or_paths.select(required)).lazy()
+        lazy = pl.from_arrow(frame_or_paths.select(projection)).lazy()
+        if maximum_game_date is not None:
+            lazy = lazy.filter(pl.col("gameDate").cast(pl.String) <= maximum_game_date)
+        return lazy.select(required)
     paths = [str(Path(path)) for path in frame_or_paths]
     if not paths:
         raise GoldFeatureError("pitch history requires verified child paths")
     # Verified Silver generations can carry additional immutable lineage
     # columns.  Gold consumes only this frozen projection, while still
     # failing closed when any required feature input is absent.
-    return pl.scan_parquet(paths, extra_columns="ignore").select(required)
+    lazy = pl.scan_parquet(paths, extra_columns="ignore")
+    if maximum_game_date is not None:
+        lazy = lazy.filter(pl.col("gameDate").cast(pl.String) <= maximum_game_date)
+    return lazy.select(required)
 
 
-def aggregate_pitch_history(frame_or_paths: pa.Table | Sequence[Path]) -> pd.DataFrame:
-    """Aggregate verified Silver pitches to PA-level history primitives."""
+def aggregate_pitch_history(
+    frame_or_paths: pa.Table | Sequence[Path],
+    *,
+    maximum_game_date: str | None = None,
+) -> pd.DataFrame:
+    """Aggregate verified Silver pitches to PA-level history primitives.
 
-    lazy = _pitch_lazy(frame_or_paths).with_columns(
+    ``maximum_game_date`` is an inclusive source projection boundary used by
+    sealed companion publications.  It is applied by the lazy Parquet scan
+    before any pitch result, type, or velocity expression is evaluated.
+    """
+
+    lazy = _pitch_lazy(
+        frame_or_paths, maximum_game_date=maximum_game_date
+    ).with_columns(
         pl.col("pitchResultType").cast(pl.String).str.to_lowercase().fill_null("").alias("_result"),
         pl.col("pitchType").cast(pl.String).str.to_uppercase().fill_null("").alias("_type"),
         pl.col("releaseSpeed").cast(pl.Float64, strict=False).alias("_velo"),
@@ -79,7 +101,13 @@ def aggregate_pitch_history(frame_or_paths: pa.Table | Sequence[Path]) -> pd.Dat
         pl.col("_type").is_in(list(_BREAKING)).cast(pl.Int64).alias("_breaking"),
         pl.col("_type").is_in(list(_OFFSPEED)).cast(pl.Int64).alias("_offspeed"),
     ).with_columns(
-        pl.when(pl.col("_fastball") == 1).then(pl.col("_velo")).otherwise(None).alias("_fb_velo"),
+        (
+            1 - pl.col("_fastball") - pl.col("_breaking") - pl.col("_offspeed")
+        ).cast(pl.Int64).alias("_other_or_unclassified"),
+        pl.when((pl.col("_fastball") == 1) & pl.col("_velo").is_finite())
+        .then(pl.col("_velo"))
+        .otherwise(None)
+        .alias("_fb_velo"),
     )
     grouped = lazy.group_by("canonicalPaId").agg(
         pl.len().cast(pl.Int64).alias("pitch_count"),
@@ -89,7 +117,9 @@ def aggregate_pitch_history(frame_or_paths: pa.Table | Sequence[Path]) -> pd.Dat
         pl.col("_fastball").sum().alias("fastball_count"),
         pl.col("_breaking").sum().alias("breaking_count"),
         pl.col("_offspeed").sum().alias("offspeed_count"),
+        pl.col("_other_or_unclassified").sum().alias("other_or_unclassified_pitch_count"),
         pl.col("_fb_velo").sum().fill_null(0.0).alias("fastball_velocity_sum"),
+        pl.col("_fb_velo").pow(2).sum().fill_null(0.0).alias("fastball_velocity_sumsq"),
         pl.col("_fb_velo").count().alias("fastball_velocity_count"),
     )
     try:
@@ -135,7 +165,8 @@ def prepare_pa_history(
     frame = frame.merge(pitches, on="canonicalPaId", how="left", validate="one_to_one")
     count_cols = [
         "pitch_count", "swing_count", "whiff_count", "contact_count", "fastball_count", "breaking_count",
-        "offspeed_count", "fastball_velocity_sum", "fastball_velocity_count",
+        "offspeed_count", "other_or_unclassified_pitch_count", "fastball_velocity_sum",
+        "fastball_velocity_sumsq", "fastball_velocity_count",
     ]
     for name in count_cols:
         if name not in frame:
@@ -162,17 +193,38 @@ def _prior_window_features(
     entity_column: str,
     window: int,
     role: str,
-) -> pd.DataFrame:
+    return_sufficient_statistics: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     metric_columns = [
         "_pa", "_strikeout", "_walk_hbp", "_walk", "swing_count", "whiff_count", "contact_count",
         "pitch_count", "fastball_count", "breaking_count", "offspeed_count",
-        "fastball_velocity_sum", "fastball_velocity_count",
+        "other_or_unclassified_pitch_count", "fastball_velocity_sum",
+        "fastball_velocity_sumsq", "fastball_velocity_count",
     ]
     expected = BATTER_HISTORY_FEATURES if role == "batter" else PITCHER_HISTORY_FEATURES
+    statistic_columns = (
+        ("batter_last100_swing_count", "batter_last100_whiff_count")
+        if role == "batter"
+        else (
+            "pitcher_last250_pitch_count",
+            "pitcher_last250_swing_count",
+            "pitcher_last250_whiff_count",
+            "pitcher_last250_fastball_count",
+            "pitcher_last250_breaking_count",
+            "pitcher_last250_offspeed_count",
+            "pitcher_last250_other_or_unclassified_pitch_count",
+            "pitcher_last250_fastball_velocity_count",
+            "pitcher_last250_fastball_velocity_sum",
+            "pitcher_last250_fastball_velocity_sumsq",
+        )
+    )
     ordered = history.sort_values(
         [entity_column, "gameDate", "mlbamGamePk", "atBatNumber", "canonicalPaId"], kind="mergesort"
     )
     result = pd.DataFrame(np.nan, index=targets.index, columns=list(expected), dtype=np.float64)
+    statistics = pd.DataFrame(
+        np.nan, index=targets.index, columns=list(statistic_columns), dtype=np.float64
+    )
     history_group_indices = {
         str(key): indices for key, indices in ordered.groupby(entity_column, sort=False, dropna=False).indices.items()
     }
@@ -205,6 +257,10 @@ def _prior_window_features(
                     "batter_last100_insufficient": float(sample < window),
                     "batter_last100_whiff_missing": float(m["swing_count"] <= 0.0),
                 }
+                statistic_payload = {
+                    "batter_last100_swing_count": m["swing_count"],
+                    "batter_last100_whiff_count": m["whiff_count"],
+                }
             else:
                 payload = {
                     "pitcher_prior_bf_count": float(prior),
@@ -222,12 +278,41 @@ def _prior_window_features(
                     "pitcher_last250_whiff_missing": float(m["swing_count"] <= 0.0),
                     "pitcher_last250_velocity_missing": float(m["fastball_velocity_count"] <= 0.0),
                 }
+                statistic_payload = {
+                    "pitcher_last250_pitch_count": m["pitch_count"],
+                    "pitcher_last250_swing_count": m["swing_count"],
+                    "pitcher_last250_whiff_count": m["whiff_count"],
+                    "pitcher_last250_fastball_count": m["fastball_count"],
+                    "pitcher_last250_breaking_count": m["breaking_count"],
+                    "pitcher_last250_offspeed_count": m["offspeed_count"],
+                    "pitcher_last250_other_or_unclassified_pitch_count": m[
+                        "other_or_unclassified_pitch_count"
+                    ],
+                    "pitcher_last250_fastball_velocity_count": m[
+                        "fastball_velocity_count"
+                    ],
+                    "pitcher_last250_fastball_velocity_sum": m[
+                        "fastball_velocity_sum"
+                    ],
+                    "pitcher_last250_fastball_velocity_sumsq": m[
+                        "fastball_velocity_sumsq"
+                    ],
+                }
             result.loc[list(day_positions), list(payload)] = list(payload.values())
-    return result.reindex(columns=list(expected))
+            statistics.loc[
+                list(day_positions), list(statistic_payload)
+            ] = list(statistic_payload.values())
+    rates = result.reindex(columns=list(expected))
+    if return_sufficient_statistics:
+        return rates, statistics.reindex(columns=list(statistic_columns))
+    return rates
 
 
-def build_advanced_features(history: pd.DataFrame, matched: pd.DataFrame) -> pd.DataFrame:
-    """Calculate all 26 advanced features for matched target rows."""
+def build_advanced_features_with_sufficient_statistics(
+    history: pd.DataFrame,
+    matched: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Calculate Gold rates and their raw rolling evidence in one window pass."""
 
     if matched["canonicalPaId"].duplicated().any():
         raise GoldFeatureError("matched bridge contains duplicate canonical PA ids")
@@ -240,11 +325,21 @@ def build_advanced_features(history: pd.DataFrame, matched: pd.DataFrame) -> pd.
     if target[["canonicalPaId", "gameDate", "batterCanonicalPlayerId", "pitcherCanonicalPlayerId"]].isna().any().any():
         raise GoldFeatureError("matched target lacks Silver PA context")
     target.index = matched.index
-    batter = _prior_window_features(
-        history, target, entity_column="batterCanonicalPlayerId", window=100, role="batter"
+    batter, batter_statistics = _prior_window_features(
+        history,
+        target,
+        entity_column="batterCanonicalPlayerId",
+        window=100,
+        role="batter",
+        return_sufficient_statistics=True,
     )
-    pitcher = _prior_window_features(
-        history, target, entity_column="pitcherCanonicalPlayerId", window=250, role="pitcher"
+    pitcher, pitcher_statistics = _prior_window_features(
+        history,
+        target,
+        entity_column="pitcherCanonicalPlayerId",
+        window=250,
+        role="pitcher",
+        return_sufficient_statistics=True,
     )
     stand = target["stand"].fillna("").astype(str).str.upper()
     throws = target["pThrows"].fillna("").astype(str).str.upper()
@@ -261,6 +356,13 @@ def build_advanced_features(history: pd.DataFrame, matched: pd.DataFrame) -> pd.
     advanced = pd.concat([batter, pitcher, matchup], axis=1).reindex(columns=list(ADVANCED_FEATURES))
     if advanced.shape[1] != len(ADVANCED_FEATURES):
         raise GoldFeatureError("advanced feature order differs from contract")
+    return advanced, pd.concat([batter_statistics, pitcher_statistics], axis=1)
+
+
+def build_advanced_features(history: pd.DataFrame, matched: pd.DataFrame) -> pd.DataFrame:
+    """Calculate all 26 advanced features for matched target rows."""
+
+    advanced, _ = build_advanced_features_with_sufficient_statistics(history, matched)
     return advanced
 
 
@@ -342,6 +444,7 @@ __all__ = [
     "aggregate_pitch_history",
     "assemble_gold_frame",
     "build_advanced_features",
+    "build_advanced_features_with_sufficient_statistics",
     "feature_quality_report",
     "prepare_pa_history",
 ]
