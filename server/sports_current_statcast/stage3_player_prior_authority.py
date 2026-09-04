@@ -226,7 +226,9 @@ def authority_configuration(*, overrides: Mapping[str, Any] | None = None) -> di
     config: dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
         "authorityName": AUTHORITY_NAME,
-        "implementationSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "implementationSha256": hashlib.sha256(
+            Path(__file__).read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest(),
         "methodFamily": "BETA_BINOMIAL_EMPIRICAL_BAYES",
         "populationFit": {
             "scope": "TRAINING_ROWS_OF_EACH_CHRONOLOGICAL_FOLD_ONLY",
