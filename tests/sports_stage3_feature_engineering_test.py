@@ -11,6 +11,7 @@ from server.persistence.repositories.stage3_feature_set_repository import (
     NO_CURRENT_FEATURE_SET,
 )
 from server.sports_current_statcast import stage3_feature_engineering as feature
+from server.sports_current_statcast import stage3_player_prior_authority as player_prior
 from server.sports_current_statcast.contextual_features import (
     CONTEXT_FEATURES,
     ORDERED_GOLD_PLUS_CONTEXT_FEATURES,
@@ -155,7 +156,10 @@ def test_summary_reconciles_exact_inventory_families_and_interactions(service):
     assert data["summary"]["contextualFeatureCount"] == 206
     assert data["summary"]["totalCandidateCount"] == 254
     assert data["summary"]["eligibleContextualCount"] == 194
-    assert data["summary"]["inactiveFeatureCount"] == 12
+    # Twelve rivalry fields plus all thirteen current nonexecutable prior
+    # fields are intrinsically held closed even before a combined treatment
+    # DRAFT exists.
+    assert data["summary"]["inactiveFeatureCount"] == 25
     assert data["summary"]["unavailableFeatureCount"] == 2
     assert data["summary"]["familyCount"] == 7
     assert data["summary"]["interactionCounts"] == {
@@ -185,6 +189,19 @@ def test_summary_reconciles_exact_inventory_families_and_interactions(service):
     assert all(item["status"] == "EXCLUDED_SOURCE_UNAVAILABLE" for item in data["interactions"][-2:])
     assert data["treatmentPolicies"] == refs
     assert data["featureSetState"]["expectedChecksum"] == NO_CURRENT_FEATURE_SET
+    baseline = data["recommendedSets"][0]
+    assert set(player_prior.WAVE2_ENGINE_PRIOR_FEATURES).isdisjoint(
+        baseline["orderedFeatures"]
+    )
+    assert set(player_prior.RETIRED_PRIOR_FEATURES).isdisjoint(
+        baseline["orderedFeatures"]
+    )
+    assert {
+        item["feature"] for item in baseline["exclusions"]
+    }.issuperset(
+        player_prior.WAVE2_ENGINE_PRIOR_FEATURES
+        | player_prior.RETIRED_PRIOR_FEATURES
+    )
 
 
 def test_inventory_is_paginated_searchable_and_rejects_oot_target_access(service):

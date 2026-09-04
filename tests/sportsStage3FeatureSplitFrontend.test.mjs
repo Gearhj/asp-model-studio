@@ -84,6 +84,27 @@ test("feature inventory and builder expose the required filters, details, versio
   ], "feature decisions");
 });
 
+test("inactive core prior rows render nonselected while preserving core metadata", () => {
+  assert.match(
+    feature,
+    /const visiblySelected =\s*row\.status === "ACTIVE" && \(selected \|\| row\.core\);/,
+    "visual selection must require current ACTIVE status even for a core row",
+  );
+  assert.ok(
+    feature.includes("checked={visiblySelected}"),
+    "the checkbox must use the fail-closed visual selection state",
+  );
+  assert.ok(
+    feature.includes('disabled={row.status !== "ACTIVE" || row.core}'),
+    "core metadata must continue to make active core membership immutable",
+  );
+  assert.doesNotMatch(
+    feature,
+    /checked=\{selected \|\| row\.core\}/,
+    "an inactive retired/core row must never render checked solely because it is core",
+  );
+});
+
 test("Split & Balance exposes honest five-fold design, balance, manual validation, and immutable registration", () => {
   includesAll(split, [
     "Split & Balance",
@@ -233,8 +254,22 @@ test("Feature Engineering exposes governed prior outputs as read-only preprocess
       "raw?.treatmentSpecificationDraft",
       "raw.derivedPriorOutputs",
       "normalizedPriorAuthority",
-      "priorAuthority: treatmentSpecificationDraft?.priorAuthority ?? null",
+      "normalizedPriorAuthority(raw?.priorAuthority)",
+      "treatmentSpecificationDraft?.priorAuthority",
       "executionSummary",
+      "executable: boolean;",
+      "selectable: boolean;",
+      "bindingReadyRequiresWave2EngineFeatureCount",
+      "retiredFeatureCount",
+      "isGovernedPriorStatus",
+      "executable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS",
+      "selectable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS",
+      "governedPriorStatus",
+      "nestedPriorStatus",
+      "effectivePriorStatus",
+      "status === GOVERNED_PRIOR_EXECUTABLE_STATUS",
+      "resolution: string | null;",
+      "retirementReason: string | null;",
     ],
     "governed prior Feature Engineering contract",
   );
@@ -254,7 +289,18 @@ test("Feature Engineering exposes governed prior outputs as read-only preprocess
       "Exposure / effective sample size",
       "Reliability / uncertainty",
       "Derived columns carried as one governed preprocessing family",
-      "<b>BLOCKED:</b>",
+      "EXECUTABLE V1",
+      "BINDING READY · WAVE 2",
+      "RETIRED · NONSELECTABLE",
+      "BLOCKED · MISSING EVIDENCE",
+      "WAVE 2 ENGINE REQUIRED:",
+      "RETIRED BY SCIENTIFIC DECISION:",
+      "BLOCKED — MISSING EVIDENCE:",
+      "priorResolutionReason",
+      "resolution?.resolution ?? authority.resolution",
+      "authority.retirementReason",
+      "resolution?.retirementReason",
+      "resolutionReason",
     ],
     "governed prior Feature Engineering visibility",
   );
@@ -262,6 +308,21 @@ test("Feature Engineering exposes governed prior outputs as read-only preprocess
     feature,
     /governedPrior[^\n]*(onClick|mutateFeatureSet)/i,
     "governed prior visibility must not add fit, adoption, or registration controls",
+  );
+  assert.doesNotMatch(
+    feature,
+    /\.includes\(["']READY/,
+    "a substring containing READY must never make a prior executable",
+  );
+  assert.doesNotMatch(
+    api,
+    /raw\.executable === true\s*\|\|\s*status === GOVERNED_PRIOR_EXECUTABLE_STATUS/,
+    "a contradictory executable boolean must not override an exact Wave 2 or retired status",
+  );
+  assert.doesNotMatch(
+    api,
+    /selectable:\s*raw\.selectable === true/,
+    "a contradictory selectable boolean must not make Wave 2 or retired authority selectable",
   );
 });
 

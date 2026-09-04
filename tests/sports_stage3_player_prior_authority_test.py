@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import math
 from types import SimpleNamespace
 
@@ -111,6 +112,25 @@ EXPECTED_BLOCKS = {
     ),
 }
 
+EXPECTED_RETIRED = frozenset(
+    {"pitcher_era9", "batter_obp", "batter_last100_contact_rate"}
+)
+EXPECTED_WAVE2 = frozenset(EXPECTED_BLOCKS) - EXPECTED_RETIRED
+EXPECTED_WAVE2_EXPOSURES = {
+    "pitcher_whip": "pitcher_prior_ipouts",
+    "pitcher_gs_per_g": "pitcher_prior_g",
+    "batter_slg": "batter_prior_ab",
+    "batter_avg": "batter_prior_ab",
+    "pitcher_last250_avg_fastball_velocity": (
+        "pitcher_last250_fastball_velocity_count"
+    ),
+    "pitcher_last250_whiff_rate": "pitcher_last250_swing_count",
+    "pitcher_last250_offspeed_usage": "pitcher_last250_pitch_count",
+    "pitcher_last250_fastball_usage": "pitcher_last250_pitch_count",
+    "pitcher_last250_breaking_usage": "pitcher_last250_pitch_count",
+    "batter_last100_whiff_rate": "batter_last100_swing_count",
+}
+
 
 def _stable_fitted(fitted: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in fitted.items() if key != "fitDurationMs"}
@@ -129,6 +149,45 @@ def _authority_manifest() -> dict[str, object]:
         treatment_specification_key="MLB_FEATURE_TREATMENT_SPEC_V1",
         treatment_source_sha256="4" * 64,
     )
+
+
+def _sufficient_statistics_authority(
+    *,
+    gold_manifest_sha256: str = "1" * 64,
+    manifest_sha256: str = "5" * 64,
+    object_sha256: tuple[str, ...] = ("6" * 64, "7" * 64),
+) -> dict[str, object]:
+    required_columns = sorted(
+        {
+            column
+            for feature in EXPECTED_WAVE2
+            for column in prior.feature_binding(feature)["requiredSufficientStatistics"]
+        }
+    )
+    content: dict[str, object] = {
+        "schemaVersion": prior.SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA,
+        "datasetId": prior.SUFFICIENT_STATISTICS_DATASET_ID,
+        "manifestContract": prior.SUFFICIENT_STATISTICS_MANIFEST_CONTRACT,
+        "manifestSha256": manifest_sha256,
+        "objectSha256": list(object_sha256),
+        "sourceGoldManifestSha256": gold_manifest_sha256,
+        "physicalSchemaSha256": "8" * 64,
+        "validationEvidenceSha256": "9" * 64,
+        "requiredColumns": required_columns,
+        "verified": True,
+        "integerValidation": True,
+        "equivalenceValidation": True,
+        "finalOotSealed": True,
+        "rightsStatus": "GOVERNED_LOCAL_RESEARCH_ONLY",
+    }
+    checksum = hashlib.sha256(canonical_json_bytes(content)).hexdigest()
+    return {
+        **content,
+        "authorityChecksum": checksum,
+        "authorityId": (
+            f"{prior.SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA}:sha256:{checksum}"
+        ),
+    }
 
 
 def _resign_authority_manifest(manifest: dict[str, object]) -> None:
@@ -201,10 +260,13 @@ def _fit_rolling() -> dict[str, object]:
 def test_binding_inventory_is_exact_deterministic_and_fail_closed() -> None:
     assert prior.PRIOR_FEATURES == EXPECTED_PRIOR_ORDER
     assert prior.SUPPORTED_PRIOR_FEATURES == EXPECTED_READY
-    assert prior.BLOCKED_PRIOR_FEATURES == frozenset(EXPECTED_BLOCKS)
+    assert prior.BLOCKED_PRIOR_FEATURES == EXPECTED_WAVE2
+    assert prior.WAVE2_ENGINE_PRIOR_FEATURES == EXPECTED_WAVE2
+    assert prior.RETIRED_PRIOR_FEATURES == EXPECTED_RETIRED
     assert len(prior.PRIOR_FEATURES) == 24
     assert len(prior.SUPPORTED_PRIOR_FEATURES) == 11
-    assert len(prior.BLOCKED_PRIOR_FEATURES) == 13
+    assert len(prior.BLOCKED_PRIOR_FEATURES) == 10
+    assert len(prior.RETIRED_PRIOR_FEATURES) == 3
 
     first = prior.authority_configuration()
     second = prior.authority_configuration()
@@ -219,13 +281,80 @@ def test_binding_inventory_is_exact_deterministic_and_fail_closed() -> None:
         assert binding["method"] == "BETA_BINOMIAL_EMPIRICAL_BAYES"
         assert binding["exposureFeature"]
         assert binding["blockedReason"] is None
-    for feature, exact_reason in EXPECTED_BLOCKS.items():
+        assert binding["selectable"] is True
+    for feature in EXPECTED_WAVE2:
         binding = prior.feature_binding(feature)
         assert binding is not None
         assert binding["status"] == "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
         assert binding["executable"] is False
-        assert binding["exposureFeature"] is None
-        assert binding["blockedReason"] == exact_reason
+        assert binding["selectable"] is False
+        assert binding["exposureFeature"] == EXPECTED_WAVE2_EXPOSURES[feature]
+        assert binding["exposureTransform"] == "VALIDATE_INTEGER"
+        assert binding["numeratorComponents"]
+        assert binding["compositionComponents"]
+        assert binding["componentFields"]["exposure"] == (
+            EXPECTED_WAVE2_EXPOSURES[feature]
+        )
+        assert binding["derivedOutputs"] == {}
+        assert binding["rawFeatureDecision"] == (
+            "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+        )
+        assert binding["blockedReason"] == EXPECTED_BLOCKS[feature]
+        assert binding["requiredEstimator"] in {
+            "DIRICHLET_MULTINOMIAL_EMPIRICAL_BAYES",
+            "DIRICHLET_MULTINOMIAL_COMPONENT_SHRINKAGE",
+            "GAMMA_POISSON_COMPONENT_SHRINKAGE",
+            "NORMAL_NORMAL_EMPIRICAL_BAYES",
+        }
+    for feature in EXPECTED_RETIRED:
+        binding = prior.feature_binding(feature)
+        assert binding is not None
+        assert (
+            binding["status"]
+            == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        )
+        assert binding["executable"] is False
+        assert binding["selectable"] is False
+        assert binding["blockedReason"] is None
+        assert binding["scientificDecisionResolved"] is True
+        assert binding["registeredDefinition"]
+        assert binding["retirementReason"]
+        assert binding["componentFields"]["composition"]
+        assert binding["derivedOutputs"] == {}
+        assert binding["rawFeatureDecision"] == (
+            "DROP_RAW_FIELD_RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        )
+
+    for feature in {
+        "pitcher_last250_offspeed_usage",
+        "pitcher_last250_fastball_usage",
+        "pitcher_last250_breaking_usage",
+    }:
+        assert "pitcher_last250_other_or_unclassified_pitch_count" in (
+            prior.feature_binding(feature)["compositionComponents"]
+        )
+    slg = prior.feature_binding("batter_slg")
+    assert set(slg["derivedComponents"]) == {
+        "batter_prior_1b",
+        "batter_prior_ab_out",
+    }
+
+    configured = {
+        binding["feature"]: binding
+        for binding in prior.authority_configuration()["bindings"]
+    }
+    assert all(
+        configured[feature]["derivedOutputs"] == {}
+        and configured[feature]["rawFeatureDecision"]
+        == "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+        for feature in EXPECTED_WAVE2
+    )
+    assert all(
+        configured[feature]["derivedOutputs"] == {}
+        and configured[feature]["rawFeatureDecision"]
+        == "DROP_RAW_FIELD_RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        for feature in EXPECTED_RETIRED
+    )
 
     # Callers cannot mutate the checked-in authority through a returned object.
     first["bindings"][0]["feature"] = "mutated"
@@ -233,9 +362,102 @@ def test_binding_inventory_is_exact_deterministic_and_fail_closed() -> None:
     assert prior.feature_binding("not-a-feature") is None
 
 
-def test_configuration_and_project_authority_identities_are_content_addressed() -> None:
-    import hashlib
+def test_verified_exact_companion_changes_only_ten_bindings_to_wave2_ready() -> None:
+    companion = _sufficient_statistics_authority()
+    for feature in EXPECTED_PRIOR_ORDER:
+        direct = prior.feature_binding(
+            feature,
+            sufficient_statistics_authority=companion,
+            expected_gold_manifest_sha256="1" * 64,
+        )
+        nested = prior.feature_binding(
+            feature,
+            sufficient_statistics_authority={"bindingAuthority": companion},
+            expected_gold_manifest_sha256="1" * 64,
+        )
+        assert direct == nested
+        if feature in EXPECTED_WAVE2:
+            assert direct["status"] == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+            assert direct["executable"] is False
+            assert direct["selectable"] is False
+            assert direct["blockedReason"] is None
+            assert direct["exposureFeature"] == EXPECTED_WAVE2_EXPOSURES[feature]
+            assert direct["numeratorComponents"]
+            assert direct["compositionComponents"]
+            assert direct["derivedOutputs"] == {}
+            assert direct["rawFeatureDecision"] == (
+                "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+            )
+            assert direct["estimatorImplementationStatus"] == (
+                "NOT_IMPLEMENTED_REQUIRES_WAVE2"
+            )
+            assert direct["bindingEvidence"]["authorityId"] == companion["authorityId"]
+            assert direct["bindingEvidence"]["manifestSha256"] == "5" * 64
+            assert direct["bindingEvidence"]["objectSha256"] == ["6" * 64, "7" * 64]
+        elif feature in EXPECTED_RETIRED:
+            assert direct["status"] == (
+                "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+            )
+            assert direct["bindingEvidence"] is None
+            assert direct["derivedOutputs"] == {}
+        else:
+            assert direct["status"] == "READY_GOVERNED_PRIOR_V1"
+            assert direct["executable"] is True
 
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value.update({"authorityChecksum": "0" * 64}),
+        lambda value: value.update({"sourceGoldManifestSha256": "2" * 64}),
+        lambda value: value.update({"finalOotSealed": False}),
+        lambda value: value.update(
+            {
+                "requiredColumns": [
+                    column
+                    for column in value["requiredColumns"]
+                    if column != "pitcher_last250_fastball_velocity_sumsq"
+                ]
+            }
+        ),
+    ],
+)
+def test_missing_or_invalid_companion_evidence_keeps_wave2_features_blocked(
+    mutate,
+) -> None:
+    companion = _sufficient_statistics_authority()
+    mutate(companion)
+    binding = prior.feature_binding(
+        "pitcher_whip",
+        sufficient_statistics_authority=companion,
+        expected_gold_manifest_sha256="1" * 64,
+    )
+    assert binding["status"] == "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
+    assert binding["executable"] is False
+    assert binding["selectable"] is False
+    assert binding["bindingEvidence"] is None
+
+
+@pytest.mark.parametrize(
+    "feature", ["pitcher_whip", "pitcher_era9", "batter_obp"]
+)
+def test_nonexecutables_cannot_enter_v1_fit_or_transform_inputs(feature: str) -> None:
+    with pytest.raises(prior.PlayerPriorAuthorityError) as required_error:
+        prior.required_input_columns([feature])
+    assert required_error.value.code == "PRIOR_FEATURE_NOT_EXECUTABLE"
+
+    with pytest.raises(prior.PlayerPriorAuthorityError) as fit_error:
+        prior.fit_prior_authority(
+            _annual_training_frame(),
+            training_end="2024-12-31",
+            authority_manifest=_authority_manifest(),
+            fold_id="non-executable",
+            features=[feature],
+        )
+    assert fit_error.value.code == "PRIOR_FEATURE_NOT_EXECUTABLE"
+
+
+def test_configuration_and_project_authority_identities_are_content_addressed() -> None:
     configuration = prior.authority_configuration()
     expected_checksum = hashlib.sha256(canonical_json_bytes(configuration)).hexdigest()
     assert prior.authority_checksum() == expected_checksum
@@ -274,11 +496,93 @@ def test_configuration_and_project_authority_identities_are_content_addressed() 
     assert first["authorityId"] == f"{prior.AUTHORITY_NAME}:sha256:{first['authorityChecksum']}"
     assert first["configurationChecksum"] == expected_checksum
     assert first["readyFeatureCount"] == 11
-    assert first["blockedFeatureCount"] == 13
+    assert first["bindingReadyRequiresWave2EngineFeatureCount"] == 0
+    assert first["retiredFeatureCount"] == 3
+    assert first["blockedFeatureCount"] == 10
     assert first["featureCount"] == 24
+    assert first["featureSets"] == {
+        "executable": [
+            feature for feature in EXPECTED_PRIOR_ORDER if feature in EXPECTED_READY
+        ],
+        "bindingReadyRequiresWave2Engine": [],
+        "retiredByScientificDecision": [
+            feature for feature in EXPECTED_PRIOR_ORDER if feature in EXPECTED_RETIRED
+        ],
+        "blockedByMissingEvidence": [
+            feature for feature in EXPECTED_PRIOR_ORDER if feature in EXPECTED_WAVE2
+        ],
+    }
+    first_bindings = {binding["feature"]: binding for binding in first["bindings"]}
+    assert all(
+        first_bindings[feature]["derivedOutputs"] == {}
+        and first_bindings[feature]["rawFeatureDecision"]
+        == "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+        for feature in EXPECTED_WAVE2
+    )
+    assert all(
+        first_bindings[feature]["derivedOutputs"] == {}
+        and first_bindings[feature]["rawFeatureDecision"]
+        == "DROP_RAW_FIELD_RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        for feature in EXPECTED_RETIRED
+    )
     assert first["foldLocal"] == first["pointInTime"] == "PASS"
     assert first["finalOotPolicy"] == "LOCKED_NOT_OPENED_NOT_FIT"
     assert changed["authorityId"] != first["authorityId"]
+
+    with_companion = prior.project_authority_manifest(
+        authority,
+        treatment_specification_key="MLB_FEATURE_TREATMENT_SPEC_V1",
+        treatment_source_sha256="4" * 64,
+        sufficient_statistics_authority=_sufficient_statistics_authority(),
+    )
+    assert with_companion["authorityId"] != first["authorityId"]
+    assert with_companion["readyFeatureCount"] == 11
+    assert with_companion["bindingReadyRequiresWave2EngineFeatureCount"] == 10
+    assert with_companion["retiredFeatureCount"] == 3
+    assert with_companion["blockedFeatureCount"] == 0
+    assert with_companion["featureSets"]["bindingReadyRequiresWave2Engine"] == [
+        feature for feature in EXPECTED_PRIOR_ORDER if feature in EXPECTED_WAVE2
+    ]
+    assert with_companion["featureSets"]["blockedByMissingEvidence"] == []
+    companion_bindings = {
+        binding["feature"]: binding for binding in with_companion["bindings"]
+    }
+    assert all(
+        companion_bindings[feature]["status"]
+        == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+        and companion_bindings[feature]["derivedOutputs"] == {}
+        and companion_bindings[feature]["rawFeatureDecision"]
+        == "HOLD_RAW_FIELD_NONSELECTABLE_PENDING_WAVE2_ENGINE"
+        for feature in EXPECTED_WAVE2
+    )
+    assert all(
+        companion_bindings[feature]["status"]
+        == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        and companion_bindings[feature]["derivedOutputs"] == {}
+        and companion_bindings[feature]["rawFeatureDecision"]
+        == "DROP_RAW_FIELD_RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+        for feature in EXPECTED_RETIRED
+    )
+    assert with_companion["sufficientStatisticsAuthority"]["manifestSha256"] == (
+        "5" * 64
+    )
+    assert with_companion["sufficientStatisticsAuthority"]["objectSha256"] == [
+        "6" * 64,
+        "7" * 64,
+    ]
+    changed_object = prior.project_authority_manifest(
+        authority,
+        treatment_specification_key="MLB_FEATURE_TREATMENT_SPEC_V1",
+        treatment_source_sha256="4" * 64,
+        sufficient_statistics_authority=_sufficient_statistics_authority(
+            object_sha256=("6" * 64, "a" * 64)
+        ),
+    )
+    assert changed_object["authorityId"] != with_companion["authorityId"]
+    assert changed_object["sufficientStatisticsAuthority"]["objectSha256"] == [
+        "6" * 64,
+        "a" * 64,
+    ]
 
 
 def test_fit_rejects_tampered_or_stale_project_authority_manifest() -> None:
@@ -341,7 +645,7 @@ def test_spec_integration_clears_only_the_eleven_executable_bindings() -> None:
             assert feature_prior["blockedReason"] is None
             assert structured["lineage"]["exposureFeature"]
             assert len(structured["lineage"]["derivedPriorOutputs"]) == 17
-        else:
+        elif feature in EXPECTED_WAVE2:
             assert execution["executableStatus"] == "BLOCKED"
             assert execution["selectable"] is False
             assert execution["blockedReason"] == EXPECTED_BLOCKS[feature]
@@ -349,7 +653,21 @@ def test_spec_integration_clears_only_the_eleven_executable_bindings() -> None:
                 "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
             )
             assert feature_prior["blockedReason"] == EXPECTED_BLOCKS[feature]
-            assert structured["lineage"]["exposureFeature"] is None
+            assert structured["lineage"]["exposureFeature"] == (
+                EXPECTED_WAVE2_EXPOSURES[feature]
+            )
+        else:
+            assert feature in EXPECTED_RETIRED
+            assert execution["executableStatus"] == (
+                "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+            )
+            assert execution["selectable"] is False
+            assert execution["blockedReason"] is None
+            assert structured["selectable"] is False
+            assert feature_prior["status"] == (
+                "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+            )
+            assert feature_prior["blockedReason"] is None
 
 
 def test_beta_binomial_fit_uses_latest_unique_player_states_and_exact_numerics() -> None:

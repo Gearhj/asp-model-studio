@@ -37,11 +37,52 @@ from server.sports_current_statcast import stage3_treatments as treatments
 from server.sports_current_statcast.contextual_features import (
     ORDERED_GOLD_PLUS_CONTEXT_FEATURES,
 )
+from server.sports_datasets.consumer import canonical_json_bytes
 from server.sports_gold.contracts import GOLD_FEATURES
 
 
 PROJECT_ID = "asp-mtlozhdx"
 WORKBOOK_SHA256 = "0e2d5f2b0d495c941ae97fb84c216f0b5ccdfe904519db0acb616d1543a66679"
+
+
+def _sufficient_statistics_authority(
+    gold_manifest_sha256: str,
+    *,
+    object_sha256: tuple[str, ...] = ("7" * 64, "8" * 64),
+) -> dict[str, Any]:
+    required_columns = sorted(
+        {
+            str(column)
+            for feature in player_prior.WAVE2_ENGINE_PRIOR_FEATURES
+            for column in (
+                player_prior.feature_binding(feature) or {}
+            ).get("requiredSufficientStatistics", ())
+        }
+    )
+    content: dict[str, Any] = {
+        "schemaVersion": player_prior.SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA,
+        "datasetId": player_prior.SUFFICIENT_STATISTICS_DATASET_ID,
+        "manifestContract": player_prior.SUFFICIENT_STATISTICS_MANIFEST_CONTRACT,
+        "manifestSha256": "6" * 64,
+        "objectSha256": list(object_sha256),
+        "sourceGoldManifestSha256": gold_manifest_sha256,
+        "physicalSchemaSha256": "9" * 64,
+        "validationEvidenceSha256": "a" * 64,
+        "requiredColumns": required_columns,
+        "verified": True,
+        "integerValidation": True,
+        "equivalenceValidation": True,
+        "finalOotSealed": True,
+        "rightsStatus": "GOVERNED_LOCAL_RESEARCH_ONLY",
+    }
+    checksum = hashlib.sha256(canonical_json_bytes(content)).hexdigest()
+    return {
+        **content,
+        "authorityChecksum": checksum,
+        "authorityId": (
+            f"{player_prior.SUFFICIENT_STATISTICS_AUTHORITY_SCHEMA}:sha256:{checksum}"
+        ),
+    }
 
 
 def _source() -> dict[str, Any]:
@@ -227,6 +268,13 @@ def governed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace
         }
 
     monkeypatch.setattr(specification.eda, "_resolve_authority", resolve)
+    monkeypatch.setattr(
+        specification.sufficient_stats,
+        "registered_sufficient_statistics_authority",
+        lambda _database, *, expected_gold_manifest_sha256, output_root: (
+            _sufficient_statistics_authority(expected_gold_manifest_sha256)
+        ),
+    )
     monkeypatch.setattr(feature_engineering, "_catalog", feature_catalog)
     monkeypatch.setattr(treatments, "_catalog", treatment_catalog)
     monkeypatch.setattr(
@@ -779,11 +827,24 @@ def test_fold_local_model_family_and_indicator_contracts_are_explicit(
         for row in governed_prior_rows
         if row["executable_status"] == "READY_GOVERNED_PRIOR_V1"
     ]
+    binding_ready_prior_rows = [
+        row
+        for row in governed_prior_rows
+        if row["executable_status"] == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+    ]
+    retired_prior_rows = [
+        row
+        for row in governed_prior_rows
+        if row["executable_status"]
+        == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+    ]
     blocked_prior_rows = [
         row for row in governed_prior_rows if row["executable_status"] == "BLOCKED"
     ]
     assert len(ready_prior_rows) == 11
-    assert len(blocked_prior_rows) == 13
+    assert len(binding_ready_prior_rows) == 10
+    assert len(retired_prior_rows) == 3
+    assert len(blocked_prior_rows) == 0
     assert all(
         row["execution_contract"]["missing"]["strategy"]
         == "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
@@ -792,11 +853,51 @@ def test_fold_local_model_family_and_indicator_contracts_are_explicit(
     assert all(row["executable_selectable"] for row in ready_prior_rows)
     assert all(
         row["execution_contract"]["missing"]["strategy"]
-        == "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
-        for row in blocked_prior_rows
+        == "HOLD_FOR_WAVE2_ENGINE_NO_VALUE_SUBSTITUTION"
+        for row in binding_ready_prior_rows
     )
-    assert all(not row["executable_selectable"] for row in blocked_prior_rows)
-    assert all(row["blocked_reason"] for row in blocked_prior_rows)
+    assert all(
+        row["execution_contract"]["missing"]["strategy"]
+        == "DROP_RETIRED_VARIABLE_NO_VALUE_REWRITE"
+        for row in retired_prior_rows
+    )
+    assert all(
+        not row["executable_selectable"]
+        for row in binding_ready_prior_rows + retired_prior_rows
+    )
+    assert all(row["blocked_reason"] is None for row in retired_prior_rows)
+    assert all(
+        row["execution_contract"]["executable"] is False
+        for row in binding_ready_prior_rows + retired_prior_rows
+    )
+    assert all(
+        row["execution_contract"]["missing"]["priorAuthority"]["derivedOutputs"]
+        == []
+        and row["execution_contract"]["missing"]["priorAuthority"][
+            "derivedOutputMap"
+        ]
+        == {}
+        and row["execution_contract"]["lineage"]["derivedPriorOutputs"] is None
+        for row in binding_ready_prior_rows + retired_prior_rows
+    )
+    assert all(
+        "plannedWave2Outputs"
+        not in row["execution_contract"]["missing"]["priorAuthority"]
+        and "plannedWave2PriorOutputs" not in row["execution_contract"]["lineage"]
+        for row in binding_ready_prior_rows + retired_prior_rows
+    )
+    assert all(
+        row["execution_contract"]["exclusionReason"]
+        == row["executable_resolution"]
+        for row in binding_ready_prior_rows
+    )
+    assert all(
+        row["execution_contract"]["exclusionReason"]
+        == row["execution_contract"]["missing"]["priorAuthority"][
+            "retirementReason"
+        ]
+        for row in retired_prior_rows
+    )
 
     indicators = [
         row
@@ -1055,7 +1156,11 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
     assert reference["priorAuthority"] == saved["priorAuthority"]
     assert reference["priorAuthority"]["authorityName"] == player_prior.AUTHORITY_NAME
     assert reference["priorAuthority"]["readyFeatureCount"] == 11
-    assert reference["priorAuthority"]["blockedFeatureCount"] == 13
+    assert reference["priorAuthority"][
+        "bindingReadyRequiresWave2EngineFeatureCount"
+    ] == 10
+    assert reference["priorAuthority"]["retiredFeatureCount"] == 3
+    assert reference["priorAuthority"]["blockedFeatureCount"] == 0
     assert reference["interactionAuthority"] == saved["interactionAuthority"]
     assert reference["interactionAuthority"]["authorityName"] == (
         interaction_authority.AUTHORITY_NAME
@@ -1075,11 +1180,12 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
     )
 
     ready_name = "batter_so_per_pa"
-    blocked_name = "batter_avg"
+    binding_ready_name = "batter_avg"
+    retired_name = "batter_obp"
     ready = overlay[ready_name]
-    blocked = overlay[blocked_name]
+    binding_ready = overlay[binding_ready_name]
+    retired = overlay[retired_name]
     expected_ready_binding = player_prior.feature_binding(ready_name)
-    expected_blocked_binding = player_prior.feature_binding(blocked_name)
     assert ready["executableStatus"] == "READY_GOVERNED_PRIOR_V1"
     assert ready["executableSelectable"] is True
     assert ready["priorAuthority"]["authorityId"] == reference["priorAuthority"]["authorityId"]
@@ -1111,11 +1217,29 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
     # Derived preprocessing columns are lineage, not silently registered raw candidates.
     assert not (set(ready["derivedPriorOutputs"].values()) & set(overlay))
 
-    assert blocked["executableStatus"] == "BLOCKED"
-    assert blocked["executableSelectable"] is False
-    assert blocked["blockedReason"] == expected_blocked_binding["blockedReason"]
-    assert blocked["priorAuthority"]["status"] == "BLOCKED_REQUIRES_PRIOR_AUTHORITY"
-    assert blocked["priorAuthority"]["blockedReason"] == expected_blocked_binding["blockedReason"]
+    assert binding_ready["executableStatus"] == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+    assert binding_ready["executable"] is False
+    assert binding_ready["executableSelectable"] is False
+    assert binding_ready["blockedReason"] is None
+    assert binding_ready["priorAuthority"]["status"] == (
+        "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+    )
+    assert binding_ready["priorAuthority"]["bindingEvidence"]["manifestSha256"] == (
+        "6" * 64
+    )
+    assert binding_ready["derivedPriorOutputs"] is None
+    assert binding_ready["priorAuthority"]["derivedOutputs"] == []
+    assert binding_ready["priorAuthority"]["derivedOutputMap"] == {}
+    assert "plannedWave2Outputs" not in binding_ready["priorAuthority"]
+    assert retired["executableStatus"] == (
+        "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+    )
+    assert retired["executable"] is False
+    assert retired["executableSelectable"] is False
+    assert retired["priorAuthority"]["retirementReason"]
+    assert retired["derivedPriorOutputs"] is None
+    assert retired["priorAuthority"]["derivedOutputs"] == []
+    assert "plannedWave2Outputs" not in retired["priorAuthority"]
 
     # A positive DRAFT resolution is informational only: it cannot reactivate a
     # row already held closed by the underlying feature authority.
@@ -1139,16 +1263,24 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
     assert initially_closed["inactiveReason"] == "Pre-existing source hold."
 
     # A negative DRAFT resolution still performs its existing fail-closed duty.
-    blocked_row = deepcopy(
-        next(row for row in governed.inventory_holder["rows"] if row["name"] == blocked_name)
+    binding_ready_row = deepcopy(
+        next(
+            row
+            for row in governed.inventory_holder["rows"]
+            if row["name"] == binding_ready_name
+        )
     )
     feature_engineering._apply_treatment_spec_draft_gates(
-        [blocked_row], governed.database, governed.authority
+        [binding_ready_row], governed.database, governed.authority
     )
-    assert blocked_row["eligible"] is False
-    assert blocked_row["featureState"] == "INACTIVE"
-    assert blocked_row["governanceStatus"] == "HELD_CLOSED_BY_TREATMENT_SPEC_DRAFT"
-    assert blocked_row["inactiveReason"] == expected_blocked_binding["blockedReason"]
+    assert binding_ready_row["eligible"] is False
+    assert binding_ready_row["featureState"] == "INACTIVE"
+    assert binding_ready_row["governanceStatus"] == (
+        "HELD_CLOSED_BY_TREATMENT_SPEC_DRAFT"
+    )
+    assert binding_ready_row["inactiveReason"] == (
+        "VALIDATED_SUFFICIENT_STATISTIC_BINDING_AWAITS_WAVE2_ESTIMATOR"
+    )
 
     assert saved["audit"]["preprocessingFits"] == 0
     assert saved["audit"]["modelFits"] == 0
@@ -1158,6 +1290,123 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
         ).fetchone()[0] == 0
         assert connection.execute(
             "SELECT COUNT(*) FROM stage3_feature_set_events"
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("feature_name", "expected_status"),
+    (
+        ("batter_avg", "BINDING_READY_REQUIRES_WAVE2_ENGINE"),
+        ("batter_obp", "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"),
+    ),
+)
+def test_feature_set_draft_rejects_current_nonexecutable_prior_without_combined_draft(
+    governed: SimpleNamespace,
+    feature_name: str,
+    expected_status: str,
+) -> None:
+    combined = Stage3TreatmentRepository(governed.database).combined_spec_state(
+        PROJECT_ID, governed.authority.review_digest
+    )
+    assert combined["latestDraft"] is None
+    compiled = specification.compile_project_specification(
+        governed.database, PROJECT_ID
+    )
+    binding = next(
+        item
+        for item in compiled["priorAuthority"]["bindings"]
+        if item["feature"] == feature_name
+    )
+    assert binding["status"] == expected_status
+    assert binding["executable"] is False
+    assert binding["selectable"] is False
+
+    with pytest.raises(feature_engineering.Stage3FeatureEngineeringError) as caught:
+        feature_engineering.save_feature_set_draft(
+            PROJECT_ID,
+            governed.database,
+            {
+                "authorityKey": governed.authority_key,
+                "featureSetKey": f"intrinsic-prior-gate-{feature_name}",
+                "name": f"Intrinsic prior gate {feature_name}",
+                "orderedFeatures": [feature_name],
+                "expectedChecksum": NO_CURRENT_FEATURE_SET,
+            },
+            "scientist-1",
+        )
+    assert caught.value.code == "FEATURE_SET_INACTIVE_FEATURE"
+    with governed.database.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_versions"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_events"
+        ).fetchone()[0] == 0
+
+
+def test_registration_revalidates_stale_feature_set_draft_against_current_prior_status(
+    governed: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    feature_name = "batter_obp"
+    current = specification.compile_project_specification(
+        governed.database, PROJECT_ID
+    )
+    formerly_selectable = deepcopy(current)
+    stale_binding = next(
+        item
+        for item in formerly_selectable["priorAuthority"]["bindings"]
+        if item["feature"] == feature_name
+    )
+    stale_binding.update(
+        {
+            "status": "READY_GOVERNED_PRIOR_V1",
+            "executable": True,
+            "selectable": True,
+        }
+    )
+    original_compile = specification.compile_project_specification
+    monkeypatch.setattr(
+        specification,
+        "compile_project_specification",
+        lambda _database, _project_id: formerly_selectable,
+    )
+    saved = feature_engineering.save_feature_set_draft(
+        PROJECT_ID,
+        governed.database,
+        {
+            "authorityKey": governed.authority_key,
+            "featureSetKey": "stale-prior-status-draft",
+            "name": "Stale prior status draft",
+            "orderedFeatures": [feature_name],
+            "expectedChecksum": NO_CURRENT_FEATURE_SET,
+        },
+        "scientist-1",
+    )["data"]["featureSet"]
+    monkeypatch.setattr(
+        specification, "compile_project_specification", original_compile
+    )
+
+    with pytest.raises(feature_engineering.Stage3FeatureEngineeringError) as caught:
+        feature_engineering.register_feature_set(
+            PROJECT_ID,
+            governed.database,
+            {
+                "authorityKey": governed.authority_key,
+                "draftFeatureSetId": saved["featureSetId"],
+                "expectedChecksum": saved["checksum"],
+            },
+            "scientist-1",
+        )
+    assert caught.value.code == "FEATURE_SET_INACTIVE_FEATURE"
+    with governed.database.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_versions "
+            "WHERE feature_set_status = 'REGISTERED'"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_events "
+            "WHERE event_type = 'FEATURE_SET_REGISTERED'"
         ).fetchone()[0] == 0
 
 
@@ -1180,6 +1429,27 @@ def test_feature_engineering_overlay_rejects_a_stale_interaction_authority(
             governed.database, governed.authority
         )
     assert caught.value.code == "TREATMENT_SPEC_DRAFT_STALE"
+    with pytest.raises(feature_engineering.Stage3FeatureEngineeringError) as caught:
+        feature_engineering.save_feature_set_draft(
+            PROJECT_ID,
+            governed.database,
+            {
+                "authorityKey": governed.authority_key,
+                "featureSetKey": "stale-combined-draft-gate",
+                "name": "Stale combined draft gate",
+                "orderedFeatures": [GOLD_FEATURES[0]],
+                "expectedChecksum": NO_CURRENT_FEATURE_SET,
+            },
+            "scientist-1",
+        )
+    assert caught.value.code == "TREATMENT_SPEC_DRAFT_STALE"
+    with governed.database.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_versions"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_events"
+        ).fetchone()[0] == 0
 
 
 def test_stale_gold_authority_cannot_apply_prior_compilation(
@@ -1209,6 +1479,99 @@ def test_stale_gold_authority_cannot_apply_prior_compilation(
     assert caught.value.code == "TREATMENT_AUTHORITY_STALE"
 
 
+@pytest.mark.parametrize("authority_case", ["MISSING", "INVALID"])
+def test_compiler_keeps_wave2_candidates_blocked_without_exact_companion(
+    governed: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    authority_case: str,
+) -> None:
+    def unresolved_authority(
+        _database: Any,
+        *,
+        expected_gold_manifest_sha256: str,
+        output_root: Path,
+    ) -> dict[str, Any] | None:
+        del output_root
+        if authority_case == "MISSING":
+            return None
+        invalid = _sufficient_statistics_authority(expected_gold_manifest_sha256)
+        invalid["finalOotSealed"] = False
+        return invalid
+
+    monkeypatch.setattr(
+        specification.sufficient_stats,
+        "registered_sufficient_statistics_authority",
+        unresolved_authority,
+    )
+    compiled = specification.compile_project_specification(
+        governed.database, PROJECT_ID
+    )
+    prior_authority = compiled["priorAuthority"]
+    assert prior_authority["readyFeatureCount"] == 11
+    assert prior_authority["bindingReadyRequiresWave2EngineFeatureCount"] == 0
+    assert prior_authority["retiredFeatureCount"] == 3
+    assert prior_authority["blockedFeatureCount"] == 10
+    assert prior_authority["sufficientStatisticsAuthority"] is None
+    assert prior_authority["sufficientStatisticsEvidenceDisposition"] == (
+        "MISSING_OR_INVALID_FAIL_CLOSED"
+    )
+
+    summary = compiled["executionSummary"]
+    assert summary["hierarchicalPriorReady"] == 11
+    assert summary["hierarchicalPriorBindingReady"] == 0
+    assert summary["hierarchicalPriorRetired"] == 3
+    assert summary["hierarchicalPriorBlocked"] == 10
+    assert summary["currentTotalBlockers"] == 26
+    assert summary["userReviewRequired"] == 26
+    assert compiled["canAdopt"] is False
+    prior_exceptions = [
+        row
+        for row in compiled["exceptions"]
+        if row["featureName"] in player_prior.PRIOR_FEATURES
+    ]
+    assert Counter(row["disposition"] for row in prior_exceptions) == Counter(
+        {"BLOCKING": 10, "RETIRED": 3}
+    )
+
+
+def test_compiler_identity_binds_exact_companion_object_hashes(
+    governed: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = specification.compile_project_specification(governed.database, PROJECT_ID)
+
+    monkeypatch.setattr(
+        specification.sufficient_stats,
+        "registered_sufficient_statistics_authority",
+        lambda _database, *, expected_gold_manifest_sha256, output_root: (
+            _sufficient_statistics_authority(
+                expected_gold_manifest_sha256,
+                object_sha256=("7" * 64, "b" * 64),
+            )
+        ),
+    )
+    changed = specification.compile_project_specification(
+        governed.database, PROJECT_ID
+    )
+    assert changed["featureInventorySha256"] == first["featureInventorySha256"]
+    assert changed["manifestChecksum"] != first["manifestChecksum"]
+    assert changed["specificationId"] != first["specificationId"]
+    assert changed["priorAuthority"]["authorityId"] != (
+        first["priorAuthority"]["authorityId"]
+    )
+    assert changed["priorAuthority"]["sufficientStatisticsAuthority"][
+        "objectSha256"
+    ] == ["7" * 64, "b" * 64]
+    binding_ready = next(
+        row
+        for row in changed["features"]
+        if row["executable_status"] == "BINDING_READY_REQUIRES_WAVE2_ENGINE"
+    )
+    assert binding_ready["execution_contract"]["missing"]["priorAuthority"][
+        "bindingEvidence"
+    ]["objectSha256"] == ["7" * 64, "b" * 64]
+
+
 def test_disposition_counts_and_adoption_gate_are_source_derived(
     governed: SimpleNamespace,
 ) -> None:
@@ -1230,7 +1593,27 @@ def test_disposition_counts_and_adoption_gate_are_source_derived(
     assert summary["semanticFieldsCleared"] == 0
     assert summary["semanticFieldsRemaining"] == 2
     assert summary["rivalryFieldsHeldClosed"] == 14
-    assert summary["currentTotalBlockers"] == 29
+    assert summary["hierarchicalPriorReady"] == 11
+    assert summary["hierarchicalPriorBindingReady"] == 10
+    assert summary["hierarchicalPriorRetired"] == 3
+    assert summary["hierarchicalPriorBlocked"] == 0
+    assert summary["currentTotalBlockers"] == 16
+    assert summary["userReviewRequired"] == 16
+    prior_exceptions = [
+        row
+        for row in compiled["exceptions"]
+        if row["featureName"] in player_prior.PRIOR_FEATURES
+    ]
+    assert Counter(row["disposition"] for row in prior_exceptions) == Counter(
+        {
+            "BINDING_READY_REQUIRES_WAVE2_ENGINE": 10,
+            "RETIRED": 3,
+        }
+    )
+    assert not any(row["disposition"] == "BLOCKING" for row in prior_exceptions)
+    assert sum(
+        row["disposition"] == "BLOCKING" for row in compiled["exceptions"]
+    ) == 16
     assert compiled["interactionAuthority"]["featureCount"] == 8
     assert compiled["interactionAuthority"]["readyFeatureCount"] == 8
     assert compiled["interactionAuthority"]["blockedFeatureCount"] == 0

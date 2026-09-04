@@ -22,6 +22,7 @@ from server.sports_gold.features import (
     aggregate_pitch_history,
     assemble_gold_frame,
     build_advanced_features,
+    build_advanced_features_with_sufficient_statistics,
     prepare_pa_history,
 )
 from server.sports_gold.models import run_fixed_experiment_suite
@@ -125,7 +126,9 @@ def test_pitch_history_accepts_additional_verified_lineage_columns(tmp_path: Pat
         "fastball_count": 2,
         "breaking_count": 0,
         "offspeed_count": 0,
+        "other_or_unclassified_pitch_count": 0,
         "fastball_velocity_sum": 190.0,
+        "fastball_velocity_sumsq": 18050.0,
         "fastball_velocity_count": 2,
     }]
 
@@ -173,11 +176,21 @@ def test_gold_row_key_is_unique():
 def test_features_use_only_previous_completed_days():
     history, matched = _history_fixture()
     original = build_advanced_features(history, matched)
+    original_rates, original_statistics = build_advanced_features_with_sufficient_statistics(
+        history, matched
+    )
     mutated = history.copy()
     mutated.loc[mutated["canonicalPaId"].isin(["current", "same-day", "future"]),
                 ["_strikeout", "_walk_hbp", "_walk", "swing_count", "whiff_count", "contact_count"]] = 999.0
     changed = build_advanced_features(mutated, matched)
+    changed_rates, changed_statistics = build_advanced_features_with_sufficient_statistics(
+        mutated, matched
+    )
     pd.testing.assert_frame_equal(original, changed, check_exact=True)
+    pd.testing.assert_frame_equal(original_rates, changed_rates, check_exact=True)
+    pd.testing.assert_frame_equal(
+        original_statistics, changed_statistics, check_exact=True
+    )
     assert original.loc[0, "batter_prior_pa_count"] == 1.0
     assert original.loc[0, "batter_last100_whiff_rate"] == 1.0
 
