@@ -29,6 +29,9 @@ from server.persistence.repositories.stage3_treatment_repository import (
 )
 from server.sports_current_statcast import stage3_feature_engineering as feature_engineering
 from server.sports_current_statcast import stage3_feature_treatment_spec as specification
+from server.sports_current_statcast import (
+    stage3_interaction_recomputation_authority as interaction_authority,
+)
 from server.sports_current_statcast import stage3_player_prior_authority as player_prior
 from server.sports_current_statcast import stage3_treatments as treatments
 from server.sports_current_statcast.contextual_features import (
@@ -341,6 +344,102 @@ def test_exact_reconciliation_has_no_fuzzy_path_and_holds_all_extras_closed(
         row["executableResolution"] == "HELD_CLOSED_NO_TREATMENT_INFERRED"
         for row in additional
     )
+    assert all(
+        row["authorityAudit"]["recommendation"] == "KEEP_HELD_CLOSED"
+        and row["authorityAudit"]["mappingActive"] is False
+        and row["authorityAudit"]["currentlyActive"] is False
+        and row["authorityAudit"]["selectable"] is False
+        and row["authorityAudit"]["pointInTimeAvailability"]
+        == "BLOCKED_NO_APPROVED_EFFECTIVE_DATED_MAPPING"
+        and row["authorityAudit"]["sourceRights"]
+        == "OPERATIONAL_USE_NOT_ESTABLISHED"
+        for row in additional
+    )
+    audits = {row["featureName"]: row["authorityAudit"] for row in additional}
+    formulas = {
+        "rivalry_pair": (
+            "None if mapping_missing else int({team_id, opponent_team_id} in approved_pairs)"
+        ),
+        "rivalry_game": "rivalry_pair",
+        "home_rivalry_game": (
+            "None if rivalry_pair is None else rivalry_pair * int(is_home)"
+        ),
+        "friday_night_home_rivalry": (
+            "None if rivalry_pair is None else rivalry_pair * int(is_home) * "
+            "int(local_day_of_week == FRIDAY) * int(local_start_hour >= 18)"
+        ),
+        "weekend_home_rivalry": (
+            "None if rivalry_pair is None else rivalry_pair * int(is_home) * "
+            "int(local_day_of_week in {SATURDAY, SUNDAY})"
+        ),
+        "home_x_rivalry": (
+            "None if rivalry_pair is None else int(is_home) * rivalry_pair"
+        ),
+        "rivalry_mapping_missing": (
+            "int(rivalry_mapping_authority_status != APPROVED)"
+        ),
+    }
+    assert all(
+        audit["mappingSource"] == "docs/MLB_RIVALRY_MAPPING_PROPOSAL_V1.json"
+        and audit["mappingStatus"] == "PROPOSED_NOT_APPROVED"
+        and audit["mappingSourceSha256"]
+        == "5bd1ad26acacdc32a1ad9edb377c72559402e161a32278971e3d07748b588d74"
+        and audit["source"]
+        == "MLB_TEAM_GAME_CONTEXT_FEATURES_V1_RESEARCH_ONLY_EVIDENCE"
+        and audit["formulaEvidenceOnly"] is True
+        for audit in audits.values()
+    )
+    for side in ("batting", "fielding"):
+        indicator = audits[f"{side}_rivalry_mapping_missing"]
+        assert indicator["side"] == side.upper()
+        assert indicator["formula"] == formulas["rivalry_mapping_missing"]
+        assert indicator["constructObjectivity"] == "OBJECTIVE_GOVERNANCE_STATE_INDICATOR"
+        assert indicator["physicalMissingPercentDevelopment"] == 0.0
+        assert indicator["coveragePercentDevelopment"] == 100.0
+        assert set(indicator["coveragePercentBySeason"]) == {
+            "2023",
+            "2024",
+            "2025",
+            "2026",
+        }
+        assert set(indicator["coveragePercentBySeason"].values()) == {100.0}
+        assert indicator["pairedMissingnessIndicator"] is None
+        assert indicator["exactDuplicateFeature"] is None
+        assert indicator["overlapsObjectiveOpponentContext"] is False
+        assert indicator["requiresCuratedRivalryTable"] is False
+        for suffix in (
+            "rivalry_pair",
+            "rivalry_game",
+            "home_rivalry_game",
+            "friday_night_home_rivalry",
+            "weekend_home_rivalry",
+            "home_x_rivalry",
+        ):
+            substantive = audits[f"{side}_{suffix}"]
+            assert substantive["side"] == side.upper()
+            assert substantive["formula"] == formulas[suffix]
+            assert substantive["constructObjectivity"] == "SUBJECTIVE_RIVALRY_MEMBERSHIP"
+            assert substantive["physicalMissingPercentDevelopment"] == 100.0
+            assert substantive["coveragePercentDevelopment"] == 0.0
+            assert set(substantive["coveragePercentBySeason"]) == {
+                "2023",
+                "2024",
+                "2025",
+                "2026",
+            }
+            assert set(substantive["coveragePercentBySeason"].values()) == {0.0}
+            assert substantive["pairedMissingnessIndicator"] == (
+                f"{side}_rivalry_mapping_missing"
+            )
+            expected_duplicate = {
+                "rivalry_pair": f"{side}_rivalry_game",
+                "rivalry_game": f"{side}_rivalry_pair",
+                "home_rivalry_game": f"{side}_home_x_rivalry",
+                "home_x_rivalry": f"{side}_home_rivalry_game",
+            }.get(suffix)
+            assert substantive["exactDuplicateFeature"] == expected_duplicate
+            assert substantive["overlapsObjectiveOpponentContext"] is True
+            assert substantive["requiresCuratedRivalryTable"] is True
 
     adversarial_source = deepcopy(governed.source)
     adversarial_source["features"][0]["feature_name"] = (
@@ -374,6 +473,39 @@ def test_project_compilation_is_deterministic_and_inventory_changes_identity(
     assert changed["featureInventorySha256"] != first["featureInventorySha256"]
     assert changed["manifestChecksum"] != first["manifestChecksum"]
     assert changed["specificationId"] != first["specificationId"]
+
+
+def test_unexpected_backend_extra_fails_closed_without_compiler_exception(
+    governed: SimpleNamespace,
+) -> None:
+    unexpected = deepcopy(governed.inventory_holder["rows"][-1])
+    unexpected.update(
+        {
+            "order": len(governed.inventory_holder["rows"]) + 1,
+            "name": "unexpected_backend_feature",
+            "sourceLineage": "unexpected-test-authority",
+        }
+    )
+    governed.inventory_holder["rows"].append(unexpected)
+
+    compiled = specification.compile_project_specification(
+        governed.database, PROJECT_ID
+    )
+
+    assert compiled["canCreateDraft"] is False
+    assert compiled["reconciliation"]["fatal"] is True
+    unexpected_row = next(
+        row
+        for row in compiled["reconciliation"]["additionalBackendFeatures"]
+        if row["featureName"] == "unexpected_backend_feature"
+    )
+    assert unexpected_row["classification"] == "UNMATCHED_BACKEND_FEATURE"
+    assert unexpected_row["executableSelectable"] is False
+    assert "authorityAudit" not in unexpected_row
+    assert compiled["rivalryAuthorityAudit"]["fieldCount"] == 14
+    assert set(compiled["rivalryAuthorityAudit"]["fields"]) == set(
+        specification.EXPECTED_ADDITIONAL_FEATURES
+    )
 
 
 def test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr(
@@ -410,8 +542,52 @@ def test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr(
     doubleheader = rows["doubleheader_game_number"]
     holiday = rows["holiday_name"]
     assert doubleheader["executable_status"] == "BLOCKED"
+    doubleheader_audit = doubleheader["execution_contract"]["semanticAuthorityDecision"]
+    assert doubleheader_audit == {
+        "status": "BLOCKED_POINT_IN_TIME_UNPROVEN",
+        "resolution": "HOLD_UNTIL_PREGAME_SCHEDULE_SEQUENCE_AUTHORITY_IS_REGISTERED",
+        "blockedReason": (
+            "Schedule authority MLB_CURRENT_STATCAST_SCHEDULE_AUTHORITY_V1 does not "
+            "preserve original pregame knowledge timestamps or an independent "
+            "{0,1,2} doubleheader-sequence invariant tied to scheduled start order."
+        ),
+        "sourceAuthority": "MLB_CURRENT_STATCAST_SCHEDULE_AUTHORITY_V1",
+        "sourceAuthoritySha256": (
+            "44c43a48dda5895dcc19417a1c51b18ccdaed9dd83b3c1b8d50826e42be69c4d"
+        ),
+        "requiredSemantics": {
+            "0": "VERIFIED_NOT_A_DOUBLEHEADER",
+            "1": "VERIFIED_FIRST_DOUBLEHEADER_GAME",
+            "2": "VERIFIED_SECOND_DOUBLEHEADER_GAME",
+            "unknown": "HELD_NONEXECUTABLE",
+        },
+        "forbiddenTreatment": "MEDIAN_IMPUTATION",
+    }
     assert missing_input["overrides"]["doubleheader_game_number"]["method"] != "MEDIAN"
     assert holiday["executable_status"] == "BLOCKED"
+    holiday_audit = holiday["execution_contract"]["semanticAuthorityDecision"]
+    assert holiday_audit == {
+        "status": "BLOCKED_CALENDAR_AUTHORITY_UNAVAILABLE",
+        "resolution": (
+            "HOLD_UNTIL_EFFECTIVE_DATED_VENUE_REGION_CALENDAR_AUTHORITY_IS_REGISTERED"
+        ),
+        "blockedReason": (
+            "US_CA_ON_BASEBALL_CALENDAR_V1 is embedded code rather than a separately "
+            "registered, sourced, effective-dated holiday calendar; null currently "
+            "cannot prove NONE rather than UNKNOWN_HOLIDAY for every venue region."
+        ),
+        "sourceAuthority": "MLB_CONTEXT_STATIC_AUTHORITY_V1",
+        "sourceAuthoritySha256": (
+            "da9740dd90a161202d42ba18d3c89f2569e3711e33b48f86bf3bd0a8a6f2d56d"
+        ),
+        "embeddedRulesVersion": "US_CA_ON_BASEBALL_CALENDAR_V1",
+        "requiredSemantics": {
+            "holiday": "EXACT_REGISTERED_HOLIDAY_NAME",
+            "none": "VERIFIED_NON_HOLIDAY",
+            "unknown": "UNKNOWN_HOLIDAY_HELD_NONEXECUTABLE",
+        },
+        "forbiddenTreatment": "MODE_IMPUTATION",
+    }
     assert missing_input["overrides"]["holiday_name"]["method"] != "MODE"
 
     binary = [row for row in compiled["features"] if row["semantic_class"] == "Binary indicator"]
@@ -485,6 +661,9 @@ def test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr(
         if row["recommended_inclusion"] == "RECOMPUTE_AFTER_PARENT_TREATMENT"
     ]
     assert len(interactions) == 8
+    assert tuple(row["feature_name"] for row in interactions) == (
+        interaction_authority.INTERACTION_FEATURES
+    )
     assert all(row["interaction_parent_lineage"] for row in interactions)
     assert all(len(row["execution_contract"]["lineage"]["parentFeatures"]) == 2 for row in interactions)
     assert all(
@@ -497,10 +676,36 @@ def test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr(
         for row in interactions
     )
     assert all(
-        row["executable_resolution"]
-        == "HOLD_UNTIL_PARENT_FIRST_FOLD_LOCAL_RECOMPUTATION_IS_REGISTERED"
+        row["executable_status"] == "READY_GOVERNED_INTERACTION_V1"
+        and row["executable_selectable"] is True
+        and row["executable_resolution"]
+        == "EXECUTE_PARENT_FIRST_FOLD_LOCAL_INTERACTION_RECOMPUTATION_V1"
+        and row["blocked_reason"] is None
         for row in interactions
     )
+    for row in interactions:
+        authority = row["execution_contract"]["interactionAuthority"]
+        expected = interaction_authority.feature_binding(row["feature_name"])
+        assert expected is not None
+        assert authority["formula"] == expected["formula"]
+        assert authority["orderedParents"] == expected["orderedParents"]
+        assert authority["parentIdentities"] == expected["orderedParents"]
+        assert authority["parentTreatmentAuthorities"] == [
+            parent["parentTreatmentAuthority"] for parent in expected["parents"]
+        ]
+        assert authority["operationOrder"] == list(interaction_authority.OPERATION_ORDER)
+        assert authority["independentImputation"] == "PROHIBITED"
+        assert authority["independentCapping"] == "PROHIBITED"
+        assert authority["authorityId"] == compiled["interactionAuthority"]["authorityId"]
+        assert missing_input["overrides"][row["feature_name"]][
+            "parentFirstRecomputationRequired"
+        ] is True
+        assert missing_input["overrides"][row["feature_name"]][
+            "independentInteractionImputation"
+        ] is False
+        assert outlier_input["overrides"][row["feature_name"]][
+            "independentInteractionCapping"
+        ] is False
 
     _save(governed)
     for blocked_name in (
@@ -679,6 +884,9 @@ def test_combined_draft_is_append_only_idempotent_and_does_not_touch_gold_or_oot
         "scores": 0,
         "calibrations": 0,
         "promotions": 0,
+        "featureSetsRegistered": 0,
+        "gameScoringJobs": 0,
+        "historicalArtifactMutations": 0,
         "providerCalls": 0,
     }
 
@@ -848,6 +1056,23 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
     assert reference["priorAuthority"]["authorityName"] == player_prior.AUTHORITY_NAME
     assert reference["priorAuthority"]["readyFeatureCount"] == 11
     assert reference["priorAuthority"]["blockedFeatureCount"] == 13
+    assert reference["interactionAuthority"] == saved["interactionAuthority"]
+    assert reference["interactionAuthority"]["authorityName"] == (
+        interaction_authority.AUTHORITY_NAME
+    )
+    assert reference["interactionAuthority"]["readyFeatureCount"] == 8
+    assert reference["interactionAuthority"]["blockedFeatureCount"] == 0
+
+    ready_interaction_name = interaction_authority.INTERACTION_FEATURES[0]
+    ready_interaction = overlay[ready_interaction_name]
+    assert ready_interaction["executableStatus"] == "READY_GOVERNED_INTERACTION_V1"
+    assert ready_interaction["executableSelectable"] is True
+    assert ready_interaction["interactionAuthority"]["formula"] == (
+        interaction_authority.feature_binding(ready_interaction_name)["formula"]
+    )
+    assert ready_interaction["interactionAuthority"]["authorityId"] == (
+        reference["interactionAuthority"]["authorityId"]
+    )
 
     ready_name = "batter_so_per_pa"
     blocked_name = "batter_avg"
@@ -936,6 +1161,27 @@ def test_feature_engineering_draft_overlay_exposes_prior_outputs_without_authori
         ).fetchone()[0] == 0
 
 
+def test_feature_engineering_overlay_rejects_a_stale_interaction_authority(
+    governed: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _save(governed)
+    original_configuration = interaction_authority.authority_configuration
+
+    def changed_configuration(*, overrides=None):
+        configuration = original_configuration(overrides=overrides)
+        configuration["thresholds"]["longTravelMiles"] = 1_501.0
+        return configuration
+
+    monkeypatch.setattr(
+        interaction_authority, "authority_configuration", changed_configuration
+    )
+    with pytest.raises(specification.Stage3FeatureTreatmentSpecError) as caught:
+        specification.current_draft_execution_overlay(
+            governed.database, governed.authority
+        )
+    assert caught.value.code == "TREATMENT_SPEC_DRAFT_STALE"
+
+
 def test_stale_gold_authority_cannot_apply_prior_compilation(
     governed: SimpleNamespace,
 ) -> None:
@@ -976,6 +1222,18 @@ def test_disposition_counts_and_adoption_gate_are_source_derived(
     ) == Counter(specification.EXPECTED_DISPOSITION_COUNTS)
     assert compiled["canCreateDraft"] is True
     assert compiled["canAdopt"] is False
+    summary = compiled["executionSummary"]
+    assert summary["totalReady"] == 219
+    assert summary["interactionBlockersBefore"] == 8
+    assert summary["interactionBlockersCleared"] == 8
+    assert summary["interactionBlockersRemaining"] == 0
+    assert summary["semanticFieldsCleared"] == 0
+    assert summary["semanticFieldsRemaining"] == 2
+    assert summary["rivalryFieldsHeldClosed"] == 14
+    assert summary["currentTotalBlockers"] == 29
+    assert compiled["interactionAuthority"]["featureCount"] == 8
+    assert compiled["interactionAuthority"]["readyFeatureCount"] == 8
+    assert compiled["interactionAuthority"]["blockedFeatureCount"] == 0
     with pytest.raises(specification.Stage3FeatureTreatmentSpecError) as caught:
         specification.adopt_treatment_specification(
             governed.database,

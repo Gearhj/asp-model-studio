@@ -344,6 +344,56 @@ def test_draft_registration_supersession_retirement_and_concurrency(service):
     ]
 
 
+def test_registration_rechecks_for_a_newest_pending_combined_specification(
+    service, monkeypatch
+):
+    database, authority, _ = service
+    key = _authority_key(authority)
+    saved = feature.save_feature_set_draft(
+        authority.project_id,
+        database,
+        {
+            "authorityKey": key,
+            "featureSetKey": "pending-treatment-gate",
+            "name": "Pending treatment gate",
+            "orderedFeatures": list(GOLD_FEATURES[:3]),
+            "expectedChecksum": NO_CURRENT_FEATURE_SET,
+        },
+        "user-1",
+    )["data"]["featureSet"]
+    monkeypatch.setattr(
+        feature.Stage3TreatmentRepository,
+        "combined_spec_state",
+        lambda self, project_id, review_digest: {
+            "history": [
+                {"status": "DRAFT", "specificationVersion": 4},
+                {"status": "ADOPTED", "specificationVersion": 3},
+            ]
+        },
+    )
+    with pytest.raises(feature.Stage3FeatureEngineeringError) as caught:
+        feature.register_feature_set(
+            authority.project_id,
+            database,
+            {
+                "authorityKey": key,
+                "draftFeatureSetId": saved["featureSetId"],
+                "expectedChecksum": saved["checksum"],
+            },
+            "user-1",
+        )
+    assert caught.value.code == "FEATURE_SET_TREATMENT_SPEC_DRAFT_PENDING"
+    with database.connection() as connection:
+        registered = connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_versions WHERE feature_set_status = 'REGISTERED'"
+        ).fetchone()[0]
+        registration_events = connection.execute(
+            "SELECT COUNT(*) FROM stage3_feature_set_events WHERE event_type = 'FEATURE_SET_REGISTERED'"
+        ).fetchone()[0]
+    assert registered == 0
+    assert registration_events == 0
+
+
 def test_inactive_rivalry_and_incompatible_transformations_fail_closed(service):
     database, authority, _ = service
     key = _authority_key(authority)

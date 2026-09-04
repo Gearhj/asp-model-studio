@@ -264,3 +264,41 @@ test("Feature Engineering exposes governed prior outputs as read-only preprocess
     "governed prior visibility must not add fit, adoption, or registration controls",
   );
 });
+
+test("Feature Engineering normalizes and exposes the governed interaction authority", () => {
+  includesAll(
+    api,
+    [
+      "GovernedInteractionAuthoritySummary",
+      "normalizedInteractionAuthority",
+      "raw.parentTreatmentAuthorities ??",
+      "parent?.parentTreatmentAuthority ?? parent",
+      "raw.foldLocal ?? raw.foldLocalStatus",
+      "raw.status ?? raw.executableStatus",
+      "normalizedInteractionAuthoritySummary",
+    ],
+    "governed interaction Feature Engineering contract",
+  );
+  includesAll(
+    feature,
+    [
+      "feature-engineering-governed-interaction-authority",
+      "Governed interaction recomputation",
+      "Exact formulas, ordered parent lineage",
+      "Interactions before / cleared / remaining",
+      "Exact governed interactions",
+      "Parent treatment authorities",
+      "Fold-local ${binding.foldLocal} · PIT ${binding.pointInTime}",
+      "does not fit, tune,",
+      "treatmentRegistrationReady",
+      "summary.data.treatmentSpecificationDraft === null",
+      "Adopt an exact blocker-free combined treatment specification before registration.",
+    ],
+    "governed interaction Feature Engineering visibility",
+  );
+  assert.doesNotMatch(
+    feature,
+    /interactionAuthority[^\n]*(onClick|mutateFeatureSet)/i,
+    "governed interaction visibility must not add fit, adoption, or registration controls",
+  );
+});

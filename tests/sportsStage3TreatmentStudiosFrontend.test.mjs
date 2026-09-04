@@ -733,6 +733,59 @@ test("governed player priors are inspectable without fitting or tuning from the 
   );
 });
 
+test("governed interaction recomputation is compact, inspectable, and read-only in treatment studios", () => {
+  includesAll(
+    api,
+    [
+      "GovernedInteractionAuthority",
+      "GovernedInteractionAuthoritySummary",
+      "authorityChecksum?: string",
+      "formulaVersion?: string",
+      "orderedParents?: string[]",
+      "parentTreatmentAuthorities?: GovernedInteractionParentTreatmentAuthority[]",
+      "operationOrder?: string[]",
+      "interactionAuthority?: GovernedInteractionAuthority | null",
+      "interactionAuthority?: GovernedInteractionAuthoritySummary | null",
+    ],
+    "governed interaction treatment response contract",
+  );
+  includesAll(
+    shell,
+    [
+      "stage3-governed-interaction-authority",
+      "Governed interaction recomputation",
+      "Read-only formula and lineage evidence",
+      "Parents are treated first",
+      "Exact formula",
+      "Ordered parents",
+      "Parent treatment authorities",
+      "Operation order",
+      "Fold-local {priorGateStatus(binding.foldLocal)}",
+      "PIT {priorGateStatus(binding.pointInTime)}",
+      "Interactions before / cleared / remaining",
+      "semantic remaining",
+      "rivalry held",
+      "canAdopt ${String(canAdopt)}",
+      "data.executionSummary.currentTotalBlockers",
+      "data.interactionAuthority",
+      "data.draft?.status ?? data.status",
+      "const bindings = featureBindings.length",
+      ": summary?.bindings?.length",
+      "normalizedInteractionBindingForDisplay",
+      "binding.pointInTime ?? binding.pointInTimeStatus",
+      "binding.foldLocal ?? binding.foldLocalStatus",
+      "binding.status ?? binding.executableStatus",
+      "parent.parentTreatmentAuthority",
+    ],
+    "governed interaction treatment visibility",
+  );
+  assert.doesNotMatch(
+    shell,
+    /(setFormula|editFormula|formula[^\n]*(onChange|onClick))/i,
+    "interaction formulas must remain read-only",
+  );
+});
+
 test("specification mutations reject stale projects and only adopt the exact current receipt", () => {
   includesAll(
     api,
