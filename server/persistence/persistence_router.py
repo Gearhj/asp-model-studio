@@ -14,6 +14,7 @@ from ..security.security_store import (
     require_role,
     require_user,
 )
+from ..core.modeling_scope import require_project_view, require_project_edit
 from ..core.session_checkpoint import discard_modeling_scopes, flush_checkpoint
 from ..datasets.dataset_registry import (
     load_registry,
@@ -492,7 +493,7 @@ def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(requi
     return {"ok": True, "project": project}
 
 
-@router.get("/projects/{project_id}")
+@router.get("/projects/{project_id}", dependencies=[Depends(require_project_view)])
 def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     record = _authorize_project(project_id, user, "view")
     audit_event(
@@ -554,7 +555,7 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
     return {"ok": True, "project": project}
 
 
-@router.get("/projects/{project_id}/sports/forecast-contract")
+@router.get("/projects/{project_id}/sports/forecast-contract", dependencies=[Depends(require_project_view)])
 def get_sports_forecast_contract(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -564,7 +565,7 @@ def get_sports_forecast_contract(
     return _forecast_contract_response(contract)
 
 
-@router.get("/projects/{project_id}/sports/evidence-dataset")
+@router.get("/projects/{project_id}/sports/evidence-dataset", dependencies=[Depends(require_project_view)])
 def get_sports_evidence_dataset(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -576,7 +577,7 @@ def get_sports_evidence_dataset(
     return {"ok": True, "linkage": linkage}
 
 
-@router.get("/projects/{project_id}/sports/stage2-data-review")
+@router.get("/projects/{project_id}/sports/stage2-data-review", dependencies=[Depends(require_project_view)])
 def get_sports_stage2_data_review(
     project_id: str,
     season: int | None = None,
@@ -604,7 +605,7 @@ def get_sports_stage2_data_review(
     return {"ok": True, "review": review}
 
 
-@router.get("/projects/{project_id}/sports/stage3-eda/metadata")
+@router.get("/projects/{project_id}/sports/stage3-eda/metadata", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_eda_metadata(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -622,7 +623,7 @@ def get_sports_stage3_eda_metadata(
         _raise_sports_backend_unavailable(exc)
 
 
-@router.post("/projects/{project_id}/sports/stage3-eda/query")
+@router.post("/projects/{project_id}/sports/stage3-eda/query", dependencies=[Depends(require_project_view)])
 def post_sports_stage3_eda_query(
     project_id: str,
     payload: Dict[str, Any],
@@ -656,7 +657,7 @@ def _run_stage3_treatment(operation: Callable[[], Dict[str, Any]]) -> Dict[str, 
         _raise_sports_backend_unavailable(exc)
 
 
-@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/summary")
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/summary", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_treatment_summary(
     project_id: str,
     kind: str,
@@ -679,7 +680,7 @@ def get_sports_stage3_treatment_summary(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/policy")
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/policy", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_treatment_policy(
     project_id: str,
     kind: str,
@@ -699,7 +700,7 @@ def get_sports_stage3_treatment_policy(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/missing/predicted-preview")
+@router.post("/projects/{project_id}/sports/stage3-treatment/missing/predicted-preview", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_predicted_imputation_preview(
     project_id: str,
     payload: Dict[str, Any],
@@ -721,7 +722,7 @@ def post_sports_stage3_predicted_imputation_preview(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/draft")
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/draft", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_treatment_policy_draft(
     project_id: str,
     kind: str,
@@ -745,7 +746,7 @@ def post_sports_stage3_treatment_policy_draft(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/adopt")
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/adopt", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_treatment_policy_adopt(
     project_id: str,
     kind: str,
@@ -769,7 +770,7 @@ def post_sports_stage3_treatment_policy_adopt(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-treatment/specification")
+@router.get("/projects/{project_id}/sports/stage3-treatment/specification", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_treatment_specification(
     project_id: str,
     authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
@@ -787,7 +788,7 @@ def get_sports_stage3_treatment_specification(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/specification/draft")
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/draft", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_treatment_specification_draft(
     project_id: str,
     payload: Dict[str, Any],
@@ -809,7 +810,7 @@ def post_sports_stage3_treatment_specification_draft(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/specification/adopt")
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/adopt", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_treatment_specification_adopt(
     project_id: str,
     payload: Dict[str, Any],
@@ -831,7 +832,7 @@ def post_sports_stage3_treatment_specification_adopt(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/{action}")
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/{action}", dependencies=[Depends(require_project_view)])
 def post_sports_stage3_treatment_query(
     project_id: str,
     kind: str,
@@ -880,7 +881,7 @@ def _run_stage3_prepare(operation: Callable[[], Dict[str, Any]]) -> Dict[str, An
         _raise_sports_backend_unavailable(exc)
 
 
-@router.get("/projects/{project_id}/sports/stage3-feature-engineering/summary")
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/summary", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_feature_engineering_summary(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -891,7 +892,7 @@ def get_sports_stage3_feature_engineering_summary(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-feature-engineering/inventory")
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/inventory", dependencies=[Depends(require_project_view)])
 def post_sports_stage3_feature_inventory(
     project_id: str,
     payload: Dict[str, Any],
@@ -903,7 +904,7 @@ def post_sports_stage3_feature_inventory(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature/{feature_name}")
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature/{feature_name}", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_feature_detail(
     project_id: str,
     feature_name: str,
@@ -915,7 +916,7 @@ def get_sports_stage3_feature_detail(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets")
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_feature_sets(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -933,7 +934,7 @@ def _stage3_actor(user: Dict[str, Any]) -> str:
     return actor
 
 
-@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/draft")
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/draft", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_feature_set_draft(
     project_id: str,
     payload: Dict[str, Any],
@@ -948,7 +949,7 @@ def post_sports_stage3_feature_set_draft(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/register")
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/register", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_feature_set_register(
     project_id: str,
     payload: Dict[str, Any],
@@ -963,7 +964,7 @@ def post_sports_stage3_feature_set_register(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/retire")
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/retire", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_feature_set_retire(
     project_id: str,
     payload: Dict[str, Any],
@@ -978,7 +979,7 @@ def post_sports_stage3_feature_set_retire(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-split-balance/summary")
+@router.get("/projects/{project_id}/sports/stage3-split-balance/summary", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_split_balance_summary(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -989,7 +990,7 @@ def get_sports_stage3_split_balance_summary(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-split-balance/automatic")
+@router.post("/projects/{project_id}/sports/stage3-split-balance/automatic", dependencies=[Depends(require_project_view)])
 def post_sports_stage3_automatic_split(
     project_id: str,
     payload: Dict[str, Any],
@@ -1001,7 +1002,7 @@ def post_sports_stage3_automatic_split(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-split-balance/manual/validate")
+@router.post("/projects/{project_id}/sports/stage3-split-balance/manual/validate", dependencies=[Depends(require_project_view)])
 def post_sports_stage3_manual_split_validation(
     project_id: str,
     payload: Dict[str, Any],
@@ -1013,7 +1014,7 @@ def post_sports_stage3_manual_split_validation(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-split-balance/contracts")
+@router.get("/projects/{project_id}/sports/stage3-split-balance/contracts", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_split_contracts(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1024,7 +1025,7 @@ def get_sports_stage3_split_contracts(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/draft")
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/draft", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_split_contract_draft(
     project_id: str,
     payload: Dict[str, Any],
@@ -1039,7 +1040,7 @@ def post_sports_stage3_split_contract_draft(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/register")
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/register", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_split_contract_register(
     project_id: str,
     payload: Dict[str, Any],
@@ -1054,7 +1055,7 @@ def post_sports_stage3_split_contract_register(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-model-laboratory/summary")
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/summary", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_model_laboratory_summary(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1067,7 +1068,7 @@ def get_sports_stage3_model_laboratory_summary(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-model-laboratory/runs")
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/runs", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_model_laboratory_runs(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1080,7 +1081,7 @@ def get_sports_stage3_model_laboratory_runs(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-model-laboratory/plan")
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/plan", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_laboratory_plan(
     project_id: str,
     payload: Dict[str, Any],
@@ -1100,7 +1101,7 @@ def post_sports_stage3_model_laboratory_plan(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs")
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_model_laboratory_jobs(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1113,7 +1114,7 @@ def get_sports_stage3_model_laboratory_jobs(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}")
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_model_laboratory_job(
     project_id: str,
     job_id: str,
@@ -1132,7 +1133,7 @@ def get_sports_stage3_model_laboratory_job(
 @router.post(
     "/projects/{project_id}/sports/stage3-model-laboratory/jobs",
     status_code=202,
-)
+ dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_laboratory_job(
     project_id: str,
     payload: Dict[str, Any],
@@ -1154,7 +1155,7 @@ def post_sports_stage3_model_laboratory_job(
 
 @router.post(
     "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}/cancel-unstarted"
-)
+, dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_laboratory_cancel_unstarted(
     project_id: str,
     job_id: str,
@@ -1174,7 +1175,7 @@ def post_sports_stage3_model_laboratory_cancel_unstarted(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-executable-artifact")
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_executable_artifact(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1187,7 +1188,7 @@ def get_sports_stage3_executable_artifact(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-executable-artifact/plan")
+@router.post("/projects/{project_id}/sports/stage3-executable-artifact/plan", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_executable_artifact_plan(
     project_id: str,
     payload: Dict[str, Any],
@@ -1207,7 +1208,7 @@ def post_sports_stage3_executable_artifact_plan(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-executable-artifact/jobs")
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact/jobs", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_executable_artifact_jobs(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1223,7 +1224,7 @@ def get_sports_stage3_executable_artifact_jobs(
 @router.post(
     "/projects/{project_id}/sports/stage3-executable-artifact/jobs",
     status_code=202,
-)
+ dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_executable_artifact_job(
     project_id: str,
     payload: Dict[str, Any],
@@ -1245,7 +1246,7 @@ def post_sports_stage3_executable_artifact_job(
 
 @router.get(
     "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}"
-)
+, dependencies=[Depends(require_project_view)])
 def get_sports_stage3_executable_artifact_job(
     project_id: str,
     job_id: str,
@@ -1265,7 +1266,7 @@ def get_sports_stage3_executable_artifact_job(
 
 @router.post(
     "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/cancel-unstarted"
-)
+, dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_executable_artifact_cancel_unstarted(
     project_id: str,
     job_id: str,
@@ -1287,7 +1288,7 @@ def post_sports_stage3_executable_artifact_cancel_unstarted(
 
 @router.post(
     "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/recover-publication"
-)
+, dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_executable_artifact_recover_publication(
     project_id: str,
     job_id: str,
@@ -1309,7 +1310,7 @@ def post_sports_stage3_executable_artifact_recover_publication(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-game-scoring")
+@router.get("/projects/{project_id}/sports/stage3-game-scoring", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_game_scoring(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1325,7 +1326,7 @@ def get_sports_stage3_game_scoring(
 @router.post(
     "/projects/{project_id}/sports/stage3-game-scoring/jobs",
     status_code=202,
-)
+ dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_game_scoring_job(
     project_id: str,
     payload: Dict[str, Any],
@@ -1345,7 +1346,7 @@ def post_sports_stage3_game_scoring_job(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-game-scoring/jobs/{job_id}")
+@router.get("/projects/{project_id}/sports/stage3-game-scoring/jobs/{job_id}", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_game_scoring_job(
     project_id: str,
     job_id: str,
@@ -1359,7 +1360,7 @@ def get_sports_stage3_game_scoring_job(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-candidate-evaluation")
+@router.get("/projects/{project_id}/sports/stage3-candidate-evaluation", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_candidate_evaluation(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1372,7 +1373,7 @@ def get_sports_stage3_candidate_evaluation(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/finalists")
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/finalists", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_candidate_finalists(
     project_id: str,
     payload: Dict[str, Any],
@@ -1390,7 +1391,7 @@ def post_sports_stage3_candidate_finalists(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/analysis")
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/analysis", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_candidate_analysis(
     project_id: str,
     payload: Dict[str, Any],
@@ -1408,7 +1409,7 @@ def post_sports_stage3_candidate_analysis(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-model-refinement/plan")
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/plan", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_refinement_plan(
     project_id: str,
     payload: Dict[str, Any],
@@ -1426,7 +1427,7 @@ def post_sports_stage3_model_refinement_plan(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-model-refinement/execute")
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/execute", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_refinement_execute(
     project_id: str,
     payload: Dict[str, Any],
@@ -1446,7 +1447,7 @@ def post_sports_stage3_model_refinement_execute(
     )
 
 
-@router.get("/projects/{project_id}/sports/stage3-downstream")
+@router.get("/projects/{project_id}/sports/stage3-downstream", dependencies=[Depends(require_project_view)])
 def get_sports_stage3_downstream(
     project_id: str,
     user: Dict[str, Any] = Depends(require_user),
@@ -1459,7 +1460,7 @@ def get_sports_stage3_downstream(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-downstream/calibration")
+@router.post("/projects/{project_id}/sports/stage3-downstream/calibration", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_downstream_calibration(
     project_id: str,
     payload: Dict[str, Any],
@@ -1479,7 +1480,7 @@ def post_sports_stage3_downstream_calibration(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-downstream/game-evaluation")
+@router.post("/projects/{project_id}/sports/stage3-downstream/game-evaluation", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_downstream_game_evaluation(
     project_id: str,
     payload: Dict[str, Any],
@@ -1499,7 +1500,7 @@ def post_sports_stage3_downstream_game_evaluation(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-downstream/selection")
+@router.post("/projects/{project_id}/sports/stage3-downstream/selection", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_downstream_selection(
     project_id: str,
     payload: Dict[str, Any],
@@ -1519,7 +1520,7 @@ def post_sports_stage3_downstream_selection(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-downstream/registry")
+@router.post("/projects/{project_id}/sports/stage3-downstream/registry", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_downstream_registry(
     project_id: str,
     payload: Dict[str, Any],
@@ -1539,7 +1540,7 @@ def post_sports_stage3_downstream_registry(
     )
 
 
-@router.post("/projects/{project_id}/sports/stage3-model-laboratory/run")
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/run", dependencies=[Depends(require_project_edit)])
 def post_sports_stage3_model_laboratory_run(
     project_id: str,
     payload: Dict[str, Any],
@@ -1559,7 +1560,7 @@ def post_sports_stage3_model_laboratory_run(
     )
 
 
-@router.put("/projects/{project_id}/sports/evidence-dataset")
+@router.put("/projects/{project_id}/sports/evidence-dataset", dependencies=[Depends(require_project_edit)])
 def select_sports_evidence_dataset(
     project_id: str,
     payload: Dict[str, Any],
@@ -1590,7 +1591,7 @@ def select_sports_evidence_dataset(
     return {"ok": True, "linkage": linkage}
 
 
-@router.put("/projects/{project_id}/sports/forecast-contract")
+@router.put("/projects/{project_id}/sports/forecast-contract", dependencies=[Depends(require_project_edit)])
 def save_sports_forecast_contract(
     project_id: str,
     payload: Dict[str, Any],
@@ -1622,7 +1623,7 @@ def save_sports_forecast_contract(
     return _forecast_contract_response(contract)
 
 
-@router.delete("/projects/{project_id}")
+@router.delete("/projects/{project_id}", dependencies=[Depends(require_project_edit)])
 def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "admin")
     actor_user_id = str(user.get("userId") or "").strip()
@@ -1702,7 +1703,7 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
     return {"ok": True, "projectId": project_id, "deleted": True}
 
 
-@router.get("/projects/{project_id}/workflow-state")
+@router.get("/projects/{project_id}/workflow-state", dependencies=[Depends(require_project_view)])
 def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     record = _execute(lambda: _service().projects.get_workflow_state(project_id))
@@ -1712,7 +1713,7 @@ def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_u
     return {"ok": True, "workflowState": _api_record(visible_record)}
 
 
-@router.put("/projects/{project_id}/workflow-state")
+@router.put("/projects/{project_id}/workflow-state", dependencies=[Depends(require_project_edit)])
 def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     previous_completed = set()
@@ -1764,7 +1765,7 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
     return {"ok": True, "workflowState": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/evidence")
+@router.get("/projects/{project_id}/evidence", dependencies=[Depends(require_project_view)])
 def list_evidence(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     items = _execute(lambda: _service().evidence.list_for_project(project_id))
@@ -1811,7 +1812,7 @@ def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any],
     }
 
 
-@router.post("/projects/{project_id}/evidence")
+@router.post("/projects/{project_id}/evidence", dependencies=[Depends(require_project_edit)])
 def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     normalized = authorize_and_normalize_evidence(
         payload,
@@ -1852,7 +1853,7 @@ def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, An
     return {"ok": True, "evidence": _api_record(record)}
 
 
-@router.put("/projects/{project_id}/evidence/{evidence_id}")
+@router.put("/projects/{project_id}/evidence/{evidence_id}", dependencies=[Depends(require_project_edit)])
 def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     def operation() -> Dict[str, Any]:
         service = _service()
@@ -1888,7 +1889,7 @@ def _child_list(project_id: str, repository_name: str) -> Dict[str, Any]:
     return {"ok": True, "items": [_api_record(item) for item in items], "count": len(items)}
 
 
-@router.get("/projects/{project_id}/runs")
+@router.get("/projects/{project_id}/runs", dependencies=[Depends(require_project_view)])
 def list_runs(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "runs")
@@ -1896,7 +1897,7 @@ def list_runs(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> 
     return {**payload, "runs": items}
 
 
-@router.post("/projects/{project_id}/runs")
+@router.post("/projects/{project_id}/runs", dependencies=[Depends(require_project_edit)])
 def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     run_id = _id("run", payload, "runId", "run_id")
@@ -1939,7 +1940,7 @@ def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = 
     return {"ok": True, "run": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/decisions")
+@router.get("/projects/{project_id}/decisions", dependencies=[Depends(require_project_view)])
 def list_decisions(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "decisions")
@@ -1947,7 +1948,7 @@ def list_decisions(project_id: str, user: Dict[str, Any] = Depends(require_user)
     return {**payload, "decisions": items}
 
 
-@router.post("/projects/{project_id}/decisions")
+@router.post("/projects/{project_id}/decisions", dependencies=[Depends(require_project_edit)])
 def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     decision_id = _id("decision", payload, "decisionId", "decision_id")
@@ -1979,7 +1980,7 @@ def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, An
     return {"ok": True, "decision": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/documentation")
+@router.get("/projects/{project_id}/documentation", dependencies=[Depends(require_project_view)])
 def list_documentation(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "documentation")
@@ -1987,7 +1988,7 @@ def list_documentation(project_id: str, user: Dict[str, Any] = Depends(require_u
     return {**payload, "documentation": items}
 
 
-@router.post("/projects/{project_id}/documentation")
+@router.post("/projects/{project_id}/documentation", dependencies=[Depends(require_project_edit)])
 def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     package_id = _id("package", payload, "packageId", "package_id", "documentId")
@@ -2017,7 +2018,7 @@ def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[st
     return {"ok": True, "documentationPackage": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/exports")
+@router.get("/projects/{project_id}/exports", dependencies=[Depends(require_project_view)])
 def list_exports(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "exports")
@@ -2025,7 +2026,7 @@ def list_exports(project_id: str, user: Dict[str, Any] = Depends(require_user)) 
     return {**payload, "exports": items}
 
 
-@router.post("/projects/{project_id}/exports")
+@router.post("/projects/{project_id}/exports", dependencies=[Depends(require_project_edit)])
 def create_export(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     export_id = _id("export", payload, "exportId", "export_id")

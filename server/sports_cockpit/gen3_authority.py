@@ -833,7 +833,10 @@ def get_binding(*, project_id: str, binding_id: str) -> dict[str, Any]:
     path = _state(project_id, "bindings", f"{binding_id}.json")
     if not path.is_file():
         raise AuthorityError("binding not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def active_binding(*, project_id: str) -> dict[str, Any] | None:
@@ -1120,7 +1123,10 @@ def get_run_authority(*, project_id: str, run_authority_id: str) -> dict[str, An
     path = _state(project_id, "authorities", f"{run_authority_id}.json")
     if not path.is_file():
         raise AuthorityError("run authority not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[dict[str, Any], Path, dict[str, Any]]:
@@ -2315,7 +2321,10 @@ def get_run(*, project_id: str, run_id: str) -> dict[str, Any]:
     path = _state(project_id, "runs", f"{run_id}.json")
     if not path.is_file():
         raise AuthorityError("run not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def list_runs(*, project_id: str) -> list[dict[str, Any]]:
@@ -2325,6 +2334,8 @@ def list_runs(*, project_id: str) -> list[dict[str, Any]]:
     out = []
     for f in sorted(d.glob("*.json")):
         r = _read_json(f)
+        if r.get("projectId") != project_id:
+            raise AuthorityError("stored run does not belong to this project")
         out.append({k: r[k] for k in ("experimentRunId", "runAuthorityId", "datasetVersionId", "generation",
                                       "modelFamily", "metrics", "createdAt", "developmentRows", "validationRows")})
     return out

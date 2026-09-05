@@ -105,3 +105,76 @@ def authorize_modeling_scope(user: Dict[str, Any], project_id: Optional[str], pe
 
     set_active_project_id(cleaned)
     return cleaned
+
+
+async def require_project_scope(request, response, user):
+    """Resolve one authenticated project across path, query and body before work.
+
+    The dependency runs on the request context (async), so its project context is
+    inherited by the synchronous route and its service calls. No client actor or
+    alternate project identity can supersede the authenticated path authority.
+    """
+    from ..persistence.service import get_persistence_service
+    from ..sharing.sharing_service import SharingService
+
+    identities = []
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"projectId", "project_id"}:
+                    if not isinstance(item, str) or not item.strip():
+                        raise HTTPException(400, "An explicit project identity is required.")
+                    identities.append(item.strip())
+                elif isinstance(item, (dict, list)):
+                    collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(dict(request.path_params))
+    for key in ("projectId", "project_id"):
+        for value in request.query_params.getlist(key):
+            collect({key: value})
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        try:
+            collect(await request.json())
+        except (ValueError, UnicodeError):
+            pass  # Body schema validation remains the route's responsibility.
+    if not identities:
+        raise HTTPException(400, "An explicit project identity is required.")
+    if len(set(identities)) != 1:
+        raise HTTPException(409, "Conflicting project identities are not permitted.")
+    project_id = identities[0]
+    permission = getattr(request.state, "project_required_permission", "view")
+    service = get_persistence_service()
+    project = service.projects.get(project_id)
+    allowed = project is not None and SharingService(service).check_permission(
+        user, "project", project_id, permission
+    ).get("allowed")
+    if not allowed:
+        # Uniform unknown/nonmember denial; no existence oracle and no writes.
+        raise HTTPException(403, "Project access is not permitted.")
+    set_active_project_id(project_id)
+    request.state.project_authority = {
+        "projectId": project_id, "userId": user.get("userId"), "permission": permission
+    }
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Cookie, Authorization"
+    return request.state.project_authority
+
+
+# Explicitly typed wrappers are stable dependency identities for route inventory.
+from fastapi import Depends, Request, Response
+from ..security.security_store import require_user
+
+
+async def require_project_view(request: Request, response: Response,
+                               user: Dict[str, Any] = Depends(require_user)):
+    request.state.project_required_permission = "view"
+    return await require_project_scope(request, response, user)
+
+
+async def require_project_edit(request: Request, response: Response,
+                               user: Dict[str, Any] = Depends(require_user)):
+    request.state.project_required_permission = "edit"
+    return await require_project_scope(request, response, user)

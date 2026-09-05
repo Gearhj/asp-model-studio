@@ -1347,7 +1347,11 @@ class SportsDatasetRegistry:
             for item in limitations
         ]
         public_limitations.extend({**item, "source": "CONSUMER_AUDIT"} for item in metadata.get("modelingBlockers", []))
-        seasons = registration.get("seasons_json") or []
+        # Companion registrations may carry only a year. Unknown coverage stays null.
+        seasons = [
+            {"season": item} if type(item) is int else item
+            for item in (registration.get("seasons_json") or [])
+        ]
         manifest_metadata = metadata.get("manifestMetadata") or {}
         current_sync = manifest_metadata.get("syncHealth")
         if registration.get("dataset_id") == _CURRENT_STATCAST_DATASET_ID:

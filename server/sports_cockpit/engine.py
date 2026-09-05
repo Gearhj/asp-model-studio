@@ -15,6 +15,7 @@ loaded once and cached; every transform is vectorized NumPy/pandas.
 from __future__ import annotations
 
 import glob
+import contextvars
 import hashlib
 import json
 import math
@@ -202,6 +203,21 @@ class CockpitError(RuntimeError):
 # ----------------------------------------------------------------------------------------
 _FRAME_LOCK = threading.Lock()
 _FRAME_CACHE: dict[str, Any] = {}
+RESEARCH_REQUEST_SCOPE: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "cockpit_research_request_scope", default=None
+)
+
+
+def _research_cache_scope() -> str:
+    scope = RESEARCH_REQUEST_SCOPE.get()
+    if scope is None:
+        return "internal"  # Offline governed tools have no HTTP response cache.
+    return hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
+
+
+def _frame_cache_key(key: str) -> str:
+    return f"{_research_cache_scope()}:{key}"
+
 
 
 # Phase 7C Gate 7/23 — the legacy in-process engine reads the PHYSICALLY SEPARATED Gen-2 RESEARCH object
@@ -222,7 +238,19 @@ def _feature_view_path() -> Path:
     from . import gen3_authority as _G3A  # lazy import avoids the engine<->authority import cycle
 
     try:
-        return _G3A.verified_research_object("GEN2")["path"]
+        verified = _G3A.verified_research_object("GEN2")
+        scope = RESEARCH_REQUEST_SCOPE.get()
+        if scope is not None and any(
+            verified.get(field) != scope.get(scope_field)
+            for field, scope_field in (
+                ("datasetVersionId", "datasetVersionId"),
+                ("logicalContentSha256", "datasetContentSha256"),
+                ("physicalParquetSha256", "physicalParquetSha256"),
+                ("contractBundleSha256", "contractBundleSha256"),
+            )
+        ):
+            raise CockpitError("Project research authority changed before the data read.")
+        return verified["path"]
     except _G3A.AuthorityError as exc:
         raise CockpitError(
             f"Gen-2 research object is not resolvable/verifiable through the canonical registry: {exc}. "
@@ -233,7 +261,7 @@ def _feature_view_path() -> Path:
 def load_frame() -> pd.DataFrame:
     """Load the materialized D3 feature view once and cache it (numeric-coerced features)."""
     with _FRAME_LOCK:
-        cached = _FRAME_CACHE.get("frame")
+        cached = _FRAME_CACHE.get(_frame_cache_key("frame"))
         if cached is not None:
             return cached
         import pyarrow.parquet as pq
@@ -256,15 +284,15 @@ def load_frame() -> pd.DataFrame:
         frame["season"] = pd.to_numeric(frame["season"], errors="coerce").astype(np.int64)
         # Cache the source content sha for content-addressed profile caching.
         content_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        _FRAME_CACHE["frame"] = frame
-        _FRAME_CACHE["path"] = str(path)
-        _FRAME_CACHE["content_sha"] = content_sha
+        _FRAME_CACHE[_frame_cache_key("frame")] = frame
+        _FRAME_CACHE[_frame_cache_key("path")] = str(path)
+        _FRAME_CACHE[_frame_cache_key("content_sha")] = content_sha
         return frame
 
 
 def data_content_sha() -> str:
     load_frame()
-    return _FRAME_CACHE["content_sha"]
+    return _FRAME_CACHE[_frame_cache_key("content_sha")]
 
 
 def _season_mask(frame: pd.DataFrame, season: int) -> np.ndarray:
@@ -491,10 +519,10 @@ PROFILE_CACHE_VERSION = "v2"  # bump when the profile payload schema changes (ad
 def feature_profile(force: bool = False) -> dict[str, Any]:
     """Profile every candidate predictor. Cached content-addressed to disk + memory."""
     sha = data_content_sha()
-    cache_key = f"profile-{PROFILE_CACHE_VERSION}-{sha}"
+    cache_key = f"profile-{_research_cache_scope()}-{PROFILE_CACHE_VERSION}-{sha}"
     if not force and cache_key in _PROFILE_CACHE:
         return _PROFILE_CACHE[cache_key]
-    cache_path = COCKPIT_ROOT / "profiles" / f"{sha}-{PROFILE_CACHE_VERSION}.json"
+    cache_path = COCKPIT_ROOT / "profiles" / _research_cache_scope() / f"{sha}-{PROFILE_CACHE_VERSION}.json"
     if not force and cache_path.is_file():
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
         _PROFILE_CACHE[cache_key] = payload
@@ -820,7 +848,7 @@ def correlation_summary(threshold: float | None = None) -> dict[str, Any]:
     Validation (2024) and frozen (2025) rows are not used — this is a development-fold screen."""
     thr = float(CORRELATION_STRONG_THRESHOLD if threshold is None else threshold)
     sha = data_content_sha()
-    key = f"corr-{sha}-{thr}"
+    key = f"corr-{_research_cache_scope()}-{sha}-{thr}"
     if key in _CORR_CACHE:
         return _CORR_CACHE[key]
     frame = load_frame()
