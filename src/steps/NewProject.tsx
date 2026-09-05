@@ -29,7 +29,6 @@ import {
 } from "../config/workflows";
 import { computeSetupGuidance, isProjectSetupComplete, resolveProjectSetupFormConfig, type ProjectSetupFormConfig } from "../config/projectSetupForms";
 import { logDecision } from "../lib/decisionJournal";
-import { grantProjectAccess, me } from "../lib/auth";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { defaultMonitoringMetricsForModelType, loadProjectContext, saveProjectContext } from "../lib/projectContext";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -119,7 +118,7 @@ export default function NewProject() {
       setProjectCreationError("ATLAS could not create the local project handoff required for durable registration.");
       return;
     }
-    if (projectType === "predictive-modeling") {
+    {
       try {
         // Scoped workflow hydration starts with an exact backend GET. Await the
         // existing durable save so that request cannot race the compatibility
@@ -136,12 +135,6 @@ export default function NewProject() {
         );
         return;
       }
-    }
-    try {
-      const current = await me();
-      await grantProjectAccess(nextState.projectId, current.user.userId, "owner");
-    } catch {
-      // Browser project creation should remain usable if local auth persistence is temporarily unavailable.
     }
     saveProjectContext({
       ...loadProjectContext(),

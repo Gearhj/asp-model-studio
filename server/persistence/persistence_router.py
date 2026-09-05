@@ -435,11 +435,11 @@ def _project_record(project_id: str, payload: Dict[str, Any], user: Dict[str, An
         "workflow_type": _pick(payload, "workflowType", "workflow_type", "workflowId", "workflow_id", default="predictive-modeling"),
         "template_id": _pick(payload, "templateId", "template_id"),
         "status": _pick(payload, "status", default="active"),
-        "owner_user_id": _pick(payload, "ownerUserId", "owner_user_id", default=user.get("userId")),
+        "owner_user_id": user.get("userId"),
         "created_at": _pick(payload, "createdAt", "created_at"),
         "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
-        "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
-        "updated_by": _pick(payload, "updatedBy", "updated_by", default=user.get("userId")),
+        "created_by": user.get("userId"),
+        "updated_by": user.get("userId"),
         "metadata_json": metadata,
     }
 
@@ -467,11 +467,17 @@ def list_projects(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any
 @router.post("/projects")
 def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     project_id = _id("project", payload, "projectId", "project_id")
+    if _service().projects.get(project_id) is not None:
+        if not _sharing_service().check_permission(user, "project", project_id, "edit").get("allowed"):
+            raise HTTPException(status_code=403, detail="Project creation requires a new project identity.")
+        raise HTTPException(status_code=409, detail="Project creation requires a new project identity.")
 
     def operation() -> Dict[str, Any]:
         service = _service()
         service.sync_user(user)
-        return service.projects.upsert(_project_record(project_id, payload, user))
+        record = service.projects.create(_project_record(project_id, payload, user))
+        SharingService(service)._bootstrap_project_owner(user, project_id)
+        return record
 
     record = _execute(operation)
     audit_event(
@@ -513,7 +519,15 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
     # A PUT to a project_id that doesn't exist yet implicitly creates it, owned
     # by the caller (existing behavior, relied on by sqlite_persistence_backend_test.py).
     # A PUT to an existing project the caller doesn't have edit access to is denied.
-    _authorize_project(project_id, user, "edit", allow_missing=True)
+    existing_project = _authorize_project(project_id, user, "edit", allow_missing=True)
+    if existing_project:
+        # Generic project saves cannot transfer ownership or forge provenance.
+        for key in ("ownerUserId", "owner_user_id"):
+            if key in payload and payload[key] != existing_project.get("owner_user_id"):
+                raise HTTPException(status_code=403, detail="Project ownership cannot be changed through project saves.")
+        for key in ("createdBy", "created_by"):
+            if key in payload and payload[key] != existing_project.get("created_by"):
+                raise HTTPException(status_code=403, detail="Project provenance cannot be changed through project saves.")
 
     def operation() -> Dict[str, Any]:
         service = _service()
@@ -538,10 +552,16 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
             **payload,
         }
         merged["metadata"] = {**existing_metadata, **incoming_metadata}
-        return service.projects.upsert_preserving_metadata_keys(
-            _project_record(project_id, merged, user),
-            reserved_metadata_keys={FORECAST_CONTRACT_METADATA_KEY},
-        )
+        record = _project_record(project_id, merged, user)
+        if existing:
+            record["owner_user_id"] = existing.get("owner_user_id")
+            record["created_by"] = existing.get("created_by")
+            return service.projects.upsert_preserving_metadata_keys(
+                record, reserved_metadata_keys={FORECAST_CONTRACT_METADATA_KEY},
+            )
+        created = service.projects.create(record)
+        SharingService(service)._bootstrap_project_owner(user, project_id)
+        return created
 
     record = _execute(operation)
     audit_event(

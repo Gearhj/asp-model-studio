@@ -1017,55 +1017,18 @@ def grant_project_access(project_id: str, user_id: str, permission: str, granted
     service = _sharing_service()
     granter_id = (granted_by_user or {}).get("userId")
     mapped_permission = LEGACY_TO_SHARING_PERMISSION[permission]
-    _sync_user_into_persistence(user_id)
-
-    # Bootstrap case: a brand-new project's owner self-granting "owner" before
-    # any permission record exists for it. This mirrors the previous router-level
-    # first_owner_claim check, but against the authoritative permission table
-    # instead of the legacy ACL table. It has to be handled explicitly because
-    # the frontend queues the project's own persistence-layer row asynchronously,
-    # so SharingService.assert_can_manage's owner-of-record lookup can race ahead
-    # of it and would otherwise reject the very first grant on a new project.
-    existing = service.persistence.access.list_permissions_for_resource("project", project_id)
-    first_owner_claim = not existing and user_id == granter_id and permission == "owner"
-
-    if first_owner_claim:
-        record = service.persistence.access.grant_permission(
-            {
-                "permission_id": f"perm_{uuid.uuid4().hex}",
-                "resource_type": "project",
-                "resource_id": project_id,
-                "principal_type": "user",
-                "principal_id": user_id,
-                "permission_level": mapped_permission,
-                "granted_by_user_id": granter_id,
-                "metadata_json": {"source": "project_bootstrap_self_owner", "legacyPermission": permission},
-            }
-        )
-        try:
-            service.persistence.access.upsert_project_collaborator(
-                {
-                    "collaborator_id": f"collab_{uuid.uuid4().hex}",
-                    "project_id": project_id,
-                    "user_id": user_id,
-                    "project_role": mapped_permission,
-                    "added_by_user_id": granter_id,
-                    "metadata_json": {"source": "project_bootstrap_self_owner"},
-                }
-            )
-        except Exception:
-            # The project's own persistence-layer row has not landed yet (see
-            # above); the collaborator table is a denormalized convenience view,
-            # not the authoritative permission record, so this is safe to skip.
-            pass
-    else:
-        result = service.share_resource(
-            granted_by_user or {},
-            "project",
-            project_id,
-            {"principalType": "user", "principalId": user_id, "permissionLevel": mapped_permission},
-        )
-        record = result["permission"]
+    # No public bootstrap exception: an owner must already be the owner of
+    # record. Check before syncing a grantee or making any persistence write.
+    service.assert_can_manage(granted_by_user or {}, "project", project_id)
+    result = service.share_resource(
+        granted_by_user or {},
+        "project",
+        project_id,
+        {"principalType": "user", "principalId": user_id, "permissionLevel": mapped_permission},
+    )
+    record = result["permission"]
+    if not result.get("changed", True):
+        return {"projectId": project_id, "userId": user_id, "permission": permission, "grantedAt": record.get("granted_at")}
 
     audit_event(
         "project.shared",
@@ -1092,8 +1055,9 @@ def revoke_project_access(project_id: str, user_id: str, revoked_by_user: Option
     return {"ok": True, "removed": result.get("revoked", 0)}
 
 
-def list_project_access(project_id: str) -> List[Dict[str, Any]]:
+def list_project_access(project_id: str, user: Dict[str, Any]) -> List[Dict[str, Any]]:
     service = _sharing_service()
+    service.assert_can_manage(user, "project", project_id)
     rows = service.persistence.access.list_permissions_for_resource("project", project_id)
     return [
         {

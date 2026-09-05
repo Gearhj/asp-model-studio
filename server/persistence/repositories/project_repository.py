@@ -19,6 +19,32 @@ class ProjectRepository(BaseRepository):
             cursor = connection.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
             return cursor.rowcount > 0
 
+    def create(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Create without upsert: a racing request cannot replace an owner.
+
+        Identity conflicts fail atomically before any existing project changes.
+        """
+        from fastapi import HTTPException
+        import sqlite3
+
+        timestamp = record.get("updated_at") or now_iso()
+        try:
+            self._write(
+                """INSERT INTO projects (
+                    project_id, project_name, project_type, workflow_type, template_id,
+                    status, owner_user_id, created_at, updated_at, metadata_json, created_by, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record["project_id"], record.get("project_name") or "Untitled ATLAS Project",
+                 record.get("project_type") or "predictive-modeling",
+                 record.get("workflow_type") or record.get("project_type") or "predictive-modeling",
+                 record.get("template_id"), record.get("status") or "active", record["owner_user_id"],
+                 record.get("created_at") or timestamp, timestamp, json_dumps(record.get("metadata_json"), {}),
+                 record["created_by"], record["updated_by"]),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail="Project creation requires a new project identity.") from exc
+        return self.get(record["project_id"]) or {}
+
     def upsert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         timestamp = record.get("updated_at") or now_iso()
         created_at = record.get("created_at") or timestamp
