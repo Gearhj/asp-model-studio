@@ -596,6 +596,51 @@ def test_global_missing_method_applies_where_eligible_and_explicit_override_fail
     assert invalid.value.code == "IMPUTATION_METHOD_INELIGIBLE"
 
 
+def test_data_type_aware_default_prefers_only_exact_executable_governed_prior() -> None:
+    meta = {"name": "pitcher_whip", "role": "PREDICTOR", "dataType": "numeric"}
+    ready = {
+        "pitcher_whip": {
+            "status": "READY_GOVERNED_PRIOR_V2",
+            "executable": True,
+        }
+    }
+    selected, fallback = treatments._effective_imputation_method(
+        meta,
+        "pitcher_whip",
+        "DATA_TYPE_AWARE",
+        explicit_override=False,
+        governed_prior_bindings=ready,
+    )
+    assert selected == "GOVERNED_PRIOR"
+    assert fallback is False
+
+    binding_only = {
+        "pitcher_whip": {
+            "status": "BINDING_READY_REQUIRES_WAVE2_ENGINE",
+            "executable": False,
+        }
+    }
+    selected, fallback = treatments._effective_imputation_method(
+        meta,
+        "pitcher_whip",
+        "DATA_TYPE_AWARE",
+        explicit_override=False,
+        governed_prior_bindings=binding_only,
+    )
+    assert selected == "MEDIAN"
+    assert fallback is False
+
+    selected, fallback = treatments._effective_imputation_method(
+        meta,
+        "pitcher_whip",
+        "MEDIAN",
+        explicit_override=False,
+        governed_prior_bindings=ready,
+    )
+    assert selected == "MEDIAN"
+    assert fallback is False
+
+
 def test_successive_drafts_emit_supported_append_only_events(
     governed: tuple[SimpleNamespace, pd.DataFrame, str], tmp_path: Path
 ) -> None:
