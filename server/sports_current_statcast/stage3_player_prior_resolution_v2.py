@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import stage3_player_prior_authority_v2 as prior_v2
+from .stage3_prior_publication_v2 import runtime_prior_root
 from .stage3_player_prior_artifact_store_v2 import (
     DEFAULT_AUTHORITY_ROOT,
     PriorArtifactStoreV2Error,
@@ -23,7 +24,7 @@ def resolve_project_fit_bundle(
     treatment_source_sha256: str,
     compiler_version: str,
     compiler_sha256: str,
-    root: Path = DEFAULT_AUTHORITY_ROOT,
+    root: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Verify the current bundle against lightweight live authorities.
 
@@ -33,6 +34,7 @@ def resolve_project_fit_bundle(
     Wave 1 resolver before this function is called.
     """
 
+    root = runtime_prior_root() if root is None else Path(root).resolve()
     public = prior_v2._public_authority(project_authority)
     try:
         bundle = load_current_bundle(str(public.get("projectId") or ""), root=root)
