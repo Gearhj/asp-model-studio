@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "ASP_APPROVED_SECURITY_TEST_V1",
+  "startedAt": "2026-09-05T20:44:00.924376+00:00",
+  "preSecurityHead": "b2c2b50359afe78f86ed577314ec4c38278ac771",
+  "source": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\tests\\tenant_project_access_repair_test.py",
+  "sourceSha256": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+  "disposableParent": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-approved-security-test-6wj3kdsr",
+  "exitCode": 0,
+  "output": "\n.\n----------------------------------------------------------------------\nRan 1 test in 12.863s\n\nOK\n",
+  "testCount": 1,
+  "probeCountExpected": 30,
+  "scope": "Exact approved test invokes fresh real HTTP/auth/project fixtures; SQLite paths are asserted inside disposable runtime, network is denied except the Windows internal socket pair.",
+  "authoritativeModelActivity": 0,
+  "policyAdoptions": 0,
+  "finalOotOpens": 0,
+  "knownDefaultValuesPrintedOrStored": false
+}

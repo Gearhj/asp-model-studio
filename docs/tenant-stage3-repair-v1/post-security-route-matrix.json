@@ -1,0 +1,1141 @@
+{
+  "schema": "ASP_POST_SECURITY_STAGE3_ROUTE_MATRIX_V1",
+  "stage3RouteCount": 99,
+  "projectAuthorizedCount": 90,
+  "retiredAuthenticatedCount": 9,
+  "supportingProjectRouteCount": 20,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-eda/metadata",
+      "handler": "get_sports_stage3_eda_metadata",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-eda/query",
+      "handler": "post_sports_stage3_eda_query",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/{kind}/summary",
+      "handler": "get_sports_stage3_treatment_summary",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/{kind}/policy",
+      "handler": "get_sports_stage3_treatment_policy",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/missing/predicted-preview",
+      "handler": "post_sports_stage3_predicted_imputation_preview",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/{kind}/policy/draft",
+      "handler": "post_sports_stage3_treatment_policy_draft",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/{kind}/policy/adopt",
+      "handler": "post_sports_stage3_treatment_policy_adopt",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/specification",
+      "handler": "get_sports_stage3_treatment_specification",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/specification/draft",
+      "handler": "post_sports_stage3_treatment_specification_draft",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/specification/adopt",
+      "handler": "post_sports_stage3_treatment_specification_adopt",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-treatment/{kind}/{action}",
+      "handler": "post_sports_stage3_treatment_query",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/summary",
+      "handler": "get_sports_stage3_feature_engineering_summary",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/inventory",
+      "handler": "post_sports_stage3_feature_inventory",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/feature/{feature_name}",
+      "handler": "get_sports_stage3_feature_detail",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/feature-sets",
+      "handler": "get_sports_stage3_feature_sets",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/draft",
+      "handler": "post_sports_stage3_feature_set_draft",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/register",
+      "handler": "post_sports_stage3_feature_set_register",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/retire",
+      "handler": "post_sports_stage3_feature_set_retire",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/summary",
+      "handler": "get_sports_stage3_split_balance_summary",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/automatic",
+      "handler": "post_sports_stage3_automatic_split",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/manual/validate",
+      "handler": "post_sports_stage3_manual_split_validation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/contracts",
+      "handler": "get_sports_stage3_split_contracts",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/contracts/draft",
+      "handler": "post_sports_stage3_split_contract_draft",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-split-balance/contracts/register",
+      "handler": "post_sports_stage3_split_contract_register",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/summary",
+      "handler": "get_sports_stage3_model_laboratory_summary",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/runs",
+      "handler": "get_sports_stage3_model_laboratory_runs",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/plan",
+      "handler": "post_sports_stage3_model_laboratory_plan",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/jobs",
+      "handler": "get_sports_stage3_model_laboratory_jobs",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}",
+      "handler": "get_sports_stage3_model_laboratory_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/jobs",
+      "handler": "post_sports_stage3_model_laboratory_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}/cancel-unstarted",
+      "handler": "post_sports_stage3_model_laboratory_cancel_unstarted",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact",
+      "handler": "get_sports_stage3_executable_artifact",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/plan",
+      "handler": "post_sports_stage3_executable_artifact_plan",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/jobs",
+      "handler": "get_sports_stage3_executable_artifact_jobs",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/jobs",
+      "handler": "post_sports_stage3_executable_artifact_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}",
+      "handler": "get_sports_stage3_executable_artifact_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/cancel-unstarted",
+      "handler": "post_sports_stage3_executable_artifact_cancel_unstarted",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/recover-publication",
+      "handler": "post_sports_stage3_executable_artifact_recover_publication",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-game-scoring",
+      "handler": "get_sports_stage3_game_scoring",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-game-scoring/jobs",
+      "handler": "post_sports_stage3_game_scoring_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-game-scoring/jobs/{job_id}",
+      "handler": "get_sports_stage3_game_scoring_job",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-candidate-evaluation",
+      "handler": "get_sports_stage3_candidate_evaluation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-candidate-evaluation/finalists",
+      "handler": "post_sports_stage3_candidate_finalists",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-candidate-evaluation/analysis",
+      "handler": "post_sports_stage3_candidate_analysis",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-refinement/plan",
+      "handler": "post_sports_stage3_model_refinement_plan",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-refinement/execute",
+      "handler": "post_sports_stage3_model_refinement_execute",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{project_id}/sports/stage3-downstream",
+      "handler": "get_sports_stage3_downstream",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-downstream/calibration",
+      "handler": "post_sports_stage3_downstream_calibration",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-downstream/game-evaluation",
+      "handler": "post_sports_stage3_downstream_game_evaluation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-downstream/selection",
+      "handler": "post_sports_stage3_downstream_selection",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-downstream/registry",
+      "handler": "post_sports_stage3_downstream_registry",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{project_id}/sports/stage3-model-laboratory/run",
+      "handler": "post_sports_stage3_model_laboratory_run",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/objective",
+      "handler": "objective",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/population",
+      "handler": "population",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/profile",
+      "handler": "profile",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/data-preview",
+      "handler": "data_preview",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/profile/feature/{name}",
+      "handler": "feature_detail",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/correlation",
+      "handler": "correlation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/target-analysis",
+      "handler": "target_analysis",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/outliers",
+      "handler": "outliers",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/missing",
+      "handler": "missing",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/temporal-split",
+      "handler": "temporal_split",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/temporal-split/preview",
+      "handler": "temporal_split_preview",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/model-families",
+      "handler": "model_families",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/champion",
+      "handler": "champion",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/experiment/run",
+      "handler": "experiment_run",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/experiments",
+      "handler": "experiments",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/experiments/{experiment_id}",
+      "handler": "experiment",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/catalog",
+      "handler": "gen3_catalog",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/bind",
+      "handler": "gen3_bind",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/binding/{project_id}",
+      "handler": "gen3_active_binding",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/population/{project_id}",
+      "handler": "gen3_population",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/run-authority",
+      "handler": "gen3_run_authority",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/execute",
+      "handler": "gen3_execute",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/run-suite",
+      "handler": "gen3_run_suite",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/feature-family-ablation",
+      "handler": "gen3_feature_family_ablation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/runs/{project_id}",
+      "handler": "gen3_runs",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/run/{project_id}/{run_id}",
+      "handler": "gen3_run",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/gen3/activate",
+      "handler": "gen3_activate",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/active-candidate/{project_id}",
+      "handler": "gen3_active_candidate",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/evaluation/{project_id}",
+      "handler": "gen3_evaluation",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/calibration/{project_id}",
+      "handler": "gen3_calibration",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/registry-evidence/{project_id}",
+      "handler": "gen3_registry_evidence",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/gen3/recompute/{project_id}/{run_id}",
+      "handler": "gen3_recompute",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/autopilot",
+      "handler": "autopilot",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/simulate",
+      "handler": "simulate",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/eligibility",
+      "handler": "eligibility",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/provider/verify",
+      "handler": "provider_verify",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/segmentation/summary",
+      "handler": "seg_summary",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/segmentation/kmeans",
+      "handler": "seg_kmeans",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/segmentation/pca",
+      "handler": "seg_pca",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/segmentation/dbscan",
+      "handler": "seg_dbscan",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/segmentation/grid-guidance",
+      "handler": "seg_grid_guidance",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/segmentation/stability",
+      "handler": "seg_stability",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/segmentation/grid",
+      "handler": "seg_grid",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/feature/kinds",
+      "handler": "feature_kinds",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/feature/profile",
+      "handler": "feature_profile_engineered",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": true,
+      "payloadProjectConflictRejected": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/cockpit/feature/ablation",
+      "handler": "feature_ablation",
+      "authenticated": true,
+      "projectAuthorized": false,
+      "state": "RETIRED_410",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/cockpit/feature-catalog",
+      "handler": "feature_catalog",
+      "authenticated": true,
+      "projectAuthorized": true,
+      "state": "PROJECT_AUTHORIZED",
+      "researchBindingRequired": false,
+      "payloadProjectConflictRejected": true
+    }
+  ],
+  "supportingRoutes": [
+    {
+      "path": "/projects/{project_id}",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/sports/forecast-contract",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/sports/evidence-dataset",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/sports/stage2-data-review",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/sports/evidence-dataset",
+      "methods": [
+        "PUT"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/sports/forecast-contract",
+      "methods": [
+        "PUT"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}",
+      "methods": [
+        "DELETE"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/workflow-state",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/workflow-state",
+      "methods": [
+        "PUT"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/evidence",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/evidence",
+      "methods": [
+        "POST"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/evidence/{evidence_id}",
+      "methods": [
+        "PUT"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/runs",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/runs",
+      "methods": [
+        "POST"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/decisions",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/decisions",
+      "methods": [
+        "POST"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/documentation",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/documentation",
+      "methods": [
+        "POST"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/exports",
+      "methods": [
+        "GET"
+      ],
+      "canonicalProjectDependency": true
+    },
+    {
+      "path": "/projects/{project_id}/exports",
+      "methods": [
+        "POST"
+      ],
+      "canonicalProjectDependency": true
+    }
+  ]
+}

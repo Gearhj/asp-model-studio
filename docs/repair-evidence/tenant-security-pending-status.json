@@ -1,53 +1,59 @@
 {
-  "schemaVersion": "ASP_TENANT_SECURITY_PENDING_V1",
-  "baseHead": "bff19a8a657bc96dea0469fad481acdcb4234386",
-  "status": "PREPARED_NOT_APPLIED_APPROVAL_REVIEW_BLOCKED",
-  "F001": {
-    "before": "REPRODUCED_HTTP_200_SELF_GRANT_AND_FOREIGN_READ",
-    "afterRepair": "NOT_RUN_PATCH_NOT_APPLIED",
-    "currentRootCauseUnchanged": true
-  },
-  "F004": {
-    "before": "REPRODUCED_HTTP_200_FOREIGN_ACL_READ",
-    "afterRepair": "NOT_RUN_PATCH_NOT_APPLIED",
-    "currentEndpointUnchanged": true
-  },
-  "unchangedFiles": [
-    {
-      "path": "server/security/security_store.py",
-      "unchangedFromBase": true,
-      "baseSha256": "588fae8c85b412107bcf779657fac3cfce9447dbc952c27117e8a93dc752c925",
-      "candidateSha256": "588fae8c85b412107bcf779657fac3cfce9447dbc952c27117e8a93dc752c925"
+  "schemaVersion": "ASP_TENANT_SECURITY_HISTORICAL_PENDING_STATUS_V2",
+  "historicalOnly": true,
+  "supersededBy": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\status.json",
+  "currentStatus": "APPROVED_PATCHES_APPLIED_CONCURRENT_PROJECT_UPDATE_BLOCKER_REMAINS",
+  "historicalPreApprovalReceipt": {
+    "schemaVersion": "ASP_TENANT_SECURITY_PENDING_V1",
+    "baseHead": "bff19a8a657bc96dea0469fad481acdcb4234386",
+    "status": "PREPARED_NOT_APPLIED_APPROVAL_REVIEW_BLOCKED",
+    "F001": {
+      "before": "REPRODUCED_HTTP_200_SELF_GRANT_AND_FOREIGN_READ",
+      "afterRepair": "NOT_RUN_PATCH_NOT_APPLIED",
+      "currentRootCauseUnchanged": true
     },
-    {
-      "path": "server/security/security_router.py",
-      "unchangedFromBase": true,
-      "baseSha256": "c207e910c2a6b0038981f1a6188d5baea26028a80735bddeef0d55732b668ced",
-      "candidateSha256": "c207e910c2a6b0038981f1a6188d5baea26028a80735bddeef0d55732b668ced"
+    "F004": {
+      "before": "REPRODUCED_HTTP_200_FOREIGN_ACL_READ",
+      "afterRepair": "NOT_RUN_PATCH_NOT_APPLIED",
+      "currentEndpointUnchanged": true
     },
-    {
-      "path": "server/sharing/sharing_service.py",
-      "unchangedFromBase": true,
-      "baseSha256": "af1a34725b0fc69ad8b3ba4c8d02dcbe995da6f8df1322fc612c4871e6a85429",
-      "candidateSha256": "af1a34725b0fc69ad8b3ba4c8d02dcbe995da6f8df1322fc612c4871e6a85429"
-    },
-    {
-      "path": "server/persistence/repositories/project_repository.py",
-      "unchangedFromBase": true,
-      "baseSha256": "27c7451b3be83f37dacde9db7ef7386812499359233d1097460abde8fb553915",
-      "candidateSha256": "27c7451b3be83f37dacde9db7ef7386812499359233d1097460abde8fb553915"
-    },
-    {
-      "path": "src/steps/NewProject.tsx",
-      "unchangedFromBase": true,
-      "baseSha256": "494aa7082179acc595b7db5f16bc1687cf44e92bb43813298e303124a2541f6f",
-      "candidateSha256": "494aa7082179acc595b7db5f16bc1687cf44e92bb43813298e303124a2541f6f"
-    }
-  ],
-  "preparedSourcePatchSha256": "9aed4725c1a387eae823b61bce0f32387b37cff68eeb79226ddbfbe6d035889b",
-  "preparedTestPatchSha256": "cbdb58f3ef735eebc30bf517ddfdea009548807620986671b1fd1d8a933c7080",
-  "dryRunApplyChecks": "PASS",
-  "behavioralAfterRepairVerification": "NOT_PERFORMED",
-  "blockReason": "Automatic approval review rejected the security source apply action twice, treating older backup-only restrictions as the active authorization boundary despite the later repair attachment.",
-  "permissionNeeded": "Apply only the two prepared security source/test patches in this isolated repair worktree, then execute the focused disposable tests."
+    "unchangedFiles": [
+      {
+        "path": "server/security/security_store.py",
+        "unchangedFromBase": true,
+        "baseSha256": "588fae8c85b412107bcf779657fac3cfce9447dbc952c27117e8a93dc752c925",
+        "candidateSha256": "588fae8c85b412107bcf779657fac3cfce9447dbc952c27117e8a93dc752c925"
+      },
+      {
+        "path": "server/security/security_router.py",
+        "unchangedFromBase": true,
+        "baseSha256": "c207e910c2a6b0038981f1a6188d5baea26028a80735bddeef0d55732b668ced",
+        "candidateSha256": "c207e910c2a6b0038981f1a6188d5baea26028a80735bddeef0d55732b668ced"
+      },
+      {
+        "path": "server/sharing/sharing_service.py",
+        "unchangedFromBase": true,
+        "baseSha256": "af1a34725b0fc69ad8b3ba4c8d02dcbe995da6f8df1322fc612c4871e6a85429",
+        "candidateSha256": "af1a34725b0fc69ad8b3ba4c8d02dcbe995da6f8df1322fc612c4871e6a85429"
+      },
+      {
+        "path": "server/persistence/repositories/project_repository.py",
+        "unchangedFromBase": true,
+        "baseSha256": "27c7451b3be83f37dacde9db7ef7386812499359233d1097460abde8fb553915",
+        "candidateSha256": "27c7451b3be83f37dacde9db7ef7386812499359233d1097460abde8fb553915"
+      },
+      {
+        "path": "src/steps/NewProject.tsx",
+        "unchangedFromBase": true,
+        "baseSha256": "494aa7082179acc595b7db5f16bc1687cf44e92bb43813298e303124a2541f6f",
+        "candidateSha256": "494aa7082179acc595b7db5f16bc1687cf44e92bb43813298e303124a2541f6f"
+      }
+    ],
+    "preparedSourcePatchSha256": "9aed4725c1a387eae823b61bce0f32387b37cff68eeb79226ddbfbe6d035889b",
+    "preparedTestPatchSha256": "cbdb58f3ef735eebc30bf517ddfdea009548807620986671b1fd1d8a933c7080",
+    "dryRunApplyChecks": "PASS",
+    "behavioralAfterRepairVerification": "NOT_PERFORMED",
+    "blockReason": "Automatic approval review rejected the security source apply action twice, treating older backup-only restrictions as the active authorization boundary despite the later repair attachment.",
+    "permissionNeeded": "Apply only the two prepared security source/test patches in this isolated repair worktree, then execute the focused disposable tests."
+  }
 }

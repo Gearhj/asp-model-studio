@@ -1,0 +1,17 @@
+{
+  "sourceRoot": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2",
+  "sourceFileHashes": {
+    "server/security/security_store.py": "78c29321e3173bea5ba1ee3bbe763c57e5c00180e439c1f58f08bf91754c89e2",
+    "server/security/security_router.py": "a1ceae0c900ccb3658076bb62054440f049b11a9efbe0f281b48a9175abd4f59",
+    "server/sharing/sharing_service.py": "1d30526ab56dc114dbdde37c753b2c672df81a6f7055bc7587a0ecdc5773c106",
+    "server/persistence/persistence_router.py": "8c07a4c970c594d79996bb424419bc6362d195a692cf61f56203427a3c743322",
+    "server/persistence/repositories/project_repository.py": "df8a412ee5598cab9e4b129d1cee97d99bb2017b463a55681336ae05c7d91d5a"
+  },
+  "disposableRuntimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-before-20260905b",
+  "guardViolations": [],
+  "optionalPlatformProbes": [
+    "numpy_optional_lscpu_blocked_before_launch"
+  ],
+  "error": null,
+  "scope": "Actual in-process FastAPI HTTP requests and cookie sessions; synthetic project/security databases only; no operational lifespan or row/model data."
+}

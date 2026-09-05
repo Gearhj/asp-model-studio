@@ -1,0 +1,266 @@
+{
+  "schemaVersion": "TENANT_REPAIR_DISPOSABLE_PROBE_V1",
+  "sourceRoot": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2",
+  "disposableRuntimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-before-20260905b",
+  "users": 3,
+  "projectsPerOrdinaryUser": 2,
+  "checks": [
+    {
+      "name": "Server creation bootstraps exactly one creator membership",
+      "passed": false
+    },
+    {
+      "name": "F-004 foreign ACL read",
+      "actor": "A",
+      "method": "GET",
+      "path": "/api/projects/project_265db322a2f34a40a0dafe47bd083e24/access",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": false
+    },
+    {
+      "name": "Unauthorized ACL never enumerates membership rows or counts",
+      "passed": false
+    },
+    {
+      "name": "F-001 self grant on foreign project",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/project_265db322a2f34a40a0dafe47bd083e24/access/grant",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": false,
+      "passed": false
+    },
+    {
+      "name": "F-001 foreign project remains forbidden",
+      "actor": "A",
+      "method": "GET",
+      "path": "/api/projects/project_265db322a2f34a40a0dafe47bd083e24",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": null,
+      "passed": false
+    },
+    {
+      "name": "Unauthorized invite",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/project_2a059561d1154708b99270c8ca5218ce/access/grant",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Unauthorized revoke",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/project_2a059561d1154708b99270c8ca5218ce/access/revoke",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Modern unauthorized invite",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/sharing/resources/project/project_2a059561d1154708b99270c8ca5218ce/share",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Modern unauthorized ACL read",
+      "actor": "A",
+      "method": "GET",
+      "path": "/api/sharing/resources/project/project_2a059561d1154708b99270c8ca5218ce",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Modern unauthorized revoke",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/sharing/resources/project/project_2a059561d1154708b99270c8ca5218ce/revoke",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Guessed project bootstrap denied",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/synthetic-unknown/access/grant",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": false,
+      "passed": false
+    },
+    {
+      "name": "POST existing project takeover denied",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": false,
+      "passed": false
+    },
+    {
+      "name": "Owner share permitted",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access/grant",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": true
+    },
+    {
+      "name": "Member cannot self elevate",
+      "actor": "B",
+      "method": "POST",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access/grant",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Member cannot use modern role escalation",
+      "actor": "B",
+      "method": "POST",
+      "path": "/api/sharing/resources/project/project_136e9d071dec4c2eab57309966371fc6/share",
+      "status": 403,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": true
+    },
+    {
+      "name": "Member cannot alter owner in body",
+      "actor": "B",
+      "method": "PUT",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": false,
+      "passed": false
+    },
+    {
+      "name": "Member cannot read full ACL",
+      "actor": "B",
+      "method": "GET",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": true,
+      "passed": false
+    },
+    {
+      "name": "Member sharing status minimal",
+      "actor": "B",
+      "method": "GET",
+      "path": "/api/sharing/resources/project/project_136e9d071dec4c2eab57309966371fc6",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": true
+    },
+    {
+      "name": "Member sharing details redacted",
+      "passed": false
+    },
+    {
+      "name": "Owner ACL available",
+      "actor": "A",
+      "method": "GET",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": true
+    },
+    {
+      "name": "Administrator ACL available",
+      "actor": "admin",
+      "method": "GET",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": true
+    },
+    {
+      "name": "Owner revoke permitted",
+      "actor": "A",
+      "method": "POST",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6/access/revoke",
+      "status": 403,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": false
+    },
+    {
+      "name": "Revoked access immediately denied",
+      "actor": "B",
+      "method": "GET",
+      "path": "/api/projects/project_136e9d071dec4c2eab57309966371fc6",
+      "status": 200,
+      "expectedStatus": 403,
+      "protectedStateUnchanged": null,
+      "passed": false
+    },
+    {
+      "name": "Administrator share permitted",
+      "actor": "admin",
+      "method": "POST",
+      "path": "/api/projects/project_2a059561d1154708b99270c8ca5218ce/access/grant",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": null,
+      "passed": true
+    },
+    {
+      "name": "Duplicate share idempotent",
+      "actor": "admin",
+      "method": "POST",
+      "path": "/api/projects/project_2a059561d1154708b99270c8ca5218ce/access/grant",
+      "status": 200,
+      "expectedStatus": 200,
+      "protectedStateUnchanged": false,
+      "passed": false
+    },
+    {
+      "name": "Creation actor comes only from authenticated context",
+      "passed": false
+    },
+    {
+      "name": "Unknown and foreign ACL nondisclosure",
+      "passed": false
+    },
+    {
+      "name": "ACL rolls back when attributable audit cannot persist",
+      "passed": false
+    },
+    {
+      "name": "All allowed ACL mutations have an authenticated audit actor",
+      "passed": true
+    },
+    {
+      "name": "Two concurrent users retain own project identity",
+      "passed": false
+    }
+  ],
+  "passed": false,
+  "databaseIntegrity": "ok",
+  "authoritativeFits": 0,
+  "providerCalls": 0,
+  "finalOotOpens": 0
+}

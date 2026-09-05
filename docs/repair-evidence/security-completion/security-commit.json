@@ -1,0 +1,16 @@
+{
+  "head": "b5af4211b446f1a470b71cbda4bd6724f50346b9",
+  "subject": "fix(security): close project membership and ACL authorization gaps",
+  "files": [
+    "server/security/security_store.py",
+    "server/security/security_router.py",
+    "server/sharing/sharing_service.py",
+    "server/persistence/persistence_router.py",
+    "server/persistence/repositories/project_repository.py",
+    "src/steps/NewProject.tsx",
+    "tests/tenant_project_access_repair_test.py"
+  ],
+  "branch": "codex/model-studio-tenant-workflow-repair-v1",
+  "mainHead": "924db29511f93909f9d785855bfa056775443690",
+  "materialAdditionalSourceChanges": 0
+}

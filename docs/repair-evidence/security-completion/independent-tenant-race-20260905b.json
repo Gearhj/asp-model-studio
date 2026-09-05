@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "TENANT_SAME_ID_CREATE_RACE_V1",
+  "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "disposableRuntimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-race-20260905b",
+  "schedule": [
+    "A authorized PUT against missing ID",
+    "A paused before operation",
+    "B created same ID through authenticated POST",
+    "A resumed operation against B-owned row"
+  ],
+  "barrierReached": true,
+  "victimCreateStatus": 200,
+  "attackerPutStatus": 200,
+  "ownerStillVictim": true,
+  "creatorStillVictim": true,
+  "updaterBecameAttacker": true,
+  "victimNameOverwritten": true,
+  "attackerMetadataPersisted": true,
+  "changedDomainTables": [
+    "projects",
+    "audit_log"
+  ],
+  "denialLeavesDomainUnchanged": false,
+  "passed": false,
+  "instrumentation": "Only a synchronization barrier around the real initial authorization lookup; actual routers, cookie sessions and repository writes unchanged."
+}

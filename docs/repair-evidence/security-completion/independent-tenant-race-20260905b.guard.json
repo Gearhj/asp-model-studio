@@ -1,0 +1,17 @@
+{
+  "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "sourceFileHashes": {
+    "server/security/security_store.py": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813",
+    "server/security/security_router.py": "c3e9b112b35b96932ad125841384921824a131ce62a8e2fe7457c23eec3f4a53",
+    "server/sharing/sharing_service.py": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+    "server/persistence/persistence_router.py": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+    "server/persistence/repositories/project_repository.py": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d"
+  },
+  "disposableRuntimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-race-20260905b",
+  "guardViolations": [],
+  "optionalPlatformProbes": [
+    "numpy_optional_lscpu_blocked_before_launch"
+  ],
+  "error": null,
+  "scope": "Actual in-process FastAPI HTTP requests and cookie sessions; synthetic project/security databases only; no operational lifespan or row/model data."
+}

@@ -1,0 +1,318 @@
+{
+  "schema": "security-frontend-verification-v1",
+  "recordedAt": "2026-09-05T20:45:15.067128+00:00",
+  "verdict": "NO_FRONTEND_REGRESSION_OBSERVED",
+  "baseHead": "b2c2b50359afe78f86ed577314ec4c38278ac771",
+  "candidate": "Exact pre-security commit plus the six approved source files and one approved Python probe file",
+  "preparationArchiveSha256": "eb60b751004974968c647e01fc29d8b0f054b485123634e9b56ec9d4acaf3808",
+  "testedOverlaySha256": {
+    "server/persistence/persistence_router.py": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+    "server/persistence/repositories/project_repository.py": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d",
+    "server/security/security_router.py": "c3e9b112b35b96932ad125841384921824a131ce62a8e2fe7457c23eec3f4a53",
+    "server/security/security_store.py": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813",
+    "server/sharing/sharing_service.py": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+    "src/steps/NewProject.tsx": "371fe831ed5d4f0ff0290fcd45973bbea31b367f255fc86f2da8207c06362f27",
+    "tests/tenant_project_access_repair_test.py": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774"
+  },
+  "finalFilesStillMatchTestedOverlay": true,
+  "newProject": {
+    "beforeSha256": "4acc429599b6b11ae2a9c539020399662434679f69dee36129af2c8045db0034",
+    "afterSha256": "371fe831ed5d4f0ff0290fcd45973bbea31b367f255fc86f2da8207c06362f27",
+    "clientOwnerSelfGrantAbsent": true,
+    "sourceCorrectionsRequired": false
+  },
+  "affectedFrontendChecks": {
+    "newProjectUx.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "authReturnPath.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectTypes.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowLibrary.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsProjectPersistenceLinkage.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "adminSharing.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "enterpriseCollaboration.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "userManagement.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "tenantCockpitCacheIsolation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "tenantStage3RouteProjectHandoff.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    }
+  },
+  "fullComparison": {
+    "enumeratedFiles": 165,
+    "executedFiles": 163,
+    "fileStatuses": {
+      "PASS": 112,
+      "ASSERTION_OR_RUNTIME_FAILURE": 43,
+      "DEPENDENCY_UNAVAILABLE": 7,
+      "SAFETY_GUARD_BLOCKED": 1
+    },
+    "namedTests": {
+      "tests": 1153,
+      "passed": 1097,
+      "failed": 56,
+      "skipped": 0
+    },
+    "candidateNonpassFilesRecheckedAgainstBase": 51,
+    "introducedNamedFailures": 0,
+    "changedNormalizedFailureReasons": 0,
+    "topLevelAbortFilesWithLaterAssertionsUnreached": 16,
+    "excluded": {
+      "bureauReviewAutomaticDetection.browser.test.mjs": "REQUIRES_SEPARATE_ISOLATED_BROWSER_BUILD_FIXTURE",
+      "hermetic_node_guard.test.mjs": "REQUIRES_HERMETIC_CHILD_DEPENDENCY_HASH_ENVIRONMENT"
+    },
+    "elapsedSeconds": 40.08,
+    "receipt": "security-frontend-suite-comparison.json"
+  },
+  "build": {
+    "status": "PASS",
+    "typeScript": "tsc -b passed",
+    "modeling": "vite build --mode modeling passed",
+    "apiBase": "/api",
+    "mainAsset": "dist/assets/main-C4SfSlYd.js",
+    "mainSha256": "dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520",
+    "indexSha256": "9651d83539c47dca88e31190f9114c3ab3e14b60047bb63ec4fc371fbba710bc",
+    "matchesPreviouslyVerifiedModelingBundle": true,
+    "toolReceipt": "exec session 70740 completion 9a23ad",
+    "existingWarnings": [
+      "Large main bundle",
+      "Outdated browser compatibility metadata",
+      "Mixed static/dynamic cockpit imports"
+    ]
+  },
+  "safety": {
+    "isolatedMirrors": true,
+    "operationalFilesExcluded": true,
+    "networkProviderAndChildProcessCallsBlocked": true,
+    "writesLimitedToEachMirrorTmp": true,
+    "dependencyJunctionWritesDeniedByResolvedPathGuard": true,
+    "applicationSourceEditsByVerifier": 0,
+    "commitsByVerifier": 0,
+    "primaryCheckoutWrites": 0
+  },
+  "limitations": [
+    "Existing assertion/runtime failures, missing test dependencies, and one guard-blocked file remain; zero observed regression is not a clean full-suite claim.",
+    "Sixteen files stop before later assertions; no equivalence is claimed for those unreached assertions.",
+    "NewProject UX/projectTypes are top-level assertion scripts: success is recorded by zero exit code rather than an invented named-test count.",
+    "This receipt covers frontend regression and compilation; backend security readiness and operational verification are reported separately."
+  ]
+}

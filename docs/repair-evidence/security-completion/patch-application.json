@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "ASP_APPROVED_SECURITY_PATCH_APPLICATION_V1",
+  "capturedAt": "2026-09-05T20:53:42.651816+00:00",
+  "worktree": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "branch": "codex/model-studio-tenant-workflow-repair-v1",
+  "preSecurityHead": "b2c2b50359afe78f86ed577314ec4c38278ac771",
+  "patches": [
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\tenant-security.patch",
+      "bytes": 21170,
+      "sha256": "9aed4725c1a387eae823b61bce0f32387b37cff68eeb79226ddbfbe6d035889b",
+      "reverseApplyCheck": "PASS"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\tenant-security-tests.patch",
+      "bytes": 15816,
+      "sha256": "cbdb58f3ef735eebc30bf517ddfdea009548807620986671b1fd1d8a933c7080",
+      "reverseApplyCheck": "PASS"
+    }
+  ],
+  "files": [
+    {
+      "path": "server/security/security_store.py",
+      "bytes": 49719,
+      "workingTreeSha256": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813",
+      "normalizedLfSha256": "1d4969501ce719a16c6ae521e94893248ba8b9983a9b05396db469c4bdceea74",
+      "preSecurityGitBlobSha256": "588fae8c85b412107bcf779657fac3cfce9447dbc952c27117e8a93dc752c925"
+    },
+    {
+      "path": "server/security/security_router.py",
+      "bytes": 10503,
+      "workingTreeSha256": "c3e9b112b35b96932ad125841384921824a131ce62a8e2fe7457c23eec3f4a53",
+      "normalizedLfSha256": "95838aac6c0f6bad5ed5f30694d32501bba874238697d1a02bf345ee1929984b",
+      "preSecurityGitBlobSha256": "c207e910c2a6b0038981f1a6188d5baea26028a80735bddeef0d55732b668ced"
+    },
+    {
+      "path": "server/sharing/sharing_service.py",
+      "bytes": 23474,
+      "workingTreeSha256": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+      "normalizedLfSha256": "e90249406d6fc589f195b4abafd64f9c8390e9675a7bb77fb916901f7ece19ba",
+      "preSecurityGitBlobSha256": "af1a34725b0fc69ad8b3ba4c8d02dcbe995da6f8df1322fc612c4871e6a85429"
+    },
+    {
+      "path": "server/persistence/persistence_router.py",
+      "bytes": 88047,
+      "workingTreeSha256": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+      "normalizedLfSha256": "5001c048b4d8581a0e88d7fc054c3290b2659e2320e486b287cbce77d7c952fd",
+      "preSecurityGitBlobSha256": "fbfab7aa99392afd5f97ca708e892618bdce8d1d06ec85b4f6307186da565dc7"
+    },
+    {
+      "path": "server/persistence/repositories/project_repository.py",
+      "bytes": 18077,
+      "workingTreeSha256": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d",
+      "normalizedLfSha256": "d75df128f46df02b2444d3d9a34122934e17a0686e1c506670d203c7b811a2b4",
+      "preSecurityGitBlobSha256": "27c7451b3be83f37dacde9db7ef7386812499359233d1097460abde8fb553915"
+    },
+    {
+      "path": "src/steps/NewProject.tsx",
+      "bytes": 22779,
+      "workingTreeSha256": "371fe831ed5d4f0ff0290fcd45973bbea31b367f255fc86f2da8207c06362f27",
+      "normalizedLfSha256": "6edbd7bb2b52396baf0fc53a5ba628979ceea053676f532a9f2b1a0273b8cf81",
+      "preSecurityGitBlobSha256": "494aa7082179acc595b7db5f16bc1687cf44e92bb43813298e303124a2541f6f"
+    },
+    {
+      "path": "tests/tenant_project_access_repair_test.py",
+      "bytes": 15475,
+      "workingTreeSha256": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+      "normalizedLfSha256": "f3d3e315795c105013ec1901feb52fdf02fc9262a41acd063e4b4c30448c5a42"
+    }
+  ],
+  "application": "BOTH_EXACT_APPROVED_PATCHES_APPLIED",
+  "sourceCorrections": [],
+  "materialAdditionalSourceChanges": 0,
+  "lineEndings": "Git apply warned about CRLF in the prepared new test; core.autocrlf=true normalizes its Git blob. No test/source content correction was made.",
+  "copiedEvidence": [
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-before-20260905b.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-before-20260905b.json",
+      "bytes": 8042,
+      "sha256": "732ac393016ffb36e85751144bd3cea9acdc222627d7d9f9a21418187a921063"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-before-20260905b.guard.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-before-20260905b.guard.json",
+      "bytes": 1152,
+      "sha256": "7d184eb60c9adf28a287face43f43e34c53257facb448c78f3c4af9ee2114ce9"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-after-20260905b.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-after-20260905b.json",
+      "bytes": 8025,
+      "sha256": "04abc41316cb300e492c8873f379f4b994092b78517b64fd9cbf9f6cb7cade55"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-after-20260905b.guard.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-after-20260905b.guard.json",
+      "bytes": 1158,
+      "sha256": "645b405deac78f191f659fc8e6995cb3ff45cf9b7a684e851aeee8f736f77dcb"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-race-20260905b.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-race-20260905b.json",
+      "bytes": 1058,
+      "sha256": "35734d1a43287d40c970395bf213ceda51c3437990bd6c204b7e1001c7e3264f"
+    },
+    {
+      "source": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\independent-tenant-race-20260905b.guard.json",
+      "destination": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\security-completion\\independent-tenant-race-20260905b.guard.json",
+      "bytes": 1157,
+      "sha256": "e10204623ba43ec74cecb9eb6587e62848668e29b1ff18c10e2c2baf1243d19e"
+    }
+  ],
+  "standardProbeResults": {
+    "exactWave2Base": {
+      "passed": 13,
+      "failed": 17
+    },
+    "approvedRepair": {
+      "passed": 30,
+      "failed": 0
+    }
+  },
+  "additionalConcurrencyProbe": {
+    "passed": false,
+    "finding": "CONCURRENT_PROJECT_CREATION_AUTHORIZATION_GAP",
+    "ordinaryPutStatus": 200,
+    "ownerAndCreatorPreserved": true,
+    "foreignNameAndMetadataChanged": true,
+    "changedDomainTables": [
+      "projects",
+      "audit_log"
+    ],
+    "baselineRaceReplayPerformed": false
+  },
+  "scientificActivity": {
+    "authoritativeModelActivity": 0,
+    "policyAdoption": 0,
+    "featureSetRegistration": 0,
+    "finalOotOpens": 0,
+    "finalOotTargetReads": 0,
+    "currentGoldMutation": 0,
+    "providerCalls": 0
+  }
+}

@@ -1,0 +1,321 @@
+{
+  "schemaVersion": "ASP_SECURITY_COMPLETION_CHANGED_FILES_V1",
+  "baseHead": "bff19a8a657bc96dea0469fad481acdcb4234386",
+  "codeHead": "b5af4211b446f1a470b71cbda4bd6724f50346b9",
+  "sourceAndTestFileCount": 60,
+  "sourceAndTests": [
+    {
+      "path": "scripts/publish_canonical_prior.py",
+      "bytes": 11951,
+      "sha256": "b82ee54d566f86b5bd6db2490d572050a674fa425c79abb23608604d6aed45b7"
+    },
+    {
+      "path": "server/core/modeling_scope.py",
+      "bytes": 8597,
+      "sha256": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d"
+    },
+    {
+      "path": "server/persistence/persistence_router.py",
+      "bytes": 88047,
+      "sha256": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e"
+    },
+    {
+      "path": "server/persistence/repositories/project_repository.py",
+      "bytes": 18077,
+      "sha256": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d"
+    },
+    {
+      "path": "server/security/security_router.py",
+      "bytes": 10503,
+      "sha256": "c3e9b112b35b96932ad125841384921824a131ce62a8e2fe7457c23eec3f4a53"
+    },
+    {
+      "path": "server/security/security_store.py",
+      "bytes": 49719,
+      "sha256": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813"
+    },
+    {
+      "path": "server/sharing/sharing_service.py",
+      "bytes": 23474,
+      "sha256": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655"
+    },
+    {
+      "path": "server/sports_cockpit/engine.py",
+      "bytes": 45030,
+      "sha256": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7"
+    },
+    {
+      "path": "server/sports_cockpit/gen3_authority.py",
+      "bytes": 177871,
+      "sha256": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5"
+    },
+    {
+      "path": "server/sports_cockpit/router.py",
+      "bytes": 28453,
+      "sha256": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_candidate_evaluation.py",
+      "bytes": 130587,
+      "sha256": "ba4f2e6aa8be63971fc16f35f8c5c9fcecc76046bbbd7a594ae13552683e2d94"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_executable_artifact.py",
+      "bytes": 169837,
+      "sha256": "7087ea2bb2a83ce92d313c03360a58cb4b42fab153b24203a8d547051d157172"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_game_scoring.py",
+      "bytes": 34410,
+      "sha256": "1a6fca0b24a87ceadfed85091c2a79f3dc4a1c3313419c30362e77285193c1af"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_model_jobs.py",
+      "bytes": 103223,
+      "sha256": "7b8b3b0b629068826657b70f7cf892758bccd0d4d860cd20e09f98bc16c30860"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_model_laboratory.py",
+      "bytes": 141169,
+      "sha256": "d1e9db9738afce6cfd1440ae37efb9fa2c4877e7ecc0df9e8315897242d79705"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_player_prior_resolution_v2.py",
+      "bytes": 4393,
+      "sha256": "909cab3647681288f4dc2e0aeaab33bd3c844004ba6259cf50e96c15d8c16c38"
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_prior_publication_v2.py",
+      "bytes": 16433,
+      "sha256": "39d99a8edc07cd581750ad5dcae4c88550500cd7a0e8b05ff50335a452e9245f"
+    },
+    {
+      "path": "server/sports_datasets/registry.py",
+      "bytes": 81320,
+      "sha256": "37514432d046e0827ce582b66e12a6dd05fb822e9becb993b8aa83c0ff3a2a6a"
+    },
+    {
+      "path": "src/apps/ModelingApp.tsx",
+      "bytes": 22419,
+      "sha256": "196358a8b4b3379442c3e0d53ff1efa1d57d4f48c43f10adbb85156c3d47c1a3"
+    },
+    {
+      "path": "src/lib/authSession.ts",
+      "bytes": 1081,
+      "sha256": "78785c806af971ef8ffe741c2a22f712dcc449599c55f45496fa97029d67ebe4"
+    },
+    {
+      "path": "src/sports/cockpit/DataPreviewPanel.tsx",
+      "bytes": 10093,
+      "sha256": "ccbba842f39b2be9a3d8ca1fc2d9be39d0613079e78d3ea82f299d5e1e0ff906"
+    },
+    {
+      "path": "src/sports/cockpit/Gen3AuthorityPanel.tsx",
+      "bytes": 12946,
+      "sha256": "398aff80d8e156668209504086539de093b809f1ae893d4952478692fde001bd"
+    },
+    {
+      "path": "src/sports/cockpit/Gen3CatalogSection.tsx",
+      "bytes": 21448,
+      "sha256": "4527e68f783aaafd1e113bee4518b961cc2968dff6c99e454f05172fa49a7db0"
+    },
+    {
+      "path": "src/sports/cockpit/PaModelingCockpit.tsx",
+      "bytes": 33109,
+      "sha256": "d4f5305700d74adae03ef760f87e412c790696545754619fc460afa6adb1de4f"
+    },
+    {
+      "path": "src/sports/cockpit/ProjectBoundDownstreamWorkflow.tsx",
+      "bytes": 80932,
+      "sha256": "d18602f8f0694718d2d7ccb68eed98c0eff47916aa38969d69a6dae41bcd7f30"
+    },
+    {
+      "path": "src/sports/cockpit/ProjectBoundModelLab.tsx",
+      "bytes": 57145,
+      "sha256": "9f92daa169d7c51300e142a2a37e2fb8001633b66a5a5857011c4886c562a6b7"
+    },
+    {
+      "path": "src/sports/cockpit/ProjectBoundWorkflowGate.tsx",
+      "bytes": 6608,
+      "sha256": "2c28adc043db1d3b51e9e93b5b4e2108cb594b39d8c2c1d02b45c2319607ef0a"
+    },
+    {
+      "path": "src/sports/cockpit/cockpitApi.ts",
+      "bytes": 21787,
+      "sha256": "51a1d56ecaf59ff5166d1caa724ef1bb49ef3220eb07ba653e8af5956d8ed6bb"
+    },
+    {
+      "path": "src/sports/cockpit/cockpitPersistence.ts",
+      "bytes": 6576,
+      "sha256": "9141ad35360a94dd355e8e73bae68b265bdb1ea4853e8403128b41c87ae0a932"
+    },
+    {
+      "path": "src/sports/cockpit/cockpitSteps1.tsx",
+      "bytes": 162881,
+      "sha256": "afac45462b353c9bb61ca4e4d03b765a0ff7f2dc03800eb546dd12d782f96eb2"
+    },
+    {
+      "path": "src/sports/cockpit/projectModelLabApi.ts",
+      "bytes": 95072,
+      "sha256": "1fbbc610d94bacfede7dcda6219bd1004c6f5fa90f424a027f3448488a73a07c"
+    },
+    {
+      "path": "src/sports/sportsEvidenceApi.ts",
+      "bytes": 86121,
+      "sha256": "784d5071e9374785a05ebbc66c8c4b30da3e075702a38701ccb4f126f74972aa"
+    },
+    {
+      "path": "src/sports/workflow/DatasetBindingPanel.tsx",
+      "bytes": 5839,
+      "sha256": "bc70229979cd83d03f225bd7165e48fd383832eefe17159301713d8ddb503d59"
+    },
+    {
+      "path": "src/sports/workflow/GuidedStageContent.tsx",
+      "bytes": 12107,
+      "sha256": "3f7aa82fa5582eaae7d2b9cfda6b1ae1a931cfa341e73b026f7e580dbc6f922b"
+    },
+    {
+      "path": "src/sports/workflow/GuidedWorkflow.tsx",
+      "bytes": 25740,
+      "sha256": "fbde9b9a6a2f3eaee9b878946be8b1beb39a1ed6dacff2067a05d9175c4b73ea"
+    },
+    {
+      "path": "src/steps/NewProject.tsx",
+      "bytes": 22779,
+      "sha256": "371fe831ed5d4f0ff0290fcd45973bbea31b367f255fc86f2da8207c06362f27"
+    },
+    {
+      "path": "tests/cockpitFeatureAndPersistence.test.mjs",
+      "bytes": 8418,
+      "sha256": "a438239fafb8b496f93b105a864c981afbb9ffe75fee910063c004712f3fdd13"
+    },
+    {
+      "path": "tests/cockpitModelLab.test.mjs",
+      "bytes": 9329,
+      "sha256": "30cb3bc90a05268e3491ffd062cad34bf623520959f28b24b26cfe2a5e75a3ac"
+    },
+    {
+      "path": "tests/gen3ScientistFlow.test.mjs",
+      "bytes": 4851,
+      "sha256": "9a9a21ffd2ccaa3058fafb7fb62f4ebedbba29fedaedbd690eeb8adb8fb4deb1"
+    },
+    {
+      "path": "tests/sportsStage3ExecutableArtifactScoringFrontend.test.mjs",
+      "bytes": 6571,
+      "sha256": "f3b3f3a9d0981916c96ae5f57991a6960785225694e51e665f228b6145e56fcc"
+    },
+    {
+      "path": "tests/sportsStage3ProjectBoundModelLabFrontend.test.mjs",
+      "bytes": 12651,
+      "sha256": "afa0fbd45cf7c4d4f56900b367f75726a123034b6b87d28f4291277a077842fc"
+    },
+    {
+      "path": "tests/sports_current_gold_stage2_review_test.py",
+      "bytes": 10184,
+      "sha256": "fafaaa271fb411b6d0cda2e2785830f4f25731f48125d92c082a773abaf86f93"
+    },
+    {
+      "path": "tests/sports_dataset_season_projection_test.py",
+      "bytes": 3552,
+      "sha256": "f6437ea938a8f7762a5bb027b1448baac01aceabb532bd737c746ed1a639971e"
+    },
+    {
+      "path": "tests/sports_stage3_candidate_evaluation_test.py",
+      "bytes": 35559,
+      "sha256": "d115ba4322107a8554b7576284008bb2e37fb1aeae88498888629e1b82a6ca9b"
+    },
+    {
+      "path": "tests/sports_stage3_downstream_workflow_test.py",
+      "bytes": 17983,
+      "sha256": "3d19490b9a312df2df36e0219903b200c3986e7897242a0b55146bb749a73efe"
+    },
+    {
+      "path": "tests/sports_stage3_executable_artifact_test.py",
+      "bytes": 61922,
+      "sha256": "d31ab96f90a9dcc51dff74ecb8bf4933de9e98ddfa2b448f65d1ad450b77b166"
+    },
+    {
+      "path": "tests/sports_stage3_feature_engineering_test.py",
+      "bytes": 17640,
+      "sha256": "ba4ed4311dba477797d5e19db6bca9f8e181520a864c0f31dd34c0d4db43c680"
+    },
+    {
+      "path": "tests/sports_stage3_full_model_development_lab_test.py",
+      "bytes": 49069,
+      "sha256": "1e053d351af33e74ffb552b47eb92e8bfb82a321746f733416e9595f14414b6b"
+    },
+    {
+      "path": "tests/sports_stage3_game_scoring_test.py",
+      "bytes": 9957,
+      "sha256": "a9ba2802ffcad29d1849624906741f91fe896f64d4cab34b86c57fed06261f5d"
+    },
+    {
+      "path": "tests/sports_stage3_prior_publication_test.py",
+      "bytes": 11981,
+      "sha256": "109e760a67f587935b2a56673f4565a1f37b571dfabad1dd4c35c579f42dac6e"
+    },
+    {
+      "path": "tests/sports_stage3_project_eda_test.py",
+      "bytes": 22295,
+      "sha256": "a872634f926e166a5b3e51a7d2532b3fef41714898cb3115e039e90b4555005c"
+    },
+    {
+      "path": "tests/sports_stage3_project_model_laboratory_test.py",
+      "bytes": 36161,
+      "sha256": "ebca9c382e10b09b6c4c79759037723b741621226953df35ca8588fa11beaf27"
+    },
+    {
+      "path": "tests/sports_stage3_split_balance_test.py",
+      "bytes": 23734,
+      "sha256": "b8bcf0e4816869fe38dddf052445e795b526624c6831d279bc5d972fd1c6e693"
+    },
+    {
+      "path": "tests/sports_stage3_treatments_test.py",
+      "bytes": 43334,
+      "sha256": "4c3edfd9293777ad76920d222b650a7c1d69af170cc9ef150bbc3bfb0ecc61e7"
+    },
+    {
+      "path": "tests/tenantCockpitCacheIsolation.test.mjs",
+      "bytes": 3867,
+      "sha256": "853af234c2d6d2ffe2bd38fd75f5d06d704306876bc4aba398976afcee3b0d82"
+    },
+    {
+      "path": "tests/tenantStage3RouteProjectHandoff.test.mjs",
+      "bytes": 2138,
+      "sha256": "040983b2052edf46987db4306ccf551cf5cb11f9b1746ad15ed992d22106ffcf"
+    },
+    {
+      "path": "tests/tenant_project_access_repair_test.py",
+      "bytes": 15475,
+      "sha256": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774"
+    },
+    {
+      "path": "tests/tenant_stage3_artifact_authority_test.py",
+      "bytes": 6884,
+      "sha256": "1c1997838594ecbd374533a35ae8efb305002c439ef6cbb767069d436ba52046"
+    },
+    {
+      "path": "tests/tenant_stage3_route_authorization_test.py",
+      "bytes": 11473,
+      "sha256": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f"
+    },
+    {
+      "path": "tests/tenant_stage3_workflow_binding_test.py",
+      "bytes": 14849,
+      "sha256": "dcf973a7e3f45366a235a803f7336cbc1988d6c7a766eac11b68405c7adf3a1e"
+    }
+  ],
+  "securityDeltaFrom": "b2c2b50359afe78f86ed577314ec4c38278ac771",
+  "securityDeltaFileCount": 7,
+  "securityDeltaFiles": [
+    "server/security/security_store.py",
+    "server/security/security_router.py",
+    "server/sharing/sharing_service.py",
+    "server/persistence/persistence_router.py",
+    "server/persistence/repositories/project_repository.py",
+    "src/steps/NewProject.tsx",
+    "tests/tenant_project_access_repair_test.py"
+  ],
+  "sourceCorrections": [],
+  "materialAdditionalSourceChanges": 0
+}

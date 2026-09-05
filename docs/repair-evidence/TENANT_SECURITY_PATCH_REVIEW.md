@@ -1,3 +1,7 @@
+# Historical prepared-patch review — superseded
+
+The user subsequently approved both exact patches, which are now applied and committed as `b5af4211b446f1a470b71cbda4bd6724f50346b9`. The following text records the earlier pre-approval state, not the current result. See [SECURITY_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/SECURITY_COMPLETION_REPORT.md>) for passing standard checks and the additional concurrency blocker.
+
 # Prepared tenant-authorization repair
 
 Status: prepared and statically checked; **not applied or verified after repair**. Automatic approval review rejected the narrow apply operation twice because it treated the prior backup-only request as authoritative instead of the latest repair attachment. No workaround application or source mirror was used.
