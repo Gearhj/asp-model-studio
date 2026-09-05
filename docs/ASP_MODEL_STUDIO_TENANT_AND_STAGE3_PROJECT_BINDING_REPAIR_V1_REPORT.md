@@ -1,8 +1,8 @@
 # ASP Model Studio tenant and Stage 3 project binding repair V1
 
-Updated 2026-09-05T21:03:44.833816+00:00.
+Updated 2026-09-05T21:46:30.329876+00:00.
 
-Partial readiness. The approved membership/ACL patches are committed; a confirmed concurrent project update authorization gap requires a further bounded correction. Current security completion and evidence: [SECURITY_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/SECURITY_COMPLETION_REPORT.md>). Earlier publication and browser evidence retain their original scope.
+The bounded tenant/project repair is ready for review: approved membership/ACL fixes and the atomic project-write correction are implemented and verified. Current results: [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>). Earlier full-suite/browser evidence retains its original scope; scientific blockers remain unchanged.
 
 1. **Starting worktree, branch, and full HEAD.**
 
@@ -10,7 +10,7 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 2. **New worktree, branch, and final full HEAD.**
 
-    `C:\Users\james\worktrees\asp-model-studio-tenant-workflow-repair-v1`, branch `codex/model-studio-tenant-workflow-repair-v1`. Security source/test commit: `b5af4211b446f1a470b71cbda4bd6724f50346b9`. The subsequent documentation commit and final clean status are recorded in the [final post-commit Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/security-completion-final-git-state.json>). Historical pre-security HEAD: `b2c2b50359afe78f86ed577314ec4c38278ac771`.
+    `C:\Users\james\worktrees\asp-model-studio-tenant-workflow-repair-v1`, branch `codex/model-studio-tenant-workflow-repair-v1`. This atomic completion starts at `7a4bf4a972438140b82aebf060448b643d6827f4` and creates one logical security commit. Its final full HEAD and clean status are in the [final Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/atomic-authorization-final-git-state.json>). [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>)
 
 3. **Main HEAD.**
 
@@ -18,7 +18,7 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 4. **Git status before and after.**
 
-    The isolated repair worktree began this security completion clean at `b2c2b50359afe78f86ed577314ec4c38278ac771`. Only the seven approved source/test files and verification reports changed. The [final post-commit Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/security-completion-final-git-state.json>) records final committed status. All six original worktree statuses remain unchanged. [protected-state-after.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/protected-state-after.json>)
+    The repair worktree began this approval clean. Only three bounded source files, two tests and reports/evidence changed. All six original worktree statuses remain unchanged. The [final Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/atomic-authorization-final-git-state.json>) records final committed status. [protected-state-after.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/protected-state-after.json>)
 
 5. **Preserved worktrees and untracked files.**
 
@@ -26,7 +26,7 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 6. **Exact audit findings addressed.**
 
-    F-001 self-grant and F-004 ACL visibility received the exact approved patches. Their standard before/after checks now pass. F-006 project route checks remain passing. A separately confirmed concurrent project create/PUT write still prevents complete F-001/cross-user isolation closure; no additional material source change was made. [SECURITY_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/SECURITY_COMPLETION_REPORT.md>)
+    F-001 self-grant and F-004 ACL visibility repairs remain passing. The additional concurrent project create/PUT and pending-editor revocation gaps are now closed by atomic project authorization/writes. F-006 active project routes remain scoped. No security integration or scientific approval is implied. [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>)
 
 7. **F-001 reproduction before repair.**
 
@@ -34,15 +34,15 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 8. **F-001 result after repair.**
 
-    Self-grant and foreign read now return HTTP 403; owner replacement, member escalation and foreign invite/revoke checks pass, with no authorization-domain mutation on denied attempts. The standard independent matrix passes 30/30. Overall closure remains incomplete: one synchronized missing-ID PUT followed by another user's creation allowed HTTP 200 and changed that foreign project's name/metadata. Owner and creator were preserved, which is insufficient to prevent unauthorized updates. No baseline race replay was performed. [independent-tenant-after-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-after-20260905b.json>) [independent-tenant-race-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-race-20260905b.json>)
+    PASS within tested scope. Foreign self-grant/read remain 403. The same deterministic harness reproduced 25/25 unauthorized PUT 200 updates on exact pre-atomic HEAD and now gets 25/25 PUT 403 denials with 113 application-domain tables plus audit/artifact/cache state unchanged. Standard membership/ACL checks also pass 30/30. Owner, administrator, creation and revocation checks pass. [concurrency-comparison.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/concurrency-comparison.json>)
 
 9. **F-004 result.**
 
-    PASS in tested scope. Foreign ACL requests changed from HTTP 200 to HTTP 403 before membership enumeration. Nonmember ACL/list access and ordinary-member detailed ACL access are denied; member effective status is redacted. Owner and workspace-administrator operations pass. [independent-tenant-after-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-after-20260905b.json>)
+    PASS within tested endpoints. Foreign ACL requests remain HTTP 403 before membership enumeration; ordinary member details remain redacted. Legitimate owner and workspace-administrator operations pass, and the atomic fix does not broaden these authorization rules. [membership-matrix.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/membership-matrix.json>)
 
 10. **F-006 result.**
 
-    All 338 post-security Stage 3 tests pass. Active routes retain authenticated exact-project scope before service/data access; foreign and anonymous probes fail closed. The remaining concurrent project CRUD defect prevents a general tenant-isolation certification despite the route results. [post-security-route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/tenant-stage3-repair-v1/post-security-route-verification.json>)
+    All 338 post-atomic Stage 3 tests pass. Active routes retain authenticated exact-project scope; foreign and anonymous requests fail closed. The previously documented concurrent project update exception is now closed. [route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/route-verification.json>)
 
 11. **Number of Stage 3 routes inventoried.**
 
@@ -54,13 +54,13 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 13. **Cross-user probes and result.**
 
-    180 foreign-user, 90 anonymous and 20 supporting foreign-project HTTP probes pass within the 338-test Stage 3 suite. The independent security matrix passes 30/30; the separate same-ID concurrency test fails 1/1. Ordinary simultaneous-user identity checks pass, but the failing race precludes blanket concurrent isolation. These matrices overlap and must not be added into an invented distinct-test total. [post-security-route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/tenant-stage3-repair-v1/post-security-route-verification.json>) [independent-tenant-race-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-race-20260905b.json>)
+    200/200 foreign-user/project route denial requests and 90/90 anonymous requests pass within the 338 focused Stage 3 tests. The separate 73-check concurrency harness passes, including 25 forced races and 47 cross-user/revoked denial requests overall. The independently repeated membership/ACL matrix passes30/30. Counts describe separate overlapping test scopes. [route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/route-verification.json>) [concurrency-comparison.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/concurrency-comparison.json>)
 
 14. **Cross-project probes and result.**
 
     Disposable tests reject path/query/nested-body project conflicts, foreign dataset/policy/split/feature/candidate/finalist/artifact references, mismatched copied jobs/plans/receipts, revoked worker authority, and cross-user/project cache reuse. Accepted science follows the exact selected split's features and adopted policies, with no independently selected latest/global authority. A nonpilot three-fold artifact contract fails on the exact base and passes after repair. [workflow-focused-probes.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/workflow-focused-probes.json>) [route-results.xml](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/tenant-stage3-repair-v1/route-results.xml>)
 
-    Post-security project-scoped route checks remain passing. The additional project create/PUT race is a confirmed exception to general cross-project write isolation and awaits a material transaction-authorization correction. [independent-tenant-race-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-race-20260905b.json>)
+    Post-security project-scoped route checks remain passing. The additional project create/PUT race was subsequently repaired and passes 25/25 deterministic before/after checks; see the current atomic completion report. [independent-tenant-race-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-race-20260905b.json>)
 
 15. **Wave 2 source artifact root.**
 
@@ -138,7 +138,11 @@ Partial readiness. The approved membership/ACL patches are committed; a confirme
 
 29. **Tests.**
 
-    Current security completion: approved unittest 1 pass/30 subprobes; independent 30/30 after versus 13/30 before; separate concurrent create/PUT probe 1 failure. Post-security route/auth selection 368 pass, nine identical pre-security failures, two runtime skips; 338/338 Stage 3 pass. Frontend 1,097 pass/56 unchanged named failures; all 51 nonpass files replayed against exact pre-security b2c2b503, zero new failed names/reasons, 16 top-level aborts and two specialized exclusions. TypeScript/build and 541 Python source compilations pass. [post-security-route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/tenant-stage3-repair-v1/post-security-route-verification.json>) [security-frontend-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-frontend-verification.json>) [python-compilation.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/python-compilation.json>)
+    Current atomic completion: concurrency 73/73; exact approved aggregate membership test 1/1 and independent matrix 30/30; selected route/security/project/sharing/forecast 402 collected, 387 passed, 12 matching baseline failures and 3 skips; Stage 3 subset 338/338 and forecast subset 2/2. Frontend 1,097 passed and 56 unchanged failures, zero new failed names/reasons against exact 7a4bf4a9. TypeScript/build and 541 Python compilations pass. [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>)
+
+    The following earlier suite counts remain historical evidence and were not rerun as a full backend/browser suite for this atomic fix.
+
+Current security completion: approved unittest 1 pass/30 subprobes; independent 30/30 after versus 13/30 before; separate concurrent create/PUT probe 1 failure. Post-security route/auth selection 368 pass, nine identical pre-security failures, two runtime skips; 338/338 Stage 3 pass. Frontend 1,097 pass/56 unchanged named failures; all 51 nonpass files replayed against exact pre-security b2c2b503, zero new failed names/reasons, 16 top-level aborts and two specialized exclusions. TypeScript/build and 541 Python source compilations pass. [post-security-route-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/tenant-stage3-repair-v1/post-security-route-verification.json>) [security-frontend-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-frontend-verification.json>) [python-compilation.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/python-compilation.json>)
 
     The following broad backend/frontend comparison is retained historical evidence from before the security patch; its full backend suite was not rerun for this completion.
 
@@ -152,7 +156,7 @@ The full backend runs completed in source-only disposable mirrors under identica
 
 30. **TypeScript/build.**
 
-    Post-security TypeScript and modeling production build passed. Main asset `dist/assets/main-C4SfSlYd.js` SHA-256 `dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520`, identical to the previous modeling build. NewProject.tsx is covered by TypeScript and affected UX checks but is not imported by the ModelingApp route. Existing bundle-size, browser-metadata and mixed-import warnings remain nonfatal. [security-frontend-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-frontend-verification.json>)
+    Final TypeScript and production modeling build pass. Main asset `main-C4SfSlYd.js` retains SHA256 `dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520`; frontend source is unchanged. Existing bundle-size, browser-metadata and mixed-import warnings remain nonfatal. [frontend-verification.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/frontend-verification.json>)
 
 31. **Browser acceptance.**
 
@@ -162,11 +166,11 @@ The full backend runs completed in source-only disposable mirrors under identica
 
 32. **Files changed.**
 
-    60 cumulative source/test files differ from the original Wave 2 base, plus verification documentation. This completion adds the exact seven approved security source/test files without corrections. No protected primary application source was modified. [files-changed.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/files-changed.json>)
+    62 cumulative source/test paths differ from original Wave 2 base. This approval changes exactly three source files and two tests, plus reports/evidence. No primary source, prior mathematics or scientific identities changed. [files-changed.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/files-changed.json>)
 
 33. **Commits created.**
 
-    Earlier commits remain `d91fcd0ff12b0e4d6f3634579b5c39f144e11d29`, `4d77f5e6d81cd7bb6e13037a04fb7f7849e22e44`, `40fd704983404a781af18ecda4ad8faded413852`, `2fb8c66854e999a66847d959a297cf5d67c410e4`, and `b2c2b50359afe78f86ed577314ec4c38278ac771`. New security commit: `b5af4211b446f1a470b71cbda4bd6724f50346b9`. The subsequent documentation commit and complete ordered commit list are in the [final post-commit Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/security-completion-final-git-state.json>).
+    All prior repair commits remain intact, including membership/ACL security commit `b5af4211b446f1a470b71cbda4bd6724f50346b9` and prior documentation HEAD `7a4bf4a972438140b82aebf060448b643d6827f4`. This approval adds exactly one logical `fix(security): authorize project writes atomically` commit, recorded in the [final Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/atomic-authorization-final-git-state.json>).
 
 34. **Pushes performed.**
 
@@ -178,12 +182,12 @@ The full backend runs completed in source-only disposable mirrors under identica
 
 36. **Remaining workflow blockers.**
 
-    The approved membership/ACL patches are applied; the earlier approval block is resolved. A confirmed concurrent project create/PUT authorization gap still permits a foreign project update. Its material correction awaits further approval. The protected running primary is not integrated. Challenger treatment prerequisites, XGBoost-only new artifact production, governed lineup/starter authority, pilot live-row browser limits, baseline/environment test nonpasses and unreached assertions remain as previously documented. [independent-tenant-race-20260905b.json](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/independent-tenant-race-20260905b.json>)
+    No confirmed blocker remains in the tested atomic authorization scope. The protected primary is not integrated. Challenger treatment/feature prerequisites, supported artifact/lineup authority limits, pilot live-row browser qualification, and documented baseline/environment nonpasses remain unchanged. [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>)
 
 37. **Exact next step for returning to challenger model development.**
 
-    Request narrowly scoped approval to make project authorization and creation/update atomic for the actual persisted row and add a deterministic same-ID concurrency regression. Then rerun the affected disposable security/route checks and review the repair branch. Integration and any future schedule/holiday governance or model-development activity require their own authorization; rivalry remains closed. No such action was taken here.
+    Review the single atomic security commit and complete repair branch; integrate/deploy only under separate authorization. Continue to hold challenger model development until governed schedule/holiday treatment and feature prerequisites are resolved and approved. Rivalry remains closed. No such scientific or operational action was taken here.
 
 38. **Final verdict.**
 
-    **ASP_MODEL_STUDIO_REPAIR_PARTIALLY_READY**. The exact approved membership/ACL source and tests are applied and committed, with standard checks passing. A confirmed concurrent foreign-project update prevents full tenant/project binding readiness. The user explicitly requires stopping before a material change beyond those patches, so that additional correction has not been made. [SECURITY_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/security-completion/SECURITY_COMPLETION_REPORT.md>)
+    **ASP_MODEL_STUDIO_TENANT_AND_PROJECT_BINDING_REPAIR_READY** for the bounded local tenant/project repair. The paired synchronized race is closed and tested legitimate creator/owner/admin paths pass. This does not authorize operational integration or remove the separate scientific and verification limits. [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>)

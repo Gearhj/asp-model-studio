@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "ATOMIC_PROJECT_GUARD_RECEIPT_V1",
+  "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "runtimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-after-runtime-02",
+  "sourceHashes": {
+    "server/persistence/persistence_router.py": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+    "server/persistence/repositories/project_repository.py": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+    "server/security/security_store.py": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619"
+  },
+  "testSHA256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72",
+  "guardViolations": [],
+  "optionalPlatformProbes": [
+    "optional_lscpu_blocked_before_launch"
+  ],
+  "scope": "Synthetic authenticated TestClient requests; every application table except user activity, project security audit events, disposable artifact hashes, and in-memory result cache compared. No browser is started.",
+  "sourceReceiptSHA256": "619edb42bcba2984fc88b76325cb1003a45ead7518235a9bb3e0e297c91026f5",
+  "authoritativeModelActivity": 0,
+  "policyAdoptions": 0,
+  "featureRegistrations": 0,
+  "finalOotAccess": 0,
+  "currentGoldMutations": 0,
+  "providerCalls": 0
+}

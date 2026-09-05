@@ -1,3 +1,9 @@
+# Current tenant and project-binding completion
+
+Updated 2026-09-05T21:46:30.329876+00:00. The approved atomic correction closes the prior concurrent project-write blocker. The final paired harness passes 73/73, including 25/25 forced race denials, and tested owner/admin/creator paths remain functional. Current final results: [ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/docs/repair-evidence/atomic-authorization/ATOMIC_AUTHORIZATION_COMPLETION_REPORT.md>). Final commit: [final Git receipt](<C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1/.tmp/atomic-authorization-final-git-state.json>).
+
+The previous completion below is historical evidence at the earlier security patch boundary; its partial verdict and pending-approval statement are superseded.
+
 # Approved membership and ACL security patch completion
 
 Captured 2026-09-05T21:03:44.833816+00:00. Applies only to the isolated Model Studio repair worktree. The exact approved patches are committed. Full readiness is withheld because an additional concurrent project update authorization defect was confirmed. No material correction beyond those patches was made.

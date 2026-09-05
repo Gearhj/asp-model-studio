@@ -1,0 +1,22 @@
+{
+  "violations": [
+    {
+      "category": "subprocess",
+      "testNode": "exact-approved-inner-membership-probe"
+    },
+    {
+      "category": "subprocess",
+      "testNode": "exact-approved-inner-membership-probe"
+    },
+    {
+      "category": "subprocess",
+      "testNode": "exact-approved-inner-membership-probe"
+    },
+    {
+      "category": "subprocess",
+      "testNode": "exact-approved-inner-membership-probe"
+    }
+  ],
+  "guardVersion": "2-owned-loopback-only",
+  "scope": "Exact approved inner probe under inherited before-import guard; only synthetic runtime databases"
+}

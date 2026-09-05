@@ -1,0 +1,33 @@
+{
+  "sourceRevision": "7a4bf4a972438140b82aebf060448b643d6827f4",
+  "sourceRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-source-before-7a4bf4a9-v2",
+  "sourceFiles": 592,
+  "archiveSHA256": "a12d7befe65fedce0fe89113d142cf1e2d8eb130b6ec35e1e5f58fa1130a59e9",
+  "excluded": [
+    "server/data",
+    "server/artifacts",
+    "all non-code/non-config file extensions"
+  ],
+  "emptyFixtureDirectories": [
+    "server/artifacts/datasets"
+  ],
+  "emptyFixtureReason": "Existing dataset path guard requires a stat-able protected-root sentinel; no data copied.",
+  "gitBlobChecks": {
+    "server/persistence/persistence_router.py": {
+      "archiveSHA256": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+      "gitBlobSHA256": "5001c048b4d8581a0e88d7fc054c3290b2659e2320e486b287cbce77d7c952fd",
+      "normalizedLFContentEqual": true
+    },
+    "server/persistence/repositories/project_repository.py": {
+      "archiveSHA256": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d",
+      "gitBlobSHA256": "d75df128f46df02b2444d3d9a34122934e17a0686e1c506670d203c7b811a2b4",
+      "normalizedLFContentEqual": true
+    },
+    "server/security/security_store.py": {
+      "archiveSHA256": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813",
+      "gitBlobSHA256": "1d4969501ce719a16c6ae521e94893248ba8b9983a9b05396db469c4bdceea74",
+      "normalizedLFContentEqual": true
+    }
+  },
+  "lineEndingNote": "Git archive honors this Windows repository export line endings; all three exercised changed source files match exact commit blobs after CRLF-to-LF normalization."
+}

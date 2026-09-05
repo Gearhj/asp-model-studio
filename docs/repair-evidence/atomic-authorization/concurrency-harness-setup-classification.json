@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "ATOMIC_PROJECT_TEST_SETUP_CLASSIFICATION_V1",
+  "nonAuthoritativeSetupAttempts": [
+    {
+      "name": "before01",
+      "result": "optional import fallback obscured blocked lscpu probe"
+    },
+    {
+      "name": "before02",
+      "result": "optional numpy lscpu probe was blocked before process launch; platform probe classification corrected"
+    },
+    {
+      "name": "before03",
+      "result": "source archive omitted required tools Python package; exact commit package added"
+    },
+    {
+      "name": "before04",
+      "result": "source snapshot omitted empty dataset guard sentinel directory"
+    },
+    {
+      "name": "before05",
+      "result": "same omitted empty sentinel isolated with exception enabled; created empty fixture directory only"
+    }
+  ],
+  "earlyCandidateRun": {
+    "receipt": "VIS/atomic-after-result-01.json",
+    "checks": 62,
+    "passed": 62,
+    "status": "superseded by identical expanded73-check before/after pair"
+  },
+  "authoritativeRuns": [
+    "concurrency-before.json",
+    "concurrency-after.json"
+  ],
+  "applicationSourceCorrectionsFromHarnessSetup": 0,
+  "operationalActions": 0,
+  "normalUnittestPreconditionFailures": {
+    "attempts": 2,
+    "reason": "Windows sandbox ACL denied the newly created tempfile child directory before any probe could run.",
+    "resolution": "Narrow authorized disposable-test execution outside the filesystem sandbox; exact unchanged test then passed1/73.",
+    "applicationSourceCorrections": 0,
+    "testSourceCorrections": 0
+  }
+}

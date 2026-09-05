@@ -464,37 +464,60 @@ def list_projects(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any
     return {"ok": True, "projects": projects, "count": len(visible)}
 
 
+def _audit_project_write(
+    service: PersistenceService,
+    user: Dict[str, Any],
+    record: Dict[str, Any],
+    action: str,
+    summary: str,
+    **metadata: Any,
+) -> None:
+    # Project mutation events have one durable authority: the same transaction
+    # as the project row. The security audit APIs project these canonical rows,
+    # so a separate best-effort security-database write cannot leave a false
+    # success event or split the commit across two WAL databases.
+    service.audit.create({
+        "audit_id": f"audit_{uuid.uuid4().hex}",
+        "project_id": record["project_id"],
+        "user_id": user.get("userId"),
+        "action_type": action,
+        "entity_type": "project",
+        "entity_id": record["project_id"],
+        "title": action.replace(".", " ").title(),
+        "summary": summary,
+        "created_at": now_iso(),
+        "metadata_json": {
+            **metadata, "projectId": record["project_id"],
+            "summary": summary, "outcome": "success",
+        },
+    })
+
+
 @router.post("/projects")
 def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     project_id = _id("project", payload, "projectId", "project_id")
-    if _service().projects.get(project_id) is not None:
-        if not _sharing_service().check_permission(user, "project", project_id, "edit").get("allowed"):
-            raise HTTPException(status_code=403, detail="Project creation requires a new project identity.")
-        raise HTTPException(status_code=409, detail="Project creation requires a new project identity.")
 
     def operation() -> Dict[str, Any]:
-        service = _service()
-        service.sync_user(user)
-        record = service.projects.create(_project_record(project_id, payload, user))
-        SharingService(service)._bootstrap_project_owner(user, project_id)
-        return record
+        # Reuse the transaction-bound project/ACL service. BEGIN IMMEDIATE
+        # precedes every existence/permission read, and nested repository and
+        # creator membership writes all use this one connection.
+        with _sharing_service()._project_acl_transaction() as sharing:
+            service = sharing.persistence
+            if service.projects.get(project_id) is not None:
+                if not sharing.check_permission(user, "project", project_id, "edit").get("allowed"):
+                    raise HTTPException(status_code=403, detail="Project creation requires a new project identity.")
+                # Preserve the existing retry contract: conflict, no mutation,
+                # no second creator membership or success audit event.
+                raise HTTPException(status_code=409, detail="Project creation requires a new project identity.")
+            service.sync_user(user)
+            record = service.projects.create(_project_record(project_id, payload, user))
+            sharing._bootstrap_project_owner(user, project_id)
+            _audit_project_write(service, user, record, "project.created", f"Created project {record.get('project_name')}.")
+            if record.get("template_id"):
+                _audit_project_write(service, user, record, "template.selected", f"Selected template {record.get('template_id')}.", templateId=record["template_id"])
+            return record
 
     record = _execute(operation)
-    audit_event(
-        "project.created",
-        "project",
-        project_id,
-        "success",
-        metadata={"projectId": project_id, "summary": f"Created project {record.get('project_name')}."},
-    )
-    if record.get("template_id"):
-        audit_event(
-            "template.selected",
-            "project",
-            project_id,
-            "success",
-            metadata={"projectId": project_id, "templateId": record.get("template_id"), "summary": f"Selected template {record.get('template_id')}."},
-        )
     project = _execute(lambda: _project_with_durable_dataset_state(record, user))
     return {"ok": True, "project": project}
 
@@ -516,61 +539,54 @@ def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -
 
 @router.put("/projects/{project_id}")
 def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    # A PUT to a project_id that doesn't exist yet implicitly creates it, owned
-    # by the caller (existing behavior, relied on by sqlite_persistence_backend_test.py).
-    # A PUT to an existing project the caller doesn't have edit access to is denied.
-    existing_project = _authorize_project(project_id, user, "edit", allow_missing=True)
-    if existing_project:
-        # Generic project saves cannot transfer ownership or forge provenance.
-        for key in ("ownerUserId", "owner_user_id"):
-            if key in payload and payload[key] != existing_project.get("owner_user_id"):
-                raise HTTPException(status_code=403, detail="Project ownership cannot be changed through project saves.")
-        for key in ("createdBy", "created_by"):
-            if key in payload and payload[key] != existing_project.get("created_by"):
-                raise HTTPException(status_code=403, detail="Project provenance cannot be changed through project saves.")
-
     def operation() -> Dict[str, Any]:
-        service = _service()
-        service.sync_user(user)
-        existing = service.projects.get(project_id) or {}
-        existing_metadata = existing.get("metadata_json") or {}
-        incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
-        incoming_metadata = dict(incoming_metadata) if isinstance(incoming_metadata, dict) else {}
-        # The registered sports forecast contract has its own atomic,
-        # expected-version endpoint. Generic project saves may preserve that
-        # reserved node but may never replace or delete it.
-        incoming_metadata.pop(FORECAST_CONTRACT_METADATA_KEY, None)
-        merged = {
-            "projectName": existing.get("project_name"),
-            "projectType": existing.get("project_type"),
-            "workflowType": existing.get("workflow_type"),
-            "templateId": existing.get("template_id"),
-            "status": existing.get("status"),
-            "ownerUserId": existing.get("owner_user_id"),
-            "createdAt": existing.get("created_at"),
-            "metadata": {**existing_metadata, **incoming_metadata},
-            **payload,
-        }
-        merged["metadata"] = {**existing_metadata, **incoming_metadata}
-        record = _project_record(project_id, merged, user)
-        if existing:
-            record["owner_user_id"] = existing.get("owner_user_id")
-            record["created_by"] = existing.get("created_by")
-            return service.projects.upsert_preserving_metadata_keys(
-                record, reserved_metadata_keys={FORECAST_CONTRACT_METADATA_KEY},
-            )
-        created = service.projects.create(record)
-        SharingService(service)._bootstrap_project_owner(user, project_id)
-        return created
+        # Missing-ID PUT retains its creation contract, but it never becomes
+        # an upsert. Authorization is evaluated against the actual locked row
+        # and live permissions, not a snapshot taken before this transaction.
+        with _sharing_service()._project_acl_transaction() as sharing:
+            service = sharing.persistence
+            existing = service.projects.get(project_id)
+            if existing:
+                if not sharing.check_permission(user, "project", project_id, "edit").get("allowed"):
+                    raise HTTPException(status_code=403, detail="You do not have permission to perform this action on this project.")
+                for key in ("ownerUserId", "owner_user_id"):
+                    if key in payload and payload[key] != existing.get("owner_user_id"):
+                        raise HTTPException(status_code=403, detail="Project ownership cannot be changed through project saves.")
+                for key in ("createdBy", "created_by"):
+                    if key in payload and payload[key] != existing.get("created_by"):
+                        raise HTTPException(status_code=403, detail="Project provenance cannot be changed through project saves.")
+            # Denials and duplicate requests reach no domain write or audit.
+            service.sync_user(user)
+            current = existing or {}
+            existing_metadata = current.get("metadata_json") or {}
+            incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
+            incoming_metadata = dict(incoming_metadata) if isinstance(incoming_metadata, dict) else {}
+            # The forecast contract is server authority. Its current value was
+            # read under this write lock and cannot change before our UPDATE.
+            incoming_metadata.pop(FORECAST_CONTRACT_METADATA_KEY, None)
+            merged = {
+                "projectName": current.get("project_name"),
+                "projectType": current.get("project_type"),
+                "workflowType": current.get("workflow_type"),
+                "templateId": current.get("template_id"),
+                "status": current.get("status"),
+                "createdAt": current.get("created_at"),
+                **payload,
+            }
+            merged["metadata"] = {**existing_metadata, **incoming_metadata}
+            record = _project_record(project_id, merged, user)
+            if existing:
+                record["owner_user_id"] = existing.get("owner_user_id")
+                record["created_by"] = existing.get("created_by")
+                with service.database.connection() as connection:
+                    record = service.projects.update_locked(record, connection=connection)
+            else:
+                record = service.projects.create(record)
+                sharing._bootstrap_project_owner(user, project_id)
+            _audit_project_write(service, user, record, "project.saved", f"Saved project {record.get('project_name')}.")
+            return record
 
     record = _execute(operation)
-    audit_event(
-        "project.saved",
-        "project",
-        project_id,
-        "success",
-        metadata={"projectId": project_id, "summary": f"Saved project {record.get('project_name')}."},
-    )
     project = _execute(lambda: _project_with_durable_dataset_state(record, user))
     return {"ok": True, "project": project}
 

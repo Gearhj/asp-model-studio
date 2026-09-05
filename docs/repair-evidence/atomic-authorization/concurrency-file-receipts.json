@@ -1,0 +1,41 @@
+{
+  "testSHA256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72",
+  "files": {
+    "tests/tenant_project_atomic_authorization_test.py": {
+      "byteSize": 31249,
+      "sha256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-before.json": {
+      "byteSize": 51415,
+      "sha256": "96d7b4eab056dd340456f96a6a5952d7d254e3634b9d8a321632807f2863e0d1"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-before.guard.json": {
+      "byteSize": 1386,
+      "sha256": "30db5bc2dddb36e97aa708c6e1036df8a103b728a9f58943dbe2419ac921013f"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-after.json": {
+      "byteSize": 40363,
+      "sha256": "619edb42bcba2984fc88b76325cb1003a45ead7518235a9bb3e0e297c91026f5"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-after.guard.json": {
+      "byteSize": 1330,
+      "sha256": "f8e0293c464606246fa4cee5a1a4ff46726bb4ed8cc70140c5c4df907982e4ce"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-comparison.json": {
+      "byteSize": 4055,
+      "sha256": "df84f64d83903f10d0126ed9cb833e22695b64cc02e252c436c7feea09e9d62f"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-baseline-source.json": {
+      "byteSize": 1667,
+      "sha256": "c798c20a21cf6fd99e88356f83b9b7a5f3215ef08bfa1d2e3131599c2869fb73"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-harness-setup-classification.json": {
+      "byteSize": 1584,
+      "sha256": "47c05891f8d176c7563eac383dc05302d6f0d522b7477d5a23a927ba7488bbff"
+    },
+    "docs/repair-evidence/atomic-authorization/concurrency-unittest-entrypoint.json": {
+      "byteSize": 506,
+      "sha256": "65714a06931de9c239bf7f0ddf838c2e55b32395904616f28037b9d62d3e630d"
+    }
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "ASP_ATOMIC_AUTHORIZATION_COMPLETION_V1",
+  "capturedAt": "2026-09-05T21:46:30.329876+00:00",
+  "worktree": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "branch": "codex/model-studio-tenant-workflow-repair-v1",
+  "startingHead": "7a4bf4a972438140b82aebf060448b643d6827f4",
+  "mainHead": "924db29511f93909f9d785855bfa056775443690",
+  "finalHeadReceipt": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\.tmp\\atomic-authorization-final-git-state.json",
+  "schemaChanges": 0,
+  "migrationsCreated": 0,
+  "design": "BEGIN IMMEDIATE before row/permission lookup; one bound connection; INSERT-only missing path; UPDATE-only existing path with owner/creator guards and rowcount=1; creator ACL and canonical audit_log in same commit; legacy audit APIs project canonical success events.",
+  "F001": "PASS_FOREIGN_SELF_GRANT_403_AND_CONCURRENT_FOREIGN_UPDATE_DENIED",
+  "F004": "PASS_FOREIGN_ACL_403_BEFORE_ENUMERATION",
+  "raceBefore": {
+    "attempts": 25,
+    "unauthorizedUpdates": 25,
+    "status": 200
+  },
+  "raceAfter": {
+    "attempts": 25,
+    "unauthorizedUpdates": 0,
+    "denials": 25,
+    "status": 403
+  },
+  "concurrencyChecks": {
+    "passed": 73,
+    "failed": 0,
+    "sameIdCreationRounds": 10,
+    "ownerForeignRounds": 10,
+    "ownerAdminRounds": 10,
+    "auditRollbackCases": 4,
+    "auditProjectionChecks": 10,
+    "pendingEditorRevocation": "PASS",
+    "duplicateOwnerPost": 409
+  },
+  "routeTests": {
+    "collected": 402,
+    "passed": 387,
+    "skipped": 3,
+    "failed": 12
+  },
+  "routeBaselineNoNewFailures": true,
+  "stage3Routes": {
+    "inventoried": 99,
+    "activeAuthorized": 90,
+    "retiredAuthenticated": 9,
+    "supporting": 20,
+    "focusedTestsPassed": 338
+  },
+  "probeCounts": {
+    "routeCrossUserProjectDenials": 200,
+    "anonymousDenials": 90,
+    "concurrencyCrossUserOrRevokedDenials": 47,
+    "membershipAclChecks": 30,
+    "countsAreSeparateOverlappingTestScopes": true
+  },
+  "frontend": {
+    "enumeratedFiles": 165,
+    "executedFiles": 163,
+    "fileStatuses": {
+      "PASS": 112,
+      "ASSERTION_OR_RUNTIME_FAILURE": 43,
+      "DEPENDENCY_UNAVAILABLE": 7,
+      "SAFETY_GUARD_BLOCKED": 1
+    },
+    "namedTests": {
+      "tests": 1153,
+      "passed": 1097,
+      "failed": 56,
+      "skipped": 0
+    },
+    "candidateNonpassFilesRecheckedAgainstBase": 51,
+    "introducedNamedFailures": 0,
+    "changedNormalizedFailureReasons": 0,
+    "topLevelAbortFilesWithLaterAssertionsUnreached": 16,
+    "excluded": {
+      "bureauReviewAutomaticDetection.browser.test.mjs": "REQUIRES_SEPARATE_ISOLATED_BROWSER_BUILD_FIXTURE",
+      "hermetic_node_guard.test.mjs": "REQUIRES_HERMETIC_CHILD_DEPENDENCY_HASH_ENVIRONMENT"
+    },
+    "elapsedSeconds": 48.05,
+    "receipt": "frontend-suite-comparison.json"
+  },
+  "typeScript": "PASS",
+  "modelingBuild": "PASS",
+  "pythonCompilationFiles": 541,
+  "pilotEvidenceIsolation": {
+    "currentChecks": "Synthetic compiled cache and canonical-project handoff probes pass; project-bound frontend authority assertions pass. Computed server evidence is not restored from stale caches, and a stale foreign contract cannot override the selected project.",
+    "authoritativeMetadataOrRowsOpenedByVerifier": 0,
+    "newBrowserAcceptanceAgainstAtomicBackend": false,
+    "historicalBrowserQualification": "The 331-assertion disposable browser receipt predates both the membership/ACL and atomic project-write changes. An identical frontend bundle is not fresh browser certification of the changed backend."
+  },
+  "activity": {
+    "authoritativeModel": 0,
+    "policyAdoption": 0,
+    "featureRegistration": 0,
+    "finalOotAccess": 0,
+    "currentGoldMutation": 0,
+    "providerCalls": 0,
+    "operationalDatabaseWrites": 0,
+    "operationalServiceRestarts": 0,
+    "pushes": 0,
+    "merges": 0,
+    "primarySourceEdits": 0
+  },
+  "remainingBlockers": [
+    "Existing baseline/fixture/environment nonpasses and unreached assertions",
+    "Schedule, holiday and rivalry governance blockers unchanged",
+    "Operational integration/deployment not performed",
+    "Historical full browser acceptance not rerun against this backend; pilot row-derived controls remain unverified under the zero-OOT boundary"
+  ],
+  "verdict": "ASP_MODEL_STUDIO_TENANT_AND_PROJECT_BINDING_REPAIR_READY"
+}

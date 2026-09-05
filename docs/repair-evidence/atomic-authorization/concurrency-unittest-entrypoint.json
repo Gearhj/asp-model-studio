@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "ATOMIC_PROJECT_UNITTEST_ENTRYPOINT_V1",
+  "testPath": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\tests\\tenant_project_atomic_authorization_test.py",
+  "testSHA256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72",
+  "exitCode": 0,
+  "passed": true,
+  "unittestCases": 1,
+  "subprobes": 73,
+  "durationSeconds": 28.922,
+  "scope": "Exact new test normal unittest entry point with fresh disposable guarded child runtime."
+}

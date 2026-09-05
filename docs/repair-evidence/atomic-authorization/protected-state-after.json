@@ -1,0 +1,489 @@
+{
+  "schemaVersion": "ASP_REPAIR_FINAL_RECONCILIATION_V1",
+  "capturedAt": "2026-09-05T21:33:59.651838+00:00",
+  "scope": "Allowlisted Model Studio worktrees; read-only SQLite digests; immutable JSON only",
+  "preservedWorktrees": [
+    {
+      "root": "C:\\Users\\james\\asp-model-studio",
+      "head": "33cd85fa5074efeec3077036baea9c8b2ef86bdf",
+      "branch": "codex/mlb-governed-prior-engine-v1",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    },
+    {
+      "root": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-interaction-authority-v1",
+      "head": "09006653b3f1714574a88efca8650d4f967ab3cd",
+      "branch": "codex/mlb-interaction-authority-v1",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    },
+    {
+      "root": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2",
+      "head": "bff19a8a657bc96dea0469fad481acdcb4234386",
+      "branch": "codex/mlb-player-prior-wave2",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    },
+    {
+      "root": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-remaining-feature-authority-wave1",
+      "head": "64a74be89b029adc013e118b14aad75e3ddc0232",
+      "branch": "codex/mlb-remaining-feature-authority-wave1",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    },
+    {
+      "root": "C:\\Users\\james\\worktrees\\asp-model-studio-fable51-audit",
+      "head": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+      "branch": "claude/fable51-model-studio-security-ml-integrity-audit",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    },
+    {
+      "root": "C:\\Users\\james\\worktrees\\asp-remaining-authority-audit",
+      "head": "056aca14c5dfa959b244cf629bc12fca7a5e9186",
+      "branch": "claude/mlb-remaining-feature-authority-audit",
+      "status": [],
+      "headUnchanged": true,
+      "statusUnchanged": true
+    }
+  ],
+  "mainHead": "924db29511f93909f9d785855bfa056775443690",
+  "repairWorktree": {
+    "root": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+    "branch": "codex/model-studio-tenant-workflow-repair-v1",
+    "head": "7a4bf4a972438140b82aebf060448b643d6827f4",
+    "statusAtCapture": [
+      "M server/persistence/persistence_router.py",
+      " M server/persistence/repositories/project_repository.py",
+      " M server/security/security_store.py",
+      "?? docs/repair-evidence/atomic-authorization/approved-test-result.json",
+      "?? docs/repair-evidence/atomic-authorization/python-compilation.json"
+    ]
+  },
+  "registeredWorktrees": [
+    "worktree C:/Users/james/asp-model-studio",
+    "HEAD 33cd85fa5074efeec3077036baea9c8b2ef86bdf",
+    "branch refs/heads/codex/mlb-governed-prior-engine-v1",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-interaction-authority-v1",
+    "HEAD 09006653b3f1714574a88efca8650d4f967ab3cd",
+    "branch refs/heads/codex/mlb-interaction-authority-v1",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-player-prior-wave2",
+    "HEAD bff19a8a657bc96dea0469fad481acdcb4234386",
+    "branch refs/heads/codex/mlb-player-prior-wave2",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-remaining-feature-authority-wave1",
+    "HEAD 64a74be89b029adc013e118b14aad75e3ddc0232",
+    "branch refs/heads/codex/mlb-remaining-feature-authority-wave1",
+    "",
+    "worktree C:/Users/james/worktrees/asp-model-studio-fable51-audit",
+    "HEAD 3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+    "branch refs/heads/claude/fable51-model-studio-security-ml-integrity-audit",
+    "",
+    "worktree C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1",
+    "HEAD 7a4bf4a972438140b82aebf060448b643d6827f4",
+    "branch refs/heads/codex/model-studio-tenant-workflow-repair-v1",
+    "",
+    "worktree C:/Users/james/worktrees/asp-remaining-authority-audit",
+    "HEAD 056aca14c5dfa959b244cf629bc12fca7a5e9186",
+    "branch refs/heads/claude/mlb-remaining-feature-authority-audit"
+  ],
+  "diffCheck": "PASS",
+  "sourcePriorFiles": [
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106\\manifest.json",
+      "bytes": 12587,
+      "sha256": "019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46\\manifest.json",
+      "bytes": 4069,
+      "sha256": "0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\08213d6dc803312bec0da0fd66ca98e461ffcc8394a76a372855e5da1879293b\\manifest.json",
+      "bytes": 12691,
+      "sha256": "08213d6dc803312bec0da0fd66ca98e461ffcc8394a76a372855e5da1879293b"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\12cab62b1b5b1cb9e8ab55634deef7a8fda270b0942e15ca476a017e94d9fadd\\manifest.json",
+      "bytes": 3011,
+      "sha256": "12cab62b1b5b1cb9e8ab55634deef7a8fda270b0942e15ca476a017e94d9fadd"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f\\manifest.json",
+      "bytes": 12739,
+      "sha256": "1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\2e3a72c20b152129f6b4483e069d5d50056dea85d4273358b69d6f0486e7080e\\manifest.json",
+      "bytes": 7018,
+      "sha256": "2e3a72c20b152129f6b4483e069d5d50056dea85d4273358b69d6f0486e7080e"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\4f536fc1a8552a687f1d16025e2a538638ad1889442df28a423af184a814be5b\\manifest.json",
+      "bytes": 12691,
+      "sha256": "4f536fc1a8552a687f1d16025e2a538638ad1889442df28a423af184a814be5b"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\52205b07294821bfd42f8c321f5a5941bbf1b7aa53a102790f060e1e2c608457\\manifest.json",
+      "bytes": 68845,
+      "sha256": "52205b07294821bfd42f8c321f5a5941bbf1b7aa53a102790f060e1e2c608457"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\533a19656fa21849c33d4215b1937b17e57ee92686b69a5a72e44190e48375e6\\manifest.json",
+      "bytes": 12587,
+      "sha256": "533a19656fa21849c33d4215b1937b17e57ee92686b69a5a72e44190e48375e6"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\5a97618d0be4b56e5cd32de22f5938fd5ed5af082ae22ad6a9becf7440f1f591\\manifest.json",
+      "bytes": 19180,
+      "sha256": "5a97618d0be4b56e5cd32de22f5938fd5ed5af082ae22ad6a9becf7440f1f591"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\6de9cd4b031edfe89fde31eec850edbd6c192c27fec8341f3ed5e0b6e0b79eb5\\manifest.json",
+      "bytes": 12630,
+      "sha256": "6de9cd4b031edfe89fde31eec850edbd6c192c27fec8341f3ed5e0b6e0b79eb5"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\79db9b0d0bff995b867521addfa7cb3de7d3aa58dbc7d2032d4958cb9b0040ac\\manifest.json",
+      "bytes": 12697,
+      "sha256": "79db9b0d0bff995b867521addfa7cb3de7d3aa58dbc7d2032d4958cb9b0040ac"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\815e6a054592d089a62ecda3771c76b7596b759839e9d43ae3ee84eb7b689c81\\manifest.json",
+      "bytes": 12712,
+      "sha256": "815e6a054592d089a62ecda3771c76b7596b759839e9d43ae3ee84eb7b689c81"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede\\manifest.json",
+      "bytes": 12570,
+      "sha256": "8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\8fcbc5817dc496c9ee35b8db7e5f923d3506ee0c21e6527f8b6c2217cc1fc58c\\manifest.json",
+      "bytes": 12676,
+      "sha256": "8fcbc5817dc496c9ee35b8db7e5f923d3506ee0c21e6527f8b6c2217cc1fc58c"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\91debab6690ad9b9730eff9040b1a000e8033a14d8fa2a664dbad306d6bec4fd\\manifest.json",
+      "bytes": 12718,
+      "sha256": "91debab6690ad9b9730eff9040b1a000e8033a14d8fa2a664dbad306d6bec4fd"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\98216dbe65ed5d195e15008a8ef71fb2dc4158514efdc10a94519ad2e0fe0ce9\\manifest.json",
+      "bytes": 12651,
+      "sha256": "98216dbe65ed5d195e15008a8ef71fb2dc4158514efdc10a94519ad2e0fe0ce9"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658\\manifest.json",
+      "bytes": 12651,
+      "sha256": "abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\ac59862df5da9249ad3cc548b3f98b9390f65d1bc0ce158000ae058c5d9c0a4e\\manifest.json",
+      "bytes": 12676,
+      "sha256": "ac59862df5da9249ad3cc548b3f98b9390f65d1bc0ce158000ae058c5d9c0a4e"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\b37ff58219c867302f8a1238833deb53687664c4b64c93ed54893b062bf9b88e\\manifest.json",
+      "bytes": 12570,
+      "sha256": "b37ff58219c867302f8a1238833deb53687664c4b64c93ed54893b062bf9b88e"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec\\manifest.json",
+      "bytes": 10728,
+      "sha256": "bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b\\manifest.json",
+      "bytes": 12697,
+      "sha256": "bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\be6dae210c81f020ae1bc32d04d1eff1c1cd0ffb3fe0f1bb9f232a67ac721b8d\\manifest.json",
+      "bytes": 90410,
+      "sha256": "be6dae210c81f020ae1bc32d04d1eff1c1cd0ffb3fe0f1bb9f232a67ac721b8d"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\bf888067e3846126fbdff756d28a97daa9e07bdb835c28875c4c78d9525ca849\\manifest.json",
+      "bytes": 8269,
+      "sha256": "bf888067e3846126fbdff756d28a97daa9e07bdb835c28875c4c78d9525ca849"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\c269f908cabcc2898f5770629609108cb1b44f27b90b06153c01d1cb3b7a8a68\\manifest.json",
+      "bytes": 12739,
+      "sha256": "c269f908cabcc2898f5770629609108cb1b44f27b90b06153c01d1cb3b7a8a68"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\caf5492377d6cab00097b2090d369e23dbaecb0580f353f90a4ba05bd0be7821\\manifest.json",
+      "bytes": 12549,
+      "sha256": "caf5492377d6cab00097b2090d369e23dbaecb0580f353f90a4ba05bd0be7821"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\cda1b6e00297d2f40828a8430bcbd24c51f08d3049e6dda92ef70f486fba6420\\manifest.json",
+      "bytes": 10728,
+      "sha256": "cda1b6e00297d2f40828a8430bcbd24c51f08d3049e6dda92ef70f486fba6420"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\d06b771a46f25feecd9a4a87861e2c2983e0adaf322d58f885c787b099a7661e\\manifest.json",
+      "bytes": 19180,
+      "sha256": "d06b771a46f25feecd9a4a87861e2c2983e0adaf322d58f885c787b099a7661e"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43\\manifest.json",
+      "bytes": 12712,
+      "sha256": "e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\f3ae889a3316e9eaecc71a73082e971d314edb26b0f173960820cfd0e14513f9\\manifest.json",
+      "bytes": 12566,
+      "sha256": "f3ae889a3316e9eaecc71a73082e971d314edb26b0f173960820cfd0e14513f9"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\f5761480fe3abd8cbb91b13eed970678bdab7dcd5eea4331a5968ac20db3dc14\\manifest.json",
+      "bytes": 12718,
+      "sha256": "f5761480fe3abd8cbb91b13eed970678bdab7dcd5eea4331a5968ac20db3dc14"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\f7f1fcae57609b450cdfbabd1650a3c448340872cf73c28aabb7130c98926e17\\manifest.json",
+      "bytes": 68845,
+      "sha256": "f7f1fcae57609b450cdfbabd1650a3c448340872cf73c28aabb7130c98926e17"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044\\manifest.json",
+      "bytes": 90410,
+      "sha256": "f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\137a6ef0b5678945317336ea3daf33329d12fb9a8331892a46be3394261f37c8\\manifest.json",
+      "bytes": 8259,
+      "sha256": "137a6ef0b5678945317336ea3daf33329d12fb9a8331892a46be3394261f37c8"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\3f5b64f2099fe8d28446345e93f5d9a102e2170f5253dc3f6ba5815aa6ee3a1a\\manifest.json",
+      "bytes": 8278,
+      "sha256": "3f5b64f2099fe8d28446345e93f5d9a102e2170f5253dc3f6ba5815aa6ee3a1a"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\5e6947f52663fc67f266c9308c3c58ca3834f362866800afb75d06d6a0efa48a\\manifest.json",
+      "bytes": 8267,
+      "sha256": "5e6947f52663fc67f266c9308c3c58ca3834f362866800afb75d06d6a0efa48a"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\9eb5815ab1c9e6c342bc3198e85a9c0b9ad520cb539341d0fad71d3b443557cc\\manifest.json",
+      "bytes": 8276,
+      "sha256": "9eb5815ab1c9e6c342bc3198e85a9c0b9ad520cb539341d0fad71d3b443557cc"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\d0c2c49d85a6fe8177867590a4d80bf6d3e745596bb657d56f9eff91a5f4de0b\\manifest.json",
+      "bytes": 8291,
+      "sha256": "d0c2c49d85a6fe8177867590a4d80bf6d3e745596bb657d56f9eff91a5f4de0b"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\performance-runs\\objects\\sha256\\fcdfef3b32148e783386aed3c065701ea19ce9ab38852fa4714826ebe0ba8d6e\\manifest.json",
+      "bytes": 8263,
+      "sha256": "fcdfef3b32148e783386aed3c065701ea19ce9ab38852fa4714826ebe0ba8d6e"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\projects\\asp-mtlozhdx\\current.json",
+      "bytes": 295,
+      "sha256": "2fdafb2f098c23d9504d5a84bbbe706ab45a5bda79413cbf991f88e2f4d6c4e2"
+    }
+  ],
+  "parentManifests": [
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\mlb-current-statcast-gold-v1\\publications\\sha256\\67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758\\manifest.json",
+      "bytes": 13511,
+      "sha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\mlb-current-statcast-gold-v1\\sufficient-statistics\\publications\\sha256\\98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33\\manifest.json",
+      "bytes": 20647,
+      "sha256": "98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33"
+    }
+  ],
+  "canonicalObjects": [
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106\\manifest.json",
+      "bytes": 12587,
+      "sha256": "019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46\\manifest.json",
+      "bytes": 4069,
+      "sha256": "0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f\\manifest.json",
+      "bytes": 12739,
+      "sha256": "1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede\\manifest.json",
+      "bytes": 12570,
+      "sha256": "8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658\\manifest.json",
+      "bytes": 12651,
+      "sha256": "abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b\\manifest.json",
+      "bytes": 12697,
+      "sha256": "bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43\\manifest.json",
+      "bytes": 12712,
+      "sha256": "e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044\\manifest.json",
+      "bytes": 90410,
+      "sha256": "f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044"
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\objects\\sha256\\bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec\\manifest.json",
+      "bytes": 10728,
+      "sha256": "bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec"
+    }
+  ],
+  "canonicalPointer": {
+    "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2\\projects\\asp-mtlozhdx\\current.json",
+    "bytes": 295,
+    "sha256": "2fdafb2f098c23d9504d5a84bbbe706ab45a5bda79413cbf991f88e2f4d6c4e2"
+  },
+  "databaseIntegrity": [
+    "ok"
+  ],
+  "protectedCounts": {
+    "active_modeling_dataset_versions": {
+      "rows": 2,
+      "sha256": "4a6fb19a428f3ec7cff6a137dfab49597d4953ae3ff3ddb85de1c374adaad4a4"
+    },
+    "candidate_selection_decisions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "export_artifacts": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "holdout_exposures": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "model_versions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "models": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_collaborators": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_dataset_activation_events": {
+      "rows": 4,
+      "sha256": "3a489e326f0f3e7beca9f4a8738473cc6e12c91c06a72e9f602651ac851bf4f3"
+    },
+    "project_dataset_links": {
+      "rows": 2,
+      "sha256": "a3237c161eb78aeee4dd02c7f79b5f4f056f1d32fc4c5fbe5444ec24b22e4610"
+    },
+    "projects": {
+      "rows": 5,
+      "sha256": "e6c167ed37e2cc5850dc6374a39269131e786dd4ec0803b4cbf1a8f4de9034c9"
+    },
+    "resource_permissions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "run_records": {
+      "rows": 30,
+      "sha256": "910f0a677980c3cff654649517854a1f60d16822472229b54801529cbaa11f66"
+    },
+    "schema_migrations": {
+      "rows": 38,
+      "sha256": "5e75ecd1ab667d68e15df7e469d1ef8ea0e2793544508eaa2ec9822b66e4e1e5"
+    },
+    "sports_dataset_partitions": {
+      "rows": 1122,
+      "sha256": "a2167ca1aee014b56f7129f460a68b8f2331be50a404100f0b96ab54e0bd96b0"
+    },
+    "sports_dataset_query_audit": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sports_dataset_registrations": {
+      "rows": 6,
+      "sha256": "4da4e9057fd62731428019be6b47a85639fdcc5bdc5216a59e79b971e11ceaf0"
+    },
+    "stage3_feature_set_events": {
+      "rows": 6,
+      "sha256": "e8d7713044caac2455df3c80d7131cc99fc5df8a258637b13a652f73e40b1ed6"
+    },
+    "stage3_feature_set_versions": {
+      "rows": 6,
+      "sha256": "6e2126cb576bc2d6ced2feb2bb70bc3b2c62c52022179882a8c4f52acc35f664"
+    },
+    "stage3_feature_treatment_spec_events": {
+      "rows": 8,
+      "sha256": "70d1dc58a822841bfb6d75d752be861bf74ad8bd65ad62dc534d3e310b0ab76c"
+    },
+    "stage3_feature_treatment_spec_versions": {
+      "rows": 8,
+      "sha256": "427876680c0514e241c0309498117a04fa9a0f80189001e9e509f91311a1c0f3"
+    },
+    "stage3_predicted_imputation_preview_events": {
+      "rows": 4,
+      "sha256": "66679f30bd2c1ffc2556249006b966047ee2ee79e752c87b7cce907a004c85cb"
+    },
+    "stage3_predicted_imputation_previews": {
+      "rows": 1,
+      "sha256": "1fdafd4a42906a7104916b9c3cf5b851ebbbe97b3133e92de69c68b5ab923497"
+    },
+    "stage3_split_contract_events": {
+      "rows": 2,
+      "sha256": "2676ce40d3237e259cb4c75527390cd0a951244249781644991092fd5e9d3548"
+    },
+    "stage3_split_contract_feature_sets": {
+      "rows": 6,
+      "sha256": "c72aadb299a66be054e4261e88a0915ccddcc9311e70991a3879e54be37f71f2"
+    },
+    "stage3_split_contract_versions": {
+      "rows": 2,
+      "sha256": "a1979af61822d469dbfb323db652da65c907f28e0d3683083b0e6b6468db2d02"
+    },
+    "stage3_treatment_policy_events": {
+      "rows": 40,
+      "sha256": "2bd9f532e5c5c9f95212057084de75009f9315a9c00501242fa347305f75bb97"
+    },
+    "stage3_treatment_policy_versions": {
+      "rows": 23,
+      "sha256": "6bc592b10e47df30c99971df7804eca0f031828f870b2f0ff8fb29e1ab5c8fc0"
+    },
+    "workflow_state": {
+      "rows": 5,
+      "sha256": "90e5a6345e9d8b78482fca717491c374d956fe902c23e151662c55e6efb348e8"
+    }
+  },
+  "allProtectedTablesUnchanged": true,
+  "allSourcePriorFilesUnchanged": true,
+  "parentManifestsUnchanged": true,
+  "finalOotOpens": 0,
+  "targetColumnsRead": [],
+  "operationalDatabaseWrites": 0,
+  "providerCalls": 0,
+  "note": "Repair status is captured before this receipt is rewritten and before the final report commit; final Git status is separately verified after commits."
+}

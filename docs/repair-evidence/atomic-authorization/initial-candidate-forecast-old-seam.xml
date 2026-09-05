@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="15.931" timestamp="2026-09-05T17:33:02.682324-04:00" hostname="James"><testcase classname="tests.sports_forecast_contract_backend_test.SportsForecastContractBackendTests" name="test_generic_project_put_cannot_overwrite_reserved_contract_node" time="3.167" /><testcase classname="tests.sports_forecast_contract_backend_test.SportsForecastContractBackendTests" name="test_racing_generic_project_put_preserves_newly_committed_contract" time="10.851"><failure message="tests\sports_forecast_contract_backend_test.py:776: in test_racing_generic_project_put_preserves_newly_committed_contract&#10;    saved_contract = contract_future.result(timeout=15)&#10;C:\Python312\Lib\concurrent\futures\_base.py:456: in result&#10;    return self.__get_result()&#10;C:\Python312\Lib\concurrent\futures\_base.py:401: in __get_result&#10;    raise self._exception&#10;C:\Python312\Lib\concurrent\futures\thread.py:58: in run&#10;    result = self.fn(*self.args, **self.kwargs)&#10;tests\sports_forecast_contract_backend_test.py:762: in save_contract&#10;    raise AssertionError(&quot;Generic writer did not reach its stale-snapshot boundary.&quot;)&#10;E   AssertionError: Generic writer did not reach its stale-snapshot boundary.">tests\sports_forecast_contract_backend_test.py:776: in test_racing_generic_project_put_preserves_newly_committed_contract
+    saved_contract = contract_future.result(timeout=15)
+C:\Python312\Lib\concurrent\futures\_base.py:456: in result
+    return self.__get_result()
+C:\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+C:\Python312\Lib\concurrent\futures\thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+tests\sports_forecast_contract_backend_test.py:762: in save_contract
+    raise AssertionError("Generic writer did not reach its stale-snapshot boundary.")
+E   AssertionError: Generic writer did not reach its stale-snapshot boundary.</failure></testcase></testsuite></testsuites>

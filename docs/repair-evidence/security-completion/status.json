@@ -1,82 +1,88 @@
 {
-  "schemaVersion": "ASP_TENANT_SECURITY_COMPLETION_V1",
-  "capturedAt": "2026-09-05T21:03:44.833816+00:00",
-  "worktree": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
-  "branch": "codex/model-studio-tenant-workflow-repair-v1",
-  "preSecurityHead": "b2c2b50359afe78f86ed577314ec4c38278ac771",
-  "securityCommit": "b5af4211b446f1a470b71cbda4bd6724f50346b9",
-  "patchApplication": "BOTH_EXACT_APPROVED_PATCHES_APPLIED",
-  "sourceCorrections": [],
-  "F001": {
-    "before": "SELF_GRANT_AND_FOREIGN_READ_HTTP_200",
-    "afterStandardMatrix": "SELF_GRANT_AND_FOREIGN_READ_HTTP_403",
-    "overallIsolation": "INCOMPLETE_CONCURRENT_PROJECT_CREATE_PUT_AUTHORIZATION_GAP"
-  },
-  "F004": {
-    "before": "FOREIGN_ACL_READ_HTTP_200",
-    "after": "FOREIGN_ACL_READ_HTTP_403_BEFORE_ENUMERATION",
-    "result": "PASS_IN_TESTED_SCOPE"
-  },
-  "ownerAndWorkspaceAdministrator": "PASS",
-  "creatorBootstrap": "PASS",
-  "immediateRevocation": "PASS",
-  "independentSecurityMatrix": {
-    "basePassed": 13,
-    "baseFailed": 17,
-    "afterPassed": 30,
-    "afterFailed": 0
-  },
-  "approvedTest": {
-    "unittestsPassed": 1,
-    "subprobesPassed": 30
-  },
-  "routeSelection": {
-    "passed": 368,
-    "failedPreExisting": 9,
-    "skippedRuntimeDependent": 2,
-    "stage3Passed": 338
-  },
-  "frontend": {
-    "namedPassed": 1097,
-    "namedFailedPreExisting": 56,
-    "introducedObservedFailures": 0,
-    "unreachedAssertionsFiles": 16,
-    "specializedExcludedFiles": 2
-  },
-  "additionalConcurrencyProbe": {
-    "passed": 0,
-    "failed": 1,
-    "pairedBaselineReplayPerformed": false,
-    "materialCorrectionApplied": false
-  },
-  "deniedMutationScope": "Authorization-domain project, membership, sharing, notification and audit tables. Authentication activity can update session/user activity.",
-  "securityMatrixDenominators": {
-    "explicitHttpCases": 22,
-    "deniedHttpCases": 15,
-    "allowedHttpCases": 7,
-    "compositeAssertions": 8,
-    "explicitDeniedStateComparisonsPassed": 13,
-    "readDenialsWithoutStateComparison": 2
-  },
-  "routeDenominators": {
-    "crossUserProjectDenialRequestsPassed": 200,
-    "anonymousDenialRequestsPassed": 90,
-    "activeRouteSurfaces": 110,
-    "crossUserAndProjectCountsOverlap": true
-  },
-  "typeScript": "PASS",
-  "modelingBuild": "PASS",
-  "browserAcceptance": "Historical 331/331 at pre-security revision; not rerun against security-patched backend",
-  "pilotEvidenceInChallenger": "None observed in historical browser acceptance and current bounded project/cache tests; not an exhaustive isolation claim",
-  "authoritativeModelActivity": 0,
-  "policyAdoption": 0,
-  "featureRegistration": 0,
-  "finalOotAccess": 0,
-  "currentGoldMutation": 0,
-  "providerCalls": 0,
-  "operationalServiceRestarts": 0,
-  "integration": 0,
-  "additionalApprovalRequired": "Make project authorization and creation/update atomic for the row actually written, retain insert-only missing-ID creation, and add a deterministic concurrency regression test.",
-  "approvalReason": "User explicitly requires stopping before material changes beyond the prepared patches.",
-  "verdict": "ASP_MODEL_STUDIO_REPAIR_PARTIALLY_READY"
+  "schemaVersion": "ASP_TENANT_SECURITY_COMPLETION_CURRENT_V2",
+  "currentStatus": "ASP_MODEL_STUDIO_TENANT_AND_PROJECT_BINDING_REPAIR_READY",
+  "supersededBy": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\repair-evidence\\atomic-authorization\\status.json",
+  "finalHeadReceipt": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\.tmp\\atomic-authorization-final-git-state.json",
+  "historicalPreAtomicCompletion": {
+    "schemaVersion": "ASP_TENANT_SECURITY_COMPLETION_V1",
+    "capturedAt": "2026-09-05T21:03:44.833816+00:00",
+    "worktree": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+    "branch": "codex/model-studio-tenant-workflow-repair-v1",
+    "preSecurityHead": "b2c2b50359afe78f86ed577314ec4c38278ac771",
+    "securityCommit": "b5af4211b446f1a470b71cbda4bd6724f50346b9",
+    "patchApplication": "BOTH_EXACT_APPROVED_PATCHES_APPLIED",
+    "sourceCorrections": [],
+    "F001": {
+      "before": "SELF_GRANT_AND_FOREIGN_READ_HTTP_200",
+      "afterStandardMatrix": "SELF_GRANT_AND_FOREIGN_READ_HTTP_403",
+      "overallIsolation": "INCOMPLETE_CONCURRENT_PROJECT_CREATE_PUT_AUTHORIZATION_GAP"
+    },
+    "F004": {
+      "before": "FOREIGN_ACL_READ_HTTP_200",
+      "after": "FOREIGN_ACL_READ_HTTP_403_BEFORE_ENUMERATION",
+      "result": "PASS_IN_TESTED_SCOPE"
+    },
+    "ownerAndWorkspaceAdministrator": "PASS",
+    "creatorBootstrap": "PASS",
+    "immediateRevocation": "PASS",
+    "independentSecurityMatrix": {
+      "basePassed": 13,
+      "baseFailed": 17,
+      "afterPassed": 30,
+      "afterFailed": 0
+    },
+    "approvedTest": {
+      "unittestsPassed": 1,
+      "subprobesPassed": 30
+    },
+    "routeSelection": {
+      "passed": 368,
+      "failedPreExisting": 9,
+      "skippedRuntimeDependent": 2,
+      "stage3Passed": 338
+    },
+    "frontend": {
+      "namedPassed": 1097,
+      "namedFailedPreExisting": 56,
+      "introducedObservedFailures": 0,
+      "unreachedAssertionsFiles": 16,
+      "specializedExcludedFiles": 2
+    },
+    "additionalConcurrencyProbe": {
+      "passed": 0,
+      "failed": 1,
+      "pairedBaselineReplayPerformed": false,
+      "materialCorrectionApplied": false
+    },
+    "deniedMutationScope": "Authorization-domain project, membership, sharing, notification and audit tables. Authentication activity can update session/user activity.",
+    "securityMatrixDenominators": {
+      "explicitHttpCases": 22,
+      "deniedHttpCases": 15,
+      "allowedHttpCases": 7,
+      "compositeAssertions": 8,
+      "explicitDeniedStateComparisonsPassed": 13,
+      "readDenialsWithoutStateComparison": 2
+    },
+    "routeDenominators": {
+      "crossUserProjectDenialRequestsPassed": 200,
+      "anonymousDenialRequestsPassed": 90,
+      "activeRouteSurfaces": 110,
+      "crossUserAndProjectCountsOverlap": true
+    },
+    "typeScript": "PASS",
+    "modelingBuild": "PASS",
+    "browserAcceptance": "Historical 331/331 at pre-security revision; not rerun against security-patched backend",
+    "pilotEvidenceInChallenger": "None observed in historical browser acceptance and current bounded project/cache tests; not an exhaustive isolation claim",
+    "authoritativeModelActivity": 0,
+    "policyAdoption": 0,
+    "featureRegistration": 0,
+    "finalOotAccess": 0,
+    "currentGoldMutation": 0,
+    "providerCalls": 0,
+    "operationalServiceRestarts": 0,
+    "integration": 0,
+    "additionalApprovalRequired": "Make project authorization and creation/update atomic for the row actually written, retain insert-only missing-ID creation, and add a deterministic concurrency regression test.",
+    "approvalReason": "User explicitly requires stopping before material changes beyond the prepared patches.",
+    "verdict": "ASP_MODEL_STUDIO_REPAIR_PARTIALLY_READY"
+  }
 }

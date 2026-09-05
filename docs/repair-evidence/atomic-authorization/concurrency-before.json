@@ -1,0 +1,1844 @@
+{
+  "schemaVersion": "ATOMIC_PROJECT_AUTHORIZATION_DISPOSABLE_PROBE_V1",
+  "sourceRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-source-before-7a4bf4a9-v2",
+  "runtimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-before-runtime-06",
+  "synchronization": "threading.Event at identical _execute(operation) boundary before the write transaction; no timing sleeps",
+  "schedule": [
+    "A reaches pre-write boundary while ID absent",
+    "B commits POST",
+    "snapshot B state",
+    "release A PUT",
+    "compare complete domain state"
+  ],
+  "raceRepetitions": 25,
+  "raceResults": [
+    {
+      "iteration": 1,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 2,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 3,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 4,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 5,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 6,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 7,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 8,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 9,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 10,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 11,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 12,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 13,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 14,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 15,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 16,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 17,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 18,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 19,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 20,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 21,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 22,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 23,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 24,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    },
+    {
+      "iteration": 25,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      },
+      "passed": false
+    }
+  ],
+  "sameIdCreationRepetitions": 10,
+  "sameIdCreationResults": [
+    {
+      "iteration": 1,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 2,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 3,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 4,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 5,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      },
+      "passed": true
+    },
+    {
+      "iteration": 6,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 7,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      },
+      "passed": true
+    },
+    {
+      "iteration": 8,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 9,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      },
+      "passed": true
+    },
+    {
+      "iteration": 10,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      },
+      "passed": true
+    }
+  ],
+  "ownerForeignConcurrencyRepetitions": 10,
+  "ownerAdminConcurrencyRepetitions": 10,
+  "checks": [
+    {
+      "name": "missing-ID PUT race repetition 1",
+      "passed": false,
+      "iteration": 1,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 2",
+      "passed": false,
+      "iteration": 2,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 3",
+      "passed": false,
+      "iteration": 3,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 4",
+      "passed": false,
+      "iteration": 4,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 5",
+      "passed": false,
+      "iteration": 5,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 6",
+      "passed": false,
+      "iteration": 6,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 7",
+      "passed": false,
+      "iteration": 7,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 8",
+      "passed": false,
+      "iteration": 8,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 9",
+      "passed": false,
+      "iteration": 9,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 10",
+      "passed": false,
+      "iteration": 10,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 11",
+      "passed": false,
+      "iteration": 11,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 12",
+      "passed": false,
+      "iteration": 12,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 13",
+      "passed": false,
+      "iteration": 13,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 14",
+      "passed": false,
+      "iteration": 14,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 15",
+      "passed": false,
+      "iteration": 15,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 16",
+      "passed": false,
+      "iteration": 16,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 17",
+      "passed": false,
+      "iteration": 17,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 18",
+      "passed": false,
+      "iteration": 18,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 19",
+      "passed": false,
+      "iteration": 19,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 20",
+      "passed": false,
+      "iteration": 20,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 21",
+      "passed": false,
+      "iteration": 21,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 22",
+      "passed": false,
+      "iteration": 22,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 23",
+      "passed": false,
+      "iteration": 23,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 24",
+      "passed": false,
+      "iteration": 24,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "missing-ID PUT race repetition 25",
+      "passed": false,
+      "iteration": 25,
+      "createStatus": 200,
+      "putStatus": 200,
+      "ownerIsB": true,
+      "creatorIsB": true,
+      "updaterIsNotA": false,
+      "projectRowLogicallyUnchanged": false,
+      "nameUnchanged": false,
+      "metadataUnchanged": false,
+      "userAMembershipCount": 0,
+      "userAPermissionCount": 0,
+      "projectWorkflowRows": 0,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 1",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 2",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 3",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 4",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 5",
+      "passed": true,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 6",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 7",
+      "passed": true,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 8",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 9",
+      "passed": true,
+      "statuses": {
+        "A": 409,
+        "B": 200
+      }
+    },
+    {
+      "name": "simultaneous same-ID creation 10",
+      "passed": true,
+      "statuses": {
+        "A": 200,
+        "B": 409
+      }
+    },
+    {
+      "name": "simultaneous owner/foreign update 1",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 2",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 3",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 4",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 5",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 6",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 7",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 8",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 9",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous owner/foreign update 10",
+      "passed": true,
+      "ownerStatus": 200,
+      "foreignStatus": 403
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 1",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 2",
+      "passed": false,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 3",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 4",
+      "passed": false,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 5",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 6",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 7",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 8",
+      "passed": false,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 9",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "simultaneous legitimate owner/admin update 10",
+      "passed": true,
+      "ownerStatus": 200,
+      "administratorStatus": 200
+    },
+    {
+      "name": "duplicate legitimate POST is a governed nonmutating conflict",
+      "passed": true,
+      "status": 409,
+      "domainState": {
+        "unchanged": true,
+        "comparedDomainTables": 113,
+        "changedComponents": []
+      }
+    },
+    {
+      "name": "foreign duplicate POST preserves canonical nondisclosure denial",
+      "passed": true,
+      "status": 403,
+      "domainState": {
+        "unchanged": true,
+        "comparedDomainTables": 113,
+        "changedComponents": []
+      }
+    },
+    {
+      "name": "legitimate missing-ID PUT creates exactly one owner membership",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "audit failure rolls back POST project.created",
+      "passed": false,
+      "auditFailureReached": true,
+      "status": 200,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:project_collaborators",
+          "db:projects",
+          "db:resource_permissions",
+          "db:sharing_events",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "audit failure rolls back POST template.selected",
+      "passed": false,
+      "auditFailureReached": true,
+      "status": 200,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:project_collaborators",
+          "db:projects",
+          "db:resource_permissions",
+          "db:sharing_events",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "audit failure rolls back PUT project.saved",
+      "passed": false,
+      "auditFailureReached": true,
+      "status": 200,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "audit failure rolls back PUT-missing project.saved",
+      "passed": false,
+      "auditFailureReached": true,
+      "status": 200,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:project_collaborators",
+          "db:projects",
+          "db:resource_permissions",
+          "db:sharing_events",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "revocation before write transaction immediately denies pending editor",
+      "passed": false,
+      "status": 200,
+      "domainState": {
+        "unchanged": false,
+        "comparedDomainTables": 113,
+        "changedComponents": [
+          "db:audit_log",
+          "db:projects",
+          "security:project_audit_events",
+          "security:visible_project_audit_events"
+        ]
+      }
+    },
+    {
+      "name": "audit projection global tied timestamp limit",
+      "passed": false,
+      "expected": [
+        "atomic-audit-z",
+        "atomic-audit-y"
+      ],
+      "actual": [
+        "atomic-audit-y",
+        "atomic-audit-x"
+      ]
+    },
+    {
+      "name": "audit projection project filter",
+      "passed": false,
+      "expected": [
+        "atomic-audit-z",
+        "atomic-audit-y",
+        "atomic-audit-x",
+        "atomic-audit-w",
+        "atomic-audit-v"
+      ],
+      "actual": [
+        "atomic-audit-y",
+        "atomic-audit-x",
+        "atomic-audit-w"
+      ]
+    },
+    {
+      "name": "audit projection user filter",
+      "passed": true,
+      "expected": [
+        "atomic-audit-x",
+        "atomic-audit-w"
+      ],
+      "actual": [
+        "atomic-audit-x",
+        "atomic-audit-w"
+      ]
+    },
+    {
+      "name": "audit projection action filter",
+      "passed": false,
+      "expected": [
+        "atomic-audit-z",
+        "atomic-audit-w"
+      ],
+      "actual": [
+        "atomic-audit-w"
+      ]
+    },
+    {
+      "name": "audit projection outcome filter",
+      "passed": true,
+      "expected": [
+        "atomic-audit-w"
+      ],
+      "actual": [
+        "atomic-audit-w"
+      ]
+    },
+    {
+      "name": "audit projection resource filter",
+      "passed": true,
+      "expected": [
+        "atomic-audit-u"
+      ],
+      "actual": [
+        "atomic-audit-u"
+      ]
+    },
+    {
+      "name": "audit projection combined filter",
+      "passed": false,
+      "expected": [
+        "atomic-audit-z"
+      ],
+      "actual": []
+    },
+    {
+      "name": "audit projection per-resource filter",
+      "passed": false
+    },
+    {
+      "name": "audit projection preserves historical mirrored payload exactly once",
+      "passed": true
+    },
+    {
+      "name": "audit projection fails explicitly when canonical audit store unavailable",
+      "passed": false,
+      "status": null
+    }
+  ],
+  "passed": false,
+  "checkCount": 73,
+  "passCount": 34,
+  "failedChecks": [
+    "missing-ID PUT race repetition 1",
+    "missing-ID PUT race repetition 2",
+    "missing-ID PUT race repetition 3",
+    "missing-ID PUT race repetition 4",
+    "missing-ID PUT race repetition 5",
+    "missing-ID PUT race repetition 6",
+    "missing-ID PUT race repetition 7",
+    "missing-ID PUT race repetition 8",
+    "missing-ID PUT race repetition 9",
+    "missing-ID PUT race repetition 10",
+    "missing-ID PUT race repetition 11",
+    "missing-ID PUT race repetition 12",
+    "missing-ID PUT race repetition 13",
+    "missing-ID PUT race repetition 14",
+    "missing-ID PUT race repetition 15",
+    "missing-ID PUT race repetition 16",
+    "missing-ID PUT race repetition 17",
+    "missing-ID PUT race repetition 18",
+    "missing-ID PUT race repetition 19",
+    "missing-ID PUT race repetition 20",
+    "missing-ID PUT race repetition 21",
+    "missing-ID PUT race repetition 22",
+    "missing-ID PUT race repetition 23",
+    "missing-ID PUT race repetition 24",
+    "missing-ID PUT race repetition 25",
+    "simultaneous legitimate owner/admin update 2",
+    "simultaneous legitimate owner/admin update 4",
+    "simultaneous legitimate owner/admin update 8",
+    "audit failure rolls back POST project.created",
+    "audit failure rolls back POST template.selected",
+    "audit failure rolls back PUT project.saved",
+    "audit failure rolls back PUT-missing project.saved",
+    "revocation before write transaction immediately denies pending editor",
+    "audit projection global tied timestamp limit",
+    "audit projection project filter",
+    "audit projection action filter",
+    "audit projection combined filter",
+    "audit projection per-resource filter",
+    "audit projection fails explicitly when canonical audit store unavailable"
+  ],
+  "databaseIntegrity": "ok",
+  "guardViolations": [],
+  "optionalPlatformProbes": [
+    "optional_lscpu_blocked_before_launch"
+  ],
+  "scope": "Synthetic authenticated TestClient requests; every application table except user activity, project security audit events, disposable artifact hashes, and in-memory result cache compared. No browser is started.",
+  "authoritativeModelActivity": 0,
+  "policyAdoptions": 0,
+  "featureRegistrations": 0,
+  "finalOotAccess": 0,
+  "currentGoldMutations": 0,
+  "providerCalls": 0,
+  "sourceHashes": {
+    "server/persistence/persistence_router.py": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+    "server/persistence/repositories/project_repository.py": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d",
+    "server/security/security_store.py": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813"
+  },
+  "testSHA256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72"
+}

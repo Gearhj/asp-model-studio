@@ -1,0 +1,4314 @@
+{
+  "candidate": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-frontend-40a4a715393540169be3ba84e641f22b\\candidate",
+  "base": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-frontend-40a4a715393540169be3ba84e641f22b\\baseline",
+  "safety": "NETWORK_PROVIDER_AND_CHILD_PROCESS_CALLS_BLOCKED; WRITES_ONLY_DISPOSABLE_DIRECTORY",
+  "enumeratedFiles": 165,
+  "excluded": {
+    "bureauReviewAutomaticDetection.browser.test.mjs": "REQUIRES_SEPARATE_ISOLATED_BROWSER_BUILD_FIXTURE",
+    "hermetic_node_guard.test.mjs": "REQUIRES_HERMETIC_CHILD_DEPENDENCY_HASH_ENVIRONMENT"
+  },
+  "results": {
+    "acquisitionFeatureUiClarity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "adminSharing.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "analysisPartitionProductCompletionFrontend.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 11,
+        "passed": 10,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Validation Design keeps fold-local preprocessing and CV-safe balancing configurable"
+        ],
+        "failureDetails": [
+          {
+            "name": "Validation Design keeps fold-local preprocessing and CV-safe balancing configurable",
+            "normalizedReasonSha256": "79ffee1b8af62f029fda46f89667438ac7c516b21eb5b0543614416f6b070848",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "analysisPartitionProductCompletionFrontend.test.mjs:219:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 11,
+        "passed": 10,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Validation Design keeps fold-local preprocessing and CV-safe balancing configurable"
+        ],
+        "failureDetails": [
+          {
+            "name": "Validation Design keeps fold-local preprocessing and CV-safe balancing configurable",
+            "normalizedReasonSha256": "79ffee1b8af62f029fda46f89667438ac7c516b21eb5b0543614416f6b070848",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "analysisPartitionProductCompletionFrontend.test.mjs:219:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "analysisPartitionResetUxContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "analysisScope.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "analyticsEngine.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "analyticsWorkbench.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "auditAssuranceContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "authReturnPath.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "authoritativeProjectContext.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 7,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "fc2f64a16965dc106e4a919468c0eb4ecdc14008e657b8c0d728d00aa01eea3c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 7,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "fc2f64a16965dc106e4a919468c0eb4ecdc14008e657b8c0d728d00aa01eea3c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "browserDatasetState.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 17,
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "browserTargetScopeGuards.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauCatalogAdmin.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "admin denial and entitlement filtering fail closed"
+        ],
+        "failureDetails": [
+          {
+            "name": "admin denial and entitlement filtering fail closed",
+            "normalizedReasonSha256": "89ccc1ddc88065365e953b042bc29f917a5f68019133efe580f85882b2ade237",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "bureauCatalogAdmin.test.mjs:140:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "admin denial and entitlement filtering fail closed"
+        ],
+        "failureDetails": [
+          {
+            "name": "admin denial and entitlement filtering fail closed",
+            "normalizedReasonSha256": "89ccc1ddc88065365e953b042bc29f917a5f68019133efe580f85882b2ade237",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "bureauCatalogAdmin.test.mjs:140:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "bureauDetectionExactBinding.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauMetadataBindingPanel.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauMetadataCrosswalkWorkspace.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauMetadataIntegrationAcceptanceHarness.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauSemanticAnnotationsFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "bureauSemanticDownstreamPresentation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "canonicalDatasetIdentity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "chartStudio.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "cockpit6g1.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Data & Population has an explicit Modeling Dataset section (honest single dataset)"
+        ],
+        "failureDetails": [
+          {
+            "name": "Data & Population has an explicit Modeling Dataset section (honest single dataset)",
+            "normalizedReasonSha256": "6e36857180cfd137f0d39806c35202736759453f6a2b663ea5607446bfc06080",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpit6g1.test.mjs:18:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Data & Population has an explicit Modeling Dataset section (honest single dataset)"
+        ],
+        "failureDetails": [
+          {
+            "name": "Data & Population has an explicit Modeling Dataset section (honest single dataset)",
+            "normalizedReasonSha256": "6e36857180cfd137f0d39806c35202736759453f6a2b663ea5607446bfc06080",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpit6g1.test.mjs:18:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "cockpit6g2.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the cockpit threads the project id + navigation into the objective and population steps"
+        ],
+        "failureDetails": [
+          {
+            "name": "the cockpit threads the project id + navigation into the objective and population steps",
+            "normalizedReasonSha256": "a6f3e2aa05b3bc683cf8858e7db57f48a5bf31ec52f1538dc184285f5efec3f0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpit6g2.test.mjs:128:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the cockpit threads the project id + navigation into the objective and population steps"
+        ],
+        "failureDetails": [
+          {
+            "name": "the cockpit threads the project id + navigation into the objective and population steps",
+            "normalizedReasonSha256": "a6f3e2aa05b3bc683cf8858e7db57f48a5bf31ec52f1538dc184285f5efec3f0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpit6g2.test.mjs:128:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "cockpitEdaAndTemporal.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 14,
+        "passed": 14,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "cockpitFeatureAndPersistence.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "cockpitFeatureUi.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 14,
+        "passed": 13,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the cockpit wires project-scoped autosave and shows a status indicator"
+        ],
+        "failureDetails": [
+          {
+            "name": "the cockpit wires project-scoped autosave and shows a status indicator",
+            "normalizedReasonSha256": "34ef39d54cefbc14ec522bd6188e13b6ce87fb0d49fc4de4b879613d8bddaf07",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitFeatureUi.test.mjs:104:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 14,
+        "passed": 13,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the cockpit wires project-scoped autosave and shows a status indicator"
+        ],
+        "failureDetails": [
+          {
+            "name": "the cockpit wires project-scoped autosave and shows a status indicator",
+            "normalizedReasonSha256": "34ef39d54cefbc14ec522bd6188e13b6ce87fb0d49fc4de4b879613d8bddaf07",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitFeatureUi.test.mjs:104:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "cockpitMissing.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 14,
+        "passed": 14,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "cockpitModelLab.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 10,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Data & Population has an explicit target selector: recommend vs confirm, persisted, invalidation",
+          "feature engineering: read-only Formula preview + engineered-feature test rename"
+        ],
+        "failureDetails": [
+          {
+            "name": "Data & Population has an explicit target selector: recommend vs confirm, persisted, invalidation",
+            "normalizedReasonSha256": "62c717bb8343de685a500310b8f2d8519279a211bbf5a692e3f7c64c55466075",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "feature engineering: read-only Formula preview + engineered-feature test rename",
+            "normalizedReasonSha256": "34c44253c04aa7c226ebbed19cc0c9ffa6e5cf47c8757354bd10332951af2313",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitModelLab.test.mjs:110:10",
+          "cockpitModelLab.test.mjs:129:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 10,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Data & Population has an explicit target selector: recommend vs confirm, persisted, invalidation",
+          "feature engineering: read-only Formula preview + engineered-feature test rename"
+        ],
+        "failureDetails": [
+          {
+            "name": "Data & Population has an explicit target selector: recommend vs confirm, persisted, invalidation",
+            "normalizedReasonSha256": "62c717bb8343de685a500310b8f2d8519279a211bbf5a692e3f7c64c55466075",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "feature engineering: read-only Formula preview + engineered-feature test rename",
+            "normalizedReasonSha256": "34c44253c04aa7c226ebbed19cc0c9ffa6e5cf47c8757354bd10332951af2313",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitModelLab.test.mjs:110:10",
+          "cockpitModelLab.test.mjs:129:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "cockpitNavAndPopulation.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 8,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "a Previous/Next footer renders on every step, after the step content"
+        ],
+        "failureDetails": [
+          {
+            "name": "a Previous/Next footer renders on every step, after the step content",
+            "normalizedReasonSha256": "6995192e9aecfd8f9c89366331a209953a639329a1abe3aff2e29645d62bc319",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitNavAndPopulation.test.mjs:53:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 8,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "a Previous/Next footer renders on every step, after the step content"
+        ],
+        "failureDetails": [
+          {
+            "name": "a Previous/Next footer renders on every step, after the step content",
+            "normalizedReasonSha256": "6995192e9aecfd8f9c89366331a209953a639329a1abe3aff2e29645d62bc319",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "cockpitNavAndPopulation.test.mjs:53:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "cockpitOutliers.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "cockpitPhase6f.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "codeContextSafety.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "codeExecutionDevelopmentScope.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "codeWorkspaceUx.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "creditRiskStudio.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 26,
+        "passed": 23,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "Credit Risk Studio route and sidebar entry are registered",
+          "Credit Risk Studio true wrapper keeps embedded predictive steps inside studio routes",
+          "Credit Risk Studio outliers direct load has embedded fallback and HELOC treatment controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "Credit Risk Studio route and sidebar entry are registered",
+            "normalizedReasonSha256": "b5ae4223cf25e6860d80cb365f1e6f88f60e5b94773fb4bdd383b3690c11374e",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Credit Risk Studio true wrapper keeps embedded predictive steps inside studio routes",
+            "normalizedReasonSha256": "544cb98ce5e61a5e828f115dca3ba90f952822d74671df9593cc7e6f6168834e",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Credit Risk Studio outliers direct load has embedded fallback and HELOC treatment controls",
+            "normalizedReasonSha256": "08ed17356c2d99e5ea5a193e2c426c0329eb6dac8855d809b2c75d6407cd4e12",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "creditRiskStudio.test.mjs:14:10",
+          "creditRiskStudio.test.mjs:774:10",
+          "creditRiskStudio.test.mjs:795:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 26,
+        "passed": 23,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "Credit Risk Studio route and sidebar entry are registered",
+          "Credit Risk Studio true wrapper keeps embedded predictive steps inside studio routes",
+          "Credit Risk Studio outliers direct load has embedded fallback and HELOC treatment controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "Credit Risk Studio route and sidebar entry are registered",
+            "normalizedReasonSha256": "b5ae4223cf25e6860d80cb365f1e6f88f60e5b94773fb4bdd383b3690c11374e",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Credit Risk Studio true wrapper keeps embedded predictive steps inside studio routes",
+            "normalizedReasonSha256": "544cb98ce5e61a5e828f115dca3ba90f952822d74671df9593cc7e6f6168834e",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Credit Risk Studio outliers direct load has embedded fallback and HELOC treatment controls",
+            "normalizedReasonSha256": "08ed17356c2d99e5ea5a193e2c426c0329eb6dac8855d809b2c75d6407cd4e12",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "creditRiskStudio.test.mjs:14:10",
+          "creditRiskStudio.test.mjs:774:10",
+          "creditRiskStudio.test.mjs:795:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "currentStatcastWarehouse.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisition.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 14,
+        "passed": 13,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "backend routers use active selected-column dataset view"
+        ],
+        "failureDetails": [
+          {
+            "name": "backend routers use active selected-column dataset view",
+            "normalizedReasonSha256": "2cddb059796979f22251f27c4d0ed862b19e9700b475b808ac3b35a0c59570b4",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "dataAcquisition.test.mjs:198:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 14,
+        "passed": 13,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "backend routers use active selected-column dataset view"
+        ],
+        "failureDetails": [
+          {
+            "name": "backend routers use active selected-column dataset view",
+            "normalizedReasonSha256": "2cddb059796979f22251f27c4d0ed862b19e9700b475b808ac3b35a0c59570b4",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "dataAcquisition.test.mjs:198:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "dataAcquisitionFinalAcceptanceRepair.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 12,
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionInitialContractBootstrap.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionLifecycle.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 33,
+        "passed": 33,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionReproducibility.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionStatus.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 27,
+        "passed": 27,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionTargetSelectionStability.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionUx.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionUxRefinement.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "dataAcquisitionValidationSimplification.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the rendered validation flow exposes the two governed validation choices"
+        ],
+        "failureDetails": [
+          {
+            "name": "the rendered validation flow exposes the two governed validation choices",
+            "normalizedReasonSha256": "1fae49cbc15f1d8101536c15eac1a48dbda92000adf3b6634124ddeda05b0e21",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "dataAcquisitionValidationSimplification.test.mjs:110:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the rendered validation flow exposes the two governed validation choices"
+        ],
+        "failureDetails": [
+          {
+            "name": "the rendered validation flow exposes the two governed validation choices",
+            "normalizedReasonSha256": "1fae49cbc15f1d8101536c15eac1a48dbda92000adf3b6634124ddeda05b0e21",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "dataAcquisitionValidationSimplification.test.mjs:110:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "datasetActionParity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 26,
+        "passed": 26,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "datasetLibrary.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "d187dde474d25a4ec2e7614de5367e88ff2a4b39669830d0c191f6b25648c963",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "datasetLibrary.test.mjs:12",
+          "datasetLibrary.test.mjs:12:11",
+          "datasetLibrary.test.mjs:45:1"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "d187dde474d25a4ec2e7614de5367e88ff2a4b39669830d0c191f6b25648c963",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "datasetLibrary.test.mjs:12",
+          "datasetLibrary.test.mjs:12:11",
+          "datasetLibrary.test.mjs:45:1"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "decisionJournal.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaAnalyticalScopeLabels.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaCanonicalIdentity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaCompactComposition.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaDevelopmentContext.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaDocumentationMdd.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaEntryReadinessContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaFinalAcceptancePolish.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 21,
+        "passed": 21,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaFinalPolish.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 22,
+        "passed": 20,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "3. governed context is not duplicated and restoration detail is collapsed",
+          "9. all new visuals exclude target and deterministic target sources"
+        ],
+        "failureDetails": [
+          {
+            "name": "3. governed context is not duplicated and restoration detail is collapsed",
+            "normalizedReasonSha256": "602c432467182df2ffd31b6e511be4da0c752f592a6b1afd1607af4ebcf153c2",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "9. all new visuals exclude target and deterministic target sources",
+            "normalizedReasonSha256": "80e4565e3dcbbaeacf9abc902dc35f64bf992c1f2a9a505592930702802e2562",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaFinalPolish.test.mjs:100:10",
+          "edaFinalPolish.test.mjs:160:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 22,
+        "passed": 20,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "3. governed context is not duplicated and restoration detail is collapsed",
+          "9. all new visuals exclude target and deterministic target sources"
+        ],
+        "failureDetails": [
+          {
+            "name": "3. governed context is not duplicated and restoration detail is collapsed",
+            "normalizedReasonSha256": "602c432467182df2ffd31b6e511be4da0c752f592a6b1afd1607af4ebcf153c2",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "9. all new visuals exclude target and deterministic target sources",
+            "normalizedReasonSha256": "80e4565e3dcbbaeacf9abc902dc35f64bf992c1f2a9a505592930702802e2562",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaFinalPolish.test.mjs:100:10",
+          "edaFinalPolish.test.mjs:160:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "edaFindingsGovernance.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 10,
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaFindingsWorkspace.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "legacy duplicate decision, commentary, and overall status remain present"
+        ],
+        "failureDetails": [
+          {
+            "name": "legacy duplicate decision, commentary, and overall status remain present",
+            "normalizedReasonSha256": "4a9ec5b35ae6bfe3591aea9fd6ec8fbed250929a7f645634ac149cd796a7d579",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaFindingsWorkspace.test.mjs:304:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "legacy duplicate decision, commentary, and overall status remain present"
+        ],
+        "failureDetails": [
+          {
+            "name": "legacy duplicate decision, commentary, and overall status remain present",
+            "normalizedReasonSha256": "4a9ec5b35ae6bfe3591aea9fd6ec8fbed250929a7f645634ac149cd796a7d579",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaFindingsWorkspace.test.mjs:304:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "edaPartialReadinessFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaPredictorVisibleLimits.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaPredictorVisualSuite.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "canonical adapter fails closed and excludes target-lineage fields"
+        ],
+        "failureDetails": [
+          {
+            "name": "canonical adapter fails closed and excludes target-lineage fields",
+            "normalizedReasonSha256": "68eff18abb1d7d05446ce39dd6b1e02accaba76154afb0c81a78f737cefc61fc",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaPredictorVisualSuite.test.mjs:240:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "canonical adapter fails closed and excludes target-lineage fields"
+        ],
+        "failureDetails": [
+          {
+            "name": "canonical adapter fails closed and excludes target-lineage fields",
+            "normalizedReasonSha256": "68eff18abb1d7d05446ce39dd6b1e02accaba76154afb0c81a78f737cefc61fc",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaPredictorVisualSuite.test.mjs:240:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "edaPremiumExperience.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaPremiumIntegration.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "edaVisualIntelligencePhase1.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "ac0498ec7248b8efa8409a318d343a9e91a894466d29f6018c43d059291e987e",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "edaVisualIntelligencePhase1.test.mjs:172:8"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "ac0498ec7248b8efa8409a318d343a9e91a894466d29f6018c43d059291e987e",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "edaVisualIntelligencePhase1.test.mjs:172:8"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "edaVisualIntelligencePhase11.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [
+          "3D reduced motion, linked highlighting, and context-loss fallback are enforced"
+        ],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "2ca4bb6c3cfd6d492f26ff4878efb81e077c04aaaeb7c5104a439dce49163b63",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [
+          "3D reduced motion, linked highlighting, and context-loss fallback are enforced"
+        ],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "2ca4bb6c3cfd6d492f26ff4878efb81e077c04aaaeb7c5104a439dce49163b63",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "edaWorkspaceNavigation.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 7,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "local parent decisions resolve generated parent findings by parent ID",
+          "Power User mode defaults the Guide to a reopenable full-width drawer state"
+        ],
+        "failureDetails": [
+          {
+            "name": "local parent decisions resolve generated parent findings by parent ID",
+            "normalizedReasonSha256": "8f9c2a4992aea16da9238aeaa21157125a2e161569264ad906bf1ec02044ffd3",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Power User mode defaults the Guide to a reopenable full-width drawer state",
+            "normalizedReasonSha256": "c24bd7a2c9c6abf993d140d6a21ad9182e2ea7f3a3cb7292c78ddba8b078b723",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaWorkspaceNavigation.test.mjs:240:10",
+          "edaWorkspaceNavigation.test.mjs:360:12"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 7,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "local parent decisions resolve generated parent findings by parent ID",
+          "Power User mode defaults the Guide to a reopenable full-width drawer state"
+        ],
+        "failureDetails": [
+          {
+            "name": "local parent decisions resolve generated parent findings by parent ID",
+            "normalizedReasonSha256": "8f9c2a4992aea16da9238aeaa21157125a2e161569264ad906bf1ec02044ffd3",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Power User mode defaults the Guide to a reopenable full-width drawer state",
+            "normalizedReasonSha256": "c24bd7a2c9c6abf993d140d6a21ad9182e2ea7f3a3cb7292c78ddba8b078b723",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "edaWorkspaceNavigation.test.mjs:240:10",
+          "edaWorkspaceNavigation.test.mjs:360:12"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "enterpriseCollaboration.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "entryPageIntegrity.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "b94f65b3d2b81f57eff28f521dd0872ed8b4797786804ac1cb02a0c24540864c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "b94f65b3d2b81f57eff28f521dd0872ed8b4797786804ac1cb02a0c24540864c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "evaluationScoringCommandCenter.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "evidenceCanonicalIdentity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "evidenceGraph.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "bd5be46ede6c521fdff03b1e78ffed85a7503fba5d890b44cd4ded5a5bb1dc55",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "evidenceGraph.test.mjs:28:8"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "bd5be46ede6c521fdff03b1e78ffed85a7503fba5d890b44cd4ded5a5bb1dc55",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "evidenceGraph.test.mjs:28:8"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "experimentCanonicalIdentity.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 6,
+        "passed": 3,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "new training experiments store canonical identity and explicit artifact IDs",
+          "preparation state is exact-version scoped and ignores global and other-version values",
+          "documentation sources select and render only canonical experiment identity"
+        ],
+        "failureDetails": [
+          {
+            "name": "new training experiments store canonical identity and explicit artifact IDs",
+            "normalizedReasonSha256": "bd2d7e5bc16103dd90977f11fdf2e9fadde95c193907e6647dea86e273e812b1",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "preparation state is exact-version scoped and ignores global and other-version values",
+            "normalizedReasonSha256": "bd2d7e5bc16103dd90977f11fdf2e9fadde95c193907e6647dea86e273e812b1",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "documentation sources select and render only canonical experiment identity",
+            "normalizedReasonSha256": "6a47f1b2490185568f56d09b527eecde0ee1265644defd3afaed2fbf9f496bc2",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "experimentCanonicalIdentity.test.mjs:240:38",
+          "experimentCanonicalIdentity.test.mjs:425:38",
+          "experimentCanonicalIdentity.test.mjs:491:12"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 6,
+        "passed": 3,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "new training experiments store canonical identity and explicit artifact IDs",
+          "preparation state is exact-version scoped and ignores global and other-version values",
+          "documentation sources select and render only canonical experiment identity"
+        ],
+        "failureDetails": [
+          {
+            "name": "new training experiments store canonical identity and explicit artifact IDs",
+            "normalizedReasonSha256": "bd2d7e5bc16103dd90977f11fdf2e9fadde95c193907e6647dea86e273e812b1",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "preparation state is exact-version scoped and ignores global and other-version values",
+            "normalizedReasonSha256": "bd2d7e5bc16103dd90977f11fdf2e9fadde95c193907e6647dea86e273e812b1",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "documentation sources select and render only canonical experiment identity",
+            "normalizedReasonSha256": "6a47f1b2490185568f56d09b527eecde0ee1265644defd3afaed2fbf9f496bc2",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "experimentCanonicalIdentity.test.mjs:240:38",
+          "experimentCanonicalIdentity.test.mjs:425:38",
+          "experimentCanonicalIdentity.test.mjs:491:12"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "experimentalDesign.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "61ad9f90f7d125a648115aa2b420c7cd646adc934a298d0f1a6994f0b08e43bc",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "61ad9f90f7d125a648115aa2b420c7cd646adc934a298d0f1a6994f0b08e43bc",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "experimentation.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "607d208fd951adfc0c70eb96c545396d9ee32345f3a94ac60a9111612e81d5f2",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "607d208fd951adfc0c70eb96c545396d9ee32345f3a94ac60a9111612e81d5f2",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "featureApiCanonicalIdentity.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 3,
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "feature and profile services validate identity before reading the frame"
+        ],
+        "failureDetails": [
+          {
+            "name": "feature and profile services validate identity before reading the frame",
+            "normalizedReasonSha256": "edc3ec185e2280a2af6dc9e5340734149a41abe09782b141e00e2f21fdf38602",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "featureApiCanonicalIdentity.test.mjs:36:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 3,
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "feature and profile services validate identity before reading the frame"
+        ],
+        "failureDetails": [
+          {
+            "name": "feature and profile services validate identity before reading the frame",
+            "normalizedReasonSha256": "edc3ec185e2280a2af6dc9e5340734149a41abe09782b141e00e2f21fdf38602",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "featureApiCanonicalIdentity.test.mjs:36:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "featureBuilderValidation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 10,
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "featureEngineeringCompletionContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "featureEngineeringProgressionContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "gen3FrontendConsolidation.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 5,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "project-bound Model Development Laboratory owns tuning and queue execution",
+          "Evaluation/Calibration/Simulation resolve the active candidate and never expose 2025"
+        ],
+        "failureDetails": [
+          {
+            "name": "project-bound Model Development Laboratory owns tuning and queue execution",
+            "normalizedReasonSha256": "91b2129111aebf41b79caa76d6ed093538891b76df2788b8603f13a16773c812",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Evaluation/Calibration/Simulation resolve the active candidate and never expose 2025",
+            "normalizedReasonSha256": "09cc1590e7a7dce39fd615e9a6bce23c9ebac5ca293e9ccf2c7e685f4b851ba9",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "gen3FrontendConsolidation.test.mjs:80:12",
+          "gen3FrontendConsolidation.test.mjs:90:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 5,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "project-bound Model Development Laboratory owns tuning and queue execution",
+          "Evaluation/Calibration/Simulation resolve the active candidate and never expose 2025"
+        ],
+        "failureDetails": [
+          {
+            "name": "project-bound Model Development Laboratory owns tuning and queue execution",
+            "normalizedReasonSha256": "91b2129111aebf41b79caa76d6ed093538891b76df2788b8603f13a16773c812",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Evaluation/Calibration/Simulation resolve the active candidate and never expose 2025",
+            "normalizedReasonSha256": "09cc1590e7a7dce39fd615e9a6bce23c9ebac5ca293e9ccf2c7e685f4b851ba9",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "gen3FrontendConsolidation.test.mjs:80:12",
+          "gen3FrontendConsolidation.test.mjs:90:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "gen3ScientistFlow.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 6,
+        "passed": 5,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Model Laboratory consumes the active project binding on mount (Gate 4/9)"
+        ],
+        "failureDetails": [
+          {
+            "name": "Model Laboratory consumes the active project binding on mount (Gate 4/9)",
+            "normalizedReasonSha256": "bba2591720f7dd1364850751654161291459e7ac11ebfcd16eb24f4b9da3fee4",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "gen3ScientistFlow.test.mjs:63:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 6,
+        "passed": 5,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Model Laboratory consumes the active project binding on mount (Gate 4/9)"
+        ],
+        "failureDetails": [
+          {
+            "name": "Model Laboratory consumes the active project binding on mount (Gate 4/9)",
+            "normalizedReasonSha256": "bba2591720f7dd1364850751654161291459e7ac11ebfcd16eb24f4b9da3fee4",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "gen3ScientistFlow.test.mjs:63:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "governedProfile.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 23,
+        "passed": 23,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "holdoutIsolationFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "howToChooseRemoval.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "implementationMonitoringIdentity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "interpretationModelSelection.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "llmWorkflow.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "mddFramework.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "modelDiagnostics.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "ee395b22ec5c383ae19acb3c7c8fdee497fafbd4d12807c5f1eaf2089964380f",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "modelDiagnostics.test.mjs:33:8"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "ee395b22ec5c383ae19acb3c7c8fdee497fafbd4d12807c5f1eaf2089964380f",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "modelDiagnostics.test.mjs:33:8"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "modelDocumentationStudio.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "modelTrainingInteraction.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "modelTrainingPresetActionContract.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 3,
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Balanced and Full Research presets keep technical validation reachable"
+        ],
+        "failureDetails": [
+          {
+            "name": "Balanced and Full Research presets keep technical validation reachable",
+            "normalizedReasonSha256": "a884773f6fc25d4902c12bb6ffc0b7e163cb1fc281885061cbc66ad6cffc423c",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "modelTrainingPresetActionContract.test.mjs:19:10",
+          "modelTrainingPresetActionContract.test.mjs:28:18",
+          "modelTrainingPresetActionContract.test.mjs:77:20"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 3,
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Balanced and Full Research presets keep technical validation reachable"
+        ],
+        "failureDetails": [
+          {
+            "name": "Balanced and Full Research presets keep technical validation reachable",
+            "normalizedReasonSha256": "a884773f6fc25d4902c12bb6ffc0b7e163cb1fc281885061cbc66ad6cffc423c",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "modelTrainingPresetActionContract.test.mjs:19:10",
+          "modelTrainingPresetActionContract.test.mjs:28:18",
+          "modelTrainingPresetActionContract.test.mjs:77:20"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "modelTrainingProgression.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "monitoringCenter.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Monitoring Center and detail routes are registered and available from Management navigation"
+        ],
+        "failureDetails": [
+          {
+            "name": "Monitoring Center and detail routes are registered and available from Management navigation",
+            "normalizedReasonSha256": "f0d95e9aa75eeb5589c4b652b4acb84a8bfa9ed545fb29564522ab65194ff3e1",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "monitoringCenter.test.mjs:103:12"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Monitoring Center and detail routes are registered and available from Management navigation"
+        ],
+        "failureDetails": [
+          {
+            "name": "Monitoring Center and detail routes are registered and available from Management navigation",
+            "normalizedReasonSha256": "f0d95e9aa75eeb5589c4b652b4acb84a8bfa9ed545fb29564522ab65194ff3e1",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "monitoringCenter.test.mjs:103:12"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "newProjectUx.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "nflWarehousePresentation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "notebookStudio.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "af9c567a60125dc5733a3d2343d21647932bc710501eacdf67fda6ed7b21dea1",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "af9c567a60125dc5733a3d2343d21647932bc710501eacdf67fda6ed7b21dea1",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "openProjectRoute.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "273663c5e3516af7b60ff6cbf1d0818000c94eff7d78020a3a9723c7a9cc7282",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "273663c5e3516af7b60ff6cbf1d0818000c94eff7d78020a3a9723c7a9cc7282",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "optimization.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 32,
+        "passed": 29,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "Modeling-mode API proxy targets the FastAPI service that owns optimization routes",
+          "Optimization evidence readiness is one strict shared contract",
+          "Workflow status legend and side navigation use the shared meanings"
+        ],
+        "failureDetails": [
+          {
+            "name": "Modeling-mode API proxy targets the FastAPI service that owns optimization routes",
+            "normalizedReasonSha256": "562e2d3d552ca47e75cbb695a817d45bf38bb677b49657f3dbc83744823f9637",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Optimization evidence readiness is one strict shared contract",
+            "normalizedReasonSha256": "0e55c6d2fa771cb7ded2b06d9ccd4e486e0cbe389501e0fbb563d71e97361fb6",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Workflow status legend and side navigation use the shared meanings",
+            "normalizedReasonSha256": "b272831f1b1bebd5f697cc3c13980c834e8e90928e49c7a08946c65a9bc3f8a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "optimization.test.mjs:230:10",
+          "optimization.test.mjs:332:12",
+          "optimization.test.mjs:433:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 32,
+        "passed": 29,
+        "failed": 3,
+        "skipped": 0,
+        "failedTests": [
+          "Modeling-mode API proxy targets the FastAPI service that owns optimization routes",
+          "Optimization evidence readiness is one strict shared contract",
+          "Workflow status legend and side navigation use the shared meanings"
+        ],
+        "failureDetails": [
+          {
+            "name": "Modeling-mode API proxy targets the FastAPI service that owns optimization routes",
+            "normalizedReasonSha256": "562e2d3d552ca47e75cbb695a817d45bf38bb677b49657f3dbc83744823f9637",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Optimization evidence readiness is one strict shared contract",
+            "normalizedReasonSha256": "0e55c6d2fa771cb7ded2b06d9ccd4e486e0cbe389501e0fbb563d71e97361fb6",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Workflow status legend and side navigation use the shared meanings",
+            "normalizedReasonSha256": "b272831f1b1bebd5f697cc3c13980c834e8e90928e49c7a08946c65a9bc3f8a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "optimization.test.mjs:230:10",
+          "optimization.test.mjs:332:12",
+          "optimization.test.mjs:433:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "paModelingCockpit.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 16,
+        "passed": 10,
+        "failed": 6,
+        "skipped": 0,
+        "failedTests": [
+          "every action button targets a real /cockpit backend endpoint",
+          "Simulation impact is wired to the whole-game Monte Carlo with a verdict",
+          "honest unavailable states \u2014 nothing faked",
+          "real feature builder with profiling and ablation",
+          "feature ablation surfaces a value verdict",
+          "full lineup-rotation simulation mode is wired with eligibility gating"
+        ],
+        "failureDetails": [
+          {
+            "name": "every action button targets a real /cockpit backend endpoint",
+            "normalizedReasonSha256": "6202cd3c3ad934adf4f3dd033795ceed1e73ab1bf56a23fe43a7d57367e51a09",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Simulation impact is wired to the whole-game Monte Carlo with a verdict",
+            "normalizedReasonSha256": "f63383af9a4d74e57498c561bc94b687774a37f91d91daa0614f0e155824e698",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "honest unavailable states \u2014 nothing faked",
+            "normalizedReasonSha256": "ac2288ac2d107d35d07955847a4d0ff37c996133140cc689abd834c71a34c595",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "real feature builder with profiling and ablation",
+            "normalizedReasonSha256": "99478520ec96d689dec1d03b74a64f85b9006be06b1aab5e97aae37507bf4593",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "feature ablation surfaces a value verdict",
+            "normalizedReasonSha256": "a265a3578520cc8d21eabce105d877ef2d700b0be149c0c7f4036cc68d29967b",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "full lineup-rotation simulation mode is wired with eligibility gating",
+            "normalizedReasonSha256": "b862c9a5cc4298fda097434abeb89a354554ed3231e25dfb9e91afe3ad12f381",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "paModelingCockpit.test.mjs:44:12",
+          "paModelingCockpit.test.mjs:86:10",
+          "paModelingCockpit.test.mjs:100:12",
+          "paModelingCockpit.test.mjs:108:10",
+          "paModelingCockpit.test.mjs:118:12",
+          "paModelingCockpit.test.mjs:123:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 16,
+        "passed": 10,
+        "failed": 6,
+        "skipped": 0,
+        "failedTests": [
+          "every action button targets a real /cockpit backend endpoint",
+          "Simulation impact is wired to the whole-game Monte Carlo with a verdict",
+          "honest unavailable states \u2014 nothing faked",
+          "real feature builder with profiling and ablation",
+          "feature ablation surfaces a value verdict",
+          "full lineup-rotation simulation mode is wired with eligibility gating"
+        ],
+        "failureDetails": [
+          {
+            "name": "every action button targets a real /cockpit backend endpoint",
+            "normalizedReasonSha256": "6202cd3c3ad934adf4f3dd033795ceed1e73ab1bf56a23fe43a7d57367e51a09",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Simulation impact is wired to the whole-game Monte Carlo with a verdict",
+            "normalizedReasonSha256": "f63383af9a4d74e57498c561bc94b687774a37f91d91daa0614f0e155824e698",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "honest unavailable states \u2014 nothing faked",
+            "normalizedReasonSha256": "ac2288ac2d107d35d07955847a4d0ff37c996133140cc689abd834c71a34c595",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "real feature builder with profiling and ablation",
+            "normalizedReasonSha256": "99478520ec96d689dec1d03b74a64f85b9006be06b1aab5e97aae37507bf4593",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "feature ablation surfaces a value verdict",
+            "normalizedReasonSha256": "a265a3578520cc8d21eabce105d877ef2d700b0be149c0c7f4036cc68d29967b",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "full lineup-rotation simulation mode is wired with eligibility gating",
+            "normalizedReasonSha256": "b862c9a5cc4298fda097434abeb89a354554ed3231e25dfb9e91afe3ad12f381",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "paModelingCockpit.test.mjs:44:12",
+          "paModelingCockpit.test.mjs:86:10",
+          "paModelingCockpit.test.mjs:100:12",
+          "paModelingCockpit.test.mjs:108:10",
+          "paModelingCockpit.test.mjs:118:12",
+          "paModelingCockpit.test.mjs:123:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "persistence.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "dd1881bf221e7e9d8a07b6a320971b408cc7348635864492ed2f817f43f586d4",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "dd1881bf221e7e9d8a07b6a320971b408cc7348635864492ed2f817f43f586d4",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "phase2aRegistrationExternalIdentity.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "phase2b1FrontendLineage.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "phase4Architecture.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "predictiveGoldStandardWorkflow.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "predictiveIdentityReadiness.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 23,
+        "passed": 22,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend wiring keeps identity-dependent rendering and notebook construction lazy"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend wiring keeps identity-dependent rendering and notebook construction lazy",
+            "normalizedReasonSha256": "0b25cdcfea38137e31bf905dca64cfa71f6209d23d93ac8912f1b61c808928a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveIdentityReadiness.test.mjs:277:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 23,
+        "passed": 22,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend wiring keeps identity-dependent rendering and notebook construction lazy"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend wiring keeps identity-dependent rendering and notebook construction lazy",
+            "normalizedReasonSha256": "0b25cdcfea38137e31bf905dca64cfa71f6209d23d93ac8912f1b61c808928a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveIdentityReadiness.test.mjs:277:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "predictiveIdentityRequest.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "predictiveModelingCommandCenter.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Training execution, diagnostic separation, and governed proposal are explicit"
+        ],
+        "failureDetails": [
+          {
+            "name": "Training execution, diagnostic separation, and governed proposal are explicit",
+            "normalizedReasonSha256": "19cb3d28fed1178ac415628a59ce28e48ef97153eee085ac769c79a55e56f52a",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveModelingCommandCenter.test.mjs:215:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 7,
+        "passed": 6,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Training execution, diagnostic separation, and governed proposal are explicit"
+        ],
+        "failureDetails": [
+          {
+            "name": "Training execution, diagnostic separation, and governed proposal are explicit",
+            "normalizedReasonSha256": "19cb3d28fed1178ac415628a59ce28e48ef97153eee085ac769c79a55e56f52a",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveModelingCommandCenter.test.mjs:215:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "predictiveModelingRepair.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "d0d65f5cde544fa23d9a9373bd1d24037dc4d325f6ea0cb8c35eb4713bac5b1b",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "predictiveModelingRepair.test.mjs:108:8"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "d0d65f5cde544fa23d9a9373bd1d24037dc4d325f6ea0cb8c35eb4713bac5b1b",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "predictiveModelingRepair.test.mjs:108:8"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "predictiveProjectContext.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "predictiveProjectContextWow.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "predictiveWorkflowLateCompletion.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "every Evaluation navigation route converges on the effective Step 08 completion save"
+        ],
+        "failureDetails": [
+          {
+            "name": "every Evaluation navigation route converges on the effective Step 08 completion save",
+            "normalizedReasonSha256": "6ba7ca939f7d74c19a4f955f6d223b060038e59f764796290511ecb250578729",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveWorkflowLateCompletion.test.mjs:145:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "every Evaluation navigation route converges on the effective Step 08 completion save"
+        ],
+        "failureDetails": [
+          {
+            "name": "every Evaluation navigation route converges on the effective Step 08 completion save",
+            "normalizedReasonSha256": "6ba7ca939f7d74c19a4f955f6d223b060038e59f764796290511ecb250578729",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "predictiveWorkflowLateCompletion.test.mjs:145:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "predictorAuthorizationReconciliation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "preparationPremiumWorkflow.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 13,
+        "passed": 13,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "preparationReferenceLayout.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Balance and Split uses the reference validation-design sequence"
+        ],
+        "failureDetails": [
+          {
+            "name": "Balance and Split uses the reference validation-design sequence",
+            "normalizedReasonSha256": "33bb5c030d25d9398a475603b154df8085c08d007c39ef8a02d92164375b5619",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "preparationReferenceLayout.test.mjs:115:12"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "Balance and Split uses the reference validation-design sequence"
+        ],
+        "failureDetails": [
+          {
+            "name": "Balance and Split uses the reference validation-design sequence",
+            "normalizedReasonSha256": "33bb5c030d25d9398a475603b154df8085c08d007c39ef8a02d92164375b5619",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "preparationReferenceLayout.test.mjs:115:12"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "preparationTableFirstContract.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 10,
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "preparationWorkflowCorrections.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectContextMetadata.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectContextPersistence.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 22,
+        "passed": 22,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectScopedPredictiveNavigation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectScopedRoutes.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 7,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "fc2f64a16965dc106e4a919468c0eb4ecdc14008e657b8c0d728d00aa01eea3c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 7,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "fc2f64a16965dc106e4a919468c0eb4ecdc14008e657b8c0d728d00aa01eea3c",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "projectTypes.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "registryDashboard.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 8,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Management routes and full-width workspace are registered",
+          "Sidebar has one consolidated Management navigation group"
+        ],
+        "failureDetails": [
+          {
+            "name": "Management routes and full-width workspace are registered",
+            "normalizedReasonSha256": "d6bf856d7ba4717e6ad9a87dc1bed4a0dc065c25164dc2c87fd8288788ba4b5a",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Sidebar has one consolidated Management navigation group",
+            "normalizedReasonSha256": "d97a20b4d60c2bb7b03cde6b1115ef9843ada51afe22259d5fe563a8379d8676",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "registryDashboard.test.mjs:37:10",
+          "registryDashboard.test.mjs:44:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 8,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Management routes and full-width workspace are registered",
+          "Sidebar has one consolidated Management navigation group"
+        ],
+        "failureDetails": [
+          {
+            "name": "Management routes and full-width workspace are registered",
+            "normalizedReasonSha256": "d6bf856d7ba4717e6ad9a87dc1bed4a0dc065c25164dc2c87fd8288788ba4b5a",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Sidebar has one consolidated Management navigation group",
+            "normalizedReasonSha256": "d97a20b4d60c2bb7b03cde6b1115ef9843ada51afe22259d5fe563a8379d8676",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "registryDashboard.test.mjs:37:10",
+          "registryDashboard.test.mjs:44:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "regression.test.mjs": {
+      "candidate": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "a38103a629e58a4be929f7fdf1ca86a4c4a8b30d7686396758586a5acb6e6c41",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "base": {
+        "status": "DEPENDENCY_UNAVAILABLE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "a38103a629e58a4be929f7fdf1ca86a4c4a8b30d7686396758586a5acb6e6c41",
+            "errorType": "DEPENDENCY_UNAVAILABLE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": [
+          "src"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "regressionMetricValidator.test.mjs": {
+      "candidate": {
+        "status": "SAFETY_GUARD_BLOCKED",
+        "exitCode": 1,
+        "tests": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression metrics"
+        ],
+        "failureDetails": [
+          {
+            "name": "independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression metrics",
+            "normalizedReasonSha256": "2dd65a7dad4482784ec44ab942fb80230ce029d9545c1318304e58f1b4cb05c7",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "regressionMetricValidator.test.mjs:62:20"
+        ]
+      },
+      "base": {
+        "status": "SAFETY_GUARD_BLOCKED",
+        "exitCode": 1,
+        "tests": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression metrics"
+        ],
+        "failureDetails": [
+          {
+            "name": "independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression metrics",
+            "normalizedReasonSha256": "2dd65a7dad4482784ec44ab942fb80230ce029d9545c1318304e58f1b4cb05c7",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "regressionMetricValidator.test.mjs:62:20"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "sportsCustomTemporalDesign.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 11,
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsForecastContractPersistence.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsGuidedWorkflow.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 16,
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsMultiSportFoundationFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsPopulationAuthority.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsProductConversion.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 15,
+        "passed": 10,
+        "failed": 5,
+        "skipped": 0,
+        "failedTests": [
+          "home, workflow, warehouse, graph, bundle, and monitoring surfaces stay honest when empty",
+          "Phase 2 dataset evidence is fetched, registered, and rendered through governed endpoints",
+          "Phase 3 PA baseline evidence drives research-only model, evaluation, graph, registry, project, and workflow states",
+          "Phase 4 component evidence is normalized, scoped, graphed, and rendered without simulation or deployment claims",
+          "governed MLB project evidence survives reload without a duplicate browser-only project"
+        ],
+        "failureDetails": [
+          {
+            "name": "home, workflow, warehouse, graph, bundle, and monitoring surfaces stay honest when empty",
+            "normalizedReasonSha256": "06205e055cd51e14037a7e343549f0145da5217430d5a54bbeced715cc3ea36c",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 2 dataset evidence is fetched, registered, and rendered through governed endpoints",
+            "normalizedReasonSha256": "0d1f2b72e9527a195be1481c0572f22857b5f78305b9b62726fc7e56b701c2e6",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 3 PA baseline evidence drives research-only model, evaluation, graph, registry, project, and workflow states",
+            "normalizedReasonSha256": "2e639621ec8cbb930e3569957eede0a4efa242dc258726f9aae157e6c4469b73",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 4 component evidence is normalized, scoped, graphed, and rendered without simulation or deployment claims",
+            "normalizedReasonSha256": "519aee4304a1e00eeb6e684b65a6dd980c8cafa18b0cfdac4f1e01e73224bf48",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "governed MLB project evidence survives reload without a duplicate browser-only project",
+            "normalizedReasonSha256": "c629702b999fab3232748fb91f15074da6666726a018fcd02a34357179f4abc1",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:292:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:452:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:697:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:781:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:841:3"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 15,
+        "passed": 10,
+        "failed": 5,
+        "skipped": 0,
+        "failedTests": [
+          "home, workflow, warehouse, graph, bundle, and monitoring surfaces stay honest when empty",
+          "Phase 2 dataset evidence is fetched, registered, and rendered through governed endpoints",
+          "Phase 3 PA baseline evidence drives research-only model, evaluation, graph, registry, project, and workflow states",
+          "Phase 4 component evidence is normalized, scoped, graphed, and rendered without simulation or deployment claims",
+          "governed MLB project evidence survives reload without a duplicate browser-only project"
+        ],
+        "failureDetails": [
+          {
+            "name": "home, workflow, warehouse, graph, bundle, and monitoring surfaces stay honest when empty",
+            "normalizedReasonSha256": "06205e055cd51e14037a7e343549f0145da5217430d5a54bbeced715cc3ea36c",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 2 dataset evidence is fetched, registered, and rendered through governed endpoints",
+            "normalizedReasonSha256": "0d1f2b72e9527a195be1481c0572f22857b5f78305b9b62726fc7e56b701c2e6",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 3 PA baseline evidence drives research-only model, evaluation, graph, registry, project, and workflow states",
+            "normalizedReasonSha256": "2e639621ec8cbb930e3569957eede0a4efa242dc258726f9aae157e6c4469b73",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Phase 4 component evidence is normalized, scoped, graphed, and rendered without simulation or deployment claims",
+            "normalizedReasonSha256": "519aee4304a1e00eeb6e684b65a6dd980c8cafa18b0cfdac4f1e01e73224bf48",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "governed MLB project evidence survives reload without a duplicate browser-only project",
+            "normalizedReasonSha256": "c629702b999fab3232748fb91f15074da6666726a018fcd02a34357179f4abc1",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:292:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:452:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:697:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:781:3",
+          "sportsProductConversion.test.mjs:49:12",
+          "sportsProductConversion.test.mjs:841:3"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "sportsProjectPersistenceLinkage.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage2CurrentGoldReview.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3CandidateEvaluationSourceFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3DefaultEdaGallery.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the default Stage 3 EDA entry presents the exact prominent five-section decision path"
+        ],
+        "failureDetails": [
+          {
+            "name": "the default Stage 3 EDA entry presents the exact prominent five-section decision path",
+            "normalizedReasonSha256": "2ca8302f19a868528198f90e7c4079312159a14cdd6fd987caeef4c5688b2e0b",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sportsStage3DefaultEdaGallery.test.mjs:25:10",
+          "sportsStage3DefaultEdaGallery.test.mjs:31:16"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "the default Stage 3 EDA entry presents the exact prominent five-section decision path"
+        ],
+        "failureDetails": [
+          {
+            "name": "the default Stage 3 EDA entry presents the exact prominent five-section decision path",
+            "normalizedReasonSha256": "2ca8302f19a868528198f90e7c4079312159a14cdd6fd987caeef4c5688b2e0b",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sportsStage3DefaultEdaGallery.test.mjs:25:10",
+          "sportsStage3DefaultEdaGallery.test.mjs:31:16"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "sportsStage3DownstreamWorkflowFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3ExecutableArtifactScoringFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3FeatureSplitFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3FocusModeFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3InteractiveEdaFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3ProjectBoundHandoff.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3ProjectBoundModelLabFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3TreatmentStudiosFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 18,
+        "passed": 18,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sqlDataStudio.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sqlitePersistence.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 8,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "SQLite persistence source contains all required frontend integration points"
+        ],
+        "failureDetails": [
+          {
+            "name": "SQLite persistence source contains all required frontend integration points",
+            "normalizedReasonSha256": "b272831f1b1bebd5f697cc3c13980c834e8e90928e49c7a08946c65a9bc3f8a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sqlitePersistence.test.mjs:317:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 9,
+        "passed": 8,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "SQLite persistence source contains all required frontend integration points"
+        ],
+        "failureDetails": [
+          {
+            "name": "SQLite persistence source contains all required frontend integration points",
+            "normalizedReasonSha256": "b272831f1b1bebd5f697cc3c13980c834e8e90928e49c7a08946c65a9bc3f8a3",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "sqlitePersistence.test.mjs:317:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "stage3StickyLayoutRepair.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "targetDistributionApi.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 11,
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "targetIntelligence.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 30,
+        "passed": 30,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "taskContext.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "tenantCockpitCacheIsolation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "tenantStage3RouteProjectHandoff.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "timeSeriesForecasting.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 26,
+        "passed": 26,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "userManagement.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "validationCenter.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 8,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Frontend routes and client are registered",
+          "Sidebar and dashboard expose validation management without duplicating core links"
+        ],
+        "failureDetails": [
+          {
+            "name": "Frontend routes and client are registered",
+            "normalizedReasonSha256": "c95ee13ecb722eb683fe979c61569509b4d60e60395319df38f87daae2c31764",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Sidebar and dashboard expose validation management without duplicating core links",
+            "normalizedReasonSha256": "b4ec87e28ea1ad4ed2bcae1ecae13228e9c58808a84fb720ba4a5cd9b216d48e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "validationCenter.test.mjs:98:12",
+          "validationCenter.test.mjs:106:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 8,
+        "failed": 2,
+        "skipped": 0,
+        "failedTests": [
+          "Frontend routes and client are registered",
+          "Sidebar and dashboard expose validation management without duplicating core links"
+        ],
+        "failureDetails": [
+          {
+            "name": "Frontend routes and client are registered",
+            "normalizedReasonSha256": "c95ee13ecb722eb683fe979c61569509b4d60e60395319df38f87daae2c31764",
+            "errorType": "testCodeFailure"
+          },
+          {
+            "name": "Sidebar and dashboard expose validation management without duplicating core links",
+            "normalizedReasonSha256": "b4ec87e28ea1ad4ed2bcae1ecae13228e9c58808a84fb720ba4a5cd9b216d48e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "validationCenter.test.mjs:98:12",
+          "validationCenter.test.mjs:106:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "vifResolutionPlan.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 9,
+        "passed": 9,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "vifSimulatorSelectionState.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "visualIntelligenceCore.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 12,
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "visualMotionFoundation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowActionBarLayout.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowCompletionNavigation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowEffectiveState.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "all shared progress and resume surfaces consume the effective view"
+        ],
+        "failureDetails": [
+          {
+            "name": "all shared progress and resume surfaces consume the effective view",
+            "normalizedReasonSha256": "4537a3b468a08834f7305d90c5a4e844de5d2dd58a7dc019dd11741208d5c9df",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "workflowEffectiveState.test.mjs:220:12"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 12,
+        "passed": 11,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "all shared progress and resume surfaces consume the effective view"
+        ],
+        "failureDetails": [
+          {
+            "name": "all shared progress and resume surfaces consume the effective view",
+            "normalizedReasonSha256": "4537a3b468a08834f7305d90c5a4e844de5d2dd58a7dc019dd11741208d5c9df",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "workflowEffectiveState.test.mjs:220:12"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "workflowLibrary.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowNavigationState.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    }
+  },
+  "elapsedSeconds": 48.05,
+  "totals": {
+    "tests": 1153,
+    "passed": 1097,
+    "failed": 56,
+    "skipped": 0
+  },
+  "failedFiles": [
+    "adminSharing.test.mjs",
+    "analysisPartitionProductCompletionFrontend.test.mjs",
+    "authoritativeProjectContext.test.mjs",
+    "bureauCatalogAdmin.test.mjs",
+    "cockpit6g1.test.mjs",
+    "cockpit6g2.test.mjs",
+    "cockpitFeatureUi.test.mjs",
+    "cockpitModelLab.test.mjs",
+    "cockpitNavAndPopulation.test.mjs",
+    "creditRiskStudio.test.mjs",
+    "dataAcquisition.test.mjs",
+    "dataAcquisitionValidationSimplification.test.mjs",
+    "datasetLibrary.test.mjs",
+    "edaFinalPolish.test.mjs",
+    "edaFindingsWorkspace.test.mjs",
+    "edaPredictorVisualSuite.test.mjs",
+    "edaVisualIntelligencePhase1.test.mjs",
+    "edaVisualIntelligencePhase11.test.mjs",
+    "edaWorkspaceNavigation.test.mjs",
+    "enterpriseCollaboration.test.mjs",
+    "entryPageIntegrity.test.mjs",
+    "evidenceGraph.test.mjs",
+    "experimentCanonicalIdentity.test.mjs",
+    "experimentalDesign.test.mjs",
+    "experimentation.test.mjs",
+    "featureApiCanonicalIdentity.test.mjs",
+    "gen3FrontendConsolidation.test.mjs",
+    "gen3ScientistFlow.test.mjs",
+    "modelDiagnostics.test.mjs",
+    "modelTrainingPresetActionContract.test.mjs",
+    "monitoringCenter.test.mjs",
+    "notebookStudio.test.mjs",
+    "openProjectRoute.test.mjs",
+    "optimization.test.mjs",
+    "paModelingCockpit.test.mjs",
+    "persistence.test.mjs",
+    "predictiveIdentityReadiness.test.mjs",
+    "predictiveModelingCommandCenter.test.mjs",
+    "predictiveModelingRepair.test.mjs",
+    "predictiveWorkflowLateCompletion.test.mjs",
+    "preparationReferenceLayout.test.mjs",
+    "projectScopedRoutes.test.mjs",
+    "registryDashboard.test.mjs",
+    "regression.test.mjs",
+    "regressionMetricValidator.test.mjs",
+    "sportsProductConversion.test.mjs",
+    "sportsStage3DefaultEdaGallery.test.mjs",
+    "sqlitePersistence.test.mjs",
+    "userManagement.test.mjs",
+    "validationCenter.test.mjs",
+    "workflowEffectiveState.test.mjs"
+  ]
+}

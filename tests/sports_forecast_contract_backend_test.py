@@ -716,20 +716,17 @@ class SportsForecastContractBackendTests(unittest.TestCase):
 
         generic_writer_entered = threading.Event()
         contract_committed = threading.Event()
-        original_atomic_upsert = (
-            self.persistence.projects.upsert_preserving_metadata_keys
-        )
+        original_execute = persistence_router._execute
 
-        def delayed_atomic_upsert(record: dict, *, reserved_metadata_keys: set[str]) -> dict:
-            # update_project has already assembled its stale metadata snapshot
-            # when it reaches this repository boundary.
-            generic_writer_entered.set()
-            if not contract_committed.wait(timeout=10):
-                raise AssertionError("Contract writer did not commit during the deterministic race.")
-            return original_atomic_upsert(
-                record,
-                reserved_metadata_keys=reserved_metadata_keys,
-            )
+        def delayed_execute(operation):
+            # Pause the generic save before its authorization/write transaction.
+            # The concurrent contract must commit before that transaction reads
+            # the current project metadata and preserves the reserved node.
+            if not generic_writer_entered.is_set():
+                generic_writer_entered.set()
+                if not contract_committed.wait(timeout=10):
+                    raise AssertionError("Contract writer did not commit during the deterministic race.")
+            return original_execute(operation)
 
         def save_generic_project() -> dict:
             with (
@@ -746,9 +743,9 @@ class SportsForecastContractBackendTests(unittest.TestCase):
                 ),
                 patch.object(persistence_router, "audit_event"),
                 patch.object(
-                    self.persistence.projects,
-                    "upsert_preserving_metadata_keys",
-                    side_effect=delayed_atomic_upsert,
+                    persistence_router,
+                    "_execute",
+                    side_effect=delayed_execute,
                 ),
             ):
                 return persistence_router.update_project(
@@ -759,7 +756,7 @@ class SportsForecastContractBackendTests(unittest.TestCase):
 
         def save_contract() -> dict:
             if not generic_writer_entered.wait(timeout=10):
-                raise AssertionError("Generic writer did not reach its stale-snapshot boundary.")
+                raise AssertionError("Generic writer did not reach its pre-transaction boundary.")
             try:
                 return self.contracts.save(
                     "mlb-project",

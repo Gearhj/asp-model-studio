@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "ATOMIC_PROJECT_GUARD_RECEIPT_V1",
+  "sourceRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-source-before-7a4bf4a9-v2",
+  "runtimeRoot": "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\atomic-before-runtime-06",
+  "sourceHashes": {
+    "server/persistence/persistence_router.py": "e07182b963bdb0895c8f6f7a4f966bf80e9c3efce49e6fd78d71f15cd558437e",
+    "server/persistence/repositories/project_repository.py": "8f61451b11baa8c2d9f425e3ea9e21b3a19fd2c851edb26d1e69280c0e72a11d",
+    "server/security/security_store.py": "6ea31051b4ae1aedb6a05360c002294b144ac773089e138569589333e72bd813"
+  },
+  "testSHA256": "fc2b3effbcad25547cb06cabdf26da1dcb0a6d14313ed99a52d4f12a1dc39f72",
+  "guardViolations": [],
+  "optionalPlatformProbes": [
+    "optional_lscpu_blocked_before_launch"
+  ],
+  "scope": "Synthetic authenticated TestClient requests; every application table except user activity, project security audit events, disposable artifact hashes, and in-memory result cache compared. No browser is started.",
+  "sourceReceiptSHA256": "96d7b4eab056dd340456f96a6a5952d7d254e3634b9d8a321632807f2863e0d1",
+  "authoritativeModelActivity": 0,
+  "policyAdoptions": 0,
+  "featureRegistrations": 0,
+  "finalOotAccess": 0,
+  "currentGoldMutations": 0,
+  "providerCalls": 0
+}

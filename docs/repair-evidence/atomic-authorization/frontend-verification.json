@@ -1,0 +1,361 @@
+{
+  "schema": "atomic-authorization-frontend-verification-v1",
+  "recordedAt": "2026-09-05T21:37:03.049147+00:00",
+  "verdict": "NO_FRONTEND_REGRESSION_OBSERVED",
+  "baseHead": "7a4bf4a972438140b82aebf060448b643d6827f4",
+  "testedSourceOverlaySha256": {
+    "server/persistence/persistence_router.py": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+    "server/persistence/repositories/project_repository.py": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+    "server/security/security_store.py": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619"
+  },
+  "finalSourceMatchesTestedOverlay": true,
+  "frontendSourceUnchangedFromStart": true,
+  "preparationArchiveSha256": "b84dfa870cac300b60bc254cddc5d50cd0a03f07f2ee46eb31fd6fc14e048f1c",
+  "affectedFrontendChecks": {
+    "newProjectUx.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "authReturnPath.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "projectTypes.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "workflowLibrary.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsProjectPersistenceLinkage.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "adminSharing.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 8,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "navigation and resource pages include access management entry points"
+        ],
+        "failureDetails": [
+          {
+            "name": "navigation and resource pages include access management entry points",
+            "normalizedReasonSha256": "e237716017ca8e355eeb12ed65ab13c06d073d6376c624554dbd8462b41b101e",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "adminSharing.test.mjs:154:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "enterpriseCollaboration.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 10,
+        "passed": 9,
+        "failed": 1,
+        "skipped": 0,
+        "failedTests": [
+          "frontend exposes Notification Center and admin collaboration controls"
+        ],
+        "failureDetails": [
+          {
+            "name": "frontend exposes Notification Center and admin collaboration controls",
+            "normalizedReasonSha256": "1611f20b0b39fa1138766872de297ef546dc6f1e40421155e55fc2b8a3970bc0",
+            "errorType": "testCodeFailure"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": [
+          "enterpriseCollaboration.test.mjs:83:10"
+        ]
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "userManagement.test.mjs": {
+      "candidate": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "base": {
+        "status": "ASSERTION_OR_RUNTIME_FAILURE",
+        "exitCode": 1,
+        "tests": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [
+          {
+            "name": "TOP_LEVEL_FIRST_FAILURE_ONLY",
+            "normalizedReasonSha256": "c835ad3dd2b3f6611ba90c60faa7758f131746cb9f9504968ffdc871e554ef43",
+            "errorType": "ASSERTION_OR_RUNTIME_FAILURE"
+          }
+        ],
+        "firstFailureOnlyLaterAssertionsUnreached": true,
+        "testLocations": []
+      },
+      "introducedFailedTests": [],
+      "changedFailureReasons": []
+    },
+    "tenantCockpitCacheIsolation.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "tenantStage3RouteProjectHandoff.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3ProjectBoundModelLabFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 15,
+        "passed": 15,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    },
+    "sportsStage3ExecutableArtifactScoringFrontend.test.mjs": {
+      "candidate": {
+        "status": "PASS",
+        "exitCode": 0,
+        "tests": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failedTests": [],
+        "failureDetails": [],
+        "firstFailureOnlyLaterAssertionsUnreached": false,
+        "testLocations": []
+      }
+    }
+  },
+  "fullComparison": {
+    "enumeratedFiles": 165,
+    "executedFiles": 163,
+    "fileStatuses": {
+      "PASS": 112,
+      "ASSERTION_OR_RUNTIME_FAILURE": 43,
+      "DEPENDENCY_UNAVAILABLE": 7,
+      "SAFETY_GUARD_BLOCKED": 1
+    },
+    "namedTests": {
+      "tests": 1153,
+      "passed": 1097,
+      "failed": 56,
+      "skipped": 0
+    },
+    "candidateNonpassFilesRecheckedAgainstBase": 51,
+    "introducedNamedFailures": 0,
+    "changedNormalizedFailureReasons": 0,
+    "topLevelAbortFilesWithLaterAssertionsUnreached": 16,
+    "excluded": {
+      "bureauReviewAutomaticDetection.browser.test.mjs": "REQUIRES_SEPARATE_ISOLATED_BROWSER_BUILD_FIXTURE",
+      "hermetic_node_guard.test.mjs": "REQUIRES_HERMETIC_CHILD_DEPENDENCY_HASH_ENVIRONMENT"
+    },
+    "elapsedSeconds": 48.05,
+    "receipt": "frontend-suite-comparison.json"
+  },
+  "build": {
+    "status": "PASS",
+    "typeScript": "tsc -b passed",
+    "modeling": "vite build --mode modeling passed",
+    "apiBase": "/api",
+    "mainAsset": "dist/assets/main-C4SfSlYd.js",
+    "mainSha256": "dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520",
+    "indexSha256": "9651d83539c47dca88e31190f9114c3ab3e14b60047bb63ec4fc371fbba710bc",
+    "identicalToPreviouslyVerifiedModelingBundle": true,
+    "toolReceipt": "exec session 82650 completion 6ab049",
+    "existingWarnings": [
+      "Large main bundle",
+      "Outdated browser compatibility metadata",
+      "Mixed static/dynamic cockpit imports"
+    ]
+  },
+  "projectEvidenceIsolation": {
+    "currentChecks": "Synthetic compiled cache and canonical-project handoff probes pass; project-bound frontend authority assertions pass. Computed server evidence is not restored from stale caches, and a stale foreign contract cannot override the selected project.",
+    "authoritativeMetadataOrRowsOpenedByVerifier": 0,
+    "newBrowserAcceptanceAgainstAtomicBackend": false,
+    "historicalBrowserQualification": "The 331-assertion disposable browser receipt predates both the membership/ACL and atomic project-write changes. An identical frontend bundle is not fresh browser certification of the changed backend."
+  },
+  "auditProjectionReadReview": {
+    "scope": "Static review, separately from backend executable tests",
+    "threeCanonicalSuccessActions": [
+      "project.created",
+      "project.saved",
+      "template.selected"
+    ],
+    "entityTypeRestrictedToProject": true,
+    "filtersBeforeLimit": true,
+    "legacyPayloadPreservedOnDuplicateAuditId": true,
+    "deterministicTimestampAndAuditIdOrder": true,
+    "existingAuditRoleGateUnchanged": true,
+    "canonicalStoreFailureReturns503": true,
+    "dynamicVisibilityAndRollbackTests": "Owned by the separate atomic backend verification matrix"
+  },
+  "safety": {
+    "isolatedSourceMirrors": true,
+    "operationalFilesExcluded": true,
+    "networkProviderAndChildProcessCallsBlocked": true,
+    "writesLimitedToMirrorTmp": true,
+    "dependencyJunctionWritesDeniedByResolvedPathGuard": true,
+    "applicationSourceEditsByVerifier": 0,
+    "commitsByVerifier": 0,
+    "primaryCheckoutWrites": 0,
+    "authoritativeModelActivity": 0,
+    "policyAdoptions": 0,
+    "featureRegistrations": 0,
+    "finalOotOpens": 0
+  },
+  "limitations": [
+    "Existing assertion/runtime failures, unavailable test dependencies, one guard-blocked file and two specialized exclusions remain.",
+    "Sixteen top-level aborts leave later assertions unreached; zero observed new failure is not a clean full-suite or full-coverage claim.",
+    "Top-level assertion scripts have zero exit-code success rather than invented named-test counts.",
+    "This receipt covers frontend compilation/regression and bounded cache/project checks; the parent atomic security report owns backend race closure and overall readiness."
+  ]
+}

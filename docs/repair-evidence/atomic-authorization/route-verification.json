@@ -1,0 +1,554 @@
+{
+  "schema": "ASP_ATOMIC_AUTHORIZATION_ROUTE_REGRESSION_V1",
+  "timestamp": "2026-09-05T21:41:26.065028+00:00",
+  "startingHead": "7a4bf4a972438140b82aebf060448b643d6827f4",
+  "branch": "codex/model-studio-tenant-workflow-repair-v1",
+  "selectedCaseCounts": {
+    "collected": 402,
+    "passed": 387,
+    "skipped": 3,
+    "failed": 12
+  },
+  "focusedStage3Tests": {
+    "collected": 338,
+    "passed": 338
+  },
+  "adversarialCoverage": {
+    "stage3InventoryRoutes": 99,
+    "activeProjectAuthorizedRoutes": 90,
+    "retiredAuthenticatedRoutes": 9,
+    "supportingProjectRoutes": 20,
+    "crossUserStage3HttpRequests": 180,
+    "supportingForeignUserHttpRequests": 20,
+    "crossUserCrossProjectTotalRequests": 200,
+    "activeMethodPathSurfaces": 110,
+    "anonymousHttpRequests": 90,
+    "users": 2,
+    "projectsPerUser": 2,
+    "countingNote": "Per complete focused run. Cross-user and cross-project overlap; baseline/historical/repeated runs are not additive unique coverage. 338 is a test count, not an HTTP request count."
+  },
+  "membershipMatrix": {
+    "checks": 30,
+    "passed": 30,
+    "explicitHttpCases": 22,
+    "expectedDenials": 15,
+    "expectedPermitted": 7,
+    "protectedStateUnchangedRecorded": 14,
+    "databaseIntegrity": "ok",
+    "execution": "Exact committed approved test inner probe under before-import guard; parent owns aggregate unittest wrapper",
+    "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-membership-final\\reports\\source-hashes.json",
+    "deniedStateUnchangedRecorded": 13,
+    "idempotentAllowedStateUnchangedRecorded": 1,
+    "countingNote": "Thirty checks include 22 explicit HTTP cases and eight composite assertions; approved aggregate wrapper is separate corroboration, not 30 additional unique scenarios."
+  },
+  "canonicalAndPilotBoundary": {
+    "syntheticExactBindingNoFallbackAndUserProjectCacheChecks": true,
+    "operationalPilotOrCanonicalDataOpened": false,
+    "newOperationalBrowserAcceptanceClaimed": false
+  },
+  "comparisons": [
+    {
+      "suite": "routes",
+      "sameCollectedNodeIds": true,
+      "commonCasePhases": 350,
+      "changedCasePhases": []
+    },
+    {
+      "suite": "auth",
+      "sameCollectedNodeIds": true,
+      "commonCasePhases": 29,
+      "changedCasePhases": []
+    },
+    {
+      "suite": "projects",
+      "sameCollectedNodeIds": true,
+      "commonCasePhases": 21,
+      "changedCasePhases": []
+    },
+    {
+      "suite": "forecast",
+      "sameCollectedNodeIds": true,
+      "commonCasePhases": 2,
+      "changedCasePhases": []
+    }
+  ],
+  "nonpasses": [
+    {
+      "suite": "routes",
+      "nodeid": "tests/sports_cockpit_gen3_acl_test.py::test_cross_project_state_is_isolated",
+      "phase": "setup",
+      "outcome": "skipped",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "Skipped: Gen-3 v2 authority not published",
+      "candidateReason": "Skipped: Gen-3 v2 authority not published"
+    },
+    {
+      "suite": "routes",
+      "nodeid": "tests/sports_cockpit_gen3_acl_test.py::test_binding_change_invalidates_active_candidate",
+      "phase": "setup",
+      "outcome": "skipped",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "Skipped: Gen-3 v2 authority not published",
+      "candidateReason": "Skipped: Gen-3 v2 authority not published"
+    },
+    {
+      "suite": "routes",
+      "nodeid": "tests/persistence_authorization_test.py::PersistenceAuthorizationTest::test_denied_access_is_recorded_in_the_audit_log",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "AssertionError: [] is not true : Expected an access.denied audit event for the unauthorized project access attempt.",
+      "candidateReason": "AssertionError: [] is not true : Expected an access.denied audit event for the unauthorized project access attempt."
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_lockout_test.py::AuthenticationLockoutTest::test_audit_events_are_not_duplicated_and_success_is_recorded",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: audit_events",
+      "candidateReason": "sqlite3.OperationalError: no such table: audit_events"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_lockout_test.py::AuthenticationLockoutTest::test_disabled_account_is_denied_and_recorded_generically",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: audit_events",
+      "candidateReason": "sqlite3.OperationalError: no such table: audit_events"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_lockout_test.py::AuthenticationLockoutTest::test_expired_lockout_does_not_permanently_block_the_account",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: users",
+      "candidateReason": "sqlite3.OperationalError: no such table: users"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_lockout_test.py::AuthenticationLockoutTest::test_failed_login_persists_counter_and_audit_event",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: users",
+      "candidateReason": "sqlite3.OperationalError: no such table: users"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_lockout_test.py::AuthenticationLockoutTest::test_threshold_triggers_lockout_and_correct_password_is_still_denied",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: users",
+      "candidateReason": "sqlite3.OperationalError: no such table: users"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_containment_test.py::SecurityContainmentTest::test_login_logout_and_expired_session_regressions",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: sessions",
+      "candidateReason": "sqlite3.OperationalError: no such table: sessions"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_containment_test.py::SecurityContainmentTest::test_public_registration_is_disabled_by_default_without_enumeration",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "AssertionError: 200 != 403",
+      "candidateReason": "AssertionError: 200 != 403"
+    },
+    {
+      "suite": "auth",
+      "nodeid": "tests/security_containment_test.py::SecurityContainmentTest::test_role_elevation_requires_admin_and_is_audited",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "sqlite3.OperationalError: no such table: audit_events",
+      "candidateReason": "sqlite3.OperationalError: no such table: audit_events"
+    },
+    {
+      "suite": "projects",
+      "nodeid": "tests/admin_sharing_backend_test.py::AdminSharingBackendTest::test_access_request_approval_and_denial_are_persisted",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH.",
+      "candidateReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH."
+    },
+    {
+      "suite": "projects",
+      "nodeid": "tests/admin_sharing_backend_test.py::AdminSharingBackendTest::test_audit_log_records_sharing_actions",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH.",
+      "candidateReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH."
+    },
+    {
+      "suite": "projects",
+      "nodeid": "tests/admin_sharing_backend_test.py::AdminSharingBackendTest::test_direct_share_grants_and_revokes_project_access",
+      "phase": "call",
+      "outcome": "failed",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH.",
+      "candidateReason": "RuntimeError: Refusing security test write because the cached DB_PATH is not the explicit isolated ATLAS_SECURITY_DB_PATH."
+    },
+    {
+      "suite": "projects",
+      "nodeid": "tests/project_context_persistence_test.py::ProjectContextPersistenceTests::test_a_second_owner_does_not_see_the_first_projects_context",
+      "phase": "call",
+      "outcome": "skipped",
+      "sameExactBaselineOutcome": true,
+      "sameExactBaselineErrorSignature": true,
+      "classification": "BASELINE_EXISTING",
+      "baselineReason": "Skipped: The persistence layer exposes no per-user project listing.",
+      "candidateReason": "Skipped: The persistence layer exposes no per-user project listing."
+    }
+  ],
+  "runs": [
+    {
+      "suite": "routes",
+      "mode": "baseline",
+      "collected": 350,
+      "outcomes": {
+        "passed": 347,
+        "skipped": 2,
+        "failed": 1
+      },
+      "exitCode": 1,
+      "seconds": 52.99,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-routes-final\\reports\\source-hashes.json",
+      "guardDenials": 412,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-routes-final\\reports"
+    },
+    {
+      "suite": "routes",
+      "mode": "candidate",
+      "collected": 350,
+      "outcomes": {
+        "passed": 347,
+        "skipped": 2,
+        "failed": 1
+      },
+      "exitCode": 1,
+      "seconds": 50.75,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-routes-final\\reports\\source-hashes.json",
+      "guardDenials": 412,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-routes-final\\reports"
+    },
+    {
+      "suite": "auth",
+      "mode": "baseline",
+      "collected": 29,
+      "outcomes": {
+        "passed": 21,
+        "failed": 8
+      },
+      "exitCode": 1,
+      "seconds": 69.75,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-auth-final\\reports\\source-hashes.json",
+      "guardDenials": 412,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-auth-final\\reports"
+    },
+    {
+      "suite": "auth",
+      "mode": "candidate",
+      "collected": 29,
+      "outcomes": {
+        "passed": 21,
+        "failed": 8
+      },
+      "exitCode": 1,
+      "seconds": 68.99,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-auth-final\\reports\\source-hashes.json",
+      "guardDenials": 412,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-auth-final\\reports"
+    },
+    {
+      "suite": "projects",
+      "mode": "baseline",
+      "collected": 21,
+      "outcomes": {
+        "failed": 3,
+        "passed": 17,
+        "skipped": 1
+      },
+      "exitCode": 1,
+      "seconds": 23.51,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-projects-final\\reports\\source-hashes.json",
+      "guardDenials": 4,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-projects-final\\reports"
+    },
+    {
+      "suite": "projects",
+      "mode": "candidate",
+      "collected": 21,
+      "outcomes": {
+        "failed": 3,
+        "passed": 17,
+        "skipped": 1
+      },
+      "exitCode": 1,
+      "seconds": 22.03,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-projects-final\\reports\\source-hashes.json",
+      "guardDenials": 4,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-projects-final\\reports"
+    },
+    {
+      "suite": "forecast",
+      "mode": "baseline",
+      "collected": 2,
+      "outcomes": {
+        "passed": 2
+      },
+      "exitCode": 0,
+      "seconds": 10.77,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-forecast-final\\reports\\source-hashes.json",
+      "guardDenials": 4,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\baseline-forecast-final\\reports"
+    },
+    {
+      "suite": "forecast",
+      "mode": "candidate",
+      "collected": 2,
+      "outcomes": {
+        "passed": 2
+      },
+      "exitCode": 0,
+      "seconds": 8.96,
+      "normalCompletion": true,
+      "sourceHashManifest": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-forecast-final\\reports\\source-hashes.json",
+      "guardDenials": 4,
+      "reportSource": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-atomic-route-regressions-3a93250b2e9646e192a654434aa78816\\candidate-forecast-final\\reports"
+    }
+  ],
+  "sourceHashes": [
+    {
+      "path": "server/persistence/persistence_router.py",
+      "currentSha256": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+      "snapshotSha256BySuite": {
+        "routes": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+        "auth": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+        "projects": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+        "forecast": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b",
+        "membership": "bd7cec7cbcbdbbe006e6695a28e7fc8608ad9a19fa4d5e25490e040d1485846b"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/persistence/repositories/project_repository.py",
+      "currentSha256": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+      "snapshotSha256BySuite": {
+        "routes": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+        "auth": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+        "projects": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+        "forecast": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d",
+        "membership": "b713eeffaca3699d6b3af923b5689f636147d097308aa9863ca90a49e691d34d"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/security/security_store.py",
+      "currentSha256": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619",
+      "snapshotSha256BySuite": {
+        "routes": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619",
+        "auth": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619",
+        "projects": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619",
+        "forecast": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619",
+        "membership": "9788a00f0830284045eeed880051abf127539bb97277a179948d892d78d26619"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/sharing/sharing_service.py",
+      "currentSha256": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+      "snapshotSha256BySuite": {
+        "routes": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+        "auth": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+        "projects": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+        "forecast": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655",
+        "membership": "eb151ed2214c0acfd885871566a2f2e816d23001d7d47f3d3a1e1e4b1bb71655"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/core/modeling_scope.py",
+      "currentSha256": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+      "snapshotSha256BySuite": {
+        "routes": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+        "auth": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+        "projects": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+        "forecast": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+        "membership": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/sports_cockpit/router.py",
+      "currentSha256": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+      "snapshotSha256BySuite": {
+        "routes": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+        "auth": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+        "projects": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+        "forecast": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+        "membership": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/sports_cockpit/engine.py",
+      "currentSha256": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+      "snapshotSha256BySuite": {
+        "routes": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+        "auth": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+        "projects": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+        "forecast": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+        "membership": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "server/sports_cockpit/gen3_authority.py",
+      "currentSha256": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+      "snapshotSha256BySuite": {
+        "routes": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+        "auth": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+        "projects": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+        "forecast": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+        "membership": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "tests/tenant_stage3_route_authorization_test.py",
+      "currentSha256": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+      "snapshotSha256BySuite": {
+        "routes": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+        "auth": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+        "projects": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+        "forecast": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+        "membership": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "tests/tenant_project_access_repair_test.py",
+      "currentSha256": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+      "snapshotSha256BySuite": {
+        "routes": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+        "auth": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+        "projects": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+        "forecast": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774",
+        "membership": "4774f42c61c8ceaadc971ddda98047644104a74b20915ad3da0caab18f159774"
+      },
+      "allSnapshotsMatchCurrent": true
+    },
+    {
+      "path": "tests/sports_forecast_contract_backend_test.py",
+      "currentSha256": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d",
+      "snapshotSha256BySuite": {
+        "routes": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d",
+        "auth": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d",
+        "projects": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d",
+        "forecast": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d",
+        "membership": "6840d8546a4b8dbb62a90d8f48b7df95b3139cae9d3ec8c07b92c1e48399489d"
+      },
+      "allSnapshotsMatchCurrent": true
+    }
+  ],
+  "testSeamAdjustment": {
+    "path": "tests/sports_forecast_contract_backend_test.py",
+    "scope": "Move deterministic pause from no-longer-called upsert method to first _execute before the authorization/write transaction; preserve all contract, version and ordinary-setting assertions.",
+    "originalBaselineAssertionsPassed": 2,
+    "candidateOldSeamAssertionsPassed": 1,
+    "candidateOldSeamAssertionsFailed": 1,
+    "oldFailure": "Generic writer did not reach its stale-snapshot boundary.",
+    "finalAssertionsPassed": 2
+  },
+  "harnessCompatibility": {
+    "initialRunsClassification": "HARNESS_BEFORE_ASSERTIONS",
+    "initialRouteSetupFailuresPerRevision": 218,
+    "reason": "Windows restricted token could not traverse pytest-created owner-only 0700 basetemp.",
+    "correction": "Identical os.mkdir wrapper uses inherited 0777 mode only for newly created 0700 directories within the disposable child; existing ACLs and external path guards unchanged.",
+    "originalReceiptsPreserved": true
+  },
+  "guardQualifications": {
+    "beforeCollection": "Python open/SQLite/network/subprocess/path guard installed before application imports and pytest collection; all runtime roots synthetic disposable.",
+    "network": "Only process-owned loopback port-0 listeners/self-pipes permitted; operational ports and external DNS denied.",
+    "nativeLimitation": "Python audit hook plus known repository reader wrappers, not an OS sandbox or exhaustive native syscall telemetry. No operational metadata/manifest/database fixtures supplied; selected tests use synthetic data.",
+    "operationalActivity": "No operational application restart, provider call, authoritative model fit/tune/score, policy adoption, feature registration, Current Gold mutation, or final-OOT opening authorized or performed by this verification."
+  },
+  "historicalReceiptsOverwritten": false,
+  "applicationSourceEditsByThisAgent": false,
+  "commitsByThisAgent": false,
+  "finalTotals": {
+    "collected": 402,
+    "passed": 387,
+    "skipped": 3,
+    "failed": 12
+  },
+  "baselineTotals": {
+    "collected": 402,
+    "passed": 387,
+    "failed": 12,
+    "skipped": 3
+  },
+  "noNewFailures": true,
+  "verdict": "PASS_NO_NEW_REGRESSIONS_WITH_BASELINE_NONPASSES",
+  "exactBaselineComparison": {
+    "sharedCases": 402,
+    "changedOutcomes": 0,
+    "changedNonpassErrorSignatures": 0,
+    "reasonMethod": "Compare exact terminal pytest E-lines (or explicit skip reason); source line numbers and traceback frame changes are not failure-reason differences."
+  },
+  "preservedInitialReceiptFiles": [
+    "initial-harness-baseline-routes.xml",
+    "initial-harness-candidate-routes.xml",
+    "initial-baseline-forecast.xml",
+    "initial-candidate-forecast-old-seam.xml"
+  ],
+  "fullSourceHashMap": "final-source-hashes.json",
+  "allServerSourceHashesMatchCurrent": true,
+  "serverSourceFileCount": 475
+}

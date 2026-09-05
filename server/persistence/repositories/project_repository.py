@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from typing import Any, Dict, List
 
 from ..db import decode_row, json_dumps, json_loads, now_iso
@@ -44,6 +46,35 @@ class ProjectRepository(BaseRepository):
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="Project creation requires a new project identity.") from exc
         return self.get(record["project_id"]) or {}
+
+    def update_locked(self, record: Dict[str, Any], *, connection: sqlite3.Connection) -> Dict[str, Any]:
+        """Update only a row authorized under the caller's BEGIN IMMEDIATE lock.
+
+        This method neither starts nor commits a transaction. It cannot create
+        a missing row or transfer owner/creator identity, and a lost identity
+        guard fails before the surrounding transaction can commit its audit.
+        """
+        from fastapi import HTTPException
+
+        if not connection.in_transaction:
+            raise RuntimeError("Project update requires the authorization write transaction.")
+        cursor = connection.execute(
+            """UPDATE projects SET
+                project_name = ?, project_type = ?, workflow_type = ?, template_id = ?,
+                status = ?, updated_at = ?, metadata_json = ?, updated_by = ?
+               WHERE project_id = ? AND owner_user_id IS ? AND created_by IS ?""",
+            (record.get("project_name") or "Untitled ATLAS Project",
+             record.get("project_type") or "predictive-modeling",
+             record.get("workflow_type") or record.get("project_type") or "predictive-modeling",
+             record.get("template_id"), record.get("status") or "active",
+             record.get("updated_at") or now_iso(), json_dumps(record.get("metadata_json"), {}),
+             record["updated_by"], record["project_id"], record.get("owner_user_id"), record.get("created_by")),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action on this project.")
+        return decode_row(connection.execute(
+            "SELECT * FROM projects WHERE project_id = ?", (record["project_id"],),
+        ).fetchone()) or {}
 
     def upsert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         timestamp = record.get("updated_at") or now_iso()
