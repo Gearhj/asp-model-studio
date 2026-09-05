@@ -1,3 +1,4 @@
+import { getCachedUserId } from "../../lib/authSession";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Cpu,
@@ -170,7 +171,7 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
   const request = useRef<AbortController | null>(null);
   const completedReceiptsSignature = useRef("");
   const terminalEvaluationJob = useRef<string | null>(null);
-  const storageKey = `asp-stage3-multimodel:v2:${projectId}`;
+  const storageKey = `asp-stage3-multimodel:v3:${getCachedUserId() ?? "unauthenticated"}:${projectId}`;
 
   const load = useCallback(async () => {
     request.current?.abort();
@@ -205,7 +206,7 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
       const available = next.modelCatalog.algorithms.filter((item) => item.available);
       const saved = window.localStorage.getItem(storageKey);
       let parsed: any = null;
-      try { parsed = saved ? JSON.parse(saved) : null; } catch { parsed = null; }
+      try { parsed = saved ? JSON.parse(saved) : null; if (parsed?.authorityKey !== next.authority.authorityKey || parsed?.featureChecksum !== next.featureUniverse.checksum || parsed?.splitChecksum !== next.split.checksum) parsed = null; } catch { parsed = null; }
       const initialSelected = new Set<string>(
         Array.isArray(parsed?.selected)
           ? parsed.selected.filter((id: string) => available.some((item) => item.id === id))
@@ -245,7 +246,7 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
   useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
   useEffect(() => {
     if (!summary || state !== "ready") return;
-    window.localStorage.setItem(storageKey, JSON.stringify({ selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
+    window.localStorage.setItem(storageKey, JSON.stringify({ authorityKey: summary?.authority.authorityKey, featureChecksum: summary?.featureUniverse.checksum, splitChecksum: summary?.split.checksum, selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
   }, [batchName, commonFeatureUniverse, commonOrderedFeaturesText, configs, selected, state, storageKey, summary, useCommonFeatureUniverse, workers]);
   useEffect(() => { setPlan(null); setAcknowledged(false); }, [batchName, commonFeatureUniverse, commonOrderedFeaturesText, configs, selected, useCommonFeatureUniverse, workers]);
 
@@ -299,7 +300,7 @@ export function ProjectBoundModelLab({ projectId, go }: { projectId: string; go?
   const selectIds = (ids: string[]) => setSelected((current) => new Set([...current, ...ids.filter((id) => algorithms.some((algorithm) => algorithm.id === id && algorithm.available))]));
   const clearIds = (ids: string[]) => setSelected((current) => { const next = new Set(current); ids.forEach((id) => next.delete(id)); return next; });
   const saveDraft = () => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
+    window.localStorage.setItem(storageKey, JSON.stringify({ authorityKey: summary?.authority.authorityKey, featureChecksum: summary?.featureUniverse.checksum, splitChecksum: summary?.split.checksum, selected: [...selected], configs, commonFeatureUniverse, commonOrderedFeaturesText, useCommonFeatureUniverse, batchName, workers }));
     setDraftSavedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
     setActionError(null);
   };

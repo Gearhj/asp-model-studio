@@ -1,14 +1,15 @@
+import { getCachedUserId, subscribeCachedUserId } from "../../lib/authSession";
 // Interactive MLB PA Modeling Cockpit — the 15-step scientist workbench shell.
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react";
 import {
   Target, Database, ScanSearch, TriangleAlert, CircleSlash, Wand2, Boxes, CalendarClock,
   FlaskConical, BarChart3, Gauge, Orbit, Trophy, ClipboardList, Cpu, Scissors,
   ChevronLeft, ChevronRight, Check, CloudOff, RefreshCw, Loader2, Menu, ShieldCheck, Lock, DatabaseZap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useCockpitStore } from "./cockpitApi";
+import { CockpitProjectContext, useCockpitStore } from "./cockpitApi";
 import { useCockpitPersistence, type AutosaveStatus } from "./cockpitPersistence";
-import type { CurrentGoldDataReview, CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
+import { useProjectStage3DataAuthority, type CurrentGoldDataReview, type CurrentGoldReviewState } from "../workflow/currentGoldDataReview";
 import type { StageResolution } from "../workflow/workflowState";
 import { ProjectBoundLaterStepGate } from "./ProjectBoundStage3";
 import { ProjectBoundDataProfile } from "./ProjectBoundDataProfile";
@@ -16,6 +17,7 @@ import { ProjectBoundOutlierStudio } from "./ProjectBoundOutlierStudio";
 import { ProjectBoundMissingStudio } from "./ProjectBoundMissingStudio";
 import { ProjectBoundFeatureEngineering } from "./ProjectBoundFeatureEngineering";
 import { ProjectBoundSplitBalance } from "./ProjectBoundSplitBalance";
+import { ProjectBoundWorkflowGate } from "./ProjectBoundWorkflowGate";
 import { ProjectBoundModelLab } from "./ProjectBoundModelLab";
 import { ProjectBoundCandidateEvaluation } from "./ProjectBoundCandidateEvaluation";
 import { ProjectBoundModelRefinement } from "./ProjectBoundModelRefinement";
@@ -59,7 +61,7 @@ const STEPS: Step[] = [
 
 export default function PaModelingCockpit({
   embedded = false,
-  projectId = "mlb-cockpit",
+  projectId = "",
   currentGoldReview,
   programStages = [],
   onGoProgramStage,
@@ -72,16 +74,20 @@ export default function PaModelingCockpit({
   onGoProgramStage?: (number: number) => void;
   projectName?: string;
 } = {}) {
-  const [active, setActive] = useState("objective");
+  const requestedStep = new URLSearchParams(window.location.search).get("stage3Step");
+  const [active, setActive] = useState(() => STEPS.find((item) => item.id === requestedStep)?.id ?? "objective");
   const [workflowNavigatorOpen, setWorkflowNavigatorOpen] = useState(false);
   const [authorityOpen, setAuthorityOpen] = useState(false);
   const { savedSteps, lastResult } = useCockpitStore();
   const restorePersistedStep = useCallback((id: string) => {
-    setActive(id === "tuning" ? "modellab" : id);
+    if (!new URLSearchParams(window.location.search).has("stage3Step")) setActive(id === "tuning" ? "modellab" : id);
   }, []);
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, getCachedUserId);
   const autosave = useCockpitPersistence(projectId, active, restorePersistedStep);
   const modelingFocus = useStage3FocusMode();
   const step = STEPS.find((s) => s.id === active) ?? STEPS[0];
+  const selectedAuthority = useProjectStage3DataAuthority(projectId, Boolean(currentGoldReview) && Number(step.n) < 9);
+  if (currentGoldReview) currentGoldReview = selectedAuthority;
   const workspaceRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -102,8 +108,19 @@ export default function PaModelingCockpit({
 
   // Internal step navigation: swaps the rendered step only. Experiment state lives in the zustand
   // store (config / savedSteps / lastResult), so Previous/Next never reload the app or lose selections.
+  const currentLocation = new URL(window.location.href);
+  useEffect(() => {
+    const restoreHistoryStep = () => {
+      const id = new URLSearchParams(window.location.search).get("stage3Step");
+      if (id && STEPS.some((item) => item.id === id)) setActive(id);
+    };
+    window.addEventListener("popstate", restoreHistoryStep);
+    return () => window.removeEventListener("popstate", restoreHistoryStep);
+  }, []);
   const go = (id: string) => {
     setActive(id);
+    currentLocation.searchParams.set("stage3Step", id);
+    window.history.pushState(window.history.state, "", currentLocation);
     // Defer until React has committed the requested step, then align the analytical canvas using
     // its shared scroll margin. This prevents the sticky app + Stage 3 chrome from covering the
     // first card without adding page-specific padding.
@@ -140,7 +157,7 @@ export default function PaModelingCockpit({
       />
 
       <main className="stage3-scroll-target min-w-0 max-w-full" ref={contentRef} data-testid="stage3-analytical-canvas">
-        {step.render({ projectId, go, currentGoldReview })}
+        <CockpitProjectContext.Provider key={`${userId}:${projectId}`} value={projectId}>{currentGoldReview && Number(step.n) >= 9 ? <ProjectBoundWorkflowGate key={projectId} projectId={projectId} stepLabel={step.label}>{step.render({ projectId, go, currentGoldReview })}</ProjectBoundWorkflowGate> : step.render({ projectId, go, currentGoldReview })}</CockpitProjectContext.Provider>
         <StepFooter
           active={active}
           go={go}
@@ -153,7 +170,7 @@ export default function PaModelingCockpit({
       </CockpitDrawer>
 
       <CockpitDrawer open={authorityOpen} onClose={() => setAuthorityOpen(false)} title="Authority & Audit" description="Project-bound identities, manifests, feature contracts, reconciliation, lineage, and scientific safeguards." eyebrow="Read-only governance evidence" returnFocusRef={authorityTriggerRef} widthClassName="max-w-4xl" testId="stage3-authority-audit-drawer">
-        {currentGoldReview?.review ? <Stage3AuthorityAudit review={currentGoldReview.review} /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">The project-bound authority is still loading.</p>}
+        {currentGoldReview?.review ? <Stage3AuthorityAudit review={currentGoldReview.review} /> : <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">The current workflow panel shows verified project metadata and prerequisites. Row-level authority is not loaded automatically in downstream views.</p>}
       </CockpitDrawer>
     </div>
   );
@@ -186,8 +203,8 @@ function Stage3CompactHeader({
 }) {
   const developmentRows = review?.matrix.development.rows;
   const ootRows = review?.matrix.finalOot.rows;
-  const pitStatus = review?.pointInTimeReview.status ?? "LOADING";
-  const goldName = review?.goldAuthority.datasetId || "Current Gold loading";
+  const pitStatus = review?.pointInTimeReview.status ?? "NOT_RECOMPUTED";
+  const goldName = review?.goldAuthority.datasetId || "See project metadata";
 
   return (
     <header
@@ -233,11 +250,11 @@ function Stage3CompactHeader({
         </button>
       </div>
       <div className="flex min-h-9 items-center gap-1.5 overflow-x-auto px-2.5 py-1.5 text-[10px] font-semibold sm:px-3" aria-label="Modeling authority summary">
-        <CompactFact label="Development" value={developmentRows === undefined ? "Loading" : `${formatInteger(developmentRows)} rows`} tone="cyan" />
+        <CompactFact label="Development" value={developmentRows === undefined ? "See verified view" : `${formatInteger(developmentRows)} rows`} tone="cyan" />
         <CompactFact label="Final OOT" value={ootRows === undefined ? "Locked" : `${formatInteger(ootRows)} locked`} tone="slate" icon={<Lock size={10} />} />
         <CompactFact label="Gold" value={goldName} tone="amber" />
         <CompactFact label="Point-in-time" value={pitStatus.replaceAll("_", " ")} tone={pitStatus === "FAIL" ? "rose" : pitStatus === "REVIEW" ? "amber" : "emerald"} />
-        <CompactFact label="Models" value={review ? `${review.goldAuthority.modelsFitted} fit · ${review.goldAuthority.modelPromoted ? "promoted" : "0 promoted"}` : "0 fit · 0 promoted"} tone="slate" />
+        <CompactFact label="Models" value={review ? `${review.goldAuthority.modelsFitted} fit · ${review.goldAuthority.modelPromoted ? "promoted" : "0 promoted"}` : "See project evidence"} tone="slate" />
       </div>
     </header>
   );

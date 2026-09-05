@@ -42,13 +42,14 @@ from .stage3_candidate_evaluation import (
     resolve_current_research_challenger,
 )
 from .stage3_model_laboratory import (
+    project_read_view,
+    require_model_execution_authority,
     EXPECTED_DEVELOPMENT,
     EXPECTED_FINAL_OOT,
     EXPECTED_FOLDS,
     EXPECTED_GOLD_MANIFEST_SHA,
     EXPECTED_MISSING_POLICY,
     EXPECTED_OUTLIER_POLICY,
-    EXPECTED_PROJECT_ID,
     EXPECTED_SOURCE_DATASET_ID,
     EXPECTED_SPLIT,
     RAW_PROBABILITY_ROW_SUM_ATOL,
@@ -296,12 +297,12 @@ def _authority_payload(chain: Mapping[str, Any]) -> dict[str, Any]:
         "missingPolicyVersion": int(resolved.missing_policy["policyVersion"]),
         "missingPolicyChecksum": resolved.missing_policy["checksum"],
         "targetOrder": list(GOLD_CLASS_ORDER),
-        "developmentRows": EXPECTED_DEVELOPMENT[2],
-        "developmentStart": EXPECTED_DEVELOPMENT[0],
-        "developmentEnd": EXPECTED_DEVELOPMENT[1],
-        "finalOotRows": EXPECTED_FINAL_OOT[2],
-        "finalOotStart": EXPECTED_FINAL_OOT[0],
-        "finalOotEnd": EXPECTED_FINAL_OOT[1],
+        "developmentRows": resolved.split["development"]["rows"],
+        "developmentStart": resolved.split["development"]["startDate"],
+        "developmentEnd": resolved.split["development"]["endDate"],
+        "finalOotRows": resolved.split["finalOot"]["rows"],
+        "finalOotStart": resolved.split["finalOot"]["startDate"],
+        "finalOotEnd": resolved.split["finalOot"]["endDate"],
         "finalOotLocked": True,
         "finalOotTargetAccessed": False,
     }
@@ -446,117 +447,111 @@ def _production_environment(chain: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _assert_exact_accepted_chain(chain: Mapping[str, Any]) -> None:
-    mismatches: list[str] = []
-    for key, expected in EXPECTED_SELECTION.items():
-        if chain.get(key) != expected:
-            mismatches.append(key)
-    for key in (
-        "candidateFingerprint",
-        "candidateAttemptId",
-        "candidateAttemptReceiptSha256",
-        "candidateRunId",
-        "candidateRunReceiptSha256",
-    ):
-        if chain.get(key) != EXPECTED_CANDIDATE[key]:
-            mismatches.append(key)
-    source_run = chain["sourceRun"]
-    source_candidate = chain["sourceCandidate"]
-    experiment = chain["experiment"]
-    feature_contract = chain["featureSetContract"]
-    environment = source_run.get("environment") or {}
-    source_plan = source_run.get("plan") or {}
-    evaluation = source_candidate.get("evaluationEvidence") or {}
-    ordered_features = list(feature_contract.get("orderedFeatures") or [])
+
+def _accepted_science(chain: Mapping[str, Any]) -> dict[str, Any]:
+    """Derive reproducible science only from this project's verified selected receipt."""
     resolved = chain["resolvedAuthority"]
-    if chain.get("projectId") != EXPECTED_PROJECT_ID:
-        mismatches.append("projectId")
-    if resolved.eda_authority.source_dataset_id != EXPECTED_SOURCE_DATASET_ID:
-        mismatches.append("sourceDatasetId")
-    if resolved.eda_authority.source_manifest_sha != EXPECTED_SOURCE_MANIFEST_SHA256:
-        mismatches.append("sourceManifestSha")
-    if resolved.eda_authority.gold_manifest_sha != EXPECTED_GOLD_MANIFEST_SHA:
-        mismatches.append("goldManifestSha")
-    if (
-        resolved.eda_authority.contextual_manifest_sha
-        != EXPECTED_CONTEXTUAL_MANIFEST_SHA256
-    ):
-        mismatches.append("contextualManifestSha")
-    if (
-        resolved.split.get("contractId") != EXPECTED_SPLIT["splitContractId"]
-        or int(resolved.split.get("contractVersion") or 0)
-        != int(EXPECTED_SPLIT["version"])
-        or resolved.split.get("checksum") != EXPECTED_SPLIT["checksum"]
-    ):
-        mismatches.append("splitAuthority")
-    for label, observed, expected in (
-        ("outlierPolicy", resolved.outlier_policy, EXPECTED_OUTLIER_POLICY),
-        ("missingPolicy", resolved.missing_policy, EXPECTED_MISSING_POLICY),
-    ):
-        if any(observed.get(key) != value for key, value in expected.items()):
-            mismatches.append(label)
-    checks = {
-        "modelFamily": source_candidate.get("modelFamily"),
-        "featureSetId": source_candidate.get("featureSetId"),
-        "featureSetChecksum": source_candidate.get("featureSetChecksum"),
-        "featureCount": len(ordered_features),
-        "seed": experiment.get("seed"),
-        "candidateSpecificationTemplateSha256": source_candidate.get(
-            "candidateSpecificationTemplateSha256"
-        ),
+    source = chain["sourceCandidate"]
+    run = chain["sourceRun"]
+    experiment = chain["experiment"]
+    feature = chain["featureSetContract"]
+    folds = list((resolved.split.get("contract") or {}).get("folds") or [])
+    source_folds = list(source.get("folds") or [])
+    keys = ("foldNumber", "trainStart", "trainEnd", "trainRows", "trainGames",
+        "validationStart", "validationEnd", "validationRows", "validationGames")
+    if not folds or len(folds) != len(source_folds) or any(
+        any(left.get(key) != right.get(key) for key in keys)
+        for left, right in zip(folds, source_folds, strict=True)):
+        raise Stage3ModelLaboratoryError("STAGE3_EXECUTABLE_ARTIFACT_ACCEPTED_AUTHORITY_MISMATCH", "The selected candidate does not preserve this project's registered fold boundaries.", status_code=409)
+    dev = resolved.split["development"]
+    oot = resolved.split["finalOot"]
+    return {
+        "schemaVersion": "PROJECT_SELECTED_EXECUTABLE_SCIENCE_V1",
+        "projectId": chain["projectId"],
+        "selection": {key: chain.get(key) for key in EXPECTED_SELECTION},
+        "candidate": {**{key: chain.get(key) for key in ("candidateFingerprint", "candidateAttemptId", "candidateAttemptReceiptSha256", "candidateRunId", "candidateRunReceiptSha256")},
+            "modelFamily": source.get("modelFamily"), "featureSetId": feature.get("featureSetId"),
+            "featureSetChecksum": feature.get("checksum"), "featureCount": len(feature.get("orderedFeatures") or []),
+            "seed": experiment.get("seed"), "candidateSpecificationTemplateSha256": source.get("candidateSpecificationTemplateSha256")},
+        "sourceDatasetId": resolved.eda_authority.source_dataset_id,
+        "sourceManifestSha": resolved.eda_authority.source_manifest_sha,
+        "goldManifestSha": resolved.eda_authority.gold_manifest_sha,
+        "contextualManifestSha": resolved.eda_authority.contextual_manifest_sha,
+        "split": {"splitContractId": resolved.split["contractId"], "version": resolved.split["contractVersion"], "checksum": resolved.split["checksum"]},
+        "outlierPolicy": {key: resolved.outlier_policy.get(key) for key in ("policyId", "policyVersion", "checksum")},
+        "missingPolicy": {key: resolved.missing_policy.get(key) for key in ("policyId", "policyVersion", "checksum")},
+        "development": [dev["startDate"], dev["endDate"], dev["rows"]],
+        "finalOot": [oot["startDate"], oot["endDate"], oot["rows"]],
+        "folds": [[item[key] for key in keys] for item in folds],
+        "foldLogLosses": [(item.get("metrics") or {}).get("multiclassLogLoss") for item in source_folds],
+        "hyperparameters": dict(source.get("hyperparameters") or {}),
+        "oofEvidenceSha256": (source.get("evaluationEvidence") or {}).get("oofPredictionEvidenceSha256"),
+        "oofRows": sum(int(item["validationRows"]) for item in folds),
+        "modelLabImplementationSha256": (run.get("environment") or {}).get("modelLabImplementationSha256"),
+        "metrics": {key: source.get(key) for key in EXPECTED_METRICS},
+        "sourcePlan": {key: (run.get("plan") or {}).get(key) for key in ("planId", "checksum")},
     }
-    for key, observed in checks.items():
-        if observed != EXPECTED_CANDIDATE[key]:
-            mismatches.append(key)
-    if dict(source_candidate.get("hyperparameters") or {}) != EXPECTED_HYPERPARAMETERS:
-        mismatches.append("hyperparameters")
-    if list((source_run.get("identity") or {}).get("targetOrder") or []) != list(
-        GOLD_CLASS_ORDER
-    ):
-        mismatches.append("targetOrder")
-    if source_plan.get("planId") != EXPECTED_SOURCE_PLAN["planId"]:
-        mismatches.append("sourcePlanId")
-    if source_plan.get("checksum") != EXPECTED_SOURCE_PLAN["checksum"]:
-        mismatches.append("sourcePlanChecksum")
-    if environment.get("modelLabImplementationSha256") != (
-        EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
-    ):
-        mismatches.append("acceptedModelLabImplementationSha256")
-    if evaluation.get("oofPredictionEvidenceSha256") != EXPECTED_OOF_EVIDENCE_SHA256:
-        mismatches.append("acceptedOofEvidenceSha256")
-    if candidate_specification_fingerprint(source_run, source_candidate) != (
-        EXPECTED_CANDIDATE["candidateFingerprint"]
-    ):
-        mismatches.append("candidateSpecificationFingerprint")
-    for key, expected in EXPECTED_METRICS.items():
-        observed = source_candidate.get(key)
-        if observed is None or not np.isclose(
-            float(observed), expected, rtol=0.0, atol=_METRIC_ATOL
-        ):
-            mismatches.append(key)
-    raw_folds = list(source_candidate.get("folds") or [])
-    if len(raw_folds) != len(EXPECTED_FOLD_LOG_LOSSES):
-        mismatches.append("foldCount")
-    else:
-        for index, (fold, expected_loss) in enumerate(
-            zip(raw_folds, EXPECTED_FOLD_LOG_LOSSES, strict=True), start=1
-        ):
-            observed_loss = (fold.get("metrics") or {}).get("multiclassLogLoss")
-            if (
-                int(fold.get("foldNumber") or 0) != index
-                or observed_loss is None
-                or not np.isclose(
-                    float(observed_loss), expected_loss, rtol=0.0, atol=_METRIC_ATOL
-                )
-            ):
-                mismatches.append(f"fold{index}")
+
+
+def _manifest_science(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    value = manifest.get("acceptedScience")
+    if value is not None:
+        if (not isinstance(value, Mapping) or value.get("schemaVersion") != "PROJECT_SELECTED_EXECUTABLE_SCIENCE_V1"
+            or value.get("projectId") != manifest.get("projectId")
+            or _sha(value) != manifest.get("acceptedScienceSha256")):
+            raise Stage3ModelLaboratoryError("STAGE3_ARTIFACT_ACCEPTED_SCIENCE_INVALID", "The artifact's selected project science does not authenticate.", status_code=409)
+        return dict(value)
+    # Read-only compatibility for already-hashed historical artifacts. New plans
+    # and producers always embed their exact verified project science above.
+    return {"selection": EXPECTED_SELECTION, "candidate": EXPECTED_CANDIDATE,
+        "sourceDatasetId": EXPECTED_SOURCE_DATASET_ID, "sourceManifestSha": EXPECTED_SOURCE_MANIFEST_SHA256,
+        "goldManifestSha": EXPECTED_GOLD_MANIFEST_SHA, "contextualManifestSha": EXPECTED_CONTEXTUAL_MANIFEST_SHA256,
+        "split": EXPECTED_SPLIT, "outlierPolicy": EXPECTED_OUTLIER_POLICY, "missingPolicy": EXPECTED_MISSING_POLICY,
+        "development": EXPECTED_DEVELOPMENT, "finalOot": EXPECTED_FINAL_OOT,
+        "folds": EXPECTED_FOLDS, "foldLogLosses": EXPECTED_FOLD_LOG_LOSSES,
+        "hyperparameters": EXPECTED_HYPERPARAMETERS, "oofEvidenceSha256": EXPECTED_OOF_EVIDENCE_SHA256,
+        "oofRows": EXPECTED_OOF_ROWS, "modelLabImplementationSha256": EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256,
+        "metrics": EXPECTED_METRICS, "sourcePlan": EXPECTED_SOURCE_PLAN}
+
+
+def _assert_exact_accepted_chain(chain: Mapping[str, Any]) -> None:
+    """Validate exact current receipt links; no project inherits pilot science."""
+    science = _accepted_science(chain)
+    source = chain["sourceCandidate"]
+    run = chain["sourceRun"]
+    identity = run.get("identity") or {}
+    resolved = chain["resolvedAuthority"]
+    feature = chain["featureSetContract"]
+    authority = _authority_payload(chain)
+    required_identity = ("projectId", "sourceDatasetId", "sourceManifestSha", "goldManifestSha",
+        "contextualManifestSha", "authorityKey", "splitContractId", "splitVersion", "splitChecksum",
+        "outlierPolicyId", "outlierPolicyVersion", "outlierPolicyChecksum", "missingPolicyId", "missingPolicyVersion", "missingPolicyChecksum")
+    mismatches = ["sourceRun.identity." + key for key in required_identity if identity.get(key) != authority[key]]
+    if chain.get("projectId") != resolved.project_id or (run.get("plan") or {}).get("projectId") != resolved.project_id:
+        mismatches.append("projectId")
+    if any(not value for value in science["selection"].values()): mismatches.append("selection")
+    if (run.get("runId") != chain.get("candidateRunId") or run.get("runReceiptSha256") != chain.get("candidateRunReceiptSha256")
+        or source.get("candidateId") != chain.get("candidateAttemptId")
+        or source.get("featureSetId") != feature.get("featureSetId")
+        or source.get("featureSetChecksum") != feature.get("checksum")
+        or candidate_specification_fingerprint(run, source) != chain.get("candidateFingerprint")):
+        mismatches.append("candidateReceipt")
+    hashes = [science["oofEvidenceSha256"], science["modelLabImplementationSha256"],
+        science["sourcePlan"]["checksum"], science["candidate"]["featureSetChecksum"],
+        chain.get("candidateAttemptReceiptSha256"), chain.get("candidateRunReceiptSha256")]
+    if not re.fullmatch(r"stage3-candidate-spec-[0-9a-f]{64}", str(chain.get("candidateFingerprint") or "")): mismatches.append("candidateSpecificationFingerprint")
+    if any(not _SHA256_RE.fullmatch(str(value or "")) for value in hashes): mismatches.append("contentAddress")
+    if science["candidate"]["modelFamily"] != "xgboost":
+        raise Stage3ModelLaboratoryError("STAGE3_EXECUTABLE_ARTIFACT_MODEL_FAMILY_UNSUPPORTED", "Executable artifact production currently requires a project-selected XGBoost research challenger.", status_code=409)
+    try:
+        if any(not np.isfinite(float(value)) for value in [*science["metrics"].values(), *science["foldLogLosses"]]): mismatches.append("acceptedMetrics")
+    except (TypeError, ValueError): mismatches.append("acceptedMetrics")
+    if (list(identity.get("targetOrder") or []) != list(GOLD_CLASS_ORDER)
+        or not feature.get("orderedFeatures") or len(set(feature["orderedFeatures"])) != len(feature["orderedFeatures"])
+        or resolved.split["finalOot"].get("locked") is not True
+        or science["development"][1] >= science["finalOot"][0]): mismatches.append("developmentContract")
     if mismatches:
-        raise Stage3ModelLaboratoryError(
-            "STAGE3_EXECUTABLE_ARTIFACT_ACCEPTED_AUTHORITY_MISMATCH",
-            "Artifact construction stopped at the first stale accepted authority fields: "
-            + ", ".join(dict.fromkeys(mismatches)),
-            status_code=409,
-        )
+        raise Stage3ModelLaboratoryError("STAGE3_EXECUTABLE_ARTIFACT_ACCEPTED_AUTHORITY_MISMATCH", "Artifact construction stopped at stale project receipt fields: " + ", ".join(mismatches), status_code=409)
 
 
 def _resolved_chain(database: Database, project_id: str) -> dict[str, Any]:
@@ -588,6 +583,8 @@ def plan_executable_artifact(
             status_code=409,
         )
     chain = _resolved_chain(database, project_id)
+    science = _accepted_science(chain)
+    require_model_execution_authority(database, chain["resolvedAuthority"], actor_user_id)
     requested_selection = str(payload.get("selectionId") or "")
     if requested_selection and requested_selection != chain["selectionDecisionId"]:
         raise Stage3ModelLaboratoryError(
@@ -612,6 +609,9 @@ def plan_executable_artifact(
     identity = {
         "schemaVersion": EXECUTABLE_ARTIFACT_PLAN_SCHEMA_VERSION,
         "projectId": project_id,
+        "executionActorUserId": actor_user_id,
+        "acceptedScience": science,
+        "acceptedScienceSha256": _sha(science),
         "selection": _selection_payload(chain),
         "authority": _authority_payload(chain),
         "candidate": {
@@ -625,20 +625,20 @@ def plan_executable_artifact(
             "orderedFeaturesSha256": _sha(
                 {"orderedFeatures": ordered_features}
             ),
-            "hyperparameters": dict(EXPECTED_HYPERPARAMETERS),
-            "seed": EXPECTED_CANDIDATE["seed"],
+            "hyperparameters": dict(science["hyperparameters"]),
+            "seed": science["candidate"]["seed"],
             "targetOrder": list(GOLD_CLASS_ORDER),
-            "acceptedOofEvidenceSha256": EXPECTED_OOF_EVIDENCE_SHA256,
+            "acceptedOofEvidenceSha256": science["oofEvidenceSha256"],
             "acceptedModelLabImplementationSha256": (
-                EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
+                science["modelLabImplementationSha256"]
             ),
         },
         "workload": {
-            "foldCount": 5,
-            "oofRows": EXPECTED_OOF_ROWS,
-            "finalFitRows": EXPECTED_DEVELOPMENT[2],
-            "modelFits": 6,
-            "estimatedSecondsFromAcceptedRun": 1529.298,
+            "foldCount": len(science["folds"]),
+            "oofRows": science["oofRows"],
+            "finalFitRows": science["development"][2],
+            "modelFits": len(science["folds"]) + 1,
+            "estimatedSecondsFromAcceptedRun": (float(chain["sourceCandidate"]["runtimeMs"]) / 1000 if isinstance(chain["sourceCandidate"].get("runtimeMs"), (int, float)) else chain["sourceCandidate"].get("durationSeconds")),
         },
         "execution": {
             "computeClass": "VERY_HIGH",
@@ -650,11 +650,7 @@ def plan_executable_artifact(
         },
         "environment": _production_environment(chain),
         "expectedArtifacts": [
-            "fold-models/fold-1.joblib",
-            "fold-models/fold-2.joblib",
-            "fold-models/fold-3.joblib",
-            "fold-models/fold-4.joblib",
-            "fold-models/fold-5.joblib",
+            *[f"fold-models/fold-{index}.joblib" for index in range(1, len(science["folds"]) + 1)],
             "oof-predictions.parquet",
             "model.joblib",
             "preprocessor.joblib",
@@ -735,6 +731,9 @@ def _assert_reviewed_plan(
 
 
 def _decode_job(row: Mapping[str, Any]) -> dict[str, Any]:
+    plan = json_loads(row.get("parameters_json"), {})
+    if plan.get("projectId") != row.get("project_id") or (plan.get("executionActorUserId", row.get("created_by")) != row.get("created_by") and not (json_loads(row.get("artifacts_json"), {}).get("publicationRecovery") or {}).get("sourceJobId")):
+        raise Stage3ModelLaboratoryError("STAGE3_EXECUTABLE_ARTIFACT_JOB_PROJECT_MISMATCH", "The persisted artifact job belongs to another project or actor.", status_code=409)
     artifacts = json_loads(row.get("artifacts_json"), {})
     error = json_loads(row.get("error_json"), {})
     normalized_error = (
@@ -899,7 +898,7 @@ def _artifact_rows(database: Database, project_id: str) -> list[dict[str, Any]]:
         for row in RunRepository(database).list_for_project(project_id)
         if row.get("run_type") == EXECUTABLE_ARTIFACT_JOB_TYPE
     ]
-    return [_reconcile_interrupted_job(database, row) for row in rows]
+    return rows
 
 
 def _active_job(database: Database, project_id: str) -> dict[str, Any] | None:
@@ -1278,19 +1277,21 @@ def _metric_reconciliation(
 
 def _fold_metric_reconciliation(
     reproduced: Mapping[str, Any],
+    chain: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     """Bind every reproduced fold to the accepted split and log-loss evidence."""
 
+    science = _accepted_science(chain)
     raw_folds = list(reproduced.get("folds") or [])
-    if len(raw_folds) != len(EXPECTED_FOLDS):
+    if len(raw_folds) != len(science["folds"]):
         raise Stage3ModelLaboratoryError(
             "STAGE3_EXECUTABLE_ARTIFACT_FOLD_REPRODUCTION_FAILED",
-            "Reproduction did not return exactly five chronological folds.",
+            "Reproduction did not return the registered chronological folds.",
             status_code=409,
         )
     evidence: list[dict[str, Any]] = []
     for raw, boundary, accepted_loss in zip(
-        raw_folds, EXPECTED_FOLDS, EXPECTED_FOLD_LOG_LOSSES, strict=True
+        raw_folds, science["folds"], science["foldLogLosses"], strict=True
     ):
         expected_boundary = {
             "foldNumber": boundary[0],
@@ -1502,6 +1503,7 @@ def resolve_executable_artifact_path(relative_path: str) -> Path:
 
 
 def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
+    science = _manifest_science(manifest)
     authority = manifest.get("authority") or {}
     selection = manifest.get("selection") or {}
     candidate = manifest.get("candidate") or {}
@@ -1512,34 +1514,34 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
     ordered_features = list(manifest.get("orderedFeatures") or [])
     mismatches: list[str] = []
     expected_authority = {
-        "projectId": EXPECTED_PROJECT_ID,
-        "sourceDatasetId": EXPECTED_SOURCE_DATASET_ID,
-        "sourceManifestSha": EXPECTED_SOURCE_MANIFEST_SHA256,
+        "projectId": manifest.get("projectId"),
+        "sourceDatasetId": science["sourceDatasetId"],
+        "sourceManifestSha": science["sourceManifestSha"],
         "goldDatasetId": "gold-table:gold_mlb_current_pa_v1",
-        "goldManifestSha": EXPECTED_GOLD_MANIFEST_SHA,
-        "contextualManifestSha": EXPECTED_CONTEXTUAL_MANIFEST_SHA256,
-        "splitContractId": EXPECTED_SPLIT["splitContractId"],
-        "splitVersion": EXPECTED_SPLIT["version"],
-        "splitChecksum": EXPECTED_SPLIT["checksum"],
-        "outlierPolicyId": EXPECTED_OUTLIER_POLICY["policyId"],
-        "outlierPolicyVersion": EXPECTED_OUTLIER_POLICY["policyVersion"],
-        "outlierPolicyChecksum": EXPECTED_OUTLIER_POLICY["checksum"],
-        "missingPolicyId": EXPECTED_MISSING_POLICY["policyId"],
-        "missingPolicyVersion": EXPECTED_MISSING_POLICY["policyVersion"],
-        "missingPolicyChecksum": EXPECTED_MISSING_POLICY["checksum"],
-        "developmentRows": EXPECTED_DEVELOPMENT[2],
-        "developmentStart": EXPECTED_DEVELOPMENT[0],
-        "developmentEnd": EXPECTED_DEVELOPMENT[1],
-        "finalOotRows": EXPECTED_FINAL_OOT[2],
-        "finalOotStart": EXPECTED_FINAL_OOT[0],
-        "finalOotEnd": EXPECTED_FINAL_OOT[1],
+        "goldManifestSha": science["goldManifestSha"],
+        "contextualManifestSha": science["contextualManifestSha"],
+        "splitContractId": science["split"]["splitContractId"],
+        "splitVersion": science["split"]["version"],
+        "splitChecksum": science["split"]["checksum"],
+        "outlierPolicyId": science["outlierPolicy"]["policyId"],
+        "outlierPolicyVersion": science["outlierPolicy"]["policyVersion"],
+        "outlierPolicyChecksum": science["outlierPolicy"]["checksum"],
+        "missingPolicyId": science["missingPolicy"]["policyId"],
+        "missingPolicyVersion": science["missingPolicy"]["policyVersion"],
+        "missingPolicyChecksum": science["missingPolicy"]["checksum"],
+        "developmentRows": science["development"][2],
+        "developmentStart": science["development"][0],
+        "developmentEnd": science["development"][1],
+        "finalOotRows": science["finalOot"][2],
+        "finalOotStart": science["finalOot"][0],
+        "finalOotEnd": science["finalOot"][1],
         "finalOotLocked": True,
         "finalOotTargetAccessed": False,
     }
     for key, expected in expected_authority.items():
         if authority.get(key) != expected:
             mismatches.append(f"authority.{key}")
-    for key, expected in EXPECTED_SELECTION.items():
+    for key, expected in science["selection"].items():
         if selection.get(key) != expected:
             mismatches.append(f"selection.{key}")
     for key in (
@@ -1549,30 +1551,30 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         "candidateRunId",
         "candidateRunReceiptSha256",
     ):
-        if selection.get(key) != EXPECTED_CANDIDATE[key]:
+        if selection.get(key) != science["candidate"][key]:
             mismatches.append(f"selection.{key}")
     expected_candidate = {
         "modelFamily": "xgboost",
         "estimatorClass": "XGBClassifier",
         "objective": "multi:softprob",
         "evaluationMetric": "mlogloss",
-        "featureSetId": EXPECTED_CANDIDATE["featureSetId"],
-        "featureSetChecksum": EXPECTED_CANDIDATE["featureSetChecksum"],
-        "featureCount": EXPECTED_CANDIDATE["featureCount"],
-        "seed": EXPECTED_CANDIDATE["seed"],
+        "featureSetId": science["candidate"]["featureSetId"],
+        "featureSetChecksum": science["candidate"]["featureSetChecksum"],
+        "featureCount": science["candidate"]["featureCount"],
+        "seed": science["candidate"]["seed"],
         "targetOrder": list(GOLD_CLASS_ORDER),
-        "acceptedOofEvidenceSha256": EXPECTED_OOF_EVIDENCE_SHA256,
+        "acceptedOofEvidenceSha256": science["oofEvidenceSha256"],
         "acceptedModelLabImplementationSha256": (
-            EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
+            science["modelLabImplementationSha256"]
         ),
     }
     for key, expected in expected_candidate.items():
         if candidate.get(key) != expected:
             mismatches.append(f"candidate.{key}")
-    if candidate.get("hyperparameters") != EXPECTED_HYPERPARAMETERS:
+    if candidate.get("hyperparameters") != science["hyperparameters"]:
         mismatches.append("candidate.hyperparameters")
     if (
-        len(ordered_features) != EXPECTED_CANDIDATE["featureCount"]
+        len(ordered_features) != science["candidate"]["featureCount"]
         or len(ordered_features) != len(set(ordered_features))
         or candidate.get("orderedFeaturesSha256")
         != _sha({"orderedFeatures": ordered_features})
@@ -1584,10 +1586,10 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         mismatches.append("probabilityContract")
     expected_training = {
         "scope": "DEVELOPMENT_ONLY",
-        "rows": EXPECTED_DEVELOPMENT[2],
-        "startDate": EXPECTED_DEVELOPMENT[0],
-        "cutoff": EXPECTED_DEVELOPMENT[1],
-        "seed": EXPECTED_CANDIDATE["seed"],
+        "rows": science["development"][2],
+        "startDate": science["development"][0],
+        "cutoff": science["development"][1],
+        "seed": science["candidate"]["seed"],
         "finalOotRowsUsed": 0,
         "finalOotTargetAccessed": False,
     }
@@ -1595,18 +1597,18 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         if training.get(key) != expected:
             mismatches.append(f"training.{key}")
     if (
-        oof.get("scope") != "FIVE_FOLD_CHRONOLOGICAL_DEVELOPMENT_ONLY"
-        or oof.get("rows") != EXPECTED_OOF_ROWS
-        or oof.get("foldCount") != 5
-        or oof.get("legacyEvidenceSha256") != EXPECTED_OOF_EVIDENCE_SHA256
+        oof.get("scope") not in {"CHRONOLOGICAL_DEVELOPMENT_ONLY", "FIVE_FOLD_CHRONOLOGICAL_DEVELOPMENT_ONLY"}
+        or oof.get("rows") != science["oofRows"]
+        or oof.get("foldCount") != len(science["folds"])
+        or oof.get("legacyEvidenceSha256") != science["oofEvidenceSha256"]
     ):
         mismatches.append("oof")
     fold_evidence = oof.get("folds")
-    if not isinstance(fold_evidence, list) or len(fold_evidence) != 5:
+    if not isinstance(fold_evidence, list) or len(fold_evidence) != len(science["folds"]):
         mismatches.append("oof.folds")
     else:
         for item, boundary, expected_loss in zip(
-            fold_evidence, EXPECTED_FOLDS, EXPECTED_FOLD_LOG_LOSSES, strict=True
+            fold_evidence, science["folds"], science["foldLogLosses"], strict=True
         ):
             fold_number = boundary[0]
             expected_boundary = {
@@ -1667,7 +1669,7 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         (environment.get("acceptedCandidateRun") or {}).get(
             "modelLabImplementationSha256"
         )
-        != EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
+        != science["modelLabImplementationSha256"]
     ):
         mismatches.append("environment.acceptedCandidateRun")
     if (
@@ -1675,7 +1677,7 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
         or (verification.get("metricReproduction") or {}).get("status") != "PASS"
         or not _valid_raw_probability_diagnostics(
             verification.get("rawOofProbabilityValidation"),
-            expected_rows=EXPECTED_OOF_ROWS,
+            expected_rows=science["oofRows"],
         )
         or (verification.get("reloadVerification") or {}).get("status") != "PASS"
         or (verification.get("reloadVerification") or {}).get("freshProcess")
@@ -1698,6 +1700,7 @@ def _validate_manifest_authority(manifest: Mapping[str, Any]) -> None:
 def _manifest_member_records(
     manifest: Mapping[str, Any],
 ) -> list[Mapping[str, Any]]:
+    science = _manifest_science(manifest)
     files = manifest.get("files") or {}
     required_records: list[Mapping[str, Any]] = []
     for key in (
@@ -1718,7 +1721,7 @@ def _manifest_member_records(
     fold_records = files.get("foldModels")
     valid_fold_records = (
         isinstance(fold_records, list)
-        and len(fold_records) == 5
+        and len(fold_records) == len(science["folds"])
         and all(isinstance(item, Mapping) for item in fold_records)
     )
     try:
@@ -1729,16 +1732,16 @@ def _manifest_member_records(
         )
     except (TypeError, ValueError, OverflowError):
         fold_numbers = []
-    if not valid_fold_records or fold_numbers != [1, 2, 3, 4, 5]:
+    if not valid_fold_records or fold_numbers != list(range(1, len(science["folds"]) + 1)):
         raise Stage3ModelLaboratoryError(
             "STAGE3_ARTIFACT_PARTIAL_PUBLICATION",
-            "The published artifact must contain exactly five fold pipelines.",
+            "The published artifact must contain every accepted chronological fold pipeline.",
             status_code=409,
         )
     required_records.extend(fold_records)
     oof_fold_evidence = list((manifest.get("oof") or {}).get("folds") or [])
     for record, expected, evidence in zip(
-        fold_records, EXPECTED_FOLDS, oof_fold_evidence, strict=True
+        fold_records, science["folds"], oof_fold_evidence, strict=True
     ):
         if not isinstance(evidence, Mapping) or any(
             record.get(key) != value for key, value in evidence.items()
@@ -1910,6 +1913,7 @@ def _verify_bundle_directory(
             "The manifest does not preserve the governed research-only authority.",
             status_code=409,
         )
+    science = _manifest_science(manifest)
     _validate_manifest_authority(manifest)
     _verify_manifest_members(directory, manifest)
     receipt_record = manifest["files"]["verificationReceipt"]
@@ -1935,7 +1939,7 @@ def _verify_bundle_directory(
         or receipt.get("rawOofProbabilityValidation") != manifest_raw_validation
         or not _valid_raw_probability_diagnostics(
             receipt.get("rawOofProbabilityValidation"),
-            expected_rows=EXPECTED_OOF_ROWS,
+            expected_rows=science["oofRows"],
         )
     ):
         raise Stage3ModelLaboratoryError(
@@ -2007,10 +2011,10 @@ def load_executable_artifact(
     directory = verified["artifactPath"]
     if fold_number is None:
         model_record = manifest["files"]["model"]
-    elif isinstance(fold_number, bool) or fold_number not in range(1, 6):
+    elif isinstance(fold_number, bool) or fold_number not in range(1, int(manifest["oof"]["foldCount"]) + 1):
         raise Stage3ModelLaboratoryError(
             "STAGE3_ARTIFACT_FOLD_NUMBER_INVALID",
-            "A fold artifact number must be an integer from 1 through 5.",
+            "A fold artifact number must identify a fold in the verified project manifest.",
             status_code=409,
         )
     else:
@@ -2597,6 +2601,9 @@ def _execute_artifact_job(
     database = Database(database_path)
     started_clock = time.perf_counter()
     row = RunRepository(database).get(job_id) or {}
+    if row.get("project_id") != project_id or row.get("created_by") != actor_user_id:
+        raise Stage3ModelLaboratoryError("STAGE3_EXECUTABLE_ARTIFACT_JOB_PROJECT_MISMATCH", "The queued artifact job does not authenticate its originating project and user.", status_code=409)
+    _decode_job(row)
     if str(row.get("status") or "").upper() == "CANCEL_REQUESTED":
         _cancel_terminal(database, row, before_start=True)
         return
@@ -2623,6 +2630,7 @@ def _execute_artifact_job(
                     status_code=409,
                 )
             chain = _resolved_chain(database, project_id)
+            science = _accepted_science(chain)
             started_at = now_iso()
             _update_progress(
                 database,
@@ -2675,6 +2683,7 @@ def _execute_artifact_job(
 
             def progress(event: dict[str, Any]) -> None:
                 if event.get("event") == "FOLD_STARTED":
+                    require_model_execution_authority(database, chain["resolvedAuthority"], actor_user_id)
                     _update_progress(
                         database,
                         job_id,
@@ -2682,7 +2691,7 @@ def _execute_artifact_job(
                         state="RUNNING",
                         currentFold=int(event["fold"]),
                         foldRowsProcessed=0,
-                        message=f"Fitting chronological fold {int(event['fold'])} of 5.",
+                        message=f"Fitting chronological fold {int(event['fold'])} of {len(science['folds'])}.",
                     )
                 elif event.get("event") == "FOLD_ESTIMATOR_FIT_COMPLETED":
                     fold_number = int(event["fold"])
@@ -2817,8 +2826,8 @@ def _execute_artifact_job(
                     model_family="xgboost",
                     feature_set=chain["featureSetContract"],
                     split=chain["resolvedAuthority"].split,
-                    seed=EXPECTED_CANDIDATE["seed"],
-                    hyperparameters=EXPECTED_HYPERPARAMETERS,
+                    seed=science["candidate"]["seed"],
+                    hyperparameters=science["hyperparameters"],
                     native_workers=_bounded_native_workers(
                         reviewed_plan["execution"]["nativeWorkers"]
                     ),
@@ -2833,7 +2842,7 @@ def _execute_artifact_job(
             metric_reproduction = _metric_reconciliation(
                 reproduced, chain["sourceCandidate"]
             )
-            fold_reproduction = _fold_metric_reconciliation(reproduced)
+            fold_reproduction = _fold_metric_reconciliation(reproduced, chain)
             fold_reproduction_by_number = {
                 int(item["foldNumber"]): item for item in fold_reproduction
             }
@@ -2861,7 +2870,7 @@ def _execute_artifact_job(
                 )
                 or ""
             )
-            if reproduced_digest != EXPECTED_OOF_EVIDENCE_SHA256:
+            if reproduced_digest != science["oofEvidenceSha256"]:
                 raise Stage3ModelLaboratoryError(
                     "STAGE3_EXECUTABLE_ARTIFACT_OOF_DIGEST_MISMATCH",
                     "Reproduced OOF label/probability bytes differ from the accepted legacy digest.",
@@ -2872,10 +2881,10 @@ def _execute_artifact_job(
                 ignore_index=True,
             )
             if (
-                len(oof) != EXPECTED_OOF_ROWS
+                len(oof) != science["oofRows"]
                 or oof["canonicalPaId"].duplicated().any()
-                or set(oof["foldNumber"].unique()) != {1, 2, 3, 4, 5}
-                or oof["gameDate"].astype(str).gt(EXPECTED_DEVELOPMENT[1]).any()
+                or set(oof["foldNumber"].unique()) != {item[0] for item in science["folds"]}
+                or oof["gameDate"].astype(str).gt(science["development"][1]).any()
             ):
                 raise Stage3ModelLaboratoryError(
                     "STAGE3_EXECUTABLE_ARTIFACT_OOF_RECONCILIATION_FAILED",
@@ -2888,7 +2897,7 @@ def _execute_artifact_job(
             raw_oof_probabilities = oof[probability_columns].to_numpy(dtype=float)
             _validate_probability_matrix(
                 raw_oof_probabilities,
-                expected_rows=EXPECTED_OOF_ROWS,
+                expected_rows=science["oofRows"],
             )
             raw_probability_validation = _raw_probability_diagnostics(
                 raw_oof_probabilities
@@ -2903,17 +2912,18 @@ def _execute_artifact_job(
                 state="RUNNING",
                 currentFold=None,
                 foldRowsProcessed=0,
-                oofRowsPersisted=EXPECTED_OOF_ROWS,
+                oofRowsPersisted=science["oofRows"],
                 finalFitState="RUNNING",
                 latestCheckpoint="OOF_ARTIFACT_RECONCILED",
                 message="OOF evidence matched accepted metrics and digest; fitting the final development-only pipeline.",
             )
+            require_model_execution_authority(database, chain["resolvedAuthority"], actor_user_id)
             final_pipeline, final_fit = fit_stage3_pipeline(
                 frame,
                 model_family="xgboost",
                 feature_set=chain["featureSetContract"],
-                seed=EXPECTED_CANDIDATE["seed"],
-                hyperparameters=EXPECTED_HYPERPARAMETERS,
+                seed=science["candidate"]["seed"],
+                hyperparameters=science["hyperparameters"],
                 native_workers=reviewed_plan["execution"]["nativeWorkers"],
             )
             _update_progress(
@@ -2924,13 +2934,13 @@ def _execute_artifact_job(
                 latestCheckpoint=(
                     "FINAL_ESTIMATOR_FIT_COMPLETED_AWAITING_VALIDATION"
                 ),
-                modelFitsByPurpose={"oofFold": 5, "finalDevelopment": 1},
+                modelFitsByPurpose={"oofFold": len(science["folds"]), "finalDevelopment": 1},
                 message=(
                     "Final development-only estimator fit completed; validating and "
                     "staging the executable pipeline."
                 ),
             )
-            if final_fit["fitRows"] != EXPECTED_DEVELOPMENT[2]:
+            if final_fit["fitRows"] != science["development"][2]:
                 raise Stage3ModelLaboratoryError(
                     "STAGE3_EXECUTABLE_ARTIFACT_FINAL_FIT_ROW_MISMATCH",
                     "The final pipeline was not fit on exactly the authorized development rows.",
@@ -2950,7 +2960,7 @@ def _execute_artifact_job(
             fixture = {
                 "schemaVersion": "SPORTS_STAGE3_EXECUTABLE_ARTIFACT_FIXTURE_V1",
                 "scope": "DEVELOPMENT_ONLY",
-                "developmentCutoff": EXPECTED_DEVELOPMENT[1],
+                "developmentCutoff": science["development"][1],
                 "canonicalPaIds": frame.iloc[fixture_indices]["canonicalPaId"]
                 .astype(str)
                 .tolist(),
@@ -2974,7 +2984,7 @@ def _execute_artifact_job(
                 artifactStagingState="VERIFYING",
                 reloadVerificationState="RUNNING",
                 latestCheckpoint="FINAL_DEVELOPMENT_PIPELINE_STAGED",
-                modelFitsByPurpose={"oofFold": 5, "finalDevelopment": 1},
+                modelFitsByPurpose={"oofFold": len(science["folds"]), "finalDevelopment": 1},
                 message="Final development-only pipeline staged; verifying in a fresh process.",
             )
             reload_result = _fresh_process_reload_check(
@@ -2994,7 +3004,7 @@ def _execute_artifact_job(
                 "rawOofProbabilityValidation": raw_probability_validation,
                 "legacyOofEvidence": {
                     "status": "PASS",
-                    "expectedSha256": EXPECTED_OOF_EVIDENCE_SHA256,
+                    "expectedSha256": science["oofEvidenceSha256"],
                     "observedSha256": reproduced_digest,
                 },
                 "reloadVerification": reload_result,
@@ -3025,6 +3035,9 @@ def _execute_artifact_job(
                 "artifactId": artifact_id,
                 "createdAt": now_iso(),
                 "projectId": project_id,
+                "executionActorUserId": actor_user_id,
+                "acceptedScience": science,
+                "acceptedScienceSha256": _sha(science),
                 "authority": _authority_payload(chain),
                 "selection": _selection_payload(chain),
                 "candidate": reviewed_plan["candidate"],
@@ -3033,20 +3046,20 @@ def _execute_artifact_job(
                 "probabilityContract": _probability_contract(),
                 "training": {
                     "scope": "DEVELOPMENT_ONLY",
-                    "rows": EXPECTED_DEVELOPMENT[2],
-                    "startDate": EXPECTED_DEVELOPMENT[0],
-                    "cutoff": EXPECTED_DEVELOPMENT[1],
-                    "seed": EXPECTED_CANDIDATE["seed"],
+                    "rows": science["development"][2],
+                    "startDate": science["development"][0],
+                    "cutoff": science["development"][1],
+                    "seed": science["candidate"]["seed"],
                     "finalOotRowsUsed": 0,
                     "finalOotTargetAccessed": False,
                 },
                 "oof": {
-                    "scope": "FIVE_FOLD_CHRONOLOGICAL_DEVELOPMENT_ONLY",
-                    "rows": EXPECTED_OOF_ROWS,
-                    "foldCount": 5,
+                    "scope": "CHRONOLOGICAL_DEVELOPMENT_ONLY",
+                    "rows": science["oofRows"],
+                    "foldCount": len(science["folds"]),
                     "legacyEvidenceSha256": reproduced_digest,
                     "metrics": {
-                        key: reproduced[key] for key in EXPECTED_METRICS
+                        key: reproduced[key] for key in science["metrics"]
                     },
                     "folds": fold_reproduction,
                 },
@@ -3134,7 +3147,7 @@ def _execute_artifact_job(
                 "preprocessingSha256": preprocessor_record["sha256"],
                 "oofArtifactSha256": oof_record["sha256"],
                 "legacyOofEvidenceSha256": reproduced_digest,
-                "oofRows": EXPECTED_OOF_ROWS,
+                "oofRows": science["oofRows"],
                 "metricReproduction": {
                     "status": "PASS",
                     "maxAbsoluteDifference": metric_reproduction[
@@ -3149,8 +3162,8 @@ def _execute_artifact_job(
                     "status": "PASS",
                     "maxAbsoluteDifference": final_max_diff,
                 },
-                "trainingRows": EXPECTED_DEVELOPMENT[2],
-                "trainingCutoff": EXPECTED_DEVELOPMENT[1],
+                "trainingRows": science["development"][2],
+                "trainingCutoff": science["development"][1],
                 "modelStatus": "RESEARCH_CHALLENGER",
                 "promotionStatus": "NOT_PROMOTED",
                 "finalOotLocked": True,
@@ -3172,7 +3185,7 @@ def _execute_artifact_job(
                         "state": "COMPLETE",
                         "currentFold": None,
                         "foldRowsProcessed": 0,
-                        "oofRowsPersisted": EXPECTED_OOF_ROWS,
+                        "oofRowsPersisted": science["oofRows"],
                         "finalFitState": "COMPLETE",
                         "artifactStagingState": "COMPLETE",
                         "reloadVerificationState": "COMPLETE",
@@ -3184,7 +3197,7 @@ def _execute_artifact_job(
                         "latestCheckpoint": "IMMUTABLE_ARTIFACT_FINALIZED_AND_RELOADED",
                         "resumability": "NOT_REQUIRED_COMPLETE",
                         "modelFitsByPurpose": {
-                            "oofFold": 5,
+                            "oofFold": len(science["folds"]),
                             "finalDevelopment": 1,
                         },
                         "message": "Executable research artifact verified and materialized without promotion.",
@@ -3292,6 +3305,8 @@ def _source_plan_for_recovery(
     if (
         not isinstance(plan, Mapping)
         or plan.get("schemaVersion") != EXECUTABLE_ARTIFACT_PLAN_SCHEMA_VERSION
+        or plan.get("projectId") != source_job.get("project_id")
+        or plan.get("executionActorUserId", source_job.get("created_by")) != source_job.get("created_by")
         or plan.get("checksum") != expected_plan_checksum
         or not _SHA256_RE.fullmatch(expected_plan_checksum)
         or _sha(_plan_identity(plan)) != expected_plan_checksum
@@ -3305,13 +3320,15 @@ def _source_plan_for_recovery(
 
 
 def _validate_recovery_source_progress(source_job: Mapping[str, Any]) -> None:
+    plan = json_loads(source_job.get("parameters_json"), {})
+    science = _manifest_science(plan)
     artifacts = json_loads(source_job.get("artifacts_json"), {})
     progress = json_loads(source_job.get("metrics_json"), {})
     fits = progress.get("modelFitsByPurpose") or {}
     try:
         exact_counts = (
-            int(progress.get("oofRowsPersisted") or 0) == EXPECTED_OOF_ROWS
-            and int(fits.get("oofFold") or 0) == 5
+            int(progress.get("oofRowsPersisted") or 0) == science["oofRows"]
+            and int(fits.get("oofFold") or 0) == len(science["folds"])
             and int(fits.get("finalDevelopment") or 0) == 1
         )
     except (TypeError, ValueError, OverflowError):
@@ -3325,7 +3342,7 @@ def _validate_recovery_source_progress(source_job: Mapping[str, Any]) -> None:
     ):
         raise Stage3ModelLaboratoryError(
             "STAGE3_ARTIFACT_RECOVERY_SOURCE_JOB_INELIGIBLE",
-            "Only a terminal no-artifact job with five OOF fits, one final fit, and complete OOF evidence may recover publication.",
+            "Only a terminal no-artifact job with all registered OOF fits, one final fit, and complete OOF evidence may recover publication.",
             status_code=409,
         )
 
@@ -3506,6 +3523,8 @@ def recover_failed_executable_artifact_publication(
                     source_job, expected_plan_checksum
                 )
                 chain = _resolved_chain(database, project_id)
+                require_model_execution_authority(database, chain["resolvedAuthority"], actor_user_id)
+                science = _accepted_science(chain)
 
                 for prior in repository.list_for_project(project_id):
                     prior_artifacts = json_loads(prior.get("artifacts_json"), {})
@@ -3583,6 +3602,8 @@ def recover_failed_executable_artifact_publication(
                 recovery_evidence = {
                     "schemaVersion": EXECUTABLE_ARTIFACT_RECOVERY_SCHEMA_VERSION,
                     "sourceJobId": source_job_id,
+                    "sourceActorUserId": source_job.get("created_by"),
+                    "publicationActorUserId": actor_user_id,
                     "sourceJobStatus": str(source_job.get("status") or "").upper(),
                     "sourceJobError": source_error,
                     "manifestSha256": manifest_sha256,
@@ -3590,7 +3611,7 @@ def recover_failed_executable_artifact_publication(
                     "recoveryImplementationSha256": _sha_file(Path(__file__)),
                     "fitPerformed": False,
                     "reusedModelFitsByPurpose": {
-                        "oofFold": 5,
+                        "oofFold": len(science["folds"]),
                         "finalDevelopment": 1,
                     },
                 }
@@ -3612,7 +3633,7 @@ def recover_failed_executable_artifact_publication(
                             "startedAt": started_at,
                             "currentFold": None,
                             "foldRowsProcessed": 0,
-                            "oofRowsPersisted": EXPECTED_OOF_ROWS,
+                            "oofRowsPersisted": science["oofRows"],
                             "finalFitState": "COMPLETE",
                             "artifactStagingState": "VERIFYING",
                             "reloadVerificationState": "PENDING",
@@ -3622,7 +3643,7 @@ def recover_failed_executable_artifact_publication(
                             ),
                             "resumability": "PUBLICATION_ONLY_NO_REFIT",
                             "modelFitsByPurpose": {
-                                "oofFold": 5,
+                                "oofFold": len(science["folds"]),
                                 "finalDevelopment": 1,
                             },
                             "modelFitsPerformedByThisJob": {
@@ -3792,7 +3813,7 @@ def get_executable_artifact_job(
             "The project-scoped executable-artifact job was not found.",
             status_code=404,
         )
-    return {"ok": True, "job": _decode_job(_reconcile_interrupted_job(database, row))}
+    return {"ok": True, "job": _decode_job(row)}
 
 
 def cancel_unstarted_executable_artifact_work(
@@ -3849,6 +3870,7 @@ def cancel_unstarted_executable_artifact_work(
     return {"ok": True, "job": _decode_job(updated), "idempotentReplay": False}
 
 
+@project_read_view
 def executable_artifact_summary(
     database: Database, project_id: str
 ) -> dict[str, Any]:
@@ -3875,10 +3897,13 @@ def executable_artifact_summary(
     verified_artifact = None
     if artifact:
         try:
-            verify_artifact_bundle(
+            verified = verify_artifact_bundle(
                 str(artifact.get("relativePath") or ""),
                 expected_manifest_sha256=str(artifact.get("manifestSha256") or ""),
             )
+            manifest = verified["manifest"]
+            if manifest.get("projectId") != project_id or manifest.get("authority") != _authority_payload(chain) or manifest.get("selection") != _selection_payload(chain):
+                raise Stage3ModelLaboratoryError("STAGE3_ARTIFACT_PROJECT_AUTHORITY_MISMATCH", "The artifact does not match this project's current selected authority.", status_code=409)
             verified_artifact = artifact
         except Stage3ModelLaboratoryError as exc:
             verified_artifact = {

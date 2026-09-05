@@ -114,6 +114,7 @@ export function DataQualitySummary({ dataset, contract = null }: { dataset: Acti
 /** Central analytical content for a program stage. Stages 1 & 9 are handled inline in the shell. */
 export function GuidedStageContent({
   number,
+  projectId,
   dataset,
   contract,
   currentGoldReview,
@@ -122,6 +123,7 @@ export function GuidedStageContent({
   projectName,
 }: {
   number: number;
+  projectId: string;
   dataset: ActiveSportsDataset | null;
   contract?: ForecastContract | null;
   currentGoldReview?: CurrentGoldReviewState;
@@ -136,8 +138,8 @@ export function GuidedStageContent({
         ? <CurrentGoldDataReviewPanel state={currentGoldReview} />
         : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The project-scoped current Gold review authority is unavailable.</section>;
     case 3:
-      return currentGoldReview
-        ? <PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} currentGoldReview={currentGoldReview} programStages={programStages} onGoProgramStage={onGoProgramStage} projectName={projectName} />
+      return currentGoldReview && projectId
+        ? <PaModelingCockpit embedded projectId={projectId} currentGoldReview={currentGoldReview} programStages={programStages} onGoProgramStage={onGoProgramStage} projectName={projectName} />
         : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The accepted project-bound Stage 2 authority is required before Stage 3 can open.</section>;
     case 4:
       return <div className="space-y-4"><ParticipationUsageBody study={p4} /></div>;

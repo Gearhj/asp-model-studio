@@ -7,7 +7,7 @@ import ProjectSaveStatus from "../components/ProjectSaveStatus";
 import Sidebar from "../components/Sidebar";
 import { AccountPage, AdminUsersPage, LoginPage } from "../steps/AuthPages";
 import { logout, me } from "../lib/auth";
-import { loginPathForReturnTo } from "../lib/authReturnPath";
+import { loginPathForReturnTo, safeAuthReturnPath } from "../lib/authReturnPath";
 import { setCachedUserId } from "../lib/authSession";
 import type { AtlasUser } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -245,7 +245,7 @@ export default function ModelingApp() {
               <ErrorBoundary title="This sports modeling surface could not be rendered safely." resetKey={location.pathname}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/login" element={<Navigate to={safeAuthReturnPath(new URLSearchParams(location.search).get("returnTo")) || "/dashboard"} replace />} />
                   <Route path="/register" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<StudioHome />} />
                   <Route path="/projects" element={<Navigate to="/projects/open" replace />} />

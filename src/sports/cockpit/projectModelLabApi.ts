@@ -836,7 +836,7 @@ export type Stage3ExecutableArtifactPlan = {
     oofRows: number;
     finalFitRows: number;
     modelFits: number;
-    estimatedSecondsFromAcceptedRun: number;
+    estimatedSecondsFromAcceptedRun: number | null;
   };
   execution: {
     nativeWorkers: number;
@@ -1131,7 +1131,6 @@ type JobsEnvelope = { ok: true; jobs: ModelDevelopmentJob[] };
 const prefix = (projectId: string) =>
   `/projects/${encodeURIComponent(projectId)}/sports/stage3-model-laboratory`;
 
-const CURRENT_PROJECT_ID = "asp-mtddc6pw";
 const CURRENT_GOLD_ID = "gold-table:gold_mlb_current_pa_v1";
 const CURRENT_GOLD_MANIFEST = "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758";
 const CURRENT_DEVELOPMENT = { rows: 683_662, start: "2023-03-30", end: "2026-08-13" } as const;
@@ -1238,27 +1237,7 @@ function exactArtifactAuthority(value: unknown, projectId: string): value is Sta
     && nonEmptyString(value.finalOotEnd)
     && value.finalOotLocked === true
     && value.finalOotTargetAccessed === false;
-  if (!basic || projectId !== CURRENT_PROJECT_ID) return basic;
-  return value.goldDatasetId === CURRENT_GOLD_ID
-    && value.sourceDatasetId === CURRENT_SOURCE_DATASET
-    && value.sourceManifestSha === CURRENT_SOURCE_MANIFEST
-    && value.goldManifestSha === CURRENT_GOLD_MANIFEST
-    && value.contextualManifestSha === CURRENT_CONTEXTUAL_MANIFEST
-    && value.splitContractId === CURRENT_SPLIT_ID
-    && value.splitVersion === 2
-    && value.splitChecksum === CURRENT_SPLIT_CHECKSUM
-    && value.outlierPolicyId === CURRENT_OUTLIER_ID
-    && value.outlierPolicyVersion === CURRENT_OUTLIER_VERSION
-    && value.outlierPolicyChecksum === CURRENT_OUTLIER_CHECKSUM
-    && value.missingPolicyId === CURRENT_MISSING_ID
-    && value.missingPolicyVersion === CURRENT_MISSING_VERSION
-    && value.missingPolicyChecksum === CURRENT_MISSING_CHECKSUM
-    && value.developmentRows === CURRENT_DEVELOPMENT.rows
-    && value.developmentStart === CURRENT_DEVELOPMENT.start
-    && value.developmentEnd === CURRENT_DEVELOPMENT.end
-    && value.finalOotRows === CURRENT_FINAL_OOT.rows
-    && value.finalOotStart === CURRENT_FINAL_OOT.start
-    && value.finalOotEnd === CURRENT_FINAL_OOT.end;
+  return basic;
 }
 
 function exactArtifactSelection(value: unknown, projectId: string): value is Stage3ExecutableArtifactSelection {
@@ -1276,18 +1255,7 @@ function exactArtifactSelection(value: unknown, projectId: string): value is Sta
     && sha256(value.candidateRunReceiptSha256)
     && value.modelStatus === "RESEARCH_CHALLENGER"
     && value.promotionStatus === "NOT_PROMOTED";
-  if (!basic || projectId !== CURRENT_PROJECT_ID) return basic;
-  return value.finalistSelectionId === CURRENT_FINALIST_SELECTION
-    && value.calibrationDecisionId === CURRENT_CALIBRATION_DECISION
-    && value.gameEvaluationDecisionId === CURRENT_GAME_EVALUATION_DECISION
-    && value.selectionDecisionId === CURRENT_SELECTION_DECISION
-    && value.researchHandoffId === CURRENT_RESEARCH_HANDOFF
-    && value.registryEntryId === CURRENT_REGISTRY_ENTRY
-    && value.candidateFingerprint === CURRENT_CHALLENGER_FINGERPRINT
-    && value.candidateAttemptId === CURRENT_CHALLENGER_ATTEMPT
-    && value.candidateAttemptReceiptSha256 === CURRENT_CHALLENGER_ATTEMPT_RECEIPT
-    && value.candidateRunId === CURRENT_CHALLENGER_RUN
-    && value.candidateRunReceiptSha256 === CURRENT_CHALLENGER_RUN_RECEIPT;
+  return basic;
 }
 
 function exactArtifactSafety(value: unknown): value is Stage3ArtifactSafety {
@@ -1316,23 +1284,7 @@ function exactFrozenXgboostCandidate(value: unknown, projectId: string): value i
     && exactTargetOrder(value.targetOrder)
     && sha256(value.acceptedOofEvidenceSha256)
     && sha256(value.acceptedModelLabImplementationSha256);
-  if (!basic || projectId !== CURRENT_PROJECT_ID) return basic;
-  return value.modelFamily === "xgboost"
-    && value.featureSetId === CURRENT_CHALLENGER_FEATURE_SET
-    && value.featureSetChecksum === CURRENT_CHALLENGER_FEATURE_CHECKSUM
-    && value.featureCount === CURRENT_CHALLENGER_FEATURE_COUNT
-    && value.seed === CURRENT_CHALLENGER_SEED
-    && value.acceptedOofEvidenceSha256 === CURRENT_OOF_EVIDENCE_SHA
-    && value.acceptedModelLabImplementationSha256 === CURRENT_MODEL_LAB_IMPLEMENTATION_SHA
-    && hyperparameters.n_estimators === 300
-    && hyperparameters.learning_rate === 0.07
-    && hyperparameters.max_depth === 5
-    && hyperparameters.min_child_weight === 1
-    && hyperparameters.subsample === 0.8
-    && hyperparameters.colsample_bytree === 0.7
-    && Number(hyperparameters.gamma) === 0
-    && Number(hyperparameters.reg_alpha) === 0
-    && Number(hyperparameters.reg_lambda) === 1;
+  return basic;
 }
 
 function exactArtifactPlan(value: unknown, projectId: string): value is Stage3ExecutableArtifactPlan {
@@ -1354,7 +1306,10 @@ function exactArtifactPlan(value: unknown, projectId: string): value is Stage3Ex
     || !nonnegativeInteger(value.workload.oofRows)
     || !nonnegativeInteger(value.workload.finalFitRows)
     || !nonnegativeInteger(value.workload.modelFits)
-    || !finiteNonnegative(value.workload.estimatedSecondsFromAcceptedRun)
+    || !(value.workload.estimatedSecondsFromAcceptedRun === null || finiteNonnegative(value.workload.estimatedSecondsFromAcceptedRun))
+    || value.workload.foldCount <= 0
+    || value.workload.modelFits !== value.workload.foldCount + 1
+    || value.workload.finalFitRows !== value.authority.developmentRows
     || !record(value.execution)
     || !nonnegativeInteger(value.execution.nativeWorkers)
     || !nonEmptyString(value.execution.computeClass)
@@ -1369,13 +1324,7 @@ function exactArtifactPlan(value: unknown, projectId: string): value is Stage3Ex
   ) return false;
   if (value.executable && value.executionBlocker !== null) return false;
   if (!value.executable && !nonEmptyString(value.executionBlocker)) return false;
-  if (projectId === CURRENT_PROJECT_ID && (
-    value.workload.foldCount !== 5
-    || value.workload.oofRows !== CURRENT_OOF_ROWS
-    || value.workload.finalFitRows !== CURRENT_DEVELOPMENT.rows
-    || value.workload.modelFits !== 6
-    || value.execution.computeClass !== "VERY_HIGH"
-  )) return false;
+
   return true;
 }
 
@@ -1409,10 +1358,7 @@ function exactExecutableArtifact(value: unknown, projectId: string): value is St
     && value.modelStatus === "RESEARCH_CHALLENGER"
     && value.promotionStatus === "NOT_PROMOTED"
     && value.finalOotLocked === true;
-  if (!valid || projectId !== CURRENT_PROJECT_ID) return valid;
-  return value.oofRows === CURRENT_OOF_ROWS
-    && value.trainingRows === CURRENT_DEVELOPMENT.rows
-    && value.trainingCutoff === CURRENT_DEVELOPMENT.end;
+  return valid;
 }
 
 function exactExecutableArtifactFailure(value: unknown, projectId: string): value is Stage3ExecutableArtifactFailure {
@@ -1804,7 +1750,6 @@ function assertProjectStage3GameScoring(value: unknown, projectId: string): Proj
 }
 
 function assertSummary(value: SummaryEnvelope, projectId: string): SummaryEnvelope {
-  const currentProject = projectId === CURRENT_PROJECT_ID;
   const exactFeatureIds = value?.featureSets?.map((item) => item.featureSetId);
   const exactTargetOrder = value?.target?.orderedClasses;
   if (
@@ -1839,23 +1784,7 @@ function assertSummary(value: SummaryEnvelope, projectId: string): SummaryEnvelo
     || value.audit?.finalOotUsedForSelection !== false
     || value.audit?.providerCalls !== 0
     || value.audit?.autoPromotion !== false
-    || (currentProject && (
-      value.authority.goldDatasetId !== CURRENT_GOLD_ID
-      || value.authority.goldManifestSha !== CURRENT_GOLD_MANIFEST
-      || value.population.developmentRows !== CURRENT_DEVELOPMENT.rows
-      || value.population.startDate !== CURRENT_DEVELOPMENT.start
-      || value.population.endDate !== CURRENT_DEVELOPMENT.end
-      || value.population.finalOotRows !== CURRENT_FINAL_OOT.rows
-      || value.population.finalOotStartDate !== CURRENT_FINAL_OOT.start
-      || value.population.finalOotEndDate !== CURRENT_FINAL_OOT.end
-      || value.split.splitContractId !== CURRENT_SPLIT_ID
-      || value.policies.outlier.policyId !== CURRENT_OUTLIER_ID
-      || value.policies.missing.policyId !== CURRENT_MISSING_ID
-      || exactTargetOrder?.length !== CURRENT_TARGET_ORDER.length
-      || CURRENT_TARGET_ORDER.some((target, index) => exactTargetOrder[index] !== target)
-      || exactFeatureIds?.length !== CURRENT_FEATURE_SET_IDS.length
-      || CURRENT_FEATURE_SET_IDS.some((id, index) => exactFeatureIds[index] !== id)
-    ))
+
   ) {
     throw new Error("The Model Laboratory summary did not preserve the exact project-bound development authority and final-OOT lock.");
   }
@@ -2127,21 +2056,7 @@ function assertEvaluation(value: ProjectCandidateEvaluation, projectId: string) 
       || value.incrementalCurrentEvidence.finalistSelectionEligible !== false
     ))
     || !Array.isArray(value.authority.targetOrder)
-    || (projectId === CURRENT_PROJECT_ID && (
-      value.authority.goldDatasetId !== CURRENT_GOLD_ID
-      || value.authority.goldManifestSha !== CURRENT_GOLD_MANIFEST
-      || value.population.developmentRows !== CURRENT_DEVELOPMENT.rows
-      || value.population.startDate !== CURRENT_DEVELOPMENT.start
-      || value.population.endDate !== CURRENT_DEVELOPMENT.end
-      || value.population.finalOotRows !== CURRENT_FINAL_OOT.rows
-      || value.population.finalOotStartDate !== CURRENT_FINAL_OOT.start
-      || value.population.finalOotEndDate !== CURRENT_FINAL_OOT.end
-      || value.authority.splitContractId !== CURRENT_SPLIT_ID
-      || value.authority.outlierPolicyId !== CURRENT_OUTLIER_ID
-      || value.authority.missingPolicyId !== CURRENT_MISSING_ID
-      || value.authority.targetOrder.length !== CURRENT_TARGET_ORDER.length
-      || CURRENT_TARGET_ORDER.some((target, index) => value.authority.targetOrder[index] !== target)
-    ))
+
   ) throw new Error("Candidate Evaluation did not preserve the exact project-bound development authority and final-OOT lock.");
   return value;
 }
@@ -2237,16 +2152,7 @@ function assertProjectStage3Downstream(value: ProjectStage3Downstream, projectId
     || (value.activity?.simulationRuns ?? 0) !== 0
     || (value.activity?.finalOotRowsAccessed ?? 0) !== 0
     || (value.activity?.modelsExported ?? 0) !== 0
-    || (projectId === CURRENT_PROJECT_ID && (
-      value.authority.goldDatasetId !== CURRENT_GOLD_ID
-      || value.authority.goldManifestSha !== CURRENT_GOLD_MANIFEST
-      || value.population.developmentRows !== CURRENT_DEVELOPMENT.rows
-      || value.population.startDate !== CURRENT_DEVELOPMENT.start
-      || value.population.endDate !== CURRENT_DEVELOPMENT.end
-      || value.population.finalOotRows !== CURRENT_FINAL_OOT.rows
-      || value.population.finalOotStartDate !== CURRENT_FINAL_OOT.start
-      || value.population.finalOotEndDate !== CURRENT_FINAL_OOT.end
-    ))
+
   ) throw new Error("The downstream workflow did not preserve the exact project-bound development authority, zero-promotion state, and final-OOT lock.");
   return value;
 }

@@ -1956,13 +1956,14 @@ export async function registerApprovedSportsDataset(): Promise<ActiveSportsDatas
   return isRecord(payload.dataset) ? normalizeActiveDataset(payload.dataset as ActiveSportsDataset) : null;
 }
 
-function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>): RefreshableEvidenceState<T> {
+function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>, enabled = true): RefreshableEvidenceState<T> {
   const [state, setState] = useState<EvidenceState<T>>(initialEvidenceState);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   useEffect(() => {
     const controller = new AbortController();
     setState(initialEvidenceState);
+    if (!enabled) return () => controller.abort();
     void loader(controller.signal)
       .then((data) => setState(data
         ? { status: "ready", data, error: null }
@@ -1976,7 +1977,7 @@ function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>): Ref
         });
       });
     return () => controller.abort();
-  }, [loader, revision]);
+  }, [loader, revision, enabled]);
   return { ...state, refresh } as RefreshableEvidenceState<T>;
 }
 
@@ -1984,8 +1985,8 @@ export function useActiveSportsDataset() {
   return useEvidence(getActiveSportsDataset);
 }
 
-export function useSportsDatasetCatalog() {
-  return useEvidence(getSportsDatasetCatalog);
+export function useSportsDatasetCatalog(enabled = true) {
+  return useEvidence(getSportsDatasetCatalog, enabled);
 }
 
 export function logicalExchangeUri(value: string | undefined) {

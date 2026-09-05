@@ -69,7 +69,8 @@ export default function GuidedWorkflow() {
   const projectId = canonicalSportsProjectId(params.get(SPORTS_PROJECT_ID_PARAM), stateProjectId);
   const projectIdentity = useCanonicalSportsProject(projectId, stateProjectId);
   const projectName = useWorkflowStore((s) => s.projectName);
-  const datasetCatalog = useSportsDatasetCatalog();
+  const inspectStage3Metadata = params.get("stage") === "3" && ["modellab", "evaluation", "refinement", "calibration", "simulation", "champion", "registry"].includes(params.get("stage3Step") ?? "");
+  const datasetCatalog = useSportsDatasetCatalog(!inspectStage3Metadata);
   const projectDataset = useProjectSportsEvidenceDataset(projectId);
   const dataset = datasetCatalog.status === "ready" && projectDataset.linkage
     ? datasetCatalog.data.find((item) => item.registrationId === projectDataset.linkage?.registrationId) ?? null
@@ -107,9 +108,9 @@ export default function GuidedWorkflow() {
   const stage2CurrentGoldReview = useProjectCurrentGoldDataReview(projectId,
     Boolean(binding) && focus.number === 2,
   );
-  const stage3CurrentGoldReview = useProjectStage3DataAuthority(projectId,
-    Boolean(binding) && focus.number === 3,
-  );
+  // The selected cockpit substep owns Stage 3 data reads. Downstream views
+  // authenticate metadata without eagerly opening development/OOT partitions.
+  const stage3CurrentGoldReview = useProjectStage3DataAuthority(projectId, false);
   const currentGoldReview = focus.number === 3 ? stage3CurrentGoldReview : stage2CurrentGoldReview;
   const justDone = Number(params.get("done")) || 0;
   const [navCollapsed, setNavCollapsed] = useState(false);
@@ -189,7 +190,7 @@ export default function GuidedWorkflow() {
         </nav> : null}
 
         <div className="min-w-0 space-y-4">
-          <StageWorkspace key={focus.number} focus={focus} resolutions={resolutions} displayName={displayName} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} currentGoldReview={currentGoldReview} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
+          <StageWorkspace key={focus.number} inspectStage3Metadata={inspectStage3Metadata} focus={focus} resolutions={resolutions} displayName={displayName} projectId={projectId} metadata={metadata} dataset={dataset} datasetCatalog={datasetCatalog} projectDataset={projectDataset} contractAuthority={contractAuthority} currentGoldReview={currentGoldReview} justDone={justDone} onGoStage={goStage} advanceFrom={advanceFrom} refresh={refresh} />
 
           {focus.number !== 3 ? <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <button onClick={() => goStage(Math.max(1, focus.number - 1))} disabled={focus.number === 1} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ArrowLeft size={15} /> Previous</button>
@@ -208,8 +209,9 @@ export default function GuidedWorkflow() {
 }
 
 function StageWorkspace({
-  focus, resolutions, displayName, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, currentGoldReview, justDone, onGoStage, advanceFrom, refresh,
+  focus, resolutions, displayName, projectId, metadata, dataset, datasetCatalog, projectDataset, contractAuthority, currentGoldReview, justDone, onGoStage, advanceFrom, refresh, inspectStage3Metadata,
 }: {
+  inspectStage3Metadata: boolean;
   focus: StageResolution;
   resolutions: StageResolution[];
   displayName: string;
@@ -239,7 +241,9 @@ function StageWorkspace({
   const formContract = contract ?? contractAuthority.compatibilityDraft;
   const contractFormKey = `${projectId}:${formContract?.version ?? "new"}:${formContract?.savedAt || formContract?.temporalDesignMode || "empty"}`;
 
-  if (focus.status === "BLOCKED") {
+  // Reading authenticated downstream prerequisite metadata does not adopt Stage 2
+  // or authorize model execution. The project-bound server gate owns those checks.
+  if (focus.status === "BLOCKED" && !(focus.number === 3 && inspectStage3Metadata)) {
     return (
       <section className="sports-panel p-6">
         <span className={`sports-status ${style.chip}`}>Blocked</span>
@@ -309,7 +313,7 @@ function StageWorkspace({
       {focus.number === 2 && (!binding
         ? <ProjectEvidenceDatasetControl authority={projectDataset} catalog={datasetCatalog} onLinked={() => refresh()} />
         : <>
-            <GuidedStageContent number={2} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} />
+            <GuidedStageContent number={2} projectId={projectId} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} />
             <AdoptBar
               focus={focus}
               projectId={projectId}
@@ -325,7 +329,7 @@ function StageWorkspace({
 
       {/* Stage 3 — PA Model Development (embedded cockpit) */}
       {focus.number === 3 && <>
-        <GuidedStageContent number={3} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} programStages={resolutions} onGoProgramStage={onGoStage} projectName={displayName} />
+        <GuidedStageContent number={3} projectId={projectId} dataset={dataset} contract={contract} currentGoldReview={currentGoldReview} programStages={resolutions} onGoProgramStage={onGoStage} projectName={displayName} />
         <section className="sports-panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="stage3-no-champion-gate">
           <div><div className="text-sm font-semibold text-slate-900">Project champion: None yet</div><p className="mt-1 text-sm text-slate-600">Stage 3 remains open until chronological model development produces a separately governed selection decision. This population handoff does not fit, score, promote, or adopt a legacy artifact.</p></div>
           <p className="inline-flex shrink-0 cursor-default select-none items-center gap-1.5 text-sm font-semibold text-cyan-900" role="status" aria-label="Workflow status"><Lock size={14} /> Status: project-bound development only · promotion unavailable</p>
@@ -334,7 +338,7 @@ function StageWorkspace({
 
       {/* Stages 4–8 — embedded analytical content + adopt */}
       {focus.number >= 4 && focus.number <= 8 && <>
-        <GuidedStageContent number={focus.number} dataset={dataset} contract={contract} />
+        <GuidedStageContent number={focus.number} projectId={projectId} dataset={dataset} contract={contract} />
         <AdoptBar focus={focus} projectId={projectId} onAdopt={() => { adoptStage(projectId, focus.number); advanceFrom(focus.number); }} />
       </>}
 

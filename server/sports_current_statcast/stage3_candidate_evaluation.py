@@ -35,6 +35,7 @@ from .stage3_model_jobs import (
     plan_model_development_queue,
 )
 from .stage3_model_laboratory import (
+    project_read_view,
     CURRENT_GOLD_DATASET_ID,
     EXPECTED_DEVELOPMENT,
     EXPECTED_FINAL_OOT,
@@ -982,6 +983,7 @@ def _incremental_current_evidence(
     }
 
 
+@project_read_view
 def project_candidate_evaluation(database: Database, project_id: str) -> dict[str, Any]:
     resolved = resolve_model_lab_authority(database, project_id)
     runs = _read_runs(project_id, resolved)
@@ -1093,13 +1095,13 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
         },
         "population": {
             "scope": "DEVELOPMENT_ONLY",
-            "developmentRows": EXPECTED_DEVELOPMENT[2],
-            "startDate": EXPECTED_DEVELOPMENT[0],
-            "endDate": EXPECTED_DEVELOPMENT[1],
+            "developmentRows": int(resolved.split["development"]["rows"]),
+            "startDate": str(resolved.split["development"]["startDate"]),
+            "endDate": str(resolved.split["development"]["endDate"]),
             "foldCount": 5,
-            "finalOotRows": EXPECTED_FINAL_OOT[2],
-            "finalOotStartDate": EXPECTED_FINAL_OOT[0],
-            "finalOotEndDate": EXPECTED_FINAL_OOT[1],
+            "finalOotRows": int(resolved.split["finalOot"]["rows"]),
+            "finalOotStartDate": str(resolved.split["finalOot"]["startDate"]),
+            "finalOotEndDate": str(resolved.split["finalOot"]["endDate"]),
             "finalOotLocked": True,
             "finalOotTargetAccessed": False,
             "finalOotScored": False,
@@ -2457,6 +2459,7 @@ def _persist_downstream_decision(
     return persisted
 
 
+@project_read_view
 def project_stage3_downstream(
     database: Database, project_id: str
 ) -> dict[str, Any]:
@@ -2550,12 +2553,12 @@ def project_stage3_downstream(
         },
         "population": {
             "scope": "DEVELOPMENT_ONLY",
-            "developmentRows": EXPECTED_DEVELOPMENT[2],
-            "startDate": EXPECTED_DEVELOPMENT[0],
-            "endDate": EXPECTED_DEVELOPMENT[1],
-            "finalOotRows": EXPECTED_FINAL_OOT[2],
-            "finalOotStartDate": EXPECTED_FINAL_OOT[0],
-            "finalOotEndDate": EXPECTED_FINAL_OOT[1],
+            "developmentRows": int(resolved.split["development"]["rows"]),
+            "startDate": str(resolved.split["development"]["startDate"]),
+            "endDate": str(resolved.split["development"]["endDate"]),
+            "finalOotRows": int(resolved.split["finalOot"]["rows"]),
+            "finalOotStartDate": str(resolved.split["finalOot"]["startDate"]),
+            "finalOotEndDate": str(resolved.split["finalOot"]["endDate"]),
             "finalOotLocked": True,
             "finalOotTargetAccessed": False,
             "finalOotScored": False,

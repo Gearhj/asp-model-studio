@@ -40,7 +40,6 @@ from .stage3_game_probability_adapter import (
     VerifiedStage3ArtifactBinding,
     build_stage3_probability_adapter,
 )
-from .stage3_model_laboratory import EXPECTED_PROJECT_ID
 
 
 GAME_SCORING_SCHEMA_VERSION = "SPORTS_STAGE3_GOVERNED_GAME_SCORING_V1"
@@ -653,6 +652,9 @@ def score_governed_game(
 
 
 def _decode_job(row: Mapping[str, Any]) -> dict[str, Any]:
+    request = json_loads(row.get("parameters_json"), {})
+    if not isinstance(request, Mapping) or request.get("projectId") != row.get("project_id"):
+        raise _error("STAGE3_GAME_SCORING_JOB_PROJECT_MISMATCH", "The persisted scoring request belongs to another project.", status_code=409)
     raw_results = json_loads(row.get("artifacts_json"), [])
     if isinstance(raw_results, Mapping) and isinstance(raw_results.get("games"), list):
         results = list(raw_results["games"])
@@ -687,6 +689,8 @@ def _artifact_public_identity(database: Database, project_id: str) -> dict[str, 
         ),
         None,
     )
+    if completed and json_loads(completed.get("parameters_json"), {}).get("projectId") != project_id:
+        return {}
     artifacts = json_loads(completed.get("artifacts_json"), {}) if completed else {}
     artifact = artifacts.get("artifact") if isinstance(artifacts, Mapping) else None
     if not isinstance(artifact, Mapping):
@@ -700,11 +704,6 @@ def _artifact_public_identity(database: Database, project_id: str) -> dict[str, 
 
 
 def _require_project(database: Database, project_id: str) -> None:
-    if project_id != EXPECTED_PROJECT_ID:
-        raise _error(
-            "STAGE3_GAME_SCORING_PROJECT_NOT_CONFIGURED",
-            "Governed Stage 3 game scoring is not configured for that project.",
-        )
     if ProjectRepository(database).get(project_id) is None:
         raise _error(
             "STAGE3_GAME_SCORING_PROJECT_NOT_FOUND",

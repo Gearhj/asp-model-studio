@@ -1,8 +1,9 @@
+import { getCachedUserId, subscribeCachedUserId } from "../../lib/authSession";
 // Governed data preview of the plate-appearance modeling matrix. Reused by the guided workflow
 // Step 2 (Baseball Data Evidence) and the cockpit Step 02 (Data & Population) so the scientist
 // actually SEES the data before modeling. Bounded (≤50 rows), auth+project scoped via the shared
 // API client; no file-path access, no synthetic rows.
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 import { Database, Table2, ListTree, ExternalLink } from "lucide-react";
 import { getJSON } from "../../lib/api";
@@ -19,7 +20,12 @@ function shortId(v: any): string {
   return `${s.slice(0, 6)}…${s.slice(-4)}`;
 }
 
-export default function DataPreviewPanel({ title = "Data preview", showWarehouseLink = true }: { title?: string; showWarehouseLink?: boolean }) {
+export default function DataPreviewPanel({ projectId, title = "Data preview", showWarehouseLink = true }: { projectId: string; title?: string; showWarehouseLink?: boolean }) {
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, getCachedUserId);
+  return <ScopedDataPreview key={`${userId}:${projectId}`} projectId={projectId} title={title} showWarehouseLink={showWarehouseLink} userId={userId} />;
+}
+
+function ScopedDataPreview({ projectId, userId, title, showWarehouseLink }: { projectId: string; userId: string | null; title: string; showWarehouseLink: boolean }) {
   const [season, setSeason] = useState<string>("all");
   const [sample, setSample] = useState<"head" | "random">("head");
   const [search, setSearch] = useState("");
@@ -28,13 +34,14 @@ export default function DataPreviewPanel({ title = "Data preview", showWarehouse
   useEffect(() => {
     let alive = true;
     setState({ status: "loading" });
-    const q = new URLSearchParams({ limit: "25", sample });
+    if (!projectId || !userId) { setState({ status: "error", error: "Select an authenticated project before previewing data." }); return; }
+    const q = new URLSearchParams({ projectId, limit: "25", sample });
     if (season !== "all") q.set("season", season);
     getJSON<DataPreview>(`/cockpit/data-preview?${q.toString()}`)
       .then((d) => alive && setState({ status: "ready", data: d }))
       .catch((e) => alive && setState({ status: "error", error: String(e) }));
     return () => { alive = false; };
-  }, [season, sample]);
+  }, [season, sample, projectId, userId]);
 
   if (state.status === "error") {
     const is404 = /\b404\b/.test(state.error || "");
@@ -42,7 +49,7 @@ export default function DataPreviewPanel({ title = "Data preview", showWarehouse
       <Card title={title} icon={Database}>
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <div className="font-semibold">Could not load the data preview.</div>
-          <p className="mt-1">{is404 ? "The modeling API returned 404 — the backend likely needs a restart to load the /api/cockpit routes." : "The backend may be unavailable; confirm it is running and reload."}</p>
+          <p className="mt-1">{is404 ? "The selected project's preview route is unavailable." : "Verify the selected project's registered data prerequisites and reload."}</p>
           <p className="mt-2 font-mono text-xs text-rose-500">{state.error}</p>
         </div>
       </Card>

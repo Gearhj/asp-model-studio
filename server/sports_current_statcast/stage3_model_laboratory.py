@@ -73,7 +73,6 @@ MODEL_LAB_SCHEMA_VERSION = "SPORTS_STAGE3_PROJECT_MODEL_LAB_V1"
 RUN_RECEIPT_SCHEMA_VERSION = "SPORTS_STAGE3_MODEL_LAB_RUN_RECEIPT_V1"
 RUN_RECEIPT_SCHEMA_VERSION_V2 = "SPORTS_STAGE3_MODEL_DEVELOPMENT_RUN_RECEIPT_V2"
 
-EXPECTED_PROJECT_ID = "asp-mtddc6pw"
 EXPECTED_SOURCE_DATASET_ID = "asp.mlb.statcast.current-pa.v1"
 EXPECTED_GOLD_MANIFEST_SHA = (
     "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758"
@@ -287,8 +286,7 @@ def _policy_by_exact_identity(
         or policy.get("projectId") != authority.project_id
         or policy.get("goldManifestSha") != authority.gold_manifest_sha
         or policy.get("authorityReviewDigest") != authority.review_digest
-        or int((policy.get("development") or {}).get("rows") or 0)
-        != EXPECTED_DEVELOPMENT[2]
+        or int((policy.get("development") or {}).get("rows") or 0) <= 0
         or (policy.get("finalOot") or {}).get("locked") is not True
     ):
         raise Stage3ModelLaboratoryError(
@@ -314,62 +312,30 @@ def _policy_by_exact_identity(
 
 
 def _feature_sets_by_exact_identity(
-    database: Database, authority: Any
+    database: Database, authority: Any, split: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any], ...]:
-    rows = Stage3FeatureSetRepository(database).list_versions(
-        authority.project_id, authority.review_digest
-    )
+    rows = Stage3FeatureSetRepository(database).list_versions(authority.project_id, authority.review_digest)
     by_id = {str(row.get("featureSetId")): row for row in rows}
-    output: list[Mapping[str, Any]] = []
-    schema_names = set(authority.schema.names)
-    for feature_set_id in EXPECTED_FEATURE_SET_IDS:
+    ids = list(split.get("selectedFeatureSetIds") or [])
+    bindings = {str(item.get("featureSetId")): item.get("checksum")
+                for item in (split.get("contract") or {}).get("selectedFeatureSets") or []}
+    if not ids or len(ids) != len(set(ids)):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_FEATURE_SET_MISSING", "The registered split has no exact project feature bindings.", status_code=409)
+    output = []
+    for feature_set_id in ids:
         item = by_id.get(feature_set_id)
         if item is None:
-            raise Stage3ModelLaboratoryError(
-                "MODEL_LAB_FEATURE_SET_MISSING",
-                f"The exact registered feature set {feature_set_id} is unavailable.",
-                status_code=409,
-            )
-        policies = item.get("treatmentPolicies") or {}
-        unavailable = list(item.get("unavailableExclusions") or [])
+            raise Stage3ModelLaboratoryError("MODEL_LAB_FEATURE_SET_MISSING", "A split-bound registered project feature set is unavailable.", status_code=409)
         ordered = list(item.get("orderedFeatures") or [])
-        missing_columns = sorted(set(ordered) - schema_names)
-        if (
-            item.get("status") != "REGISTERED"
-            or int(item.get("version") or 0) != 2
-            or item.get("projectId") != authority.project_id
-            or (item.get("authority") or {}).get("goldManifestSha")
-            != authority.gold_manifest_sha
-            or (item.get("authority") or {}).get("reviewDigest")
-            != authority.review_digest
-            or int((item.get("development") or {}).get("rows") or 0)
-            != EXPECTED_DEVELOPMENT[2]
+        if (item.get("status") != "REGISTERED" or item.get("projectId") != authority.project_id
+            or (item.get("authority") or {}).get("goldManifestSha") != authority.gold_manifest_sha
+            or (item.get("authority") or {}).get("reviewDigest") != authority.review_digest
+            or bindings.get(feature_set_id) != item.get("checksum")
             or (item.get("finalOot") or {}).get("locked") is not True
-            or not ordered
-            or len(ordered) != len(set(ordered))
-            or missing_columns
-            or unavailable
-            or (policies.get("outlier") or {}).get("policyId")
-            != EXPECTED_OUTLIER_POLICY["policyId"]
-            or (policies.get("missing") or {}).get("policyId")
-            != EXPECTED_MISSING_POLICY["policyId"]
-        ):
-            reason = (
-                "; missing physical columns: " + ", ".join(missing_columns)
-                if missing_columns
-                else "; unavailable/inactive exclusions: " + ", ".join(map(str, unavailable))
-                if unavailable
-                else ""
-            )
-            raise Stage3ModelLaboratoryError(
-                "MODEL_LAB_FEATURE_SET_AUTHORITY_MISMATCH",
-                f"Feature set {feature_set_id} is not an exact executable current-project registration{reason}.",
-                status_code=409,
-            )
-        # A registered feature list is not executable authority on its own.
-        # The immutable ordered transformation contract is equally binding;
-        # refuse a registration whose steps are missing or unsupported rather
-        # than inferring treatment from a pandas dtype at run time.
+            or item.get("development") != split.get("development")
+            or not ordered or len(ordered) != len(set(ordered))
+            or set(ordered) - set(authority.schema.names) or item.get("unavailableExclusions")):
+            raise Stage3ModelLaboratoryError("MODEL_LAB_FEATURE_SET_AUTHORITY_MISMATCH", "A feature registration differs from its exact project/split/Gold binding.", status_code=409)
         _transformation_groups(item, ordered)
         output.append(item)
     return tuple(output)
@@ -390,102 +356,59 @@ def _fold_signature(fold: Mapping[str, Any]) -> tuple[Any, ...]:
 
 
 def _split_by_exact_identity(database: Database, authority: Any) -> Mapping[str, Any]:
-    split = Stage3SplitContractRepository(database).get(
-        str(EXPECTED_SPLIT["splitContractId"])
-    )
-    if split is None:
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_SPLIT_MISSING",
-            "The exact registered Stage 3 split contract is unavailable.",
-            status_code=409,
-        )
+    rows = Stage3SplitContractRepository(database).list_versions(authority.project_id, authority.review_digest)
+    registered = [row for row in rows if row.get("status") == "REGISTERED"]
+    if not registered:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_SPLIT_MISSING", "Register a project-bound split before model execution.", status_code=409)
+    registered.sort(key=lambda row: int(row.get("contractVersion") or 0), reverse=True)
+    split = registered[0]
+    if len(registered) > 1 and registered[1].get("contractVersion") == split.get("contractVersion"):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_SPLIT_AUTHORITY_MISMATCH", "The project has ambiguous current split authority.", status_code=409)
     contract = split.get("contract") or {}
     folds = list(contract.get("folds") or [])
-    selected_ids = set(split.get("selectedFeatureSetIds") or [])
-    blocking = [
-        gate
-        for gate in contract.get("qualityGates") or []
-        if gate.get("blocking") is True and gate.get("status") != "PASS"
-    ]
-    if (
-        split.get("projectId") != authority.project_id
-        or split.get("status") != "REGISTERED"
-        or int(split.get("contractVersion") or 0) != int(EXPECTED_SPLIT["version"])
-        or split.get("checksum") != EXPECTED_SPLIT["checksum"]
+    development = split.get("development") or {}
+    oot = split.get("finalOot") or {}
+    blocked = [gate for gate in contract.get("qualityGates") or [] if gate.get("blocking") is True and gate.get("status") != "PASS"]
+    valid_folds = bool(folds) and all(
+        str(development.get("startDate") or "") <= str(fold.get("trainStart") or "")
+        <= str(fold.get("trainEnd") or "") < str(fold.get("validationStart") or "")
+        <= str(fold.get("validationEnd") or "") <= str(development.get("endDate") or "")
+        and int(fold.get("trainRows") or 0) > 0 and int(fold.get("validationRows") or 0) > 0
+        and int(fold.get("foldNumber") or 0) == index
+        for index, fold in enumerate(folds, 1))
+    if (split.get("projectId") != authority.project_id
         or split.get("goldManifestSha") != authority.gold_manifest_sha
         or split.get("authorityReviewDigest") != authority.review_digest
-        or int((split.get("development") or {}).get("rows") or 0)
-        != EXPECTED_DEVELOPMENT[2]
-        or (split.get("finalOot") or {}).get("locked") is not True
-        or int(split.get("foldCount") or 0) != 5
-        or tuple(_fold_signature(fold) for fold in folds) != EXPECTED_FOLDS
-        or selected_ids != set(EXPECTED_FEATURE_SET_IDS)
-        or contract.get("preprocessingScope")
-        != "FIT_INSIDE_EACH_TRAINING_FOLD_ONLY"
-        or contract.get("allBlockingGatesPass") is not True
-        or blocking
-    ):
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_SPLIT_AUTHORITY_MISMATCH",
-            "The exact registered split v2 does not match the governed five-fold development contract.",
-            status_code=409,
-        )
+        or oot.get("locked") is not True or not oot.get("startDate")
+        or str(development.get("endDate") or "") >= str(oot.get("startDate"))
+        or int(split.get("foldCount") or 0) != len(folds) or not valid_folds
+        or contract.get("preprocessingScope") != "FIT_INSIDE_EACH_TRAINING_FOLD_ONLY"
+        or contract.get("allBlockingGatesPass") is not True or blocked):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_SPLIT_AUTHORITY_MISMATCH", "The registered split does not authenticate this project's chronological development-only contract.", status_code=409)
     return split
 
 
 def resolve_model_lab_authority(database: Database, project_id: str) -> ModelLabAuthority:
-    if project_id != EXPECTED_PROJECT_ID:
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_PROJECT_NOT_CONFIGURED",
-            "This bounded current-data MLB Model Laboratory is not configured for that project.",
-            status_code=409,
-        )
+    if not isinstance(project_id, str) or not project_id.strip():
+        raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_REQUIRED", "Select an authorized project.", status_code=409)
     authority = eda._resolve_authority(database, project_id)
-    public = authority.public()
-    if (
-        authority.project_id != project_id
-        or authority.source_dataset_id != EXPECTED_SOURCE_DATASET_ID
-        or public.get("goldDatasetId") != CURRENT_GOLD_DATASET_ID
-        or authority.gold_manifest_sha != EXPECTED_GOLD_MANIFEST_SHA
-        or tuple((eda.DEVELOPMENT_START, eda.DEVELOPMENT_END, int(eda.DEVELOPMENT_ROWS)))
-        != EXPECTED_DEVELOPMENT
-        or tuple(
-            (
-                eda.EXPECTED_FINAL_OOT[0],
-                eda.EXPECTED_FINAL_OOT[1],
-                int(eda.FINAL_OOT_ROWS),
-            )
-        )
-        != EXPECTED_FINAL_OOT
-    ):
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_PROJECT_GOLD_AUTHORITY_MISMATCH",
-            "Model Laboratory requires the exact project-bound Current Gold development authority.",
-            status_code=409,
-        )
+    if authority.project_id != project_id:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_GOLD_AUTHORITY_MISMATCH", "The dataset authority belongs to another project.", status_code=409)
     project = ProjectRepository(database).get(project_id)
     if not project:
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_PROJECT_MISSING",
-            "The canonical project record is unavailable.",
-            status_code=404,
-        )
-    outlier = _policy_by_exact_identity(
-        database, authority, kind="OUTLIER", expected=EXPECTED_OUTLIER_POLICY
-    )
-    missing = _policy_by_exact_identity(
-        database, authority, kind="IMPUTATION", expected=EXPECTED_MISSING_POLICY
-    )
-    features = _feature_sets_by_exact_identity(database, authority)
+        raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_MISSING", "The canonical project record is unavailable.", status_code=404)
     split = _split_by_exact_identity(database, authority)
-    return ModelLabAuthority(
-        eda_authority=authority,
-        project_name=str(project.get("project_name") or project_id),
-        outlier_policy=outlier,
-        missing_policy=missing,
-        feature_sets=features,
-        split=split,
-    )
+    features = _feature_sets_by_exact_identity(database, authority, split)
+    refs = features[0].get("treatmentPolicies") or {}
+    for item in features:
+        if item.get("treatmentPolicies") != refs:
+            raise Stage3ModelLaboratoryError("MODEL_LAB_POLICY_AUTHORITY_MISMATCH", "The split's feature sets bind different treatment authorities.", status_code=409)
+    if not refs.get("outlier") or not refs.get("missing"):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_TREATMENT_MISSING", "Exact adopted treatment policy references are required.", status_code=409)
+    outlier = _policy_by_exact_identity(database, authority, kind="OUTLIER", expected=refs["outlier"])
+    missing = _policy_by_exact_identity(database, authority, kind="IMPUTATION", expected=refs["missing"])
+    return ModelLabAuthority(eda_authority=authority, project_name=str(project.get("project_name") or project_id),
+        outlier_policy=outlier, missing_policy=missing, feature_sets=features, split=split)
 
 
 def _model_families() -> list[dict[str, Any]]:
@@ -645,6 +568,223 @@ def _candidate_matrix(
     return output
 
 
+
+
+def require_model_execution_authority(database: Database, resolved: ModelLabAuthority, actor_user_id: str | None) -> None:
+    """Recheck live user permission and draft holds at the execution boundary."""
+    from ..security.security_store import get_user
+    from ..persistence.service import PersistenceService
+    from ..sharing.sharing_service import SharingService
+    user = get_user(str(actor_user_id or "")) if actor_user_id else None
+    if (not user or user.get("status") != "active"
+        or not SharingService(PersistenceService(database)).check_permission(user, "project", resolved.project_id, "edit").get("allowed")):
+        raise Stage3ModelLaboratoryError("MODEL_EXECUTION_AUTHORIZATION_REVOKED", "The originating user no longer has authority to execute this project.", status_code=403)
+    state = Stage3TreatmentRepository(database).combined_spec_state(resolved.project_id, resolved.eda_authority.review_digest)
+    if state.get("latestDraft"):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_TREATMENT_DRAFT_PENDING", "The project's treatment specification is DRAFT; execution is blocked pending governed adoption.", status_code=409)
+
+
+def _missing_project_workflow_state(database: Database, project_id: str, reason: str) -> dict[str, Any]:
+    """Describe missing authority without inventing population or reading data partitions."""
+    project = ProjectRepository(database).get(project_id)
+    if not project:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_MISSING", "The canonical project record is unavailable.", status_code=404)
+    return {"ok": True, "workflowBlocked": True,
+        "authority": {"projectId": project_id, "projectName": project.get("project_name") or project_id,
+            "authorityKey": None, "status": "PREREQUISITES_MISSING", "legacyGlobalMatrixUsed": False},
+        "population": {"scope": "NOT_AUTHENTICATED", "developmentRows": None, "finalOotRows": None,
+            "finalOotLocked": True, "finalOotTargetsMaterialized": False},
+        "readiness": {"ready": False, "status": "PROJECT_PREREQUISITES_BLOCKED", "blockers": [reason]},
+        "treatment": {"status": "NOT_AUTHENTICATED", "canAdopt": False, "adoptionPerformed": False},
+        "candidateEvidence": {"status": "PREREQUISITES_BLOCKED", "foreignEvidenceUsed": False},
+        "audit": {"legacyGlobalMatrixUsed": False, "base22FallbackAvailable": False, "globalMatrixFallbackAvailable": False,
+            "finalOotTargetAccessed": False, "finalOotUsedForSelection": False, "providerCalls": 0,
+            "autoPromotion": False, "goldPartitionsOpened": 0}}
+
+
+def _authenticate_stored_project_registration(connection: Any, row: Mapping[str, Any], project_id: str) -> None:
+    from ..persistence.db import json_loads
+    current = connection.execute("SELECT * FROM active_modeling_dataset_versions WHERE project_id = ?", (project_id,)).fetchone()
+    if current is None or current["activation_status"] != "active" or current["dataset_version_id"] != row["dataset_version_id"] or int(current["activation_revision"]) != int(row["activation_revision"]):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_AUTHORITY_STALE", "The stored treatment receipt is stale for the selected project dataset.", status_code=409)
+    link = connection.execute("SELECT * FROM project_dataset_links WHERE project_id = ? AND dataset_id = ?", (project_id, current["dataset_id"])).fetchone()
+    if link is None or link["link_status"] != "active":
+        raise Stage3ModelLaboratoryError("MODEL_LAB_DATASET_AUTHORITY_REVOKED", "The project dataset registration is no longer linked.", status_code=409)
+    registration = connection.execute("SELECT * FROM sports_dataset_registrations WHERE registration_id = ? AND dataset_id = ? AND dataset_version_id = ? AND manifest_sha = ? AND validation_status = 'VALID'", (row["registration_id"], row["source_dataset_id"], row["dataset_version_id"], row["source_manifest_sha"])).fetchone()
+    if registration is not None and json_loads(dict(registration).get("metadata_json"), {}).get("authorityState") == "HISTORICAL":
+        raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_REGISTRATION_HISTORICAL", "The source registration is historical and cannot authorize current execution.", status_code=409)
+    metadata = [json_loads(dict(item).get("metadata_json"), {}) for item in (current, link)]
+    if (current["dataset_id"] != row["source_dataset_id"] or registration is None
+        or any(item.get("registrationId") not in (None, "", row["registration_id"]) or item.get("manifestSha") not in (None, "", row["source_manifest_sha"]) for item in metadata)):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_REGISTRATION_MISMATCH", "The immutable treatment receipt does not match the project's validated source registration.", status_code=409)
+    if not any(item.get("registrationId") for item in metadata):
+        registrations = connection.execute("SELECT registration_id FROM sports_dataset_registrations WHERE dataset_id = ? AND dataset_version_id = ? AND validation_status = 'VALID'", (row["source_dataset_id"], row["dataset_version_id"])).fetchall()
+        if len(registrations) != 1:
+            raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_REGISTRATION_AMBIGUOUS", "The legacy project selection does not identify one source registration.", status_code=409)
+
+
+def _registered_project_workflow_state(database: Database, project_id: str, row: Mapping[str, Any]) -> dict[str, Any]:
+    """Authenticate historical metadata and JSON receipts without resolving row data."""
+    import re
+    from ..persistence.db import decode_row
+    from ..persistence.repositories import stage3_split_contract_repository as splits
+    from ..persistence.repositories import stage3_feature_set_repository as features
+    from ..persistence.repositories import stage3_treatment_repository as policies
+    split = splits._public_contract(decode_row(row))
+    shared = ("project_id", "registration_id", "dataset_version_id", "activation_revision", "source_dataset_id",
+        "source_manifest_sha", "gold_manifest_sha", "contextual_manifest_sha", "authority_review_digest",
+        "development_start_date", "development_end_date", "development_rows", "final_oot_start_date", "final_oot_end_date", "final_oot_rows")
+    registered_features = []
+    adopted = {}
+    with database.connection() as connection:
+        _authenticate_stored_project_registration(connection, row, project_id)
+        selected = split["selectedFeatureSetIds"]
+        bindings = {item["featureSetId"]: item["checksum"] for item in split["contract"].get("selectedFeatureSets", [])}
+        if not selected or len(set(selected)) != len(selected) or set(selected) != set(bindings):
+            raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_FEATURE_BINDING_MISMATCH", "The historical split has no exact selected feature bindings.", status_code=409)
+        for feature_id in selected:
+            feature_row = connection.execute("SELECT * FROM stage3_feature_set_versions WHERE project_id = ? AND feature_set_id = ? AND feature_set_status = 'REGISTERED'", (project_id, feature_id)).fetchone()
+            if feature_row is None or any(feature_row[key] != row[key] for key in shared):
+                raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_FEATURE_BINDING_MISMATCH", "A historical selected feature set belongs to another authority.", status_code=409)
+            feature = features._public_feature_set(decode_row(feature_row))
+            identity = {key: feature[key] for key in ("projectId", "featureSetKey", "name", "orderedFeatures", "familyMemberships", "transformationContracts", "interactionContracts", "unavailableExclusions", "treatmentPolicies", "description", "notes")}
+            identity["authorityReviewDigest"] = row["authority_review_digest"]
+            if features._sha256(identity) != feature["checksum"] or feature["checksum"] != bindings[feature_id]:
+                raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_FEATURE_CHECKSUM_MISMATCH", "A historical selected feature definition failed its content checksum.", status_code=409)
+            for kind, ref in feature["treatmentPolicies"].items():
+                policy_row = connection.execute("SELECT * FROM stage3_treatment_policy_versions WHERE project_id = ? AND treatment_policy_id = ? AND policy_status = 'ADOPTED'", (project_id, (ref or {}).get("policyId"))).fetchone()
+                if policy_row is None or any(policy_row[key] != row[key] for key in shared):
+                    raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_POLICY_BINDING_MISMATCH", "A historical adopted treatment belongs to another authority.", status_code=409)
+                policy = policies._public_policy(decode_row(policy_row))
+                checksum = Stage3TreatmentRepository(database)._draft_checksum(authority={"projectId": project_id, "reviewDigest": row["authority_review_digest"]}, policy_kind=policy["policyKind"], global_method=policy["globalMethod"], policy=policy["policy"], fitting_rule=policy["fittingRule"], notes=policy["notes"])
+                if checksum != policy["checksum"] or any(policy.get(key) != ref.get(key) for key in ("policyId", "policyVersion", "checksum")) or (kind in adopted and adopted[kind]["policyId"] != policy["policyId"]):
+                    raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_POLICY_CHECKSUM_MISMATCH", "A historical treatment policy failed its exact checksum binding.", status_code=409)
+                adopted[kind] = policy
+            registered_features.append({"featureSetId": feature_id, "name": feature["name"], "checksum": feature["checksum"], "featureCount": len(feature["orderedFeatures"])})
+    contract = split["contract"]
+    if contract.get("finalOot", {}).get("locked") is not True or contract.get("finalOot", {}).get("targetsAccessed") is not False:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_OOT_BOUNDARY_MISMATCH", "The historical split does not preserve a sealed final-OOT boundary.", status_code=409)
+    project = ProjectRepository(database).get(project_id)
+    if not project: raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_MISSING", "The canonical project record is unavailable.", status_code=404)
+    authority = {"projectId": project_id, "projectName": project.get("project_name") or project_id,
+        "registrationId": row["registration_id"], "datasetVersionId": row["dataset_version_id"], "activationRevision": row["activation_revision"],
+        "sourceDatasetId": row["source_dataset_id"], "sourceManifestSha": row["source_manifest_sha"], "goldManifestSha": row["gold_manifest_sha"], "contextualManifestSha": row["contextual_manifest_sha"],
+        "reviewDigest": row["authority_review_digest"], "authorityKey": ":".join(str(row[key]) for key in ("source_manifest_sha", "gold_manifest_sha", "contextual_manifest_sha", "authority_review_digest")),
+        "splitContractId": split["contractId"], "splitVersion": split["contractVersion"], "splitChecksum": split["checksum"], "legacyGlobalMatrixUsed": False}
+    receipt_identity = {key: authority[key] for key in ("projectId", "registrationId", "datasetVersionId", "authorityKey", "sourceDatasetId", "sourceManifestSha", "goldManifestSha", "contextualManifestSha", "splitContractId", "splitVersion", "splitChecksum")}
+    for name, kind in (("outlier", "outlier"), ("missing", "missing")):
+        receipt_identity.update({name+"PolicyId": adopted[kind]["policyId"], name+"PolicyVersion": adopted[kind]["policyVersion"], name+"PolicyChecksum": adopted[kind]["checksum"]})
+    receipts = []
+    for path in (_runtime_root() / "objects" / "sha256").glob("*.json"):
+        if not re.fullmatch(r"[0-9a-f]{64}", path.stem) or path.stat().st_size > 64 * 1024 * 1024: continue
+        try: data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError): continue
+        identity = data.get("identity") or {}
+        if _sha(data) != path.stem or any(identity.get(key) != value for key, value in receipt_identity.items()): continue
+        if data.get("schemaVersion") not in {RUN_RECEIPT_SCHEMA_VERSION, RUN_RECEIPT_SCHEMA_VERSION_V2}: continue
+        population = data.get("population") or {}
+        if (any(data.get(key, False) is not False for key in ("finalOotAccessed", "finalOotTargetsMaterialized", "autoPromoted"))
+            or data.get("providerCalls") != 0 or data.get("legacyGlobalMatrixUsed") is not False
+            or data.get("promotionStatus") != "NOT_PROMOTED" or identity.get("targetOrder") != list(GOLD_CLASS_ORDER)
+            or population.get("finalOotLocked") is not True or population.get("finalOotTargetAccessed") is not False or population.get("finalOotScored") is not False): continue
+        candidates = [{"candidateId": item.get("candidateId"), "modelFamily": item.get("modelFamily"), "featureSetId": item.get("featureSetId"), "status": item.get("status"), "meanOofLogLoss": item.get("meanOofLogLoss"), "foldsCompleted": item.get("foldsCompleted")} for item in data.get("candidates", []) if isinstance(item, Mapping)]
+        receipts.append({"runId": data.get("runId"), "receiptSha256": path.stem, "schemaVersion": data.get("schemaVersion"), "createdAt": data.get("createdAt"), "candidates": candidates,
+            "verificationScope": "CONTENT_HASH_AND_PROJECT_REGISTERED_AUTHORITY_ONLY", "rowDerivedFeatureUniverseRecomputed": False})
+    return {"ok": True, "workflowBlocked": True, "metadataOnly": True, "authority": authority,
+        "population": {"scope": "DEVELOPMENT_ONLY", "developmentRows": split["development"]["rows"], "finalOotRows": split["finalOot"]["rows"], "finalOotLocked": True, "finalOotTargetsMaterialized": False},
+        "readiness": {"ready": False, "status": "HISTORICAL_EVIDENCE_READ_ONLY", "blockers": ["This view verifies historical receipt metadata. New execution requires a separately reviewed plan and current project authorization."]},
+        "treatment": {"status": "ADOPTED_REGISTERED_HISTORY", "canAdopt": False, "adoptionPerformed": False},
+        "historicalEvidence": {"status": "AUTHENTICATED_METADATA", "split": {"contractId": split["contractId"], "checksum": split["checksum"], "version": split["contractVersion"], "foldCount": split["foldCount"]}, "featureSets": registered_features,
+            "treatmentPolicies": {kind: {key: item[key] for key in ("policyId", "policyVersion", "checksum")} for kind, item in adopted.items()}, "runs": receipts,
+            "limitation": "Historical receipt metrics are displayed from sealed JSON. Row-derived feature-universe compatibility and a new executable plan have not been recomputed by this read-only view."},
+        "audit": {"legacyGlobalMatrixUsed": False, "base22FallbackAvailable": False, "globalMatrixFallbackAvailable": False, "finalOotTargetAccessed": False, "finalOotUsedForSelection": False, "providerCalls": 0, "autoPromotion": False, "goldPartitionsOpened": 0}}
+
+
+def persisted_project_workflow_state(database: Database, project_id: str, *, include_registered_history: bool = False) -> dict[str, Any] | None:
+    """Read a sealed DRAFT receipt before any Gold/Parquet resolution or model action."""
+    if database is None:
+        return None
+    from ..persistence.db import json_loads
+    from .stage3_prior_publication_v2 import runtime_prior_root
+    from .stage3_player_prior_artifact_store_v2 import load_current_bundle, load_artifact
+    from . import stage3_player_prior_authority_v2 as prior_science
+    import sqlite3
+    with database.connection() as connection:
+        try:
+            row = connection.execute("SELECT * FROM stage3_feature_treatment_spec_versions WHERE project_id = ? ORDER BY specification_version DESC, created_at DESC LIMIT 1", (project_id,)).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower(): return None
+            raise
+        if row is None:
+            registered = connection.execute("SELECT * FROM stage3_split_contract_versions WHERE project_id = ? AND contract_status = 'REGISTERED' ORDER BY contract_version DESC, created_at DESC LIMIT 1", (project_id,)).fetchone()
+            if registered is None:
+                return _missing_project_workflow_state(database, project_id, "Register this project's governed treatment, feature-set, and chronological split authorities before model development.")
+            return _registered_project_workflow_state(database, project_id, dict(registered)) if include_registered_history else None
+        if row["specification_status"] != "DRAFT": return None
+        row = dict(row)
+        _authenticate_stored_project_registration(connection, row, project_id)
+    project = ProjectRepository(database).get(project_id)
+    manifest = json_loads(row.get("manifest_json"), {})
+    identity = manifest.get("projectAuthority") or {}
+    expected = {"projectId": project_id, "registrationId": row["registration_id"],
+        "datasetVersionId": row["dataset_version_id"], "activationRevision": int(row["activation_revision"]),
+        "sourceDatasetId": row["source_dataset_id"], "sourceManifestSha": row["source_manifest_sha"],
+        "goldManifestSha": row["gold_manifest_sha"], "contextualManifestSha": row["contextual_manifest_sha"],
+        "reviewDigest": row["authority_review_digest"]}
+    development = {"startDate": row["development_start_date"], "endDate": row["development_end_date"], "rows": int(row["development_rows"])}
+    oot = {"startDate": row["final_oot_start_date"], "endDate": row["final_oot_end_date"], "rows": int(row["final_oot_rows"]), "locked": True, "targetsAccessed": False}
+    if not project or _sha(manifest) != row["manifest_sha256"] or any(identity.get(k) != v for k, v in expected.items()) or manifest.get("developmentBoundary") != development or manifest.get("finalOotIdentity") != oot:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_STORED_AUTHORITY_MISMATCH", "The immutable project treatment metadata does not authenticate.", status_code=409)
+    prior_root = runtime_prior_root()
+    bundle = load_current_bundle(project_id, root=prior_root)
+    wave2 = None
+    if bundle is not None:
+        definition = load_artifact(bundle["definition"]["artifactSha256"], root=prior_root)
+        definition_project = definition.get("projectAuthority") or {}
+        if not definition_project or any(identity.get(k) != v for k, v in definition_project.items()):
+            raise Stage3ModelLaboratoryError("MODEL_LAB_PRIOR_PROJECT_MISMATCH", "The fitted prior belongs to another project authority.", status_code=409)
+        verified = prior_science._validate_bundle(bundle, expected_definition=definition, root=prior_root)
+        wave2 = {"authorityId": verified["authorityId"], "authorityChecksum": verified["authorityChecksum"],
+            "foldAuthorities": [{k: item.get(k) for k in ("foldNumber", "fittedId", "fittedChecksum")} for item in verified["foldAuthorities"]],
+            "finalDevelopmentAuthority": {k: verified["finalDevelopmentAuthority"].get(k) for k in ("fittedId", "fittedChecksum")}}
+    blockers = ["The project's treatment specification is DRAFT; execution remains blocked pending governed adoption."]
+    blockers += list(dict.fromkeys(str(item.get("detail")) for item in manifest.get("exceptions", []) if item.get("disposition") == "BLOCKING"))
+    return {"ok": True, "workflowBlocked": True,
+        "authority": {**identity, "projectName": project.get("project_name") or project_id, "legacyGlobalMatrixUsed": False},
+        "population": {"scope": "DEVELOPMENT_ONLY", "developmentRows": development["rows"], "startDate": development["startDate"], "endDate": development["endDate"], "finalOotRows": oot["rows"], "finalOotStartDate": oot["startDate"], "finalOotEndDate": oot["endDate"], "finalOotLocked": True, "finalOotTargetsMaterialized": False},
+        "readiness": {"ready": False, "status": "PROJECT_PREREQUISITES_BLOCKED", "blockers": blockers},
+        "treatment": {"status": "DRAFT", "canAdopt": False, "adoptionPerformed": False},
+        "priorAuthority": {"status": "AUTHENTICATED" if wave2 else "CANONICAL_WAVE2_NOT_AVAILABLE", "wave2": wave2, "v1": {k: (manifest.get("priorAuthority") or {}).get(k) for k in ("authorityId", "authorityChecksum", "readyV1FeatureCount", "readyV2FeatureCount", "retiredFeatureCount", "blockedFeatureCount")}, "featureCounts": {display: (manifest.get("priorAuthority") or {}).get(source) for display, source in (("readyGovernedPriorV1", "readyV1FeatureCount"), ("readyGovernedPriorV2", "readyV2FeatureCount"), ("retiredByScientificDecision", "retiredFeatureCount"))}, "source": "IMMUTABLE_PROJECT_TREATMENT_RECEIPT_AND_CONTENT_ADDRESSED_PRIOR"},
+        "modelCatalog": catalog_public(), "candidateEvidence": {"status": "PREREQUISITES_BLOCKED", "foreignEvidenceUsed": False},
+        "audit": {"legacyGlobalMatrixUsed": False, "base22FallbackAvailable": False, "globalMatrixFallbackAvailable": False, "finalOotTargetAccessed": False, "finalOotUsedForSelection": False, "providerCalls": 0, "autoPromotion": False, "goldPartitionsOpened": 0}}
+
+
+def project_workflow_blocked(database: Database, project_id: str, error: Stage3ModelLaboratoryError) -> dict[str, Any]:
+    state = persisted_project_workflow_state(database, project_id)
+    if state is not None: return state
+    return _missing_project_workflow_state(database, project_id, str(error))
+
+
+def project_read_view(function: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Only expected missing prerequisites become a blocked page, never tamper failures."""
+    from functools import wraps
+    @wraps(function)
+    def read(database: Database, project_id: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        stored = persisted_project_workflow_state(database, project_id)
+        if stored is not None: return stored
+        try:
+            return function(database, project_id, *args, **kwargs)
+        except Stage3ModelLaboratoryError as exc:
+            if exc.code not in {"MODEL_LAB_SPLIT_MISSING", "MODEL_LAB_FEATURE_SET_MISSING",
+                "MODEL_LAB_TREATMENT_MISSING", "OUTLIER_POLICY_MISSING", "IMPUTATION_POLICY_MISSING",
+                "CANDIDATE_FINALISTS_REQUIRED", "MODEL_REFINEMENT_FINALIST_REQUIRED",
+                "STAGE3_RESEARCH_CHALLENGER_REQUIRED"}:
+                raise
+            return project_workflow_blocked(database, project_id, exc)
+    return read
+
+
+@project_read_view
 def model_laboratory_summary(database: Database, project_id: str) -> dict[str, Any]:
     resolved = resolve_model_lab_authority(database, project_id)
     authority = resolved.eda_authority
@@ -679,12 +819,12 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
         },
         "population": {
             "scope": "DEVELOPMENT_ONLY",
-            "developmentRows": EXPECTED_DEVELOPMENT[2],
-            "startDate": EXPECTED_DEVELOPMENT[0],
-            "endDate": EXPECTED_DEVELOPMENT[1],
-            "finalOotRows": EXPECTED_FINAL_OOT[2],
-            "finalOotStartDate": EXPECTED_FINAL_OOT[0],
-            "finalOotEndDate": EXPECTED_FINAL_OOT[1],
+            "developmentRows": int(resolved.split["development"]["rows"]),
+            "startDate": str(resolved.split["development"]["startDate"]),
+            "endDate": str(resolved.split["development"]["endDate"]),
+            "finalOotRows": int(resolved.split["finalOot"]["rows"]),
+            "finalOotStartDate": str(resolved.split["finalOot"]["startDate"]),
+            "finalOotEndDate": str(resolved.split["finalOot"]["endDate"]),
             "finalOotLocked": True,
             "finalOotTargetsMaterialized": False,
         },
@@ -712,7 +852,7 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
                 "executable": True,
             },
             {
-                "id": EXPECTED_FEATURE_SET_IDS[0],
+                "id": resolved.feature_sets[0]["featureSetId"],
                 "key": "CORE_GOLD_48",
                 "label": "Core Gold 48",
                 "featureCount": len(resolved.feature_sets[0].get("orderedFeatures") or []),
@@ -770,6 +910,8 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
 def _validate_run_request(
     resolved: ModelLabAuthority, payload: Mapping[str, Any]
 ) -> tuple[list[dict[str, str]], int]:
+    if payload.get("projectId", resolved.project_id) != resolved.project_id:
+        raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_IDENTITY_MISMATCH", "The payload project differs from the authorized project.", status_code=409)
     if str(payload.get("authorityKey") or "") != resolved.authority_key:
         raise Stage3ModelLaboratoryError(
             "MODEL_LAB_AUTHORITY_STALE",
@@ -777,9 +919,9 @@ def _validate_run_request(
             status_code=409,
         )
     exact = {
-        "splitContractId": EXPECTED_SPLIT["splitContractId"],
-        "outlierPolicyId": EXPECTED_OUTLIER_POLICY["policyId"],
-        "missingPolicyId": EXPECTED_MISSING_POLICY["policyId"],
+        "splitContractId": resolved.split["contractId"],
+        "outlierPolicyId": resolved.outlier_policy["policyId"],
+        "missingPolicyId": resolved.missing_policy["policyId"],
     }
     for key, expected in exact.items():
         if str(payload.get(key) or "") != str(expected):
@@ -826,7 +968,7 @@ def _validate_run_request(
             if availability[family]:
                 requested.extend(
                     {"modelFamily": family, "featureSetId": feature_set_id}
-                    for feature_set_id in EXPECTED_FEATURE_SET_IDS
+                    for feature_set_id in (str(item["featureSetId"]) for item in resolved.feature_sets)
                 )
     elif not isinstance(raw, list) or not raw:
         raise Stage3ModelLaboratoryError(
@@ -929,16 +1071,16 @@ def _fold_frame(
     frame = eda._scan(
         resolved.eda_authority,
         requested,
-        {"startDate": EXPECTED_DEVELOPMENT[0], "endDate": EXPECTED_DEVELOPMENT[1]},
+        {"startDate": str(resolved.split["development"]["startDate"]), "endDate": str(resolved.split["development"]["endDate"])},
     )
-    if len(frame) != EXPECTED_DEVELOPMENT[2]:
+    if len(frame) != int(resolved.split["development"]["rows"]):
         raise Stage3ModelLaboratoryError(
             "MODEL_LAB_DEVELOPMENT_ROW_MISMATCH",
-            f"Expected {EXPECTED_DEVELOPMENT[2]:,} development rows, found {len(frame):,}.",
+            f"Expected {int(resolved.split["development"]["rows"]):,} development rows, found {len(frame):,}.",
             status_code=409,
         )
     dates = pd.to_datetime(frame["game_date"], errors="coerce")
-    if dates.isna().any() or dates.min().date().isoformat() != EXPECTED_DEVELOPMENT[0] or dates.max().date().isoformat() != EXPECTED_DEVELOPMENT[1]:
+    if dates.isna().any() or dates.min().date().isoformat() != str(resolved.split["development"]["startDate"]) or dates.max().date().isoformat() != str(resolved.split["development"]["endDate"]):
         raise Stage3ModelLaboratoryError(
             "MODEL_LAB_DEVELOPMENT_DATE_MISMATCH",
             "The scanned execution population differs from the registered development dates.",
@@ -2510,7 +2652,7 @@ def _receipt_matches_current_authority(
         return False
     feature_ids = set(identity.get("featureSetIds") or [])
     if data.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION:
-        return feature_ids.issubset(set(EXPECTED_FEATURE_SET_IDS))
+        return feature_ids.issubset({str(item["featureSetId"]) for item in resolved.feature_sets})
     if data.get("schemaVersion") == RUN_RECEIPT_SCHEMA_VERSION_V2:
         eligibility = build_model_eligibility(resolved)
         if (
@@ -2526,7 +2668,7 @@ def _receipt_matches_current_authority(
             or data.get("legacyGlobalMatrixUsed") is not False
         ):
             return False
-        allowed = set(EXPECTED_FEATURE_SET_IDS) | {eligibility["featureSetId"]}
+        allowed = {str(item["featureSetId"]) for item in resolved.feature_sets} | {eligibility["featureSetId"]}
         return all(
             item in allowed
             or str(item).startswith("stage3-custom-modeling-subset-")
@@ -2603,6 +2745,7 @@ def run_model_laboratory(
             "Forbidden run options were supplied: " + ", ".join(present),
         )
     resolved = resolve_model_lab_authority(database, project_id)
+    require_model_execution_authority(database, resolved, actor_user_id)
     requested, seed = _validate_run_request(resolved, payload)
     feature_by_id = {
         str(item.get("featureSetId")): item for item in resolved.feature_sets
@@ -2724,10 +2867,10 @@ def run_model_laboratory(
         "population": {
             "scope": "DEVELOPMENT_ONLY",
             "rows": len(frame),
-            "startDate": EXPECTED_DEVELOPMENT[0],
-            "endDate": EXPECTED_DEVELOPMENT[1],
+            "startDate": str(resolved.split["development"]["startDate"]),
+            "endDate": str(resolved.split["development"]["endDate"]),
             "foldCount": 5,
-            "finalOotRows": EXPECTED_FINAL_OOT[2],
+            "finalOotRows": int(resolved.split["finalOot"]["rows"]),
             "finalOotLocked": True,
             "finalOotTargetAccessed": False,
             "finalOotScored": False,

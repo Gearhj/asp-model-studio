@@ -43,6 +43,7 @@ from .stage3_model_laboratory import (
     _persist_run,
     _runtime_root,
     resolve_model_lab_authority,
+    require_model_execution_authority,
 )
 
 
@@ -569,6 +570,9 @@ def plan_model_development_queue(
             "Forbidden experiment-plan option(s): " + ", ".join(present),
         )
     resolved = resolve_model_lab_authority(database, project_id)
+    require_model_execution_authority(database, resolved, actor_user_id)
+    if payload.get("projectId", project_id) != project_id:
+        raise Stage3ModelLaboratoryError("MODEL_DEVELOPMENT_PROJECT_MISMATCH", "The plan project differs from the authorized project.", status_code=409)
     if str(payload.get("authorityKey") or "") != resolved.authority_key:
         raise Stage3ModelLaboratoryError(
             "MODEL_DEVELOPMENT_AUTHORITY_STALE",
@@ -799,6 +803,9 @@ def _assert_plan_current(
 
 
 def _decode_job(row: Mapping[str, Any]) -> dict[str, Any]:
+    plan = json_loads(row.get("parameters_json"), {})
+    if plan.get("projectId") != row.get("project_id"):
+        raise Stage3ModelLaboratoryError("MODEL_DEVELOPMENT_JOB_PROJECT_MISMATCH", "The persisted job plan belongs to another project.", status_code=409)
     return {
         "jobId": row.get("run_id"),
         "projectId": row.get("project_id"),
@@ -1430,6 +1437,7 @@ def _execute_job(
     try:
         with interprocess_lock(lock_path, blocking=False, stale_after=7 * 86_400.0):
             resolved = resolve_model_lab_authority(database, project_id)
+            require_model_execution_authority(database, resolved, actor_user_id)
             eligibility = build_model_eligibility(resolved)
             _assert_plan_current(resolved, eligibility, plan)
             with progress_guard:
@@ -1449,6 +1457,7 @@ def _execute_job(
                 nonlocal completed_fits
                 task_id = str(task["taskId"])
                 task_clock = task_started_clocks.get(task_id, time.perf_counter())
+                require_model_execution_authority(database, resolved, actor_user_id)
                 experiment = task["experiment"]
                 config_fits = 0
                 config_folds = 0
@@ -1858,11 +1867,11 @@ def _execute_job(
                 },
                 "population": {
                     "scope": "DEVELOPMENT_ONLY",
-                    "rows": EXPECTED_DEVELOPMENT[2],
-                    "startDate": EXPECTED_DEVELOPMENT[0],
-                    "endDate": EXPECTED_DEVELOPMENT[1],
+                    "rows": int(resolved.split["development"]["rows"]),
+                    "startDate": str(resolved.split["development"]["startDate"]),
+                    "endDate": str(resolved.split["development"]["endDate"]),
                     "foldCount": 5,
-                    "finalOotRows": EXPECTED_FINAL_OOT[2],
+                    "finalOotRows": int(resolved.split["finalOot"]["rows"]),
                     "finalOotLocked": True,
                     "finalOotTargetAccessed": False,
                     "finalOotScored": False,
@@ -2110,13 +2119,12 @@ def get_model_development_job(
         raise Stage3ModelLaboratoryError(
             "MODEL_DEVELOPMENT_JOB_NOT_FOUND", "The project-scoped model job does not exist.", status_code=404
         )
-    row = _reconcile_orphaned_job(database, row)
     return {"ok": True, "job": _decode_job(row)}
 
 
 def list_model_development_jobs(database: Database, project_id: str) -> dict[str, Any]:
     rows = [
-        _decode_job(_reconcile_orphaned_job(database, row))
+        _decode_job(row)
         for row in RunRepository(database).list_for_project(project_id)
         if row.get("run_type") == MODEL_DEVELOPMENT_JOB_TYPE
     ]

@@ -63,7 +63,7 @@ export function DatasetBindingPanel({
           </div>
           <p className="mt-3 text-xs text-emerald-800">This project references the governed dataset. No data was copied and no duplicate registration was created.</p>
         </section>
-        <DataPreviewPanel title="Your selected data" />
+        <DataPreviewPanel projectId={projectId} title="Your selected data" />
       </div>
     );
   }

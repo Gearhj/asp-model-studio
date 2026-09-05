@@ -528,7 +528,7 @@ function PopulationBody({ pop, projectId, registeredContract }: { pop: Populatio
         </Card>
       </div>
 
-      <DataPreviewPanel title="Gen-2 modeling matrix preview" showWarehouseLink={false} />
+      <DataPreviewPanel projectId={projectId} title="Gen-2 modeling matrix preview" showWarehouseLink={false} />
       <p className="text-xs text-slate-500">2021–2022 source rows are prior-history evidence and therefore do not appear as target rows in this preview.</p>
     </div>
   );
