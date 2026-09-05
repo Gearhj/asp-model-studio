@@ -1,0 +1,476 @@
+{
+ "schemaVersion": "FABLE51_PROTECTED_RECEIPT_V1",
+ "auditBase": "bff19a8a657bc96dea0469fad481acdcb4234386",
+ "scope": "Primary authoritative persistence DB, security DB, Current Gold publication, sufficient-statistics companion, V1 prior store, executable artifacts and model-lab receipts under the primary runtime root and C:/Users/james/asp-data-staging; read-only opens with mode=ro&immutable=1",
+ "before": {
+  "label": "BEFORE",
+  "capturedAt": "2026-09-05T16:29:28.242476+00:00",
+  "persistence": {
+   "users": {
+    "rows": 6,
+    "sha256": "5d416c1f3a0f28fffd4cda832ea55554f84ae6bfa7ce26b9fb2b81becc7b00e2"
+   },
+   "projects": {
+    "rows": 5,
+    "sha256": "07851f3bb8880e2445aac2cd35d1337f5f2a12d0ba1d57fd148285521362befc"
+   },
+   "project_collaborators": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "resource_permissions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "sports_dataset_registrations": {
+    "rows": 6,
+    "sha256": "e14d583be5af09ba8719229f16eb773e2764adc8ec3fa1bf9e2511a628f0a4db"
+   },
+   "sports_dataset_partitions": {
+    "rows": 1122,
+    "sha256": "c6affae5e7f2888297ce3c2215aec4c4b96337ad715c4418368171c5f927c4d9"
+   },
+   "sports_dataset_populations": {
+    "rows": 12,
+    "sha256": "fcc3c8d2e8df99423630a3b879993e6b1c5146586eae6689bd00358c28fd6a0b"
+   },
+   "sports_dataset_rights": {
+    "rows": 19,
+    "sha256": "4ae40d3e8376c3aca8e4ad1123c25a0d14d3a1a460bc35b650e9cdec67995450"
+   },
+   "sports_dataset_limitations": {
+    "rows": 32,
+    "sha256": "3d98f42f6cef0fc257a8209ed3ee57be8c7345b3331818034ba42ed63116a113"
+   },
+   "sports_identity_bridge_registrations": {
+    "rows": 1,
+    "sha256": "637ab560afd7f086cb922e3fb2ef3e20794ee92432ddf40a0ebd45bf9f1d4287"
+   },
+   "project_dataset_links": {
+    "rows": 2,
+    "sha256": "4bed6774c9666d20f7cfefc87c6167e3bda9d8e8349b436b085a274fdcc7690b"
+   },
+   "active_modeling_dataset_versions": {
+    "rows": 2,
+    "sha256": "abecd3f6ec291da0eccafcca96fe456cf4f916d0923c0492acb867179b150d86"
+   },
+   "project_dataset_activation_events": {
+    "rows": 4,
+    "sha256": "8d96a8e94727b7c5d335deb9d08e0290c03ad741dd365c90b5281bb9321f36e1"
+   },
+   "stage3_feature_treatment_spec_versions": {
+    "rows": 8,
+    "sha256": "46626ee13712115d7acf7e036f4af7faaabfd2f27ea72227b571bac6bb4adadd"
+   },
+   "stage3_feature_treatment_spec_events": {
+    "rows": 8,
+    "sha256": "cc08dde46d0e0c3dab01a172515231aca077a66a387b63e5bc0a9cbf30af4d4b"
+   },
+   "stage3_treatment_policy_versions": {
+    "rows": 23,
+    "sha256": "5b77be02c458e283dcbd8e208eb7498cfdffd88ad863c5cc29a9ad1a87b2ff01"
+   },
+   "stage3_treatment_policy_events": {
+    "rows": 40,
+    "sha256": "664f6019332e96503c1cf85b2125ab42857f43e54f0c541e32526c6ce9e29067"
+   },
+   "stage3_feature_set_versions": {
+    "rows": 6,
+    "sha256": "329c6d89d74bda75b124979ba2b67b0b2838ec15a4112fe2f3526b7faf55f15e"
+   },
+   "stage3_feature_set_events": {
+    "rows": 6,
+    "sha256": "d72391bab84aa0de1374b963a3432043b3df51ab6435c27f6ea7ec6d91c40af0"
+   },
+   "stage3_split_contract_versions": {
+    "rows": 2,
+    "sha256": "cc01e9c77ef619e9bd8a13c3d4d0d37cebe1f6add0140ff4f0ff462d3ababc82"
+   },
+   "stage3_split_contract_events": {
+    "rows": 2,
+    "sha256": "6dcc5bf87dc968ecd794c24f1106ec7b6f7987962a3b30896a5edae8167bf4c6"
+   },
+   "stage3_split_contract_feature_sets": {
+    "rows": 6,
+    "sha256": "121b15e1bc46f5cb934dd22323155e454c0aa527ea9dd03324a8246cf808448a"
+   },
+   "stage3_predicted_imputation_previews": {
+    "rows": 1,
+    "sha256": "34820a812d3fb19e25965cbfda1a3de63a27802312de6e10f2091e2a1f34bc44"
+   },
+   "run_records": {
+    "rows": 30,
+    "sha256": "9f34eefe72eb47c854131cc3d1b3652a417e356370a84ae790804510a75d9d2a"
+   },
+   "candidate_selection_decisions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "models": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "model_versions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "export_artifacts": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "holdout_exposures": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "sports_dataset_query_audit": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "audit_log": {
+    "rows": 30396,
+    "sha256": "f2c54d345de704308fe983e13f636fea4896009e591c2df9e2de43c07891545b"
+   },
+   "workflow_state": {
+    "rows": 5,
+    "sha256": "508f5f788b828fa3cbe2cb57d6d2a16ee5e92a7bdf38fb10f485ef0eedf07f57"
+   },
+   "schema_migrations": {
+    "rows": 38,
+    "sha256": "ea6f0586a50dd8ba5fbfbf42c1632cd542b3d46f7b06fc2fd32f073b95517757"
+   },
+   "sports_pa_candidates": {
+    "rows": 5,
+    "sha256": "7358af6e533c9866179949f3eb89b5b4f8d1c23a606344fdea487226787f1652"
+   },
+   "sports_pa_research_runs": {
+    "rows": 1,
+    "sha256": "469223e22221535ee3005776db0a379c74d9553672f21d658e5b464a267cf4d7"
+   },
+   "sports_phase4_studies": {
+    "rows": 2,
+    "sha256": "b8ae905e2a1bc000231187064b6d194a87bc16ba28b222d7d8fda39a0d8f6610"
+   },
+   "_file": {
+    "bytes": 53698560,
+    "sha256": "21b1adf9d2ba367988a89af859c22958557de9d321b730f91f829fb93774a9ac",
+    "wal_bytes": 0
+   }
+  },
+  "security": {
+   "users": {
+    "rows": 1,
+    "sha256": "7fc6066594956ed2700d867517bf382b77234fb61ddbc05e1ac8eae0e08cac16"
+   },
+   "credentials": {
+    "rows": 1,
+    "sha256": "(digest withheld; row count only)"
+   },
+   "sessions": {
+    "rows": 62,
+    "sha256": "2d6f78f2d59cbbb1d558497f66739d55e1c591efb38b05df522593676e27b4bb"
+   },
+   "audit_events": {
+    "rows": 30387,
+    "sha256": "744bdf7ab64847e36b000e32e098210ff7e1281316a46fd841f11b8b766bb43e"
+   },
+   "project_access": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  "files": {
+   "goldManifest": {
+    "sha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+    "bytes": 13511
+   },
+   "companionManifest": {
+    "sha256": "98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33",
+    "bytes": 20647
+   },
+   "goldCurrent": {
+    "sha256": "a9258ebd3c4d51b2638173f55e5f26dc43df71c9bc67ce26277a7c17cebc6878",
+    "bytes": 257
+   },
+   "companionCurrent": {
+    "sha256": "52cecd4e32d0df2b829b424deb93b5bd529aed07bda33441905f6b95ed940d32",
+    "bytes": 296
+   },
+   "goldObjects": {
+    "0dfad075fad4ff19": "0dfad075fad4ff19",
+    "247687f7855132c1": "247687f7855132c1",
+    "350ff402906ede4f": "350ff402906ede4f",
+    "4c4af8a20b2b5f9b": "4c4af8a20b2b5f9b",
+    "8eaf2e551ac8bc19": "8eaf2e551ac8bc19",
+    "a9b86250209061c8": "a9b86250209061c8",
+    "aefc595c98d402eb": "aefc595c98d402eb",
+    "b13c48a3319c6a37": "b13c48a3319c6a37",
+    "d3be5d47bc5a50e8": "d3be5d47bc5a50e8",
+    "dae01549bf60070e": "dae01549bf60070e",
+    "e58caddb54382037": "e58caddb54382037",
+    "e700fb6c42582a65": "e700fb6c42582a65",
+    "ef75c6d0d1285926": "ef75c6d0d1285926"
+   },
+   "v2StoreAggregate": {
+    "manifests": 39,
+    "sha256": "fd96c53f29b069b90d1338515ddaa526f3aa97cc838964cd396633b69ec072a3"
+   },
+   "v1StoreAggregate": {
+    "files": 11,
+    "sha256": "727ed9f23e1a643f4dd5a9878d81111cb7562007c6042498254637b2c86732e3"
+   },
+   "executableArtifactsAggregate": {
+    "files": 7,
+    "sha256": "694b00913185eda9040414dd692c128dd4f1ab6140ef84d748f1e16464d64b15"
+   },
+   "modelLaboratoryAggregate": {
+    "files": 73,
+    "sha256": "80e23e47a56166f10ec4ced0be928fe94f886441c54965157a2732efc7028e11"
+   }
+  },
+  "ootAccess": {
+   "holdout_exposures_rows": 0,
+   "sports_dataset_query_audit_rows": 0
+  }
+ },
+ "after": {
+  "label": "AFTER",
+  "capturedAt": "2026-09-05T17:29:43.535877+00:00",
+  "persistence": {
+   "users": {
+    "rows": 6,
+    "sha256": "5d416c1f3a0f28fffd4cda832ea55554f84ae6bfa7ce26b9fb2b81becc7b00e2"
+   },
+   "projects": {
+    "rows": 5,
+    "sha256": "07851f3bb8880e2445aac2cd35d1337f5f2a12d0ba1d57fd148285521362befc"
+   },
+   "project_collaborators": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "resource_permissions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "sports_dataset_registrations": {
+    "rows": 6,
+    "sha256": "e14d583be5af09ba8719229f16eb773e2764adc8ec3fa1bf9e2511a628f0a4db"
+   },
+   "sports_dataset_partitions": {
+    "rows": 1122,
+    "sha256": "c6affae5e7f2888297ce3c2215aec4c4b96337ad715c4418368171c5f927c4d9"
+   },
+   "sports_dataset_populations": {
+    "rows": 12,
+    "sha256": "fcc3c8d2e8df99423630a3b879993e6b1c5146586eae6689bd00358c28fd6a0b"
+   },
+   "sports_dataset_rights": {
+    "rows": 19,
+    "sha256": "4ae40d3e8376c3aca8e4ad1123c25a0d14d3a1a460bc35b650e9cdec67995450"
+   },
+   "sports_dataset_limitations": {
+    "rows": 32,
+    "sha256": "3d98f42f6cef0fc257a8209ed3ee57be8c7345b3331818034ba42ed63116a113"
+   },
+   "sports_identity_bridge_registrations": {
+    "rows": 1,
+    "sha256": "637ab560afd7f086cb922e3fb2ef3e20794ee92432ddf40a0ebd45bf9f1d4287"
+   },
+   "project_dataset_links": {
+    "rows": 2,
+    "sha256": "4bed6774c9666d20f7cfefc87c6167e3bda9d8e8349b436b085a274fdcc7690b"
+   },
+   "active_modeling_dataset_versions": {
+    "rows": 2,
+    "sha256": "abecd3f6ec291da0eccafcca96fe456cf4f916d0923c0492acb867179b150d86"
+   },
+   "project_dataset_activation_events": {
+    "rows": 4,
+    "sha256": "8d96a8e94727b7c5d335deb9d08e0290c03ad741dd365c90b5281bb9321f36e1"
+   },
+   "stage3_feature_treatment_spec_versions": {
+    "rows": 8,
+    "sha256": "46626ee13712115d7acf7e036f4af7faaabfd2f27ea72227b571bac6bb4adadd"
+   },
+   "stage3_feature_treatment_spec_events": {
+    "rows": 8,
+    "sha256": "cc08dde46d0e0c3dab01a172515231aca077a66a387b63e5bc0a9cbf30af4d4b"
+   },
+   "stage3_treatment_policy_versions": {
+    "rows": 23,
+    "sha256": "5b77be02c458e283dcbd8e208eb7498cfdffd88ad863c5cc29a9ad1a87b2ff01"
+   },
+   "stage3_treatment_policy_events": {
+    "rows": 40,
+    "sha256": "664f6019332e96503c1cf85b2125ab42857f43e54f0c541e32526c6ce9e29067"
+   },
+   "stage3_feature_set_versions": {
+    "rows": 6,
+    "sha256": "329c6d89d74bda75b124979ba2b67b0b2838ec15a4112fe2f3526b7faf55f15e"
+   },
+   "stage3_feature_set_events": {
+    "rows": 6,
+    "sha256": "d72391bab84aa0de1374b963a3432043b3df51ab6435c27f6ea7ec6d91c40af0"
+   },
+   "stage3_split_contract_versions": {
+    "rows": 2,
+    "sha256": "cc01e9c77ef619e9bd8a13c3d4d0d37cebe1f6add0140ff4f0ff462d3ababc82"
+   },
+   "stage3_split_contract_events": {
+    "rows": 2,
+    "sha256": "6dcc5bf87dc968ecd794c24f1106ec7b6f7987962a3b30896a5edae8167bf4c6"
+   },
+   "stage3_split_contract_feature_sets": {
+    "rows": 6,
+    "sha256": "121b15e1bc46f5cb934dd22323155e454c0aa527ea9dd03324a8246cf808448a"
+   },
+   "stage3_predicted_imputation_previews": {
+    "rows": 1,
+    "sha256": "34820a812d3fb19e25965cbfda1a3de63a27802312de6e10f2091e2a1f34bc44"
+   },
+   "run_records": {
+    "rows": 30,
+    "sha256": "9f34eefe72eb47c854131cc3d1b3652a417e356370a84ae790804510a75d9d2a"
+   },
+   "candidate_selection_decisions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "models": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "model_versions": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "export_artifacts": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "holdout_exposures": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "sports_dataset_query_audit": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   "audit_log": {
+    "rows": 30396,
+    "sha256": "f2c54d345de704308fe983e13f636fea4896009e591c2df9e2de43c07891545b"
+   },
+   "workflow_state": {
+    "rows": 5,
+    "sha256": "508f5f788b828fa3cbe2cb57d6d2a16ee5e92a7bdf38fb10f485ef0eedf07f57"
+   },
+   "schema_migrations": {
+    "rows": 38,
+    "sha256": "ea6f0586a50dd8ba5fbfbf42c1632cd542b3d46f7b06fc2fd32f073b95517757"
+   },
+   "sports_pa_candidates": {
+    "rows": 5,
+    "sha256": "7358af6e533c9866179949f3eb89b5b4f8d1c23a606344fdea487226787f1652"
+   },
+   "sports_pa_research_runs": {
+    "rows": 1,
+    "sha256": "469223e22221535ee3005776db0a379c74d9553672f21d658e5b464a267cf4d7"
+   },
+   "sports_phase4_studies": {
+    "rows": 2,
+    "sha256": "b8ae905e2a1bc000231187064b6d194a87bc16ba28b222d7d8fda39a0d8f6610"
+   },
+   "_file": {
+    "bytes": 53698560,
+    "sha256": "21b1adf9d2ba367988a89af859c22958557de9d321b730f91f829fb93774a9ac",
+    "wal_bytes": null
+   }
+  },
+  "security": {
+   "users": {
+    "rows": 1,
+    "sha256": "7fc6066594956ed2700d867517bf382b77234fb61ddbc05e1ac8eae0e08cac16"
+   },
+   "credentials": {
+    "rows": 1,
+    "sha256": "(digest withheld; row count only)"
+   },
+   "sessions": {
+    "rows": 62,
+    "sha256": "2d6f78f2d59cbbb1d558497f66739d55e1c591efb38b05df522593676e27b4bb"
+   },
+   "audit_events": {
+    "rows": 30387,
+    "sha256": "744bdf7ab64847e36b000e32e098210ff7e1281316a46fd841f11b8b766bb43e"
+   },
+   "project_access": {
+    "rows": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  "files": {
+   "goldManifest": {
+    "sha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+    "bytes": 13511
+   },
+   "companionManifest": {
+    "sha256": "98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33",
+    "bytes": 20647
+   },
+   "goldCurrent": {
+    "sha256": "a9258ebd3c4d51b2638173f55e5f26dc43df71c9bc67ce26277a7c17cebc6878",
+    "bytes": 257
+   },
+   "companionCurrent": {
+    "sha256": "52cecd4e32d0df2b829b424deb93b5bd529aed07bda33441905f6b95ed940d32",
+    "bytes": 296
+   },
+   "goldObjects": {
+    "0dfad075fad4ff19": "0dfad075fad4ff19",
+    "247687f7855132c1": "247687f7855132c1",
+    "350ff402906ede4f": "350ff402906ede4f",
+    "4c4af8a20b2b5f9b": "4c4af8a20b2b5f9b",
+    "8eaf2e551ac8bc19": "8eaf2e551ac8bc19",
+    "a9b86250209061c8": "a9b86250209061c8",
+    "aefc595c98d402eb": "aefc595c98d402eb",
+    "b13c48a3319c6a37": "b13c48a3319c6a37",
+    "d3be5d47bc5a50e8": "d3be5d47bc5a50e8",
+    "dae01549bf60070e": "dae01549bf60070e",
+    "e58caddb54382037": "e58caddb54382037",
+    "e700fb6c42582a65": "e700fb6c42582a65",
+    "ef75c6d0d1285926": "ef75c6d0d1285926"
+   },
+   "v2StoreAggregate": {
+    "manifests": 39,
+    "sha256": "fd96c53f29b069b90d1338515ddaa526f3aa97cc838964cd396633b69ec072a3"
+   },
+   "v1StoreAggregate": {
+    "files": 11,
+    "sha256": "727ed9f23e1a643f4dd5a9878d81111cb7562007c6042498254637b2c86732e3"
+   },
+   "executableArtifactsAggregate": {
+    "files": 7,
+    "sha256": "694b00913185eda9040414dd692c128dd4f1ab6140ef84d748f1e16464d64b15"
+   },
+   "modelLaboratoryAggregate": {
+    "files": 73,
+    "sha256": "80e23e47a56166f10ec4ced0be928fe94f886441c54965157a2732efc7028e11"
+   }
+  },
+  "ootAccess": {
+   "holdout_exposures_rows": 0,
+   "sports_dataset_query_audit_rows": 0
+  }
+ },
+ "comparison": {
+  "keysCompared": 118,
+  "differences": {
+   "persistence._file.wal_bytes": {
+    "before": 0,
+    "after": null
+   }
+  },
+  "verdict": "IDENTICAL_EXCEPT_BENIGN_SIDECARS",
+  "note": "The only difference is the persistence -wal sidecar (0 bytes before, absent after), which SQLite creates and removes around read-only opens; every table digest, row count, manifest SHA, partition SHA, object count, and pointer is unchanged. No protected object was created, modified, or deleted by the audit."
+ }
+}

@@ -1,0 +1,84 @@
+COMPONENT,FIT POPULATION,TRANSFORM POPULATION,TARGET ACCESS,FUTURE ACCESS,VALIDATION ACCESS,OOT ACCESS,TEST RESULT,EVIDENCE
+A. Predictor inventory (Stage 3 feature engineering),n/a (catalog),development rows only,"outcome is not a catalog member; GET feature/outcome -> 404 FEATURE_UNKNOWN; feature-set draft with outcome -> FEATURE_SET_UNKNOWN_FEATURE",none,none,none,PASS,workflow_synthetic_results.json steps 5I-fe-detail-target / 09-fe-set-draft-target-in-set
+A. Profile summaries used for treatment fitting (outlier/missing summaries),development rows only (683662),development rows only,target non-selectable (EDA_VARIABLE_UNKNOWN for outcome),none,none,"date filters into 2026-08-14..27 -> FINAL_OOT_FILTER_PROHIBITED",PASS,workflow_synthetic_results.json steps 5I-eda-*, 5I-outlier-table-oot-filter, 5I-missing-table-oot-filter
+A. Imputation (numeric median / binary mode / categorical UNKNOWN),training rows of each chronological fold,validation rows of the same fold,none,none,"none (SimpleImputer fitted on frame.loc[train_mask])",none,PASS (static + receipt),"stage3_model_laboratory.py _evaluate_candidate lines 2170-2190; receipts record validationRowsUsedForParameters=0"
+A. Outlier fitting,adopted policy globalTreatment=RETAIN; thresholds fit inside training fold by contract,n/a,none,none,none,none,PASS with caveat,"policy_json globalTreatment RETAIN; execution pipeline records outlierTreatment RETAIN (no numeric outlier transform executed in the pipeline)"
+A. Prior fitting (Wave 1 V1),training rows of fold (LATEST state at or before cutoff),development rows,targetColumnsRead=[],annual Y-1 / rolling source.gameDate<target.gameDate,none,key-only,PASS (authority manifest + Wave 2 replay of V1 handoff),V1 authority manifest foldLocal=PASS pointInTime=PASS
+A. Prior fitting (Wave 2 V2),training rows of each of 5 folds + final development (683662),development rows,"targetColumnsRead=[] (frame contains no outcome column: verified)",fit rejects frames crossing 2026-08-13 (PRIOR_V2_FIT_DATE_INVALID),"validation mutation leaves fold-1 fitted checksum unchanged (verified)","companion FINAL_OOT partition: 14067 key-only rows, all payload columns NULL (verified)",PASS,"wave2_repro_results.json partA/partB; wave2_final_replay.json (exact checksum reproduction for final + folds 1-5)"
+A. Encoding (one-hot with training-fold levels + UNKNOWN),training fold,validation fold,none,none,none,none,PASS (static),_preprocessor / _categorical_levels(frame.loc[train_mask])
+A. Scaling,not used (RETAIN_RAW numeric contract),n/a,none,none,none,none,PASS (n/a),transformationContracts.defaultNumeric RETAIN_RAW
+A. Feature engineering / interaction construction,fold-local parent medians (interaction authority),development rows,target-free by contract,source.game_date < target.game_date,none,LOCKED_NOT_OPENED_NOT_FIT_NOT_TRANSFORMED,PASS (static + authority manifest),stage3_interaction_recomputation_authority.py fit_interaction_authority training_mask = dates <= cutoff; authority foldLocal=PASS
+A. Dimensionality reduction (PCA / kernel approximation),not implemented in Stage 3 pipeline,n/a,n/a,n/a,n/a,n/a,NOT APPLICABLE,catalog has no PCA/kernel step; cockpit segmentation PCA is research-only and unscoped (see F-006)
+A. Class weighting,training-fold class frequencies only (fitScope EACH_TRAINING_FOLD_ONLY),n/a,training labels only,none,validationFrequenciesUsed=False,finalOotFrequenciesUsed=False,PASS (static),stage3_split_balance.py _class_policy / _training_weights
+A. Sampling (SMOTE / over / under / random),prohibited,n/a,n/a,n/a,n/a,n/a,PASS,"SPLIT_RANDOM_METHOD_PROHIBITED on windowPolicy=RANDOM (workflow_synthetic2 step 10-split-random-prohibited)"
+A. Feature selection / RFE,training rows of each fold; ranking from training-only importance,validation transformed after selection,training labels only,none,validationRowsUsedForSelection=0,finalOotRowsUsedForSelection=0,PASS (static),_fold_local_recursive_selection
+A. Hyperparameter tuning (grid/random),five-fold OOF log loss on development only,n/a,OOF labels,none,OOF only (by design),"plan option finalOot -> MODEL_DEVELOPMENT_FORBIDDEN_OPTION (verified)",PASS,workflow_synthetic2 5I-plan-forbidden-finalOot; _FORBIDDEN_PLAN_OPTIONS
+A. SHAP background / permutation importance,requires current finalist receipt + reloadable artifact; SHAP not installed (safe fallback),development OOF rows,OOF labels,none,OOF,none,PASS (held closed / not exercisable),stage3_candidate_evaluation.request_candidate_analysis; run_records NOT_AVAILABLE_DEPENDENCY_NOT_INSTALLED
+A. Calibration,no post-hoc calibration fitted (decisions RETAIN_RAW / DEFER only),n/a,none,none,none,none,PASS (not implemented as a fit),save_project_calibration_decision; run_records NO_POSTHOC_CALIBRATION_SELECTED
+A. Simulation inputs,confirmed lineup/starter authority (unavailable),n/a,"actual_outcome / actual_* / betting_odds / market_odds fields rejected from feature contract",none,none,none,PASS (held closed),stage3_game_inputs.py prohibited fields; game_scoring_summary 'lineup authority unavailable'
+A. Prospective scoring,no game scoring job can be created without lineup authority,n/a,none,none,none,none,PASS (held closed),stage3_game_scoring.enqueue_game_scoring_job
+B. Temporal: future dates / seasons,,,,"EDA/treatment filters beyond 2026-08-13 rejected; V2 fit rejects frames past development end; Gold history cutoff source.gameDate < target.gameDate",,,PASS,workflow_synthetic 5I-eda-filter-beyond-dev-end; wave2_final_replay futureRowsReplay
+B. Temporal: same game / same day / doubleheader date,,,,"companion histories exclude same-date games (historyCutoff); V2 latest-state uses game_date < target; same-day conflicting states fail closed",,,PASS,wave2_repro_results partB sameDayConflictFailsClosed=True; Gold manifest temporalContract.historyCutoff
+B. Temporal: delayed corrections / postponed / suspended / resumed games,,,,"Gold/companion publications are immutable content-addressed snapshots; corrections would require a new publication (not re-tested dynamically)",,,NOT DYNAMICALLY TESTED (design reviewed),stage2_review complete-byte verification; immutable publications
+B. Temporal: traded players / team changes,,,,"priors keyed by canonical player id independent of team; annual priors Y-1 or earlier (eligible_from_season)",,,PASS (static),companion manifest annualPointInTime LATEST_ELIGIBLE_SEASON_LE_Y_MINUS_1
+B. Temporal: annual Y-1 priors,,,,batter_prior_eligible_from_season <= Y verified in companion validation evidence,,,PASS (manifest evidence),companion manifest validationEvidence.annualPointInTime
+B. Temporal: rolling histories / latest-known state,,,,rolling: source.gameDate < target.gameDate; latest state at or before training cutoff,,,PASS (replayed),wave2 replay exact checksums
+B. Temporal: lineup/starter evidence,,,,no provider; confirmed point-in-time lineup authority required and absent,,,PASS (held closed),game scoring summary
+B. Temporal: calendar context / travel & rest,,,,contextual Gold v2 with strictly prior-date completed-game context; holiday calendar is embedded code (blocker),,,PASS with blocker (holiday_name / doubleheader_game_number held closed),specification blockers
+B. Temporal: source publication time,,,,Statcast evidence_cutoff 2026-08-27; Gold latestDate 2026-08-27; final OOT 2026-08-14..27,,,PASS (manifest),Gold manifest dateCoverage / temporalContract
+B. Mutating future information leaves earlier features and fitted authorities unchanged,,,,"appending 2027 rows to the fit frame is rejected outright (fail closed) rather than silently ignored; validation-window mutation leaves fold-1 fit unchanged",,,PASS (fail closed),wave2_final_replay.json futureRowsReplay; wave2_repro partB validationMutationChangesFold1Fitted=False
+C. Fold: missing-value treatment,training rows of that fold,,,,,,PASS,see A. Imputation
+C. Fold: outlier treatment,RETAIN (no transform),,,,,,PASS (n/a),see A. Outlier
+C. Fold: empirical-Bayes priors,training rows of that fold,,,,,,PASS (exact replay folds 1-5),wave2_repro / wave2_final_replay
+C. Fold: encoding,training rows of that fold,,,,,,PASS,see A. Encoding
+C. Fold: scaling,n/a,,,,,,NOT APPLICABLE,
+C. Fold: rare-category rules,training-fold levels; unknown -> UNKNOWN mapper,,,,,,PASS (static),_UnknownCategoryMapper
+C. Fold: PCA / kernel approximation,n/a,,,,,,NOT APPLICABLE,
+C. Fold: sampling,prohibited,,,,,,PASS,
+C. Fold: class weights,training-fold frequencies,,,,,,PASS (static),
+C. Fold: feature selection / RFE,training rows of that fold,,,,,,PASS (static),
+C. Fold: interaction selection,fold-local parent medians,,,,,,PASS (static),
+C. Fold: calibration,not fitted,,,,,,PASS (n/a),
+D. Split: canonical-game grouping,,,,,,,PASS,split_integrity_results.json gamesSpanningMultipleDates=0 noGameInBoth=True (all folds)
+D. Split: date atomicity,,,,,,,PASS,noDateInBoth=True all folds
+D. Split: no game split between train and validation,,,,,,,PASS,noGameInBoth=True
+D. Split: training always precedes validation,,,,,,,PASS,trainPrecedesValidation=True; manual fold with trainEnd>=validationStart -> SPLIT_MANUAL_TARGET_DATE_LEAKAGE
+D. Split: each validation row appears exactly once,,,,,,,PASS,rowsValidatedExactlyOnce=501590 rowsValidatedMoreThanOnce=0
+D. Split: no overlapping validation windows,,,,,,,PASS,contiguousWithPrevious=True; overlapping manual windows rejected
+D. Split: no missing development rows,,,,,,,PASS with note,"182072 warmup (2023) rows are training-only and never validated by design; 501590 validated once; 683662 total"
+D. Split: deterministic fold regeneration,,,,,,,PASS,workflow_synthetic2 10-split-deterministic identical_folds=True
+D. Split: exact membership checksums,,,,,,,PASS,designChecksumMatches=True for all 4 contracts; V2 fold membership checksums replayed exactly
+D. Split: final-OOT exclusion,,,,,,,PASS,anyFoldWindowTouchesOot=False; manual fold into 2026-08-27 -> SPLIT_MANUAL_BOUNDARY_NOT_REPRESENTED
+D. Split: embargo behavior,,,,,,,PASS (static),SPLIT_MANUAL_EMBARGO_VIOLATION / SPLIT_MANUAL_UNDECLARED_GAP checks in _manual_contract
+E. Search: grid/random use development OOF only,,,,,,,PASS,plan_configurations + _evaluate_candidate (OOF metrics)
+E. Search: final OOT unavailable to tuning,,,,,,,PASS,forbidden plan options; _fold_frame date-bounded scan asserting 683662 rows
+E. Search: failed candidates remain visible,,,,,,,PASS,run_records FAILED/PARTIAL/CANCELLED_PARTIAL rows preserved; receipts list candidateAttemptReceipts with status FAILED
+E. Search: retries cannot overwrite prior evidence,,,,,,,PASS,content-addressed receipts (never-overwrite); tampered/renamed receipt drops out of ledger (tamper cases B1-B3)
+E. Search: configuration identities include all parameters,,,,,,,PASS (static),experiment identity payload includes algorithm/config/seed/split/policy/feature-set checksums/environment
+E. Search: multiple experiments cannot collapse into one receipt,,,,,,,PASS (static),MODEL_DEVELOPMENT_EXPERIMENT_DUPLICATE; per-candidate attempt receipts
+E. Search: best candidate is not automatically champion,,,,,,,PASS,autoPromoted=false; promotionStatus NOT_PROMOTED; explicit finalist/selection decisions required
+E. Search: historical evidence cannot impersonate current authority,,,,,,,PASS,_receipt_matches_current_authority; stale V6 draft adoption -> TREATMENT_SPEC_DRAFT_NOT_CURRENT
+F. Evaluation: feature importance belongs to the exact fitted candidate,,,,,,,PASS (static),interpretability evidence per fold with completeEvidenceSha256
+F. Evaluation: encoded-feature order reconciles,,,,,,,PASS (static + loader),Stage3FittedPipeline.ordered_features vs manifest orderedFeatures check in loader; artifact loader rejects order swap
+F. Evaluation: coefficients reconcile to classes/columns,,,,,,,PASS (static),_native_interpretability
+F. Evaluation: permutation importance uses authorized data,,,,,,,HELD CLOSED (requires reloadable artifact + finalist receipt),request_candidate_analysis
+F. Evaluation: SHAP does not access final OOT,,,,,,,HELD CLOSED (SHAP not installed),NOT_AVAILABLE_DEPENDENCY_NOT_INSTALLED
+F. Evaluation: sensitivity analysis does not mutate the candidate,,,,,,,HELD CLOSED (same gate),
+F. Evaluation: RFE creates a new governed feature-set identity,,,,,,,PASS (static),stage3-stable-reduced-feature-set-* identities; refinement plan PLANNED_NOT_EXECUTED rows
+F. Evaluation: reduced candidates retain parent identity,,,,,,,PASS (static),parentCandidateFingerprint / refinementPlanId in identity payload
+F. Evaluation: finalist selection requires explicit user decision,,,,,,,PASS,save_finalist_selection (run_records FINALIST_FOR_REFINEMENT); no page load creates decisions (page-load delta 0)
+F. Evaluation: no evaluation page load initiates fitting,,,,,,,PASS,workflow_synthetic2 step 16 delta run_records=0 across 2 full page-load cycles
+G. Calibration uses OOF / separated predictions,,,,,,,PASS (n/a - no post-hoc calibration fitted),
+G. Calibration does not train on assessment observations,,,,,,,NOT APPLICABLE,
+G. Every class reconciled,,,,,,,PASS,classCalibration per class in receipts; probability matrix validated to sum to one
+G. Calibration method and identity persisted,,,,,,,PASS (decision receipts),calibration decision run_records with candidateFingerprint
+G. Uncalibrated vs calibrated evidence distinct,,,,,,,PASS (n/a),
+G. Final OOT remains unopened,,,,,,,PASS,holdout_exposures=0; sports_dataset_query_audit=0; all receipts finalOotTargetAccessed=false
+H. Simulation: simulator state does not leak actual outcomes,,,,,,,PASS (static; not executable),actualTargetOutcomesRead=False contract; prohibited fields
+H. Simulation: probabilities normalize,,,,,,,PASS (static),reconcile_game_distribution_output
+H. Simulation: joint/margin/total/first-five reconcile,,,,,,,PASS (static),reconcile_game_distribution_output joint vs marginals
+H. Simulation: seed and draw identity persisted,,,,,,,PASS (static),score_governed_game records seed/draws/transition sampler sha
+H. Simulation: missing lineup/starter authority blocks scoring,,,,,,,PASS,game scoring summary/enqueue held closed
+H. Simulation: sportsbook/market evidence cannot enter features,,,,,,,PASS (static),prohibited field list; sportsbookPredictorsUsed=False
+H. Simulation does not mutate the fitted model,,,,,,,PASS (static),loader verifies content address before every load
+I. Final-OOT attack paths (profile/filter/aggregate/preview/export/query/tune/fit/score/explain/calibrate/simulate/select/compare/infer),,,,,,,ALL FAIL CLOSED,"EDA/treatment/split/plan/cockpit probes; OOT counters before=0 after=0 (holdout_exposures, sports_dataset_query_audit); protected receipts before/after"

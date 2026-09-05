@@ -1,0 +1,386 @@
+{
+ "schemaVersion": "FABLE51_CAPACITY_RESULTS_V1",
+ "auditBase": "bff19a8a657bc96dea0469fad481acdcb4234386",
+ "environment": {
+  "host": "Windows 10 Pro 10.0.19045 workstation, Intel Core i7-4790 (4 cores / 8 threads, 3.6 GHz), 31.9 GB RAM; client and server on the same host",
+  "backend": "uvicorn single process, isolated port 8191, ASP_MODEL_STUDIO_RUNTIME_ROOT + ATLAS_SQLITE_PATH + ATLAS_SECURITY_DB_PATH + staging roots pointed at disposable copies under the scratch directory; primary services (8101/5274) never started",
+  "client": "python httpx (one client per synthetic user, timeout 300 s in the load phases, 900 s in the patient phase); curl for idle health checks",
+  "population": "103 synthetic users (fable51-admin/user-a/user-b + f51-load-000..099) created through the admin API on the disposable security DB; 100 synthetic projects with evidence binding + forecast contract; job phases use the disposable copy of asp-mtddc6pw (the only Model-Lab-executable project, F-003)",
+  "note": "All fits are synthetic audit activity on the disposable copy: class_frequency_null and multinomial_logistic FIXED on a 6-feature CUSTOM_SUBSET; no final-OOT row, no champion, no promotion; deleted with the scratch root"
+ },
+ "phases": {
+  "registration100": {
+   "result": "100 users created via POST /admin/users; an earlier warm-up run produced HTTP 500/401 during bulk creation because the security DB (rollback-journal mode) was locked by concurrent session writes (F-028)"
+  },
+  "login100": {
+   "n": 100,
+   "p50ms": 4529,
+   "p95ms": 6472,
+   "p99ms": 7097,
+   "maxms": 7097,
+   "errors": 0,
+   "wallSeconds": 19.9,
+   "threads": 25,
+   "note": "PBKDF2-SHA256 260k iterations per login is CPU-bound: ~5 logins/s on this host"
+  },
+  "projectSetup100": {
+   "n": 100,
+   "p50ms": 4842,
+   "p95ms": 5945,
+   "p99ms": 6638,
+   "maxms": 6638,
+   "errors": 0,
+   "threads": 25,
+   "ops": "create project + evidence binding + forecast contract"
+  },
+  "interactive25": {
+   "design": "25 concurrent synthetic users, each looping over list_projects, open_project, eda_metadata, eda_overview, eda_distribution, autosave_put, outlier_summary, feature_summary, split_contracts, stage2_review on its own project for a 90 s target window",
+   "wallSeconds": 365.3,
+   "requests": 104,
+   "throughputRps": 0.3,
+   "errorsTotal": 13,
+   "overall": {
+    "n": 104,
+    "p50ms": 9698,
+    "p95ms": 300010,
+    "p99ms": 300014,
+    "maxms": 300015,
+    "errors": 13
+   },
+   "perOp": {
+    "list_projects": {
+     "n": 21,
+     "p50ms": 53047,
+     "p95ms": 65619,
+     "p99ms": 66194,
+     "maxms": 66194,
+     "errors": 0
+    },
+    "open_project": {
+     "n": 17,
+     "p50ms": 5237,
+     "p95ms": 12636,
+     "p99ms": 12636,
+     "maxms": 12636,
+     "errors": 0
+    },
+    "eda_metadata": {
+     "n": 7,
+     "p50ms": 4751,
+     "p95ms": 7569,
+     "p99ms": 7569,
+     "maxms": 7569,
+     "errors": 0
+    },
+    "eda_overview": {
+     "n": 7,
+     "p50ms": 10548,
+     "p95ms": 17823,
+     "p99ms": 17823,
+     "maxms": 17823,
+     "errors": 0
+    },
+    "eda_distribution": {
+     "n": 10,
+     "p50ms": 8747,
+     "p95ms": 15593,
+     "p99ms": 15593,
+     "maxms": 15593,
+     "errors": 0
+    },
+    "autosave_put": {
+     "n": 6,
+     "p50ms": 9698,
+     "p95ms": 12993,
+     "p99ms": 12993,
+     "maxms": 12993,
+     "errors": 0
+    },
+    "outlier_summary": {
+     "n": 13,
+     "p50ms": 300008,
+     "p95ms": 300015,
+     "p99ms": 300015,
+     "maxms": 300015,
+     "errors": 13
+    },
+    "feature_summary": {
+     "n": 10,
+     "p50ms": 7675,
+     "p95ms": 13736,
+     "p99ms": 13736,
+     "maxms": 13736,
+     "errors": 0
+    },
+    "split_contracts": {
+     "n": 5,
+     "p50ms": 9583,
+     "p95ms": 12627,
+     "p99ms": 12627,
+     "maxms": 12627,
+     "errors": 0
+    },
+    "stage2_review": {
+     "n": 8,
+     "p50ms": 7628,
+     "p95ms": 10554,
+     "p99ms": 10554,
+     "maxms": 10554,
+     "errors": 0
+    }
+   },
+   "errorsDetail": "all 13 errors are client timeouts (300 s) on outlier_summary; the server kept computing those profiles after the clients gave up",
+   "process": {
+    "samples": 70,
+    "spanSeconds": 361,
+    "cpuSecondsConsumed": 999,
+    "averageCores": 2.76,
+    "rssMbMin": 863,
+    "rssMbMax": 7036,
+    "threadsMax": 64
+   },
+   "healthIdleAfterLoad": {
+    "n": 20,
+    "p50ms": 708,
+    "p95ms": 1173,
+    "p99ms": 1173,
+    "maxms": 1173,
+    "errors": 0
+   },
+   "dbCountsAfter": {
+    "projects": 113,
+    "stage3_treatment_policy_versions": 37,
+    "stage3_feature_set_versions": 33,
+    "audit_log": 31557
+   }
+  },
+  "jobUnderResidualLoad": {
+   "job": "stage3-model-job-642e4813759e4ea48635c4dc75e8ab5b (null + logistic FIXED, 10 fits) submitted 2026-09-05T17:02:58Z while the outlier profiles left over from interactive25 were still computing",
+   "result": "GET /projects exceeded the 300 s client timeout while the job ran, so the polling harness aborted; the job kept running (elapsed 330 s at configuration 2 when last read); a distinct plan submitted at 13:08 returned 409 MODEL_DEVELOPMENT_JOB_ALREADY_ACTIVE",
+   "restartSubmit": [
+    409,
+    null,
+    null
+   ]
+  },
+  "coordinatorKillAndRecovery": {
+   "killedAt": "~2026-09-05T13:09:08-04:00 with the job RUNNING (one candidate receipt already persisted)",
+   "backendUpAfterSeconds": 9,
+   "newPid": 21824,
+   "orphanReconciliation": "run_records status INTERRUPTED, error MODEL_DEVELOPMENT_COORDINATOR_INTERRUPTED, completed_at 2026-09-05T17:09:44Z (first read after restart); the completed null-model receipt was retained, the in-flight logistic fit was lost",
+   "listJobsMs": 206,
+   "runsAfterRestart": [
+    200,
+    4
+   ],
+   "candidateEvalAfterRestart": 200,
+   "locksPresent": [
+    "asp-mtddc6pw.model-development.lock"
+   ],
+   "newJobAfterRecovery": [
+    202,
+    "QUEUED"
+   ],
+   "newJobFinal": "COMPLETE",
+   "newJobSeconds": 5.5
+  },
+  "jobOnIdleHost": {
+   "plan": {
+    "planId": "stage3-model-plan-b609b93a8f7d5127d118846cb772a336",
+    "totalFits": 10,
+    "totalConfigurations": 2,
+    "executable": true,
+    "finalOotLocked": true,
+    "finalOotTargetAccessed": false
+   },
+   "baseline": {
+    "health": {
+     "n": 5,
+     "p50Ms": 377,
+     "p95Ms": 419,
+     "maxMs": 419
+    },
+    "listProjects": {
+     "n": 3,
+     "p50Ms": 6204,
+     "p95Ms": 6299,
+     "maxMs": 6299
+    },
+    "proc": "51,394,42"
+   },
+   "simultaneousIdenticalSubmissions": {
+    "count": 4,
+    "statuses": [
+     202,
+     202,
+     202,
+     202
+    ],
+    "distinctJobIds": 1,
+    "activeAfter": [
+     [
+      "stage3-model-job-913a3a5a5fdc414fa4d660518cbc1eb6",
+      "QUEUED"
+     ]
+    ],
+    "note": "identical plan submissions coalesce onto one job"
+   },
+   "distinctPlanWhileActive": 409,
+   "duringJob": {
+    "health": {
+     "n": 6,
+     "p50Ms": 425,
+     "p95Ms": 468,
+     "maxMs": 468
+    },
+    "listProjects": {
+     "n": 6,
+     "p50Ms": 8080,
+     "p95Ms": 9931,
+     "maxMs": 9931
+    },
+    "jobStatus": {
+     "n": 6,
+     "p50Ms": 74,
+     "p95Ms": 95,
+     "maxMs": 95
+    },
+    "progressTrace": [
+     [
+      0,
+      "RUNNING",
+      1,
+      10,
+      "RUNNING"
+     ],
+     [
+      17,
+      "RUNNING",
+      5,
+      10,
+      "RUNNING"
+     ],
+     [
+      32,
+      "RUNNING",
+      6,
+      10,
+      "RUNNING"
+     ],
+     [
+      47,
+      "RUNNING",
+      6,
+      10,
+      "RUNNING"
+     ],
+     [
+      63,
+      "RUNNING",
+      7,
+      10,
+      "RUNNING"
+     ],
+     [
+      78,
+      "RUNNING",
+      7,
+      10,
+      "RUNNING"
+     ]
+    ],
+    "processCpuSecondsRssMbThreads": [
+     "76,607,43",
+     "98,582,43",
+     "121,618,43",
+     "143,652,43",
+     "165,666,42",
+     "188,650,42"
+    ]
+   },
+   "cancelUnstarted": {
+    "request": [
+     200,
+     136
+    ],
+    "requestedAtFits": "8 of 10 complete, configuration 2 of 2 already started",
+    "outcome": "COMPLETE",
+    "secondsToTerminal": 94.9,
+    "progress": {
+     "completedFits": 10,
+     "cancelledFits": 0,
+     "totalFits": 10,
+     "state": "COMPLETE",
+     "message": "Immutable development evidence persisted; no model was promoted."
+    },
+    "receipts": 2,
+    "interpretation": "cancel-unstarted is configuration-granular; a configuration that has started always runs all of its folds; no API stops a running configuration"
+   },
+   "postCancelSubmit": 202,
+   "postCancelJob": {
+    "status": "COMPLETE",
+    "seconds": 6.9
+   },
+   "after": {
+    "health": {
+     "n": 5,
+     "p50Ms": 440,
+     "p95Ms": 565,
+     "maxMs": 565
+    },
+    "listProjects": {
+     "n": 3,
+     "p50Ms": 6328,
+     "p95Ms": 6515,
+     "maxMs": 6515
+    },
+    "proc": "308,470,41"
+   },
+   "finishedAt": "2026-09-05T13:18:33"
+  },
+  "idleReference": {
+   "healthCurlMs": 3.5,
+   "note": "curl idle health is ~4 ms; the ~0.4 s httpx health figures include per-call client connection setup on Windows and are comparable only with each other"
+  }
+ },
+ "derivedLimits": {
+  "registeredUsers": {
+   "safe": 100,
+   "basis": "100 accounts created and logged in without functional failure; account storage is not the constraint. Concurrent registration/login is: ~5 logins/s (PBKDF2) and security-DB lock errors during bulk writes (F-028)"
+  },
+  "concurrentInteractiveUsers": {
+   "safe": 2,
+   "degraded": "3-5 (5-15 s page loads)",
+   "unacceptable": 25,
+   "basis": "25 concurrent -> 0.3 req/s, p50 9.7 s, p95 300 s, 13 timeouts, 7.0 GB RSS, 2.8 cores; list_projects alone costs ~55 ms per project (6.2 s idle at 113 projects, 53 s under load)"
+  },
+  "simultaneousHeavyJobs": {
+   "safe": 1,
+   "basis": "one in-process ThreadPoolExecutor(max_workers=1) slot; one active job per project (409 otherwise); a second heavy job cannot run at all. One running job raised idle list_projects from 6.2 s to 8.1 s and kept health at ~0.4 s (httpx)"
+  },
+  "sustainableEnvelope": "1 heavy job + 2 interactive scientists on distinct projects on this host",
+  "jobCancellation": "configuration-granular, unbounded time-to-abort (equal to the remaining duration of the started configuration); process kill is the only abort and yields INTERRUPTED with completed receipts retained",
+  "restartBehaviour": "automatic orphan reconciliation on first read; no resume; interprocess lock reclaimable; new job accepted within seconds of restart",
+  "memory": "outlier/EDA profiles load the full 683,662-row Gold frame per project and are retained by process caches; 25 users drove RSS to 7.0 GB; a 16 GB host would exhaust memory near 10 concurrent profiles"
+ },
+ "tiers": {
+  "tier0_today": {
+   "registeredUsers": 1,
+   "concurrentInteractive": 1,
+   "heavyJobs": 1,
+   "status": "MEASURED"
+  },
+  "tier1_after_repair_A": {
+   "registeredUsers": 10,
+   "concurrentInteractive": 3,
+   "heavyJobs": 1,
+   "status": "MEASURED_ENVELOPE"
+  },
+  "tier2_controlled_beta": {
+   "registeredUsers": 100,
+   "concurrentInteractive": 25,
+   "heavyJobs": 4,
+   "status": "PROJECTED_ONLY: requires worker separation, queue, PostgreSQL, per-request profile caching by content digest, project-list pagination; not measurable on the current build"
+  }
+ }
+}

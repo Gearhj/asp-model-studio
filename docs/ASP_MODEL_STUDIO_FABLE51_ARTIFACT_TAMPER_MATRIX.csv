@@ -1,0 +1,44 @@
+artifact_class,tamper_case,mutation,detection_point,result,error_code,detected_before_execution,notes
+Executable artifact bundle,A1,model.joblib single byte flip,verify_artifact_bundle / load_executable_artifact (in-process on scratch copy),REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,"Summary endpoint GET /stage3-executable-artifact still returns the published record (no re-verification on read) - see finding F-009"
+Executable artifact bundle,A2,preprocessor.joblib byte flip,verify/load,REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,
+Executable artifact bundle,A3,oof-predictions.parquet byte flip,verify/load,REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,
+Executable artifact bundle,A4,verification-fixture.json byte flip,verify/load,REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,
+Executable artifact bundle,A5,verification-receipt.json byte flip,verify/load,REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A6,orderedFeatures order swapped,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,Manifest is content-addressed by its own sha256 (directory name); any edit breaks the address
+Executable artifact manifest,A7,targetOrder swapped,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A8,projectId changed,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A9,candidate status forged,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A10,authority gold checksum changed,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A11,split checksum changed,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,(covered by manifest address; identity chain additionally validated by _validate_manifest_authority)
+Executable artifact manifest,A12,policy checksum changed,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A13,prior-authority checksum changed,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A14,environment metadata edited,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A15,user identity fields edited,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact manifest,A16,model relativePath redirected to ../../../../evil.joblib,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH (and _require_contained for any surviving path),yes,A valid manifest cannot be redirected to an untrusted path without changing its content address
+Executable artifact manifest,A17,member sha256 fields rewritten,verify/load,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,
+Executable artifact bundle,A18,undeclared extra file added,verify/load,REJECTED,STAGE3_ARTIFACT_PARTIAL_PUBLICATION,yes,Partial/undeclared publication detected
+Executable artifact bundle,A19,model.joblib deleted,verify/load,REJECTED,STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH,yes,
+Executable artifact bundle,A20,directory copied under a different content address,verify,REJECTED,STAGE3_ARTIFACT_MANIFEST_CHECKSUM_MISMATCH,yes,Stale/substituted artifact rejected
+Executable artifact path,A21,relative_path traversal (..\..\..\evil),verify,REJECTED,STAGE3_ARTIFACT_PATH_INVALID,yes,Only canonical content-addressed paths are accepted
+Executable artifact summary endpoint,A22,any of A1-A17 then GET /projects/asp-mtddc6pw/sports/stage3-executable-artifact,executable_artifact_summary (HTTP),NOT DETECTED (200; published record echoed),n/a,no (read path),F-009: summary reads the persisted publication record; verification only occurs in the loader/scoring path (which is currently unreachable because lineup authority is absent)
+Model-lab run receipt,B1,meanOofLogLoss edited inside a receipt JSON,list_model_laboratory_runs / downstream,DETECTED,receipt dropped from ledger (4 -> 3 runs); artifact/downstream 409 STAGE3_CURRENT_FINALIST_EVIDENCE_MISSING,yes,Content-addressed receipts; a mutated receipt no longer matches its address and is excluded
+Model-lab run receipt,B2,candidate status COMPLETE + autoPromoted/PROMOTED forged,runs / downstream,DETECTED,as B1,yes,Forged promotion never surfaces
+Model-lab run receipt,B3,receipt file renamed to a wrong address,runs / downstream,DETECTED,as B1,yes,
+V2 prior authority store,C1,authority manifest bindings list edited,feature-engineering summary (HTTP),FAIL CLOSED (HTTP 500),unhandled PriorArtifactStoreV2Error / PlayerPriorAuthorityV2Error,yes (no V2 binding served),F-011: fail-closed but as an unhandled 500 instead of a governed 409
+V2 prior authority store,C2,final fitted parameter edited,feature-engineering summary,FAIL CLOSED (HTTP 500),as C1,yes,
+V2 prior authority store,C3,project pointer to nonexistent object,feature-engineering summary,FAIL CLOSED (HTTP 500),as C1,yes,
+V2 prior authority store,C4,project pointer manifestRelativePath traversal,feature-engineering summary,FAIL CLOSED (HTTP 500),as C1,yes,
+V2 prior authority store,C5,project pointer projectId swapped,feature-engineering summary,FAIL CLOSED (HTTP 500),as C1,yes,
+Sufficient-statistics companion partition,D1,byte flip in companion 2026 partition (objects dir shared with Gold),feature-engineering summary (cold process),FAIL CLOSED,TREATMENT_SPEC_DRAFT_STALE (misleading code),yes,Stage 2 review and EDA do not read the companion and were unaffected by design; the compiled prior authority changed and the draft became stale
+Gold publication manifest,D2,rowCount edited,stage2 review / EDA / feature engineering / split / model lab,DETECTED,CURRENT_GOLD_MANIFEST_HASH_MISMATCH,yes,Every Stage 3 entry point fails closed
+Gold current.json pointer,D3,manifestSha256 pointed at unknown object,all Stage 3 entry points,DETECTED,CURRENT_GOLD_MANIFEST_HASH_MISMATCH,yes,
+Gold partition (real 2026 partition dae01549),D4,byte flip then cold verifier,_profile_gold (uncached),see gold_partition_tamper.json,CURRENT_GOLD_PARTITION_MISMATCH expected,yes,Cold process re-hashes every partition against the manifest
+Gold partition (real 2026 partition dae01549),D5,byte flip after the profile was cached,_profile_gold lru_cache(maxsize=8),see gold_partition_tamper.json,n/a,no (warm process),F-010: in-process cache keyed by manifest sha never re-verifies partition bytes until restart
+Persistence DB (split contract),E1/E7/E8,contract_json edited / status edited / row deleted,SQLite trigger,REJECTED,IntegrityError: stage3 split contract versions are immutable,yes,
+Persistence DB (treatment policy),E2/E2b,policy_json edited / status flipped,SQLite trigger,REJECTED,IntegrityError: stage3 treatment policy versions are immutable,yes,
+Persistence DB (feature set),E4,ordered_features_json edited,SQLite trigger,REJECTED,IntegrityError: stage3 feature-set versions are immutable,yes,
+Persistence DB (specification),E11,specification_status forged to ADOPTED,SQLite trigger,REJECTED,IntegrityError: stage3 feature-treatment specification versions are immutable,yes,
+Persistence DB (run_records),E3,status FAILED -> COMPLETE,none,ACCEPTED (mutable),n/a,no,F-024: run ledger rows are not immutable at the DB layer; content-addressed receipts still protect scientific evidence
+Persistence DB (run_records),E9,run record deleted,none,ACCEPTED,n/a,no,F-024
+Persistence DB (projects),E6,owner_user_id changed,none,ACCEPTED (ownership hijack with DB write access),n/a,no,F-024
+Persistence DB (audit_log),E10,audit rows deleted,none,ACCEPTED,n/a,no,F-024: audit log is not append-only at the DB layer

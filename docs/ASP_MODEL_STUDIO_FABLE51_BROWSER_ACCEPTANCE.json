@@ -1,0 +1,1564 @@
+[
+ {
+  "label": "anon",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6735,
+  "finalUrl": "/login?returnTo=%2Fworkflows%2Fmlb%3FprojectId%3Dasp-mtlozhdx%26stage%3D3",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence SPORTS MODEL INTELLIGENCE Build the models behind the game. Player state, participation, event and drive models, simulation, tempor"
+ },
+ {
+  "label": "anon",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6635,
+  "finalUrl": "/login?returnTo=%2Fworkflows%2Fmlb%3FprojectId%3Dasp-mtlozhdx%26stage%3D3",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence SPORTS MODEL INTELLIGENCE Build the models behind the game. Player state, participation, event and drive models, simulation, tempor"
+ },
+ {
+  "label": "anon",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6599,
+  "finalUrl": "/login?returnTo=%2Fworkflows%2Fmlb%3FprojectId%3Dasp-mtlozhdx%26stage%3D3",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence SPORTS MODEL INTELLIGENCE Build the models behind the game. Player state, participation, event and drive models, simulation, tempor"
+ },
+ {
+  "label": "anon",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6417,
+  "finalUrl": "/login?returnTo=%2Fworkflows%2Fmlb%3FprojectId%3Dasp-mtlozhdx%26stage%3D3",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Sign in to ASP Model Studio Authenticated local access to the isolated sports-model-development workspace. EMAIL PASSWORD Keep me S"
+ },
+ {
+  "label": "anon",
+  "path": "/login",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6638,
+  "finalUrl": "/login",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence SPORTS MODEL INTELLIGENCE Build the models behind the game. Player state, participation, event and drive models, simulation, tempor"
+ },
+ {
+  "label": "api-login",
+  "adminStatus": 200,
+  "userAStatus": 200,
+  "cookieNames": [
+   "asp_model_studio_session"
+  ],
+  "httpOnly": [
+   true
+  ],
+  "sameSite": [
+   "Lax"
+  ],
+  "secure": [
+   false
+  ]
+ },
+ {
+  "label": "admin",
+  "path": "/dashboard",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6620,
+  "finalUrl": "/dashboard",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "Build the Models Behind the Game",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/dashboard",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6646,
+  "finalUrl": "/dashboard",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Build the Models Behind the Game",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/dashboard",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6600,
+  "finalUrl": "/dashboard",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Build the Models Behind the Game",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/dashboard",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6544,
+  "finalUrl": "/dashboard",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "Build the Models Behind the Game",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "admin",
+  "path": "/projects/open",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6586,
+  "finalUrl": "/projects/open",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "Sports Projects",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/projects/open",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6490,
+  "finalUrl": "/projects/open",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Sports Projects",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/projects/open",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6470,
+  "finalUrl": "/projects/open",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Sports Projects",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/projects/open",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6487,
+  "finalUrl": "/projects/open",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/project-overview?projectId=asp-mtlozhdx",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6512,
+  "finalUrl": "/project-overview?projectId=asp-mtlozhdx",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/project-overview?projectId=asp-mtlozhdx",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6481,
+  "finalUrl": "/project-overview?projectId=asp-mtlozhdx",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/project-overview?projectId=asp-mtlozhdx",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6516,
+  "finalUrl": "/project-overview?projectId=asp-mtlozhdx",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/project-overview?projectId=asp-mtlozhdx",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6488,
+  "finalUrl": "/project-overview?projectId=asp-mtlozhdx",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6541,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6553,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6496,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6500,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=1",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6515,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6601,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Project Overview",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CURRENT PROJECT MLB 2026 Current-Data Challenger v2 — Deliberate Development MLB · Active Project Overview MLB Workflow CORE Studio"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6537,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6506,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CURRENT PROJECT MLB 2026 Current-Data Challenger v2 — Deliberate Development MLB · Active Project Overview MLB Wor"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6503,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6564,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6585,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6535,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6519,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6528,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6533,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6558,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=4",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6573,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6537,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6555,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6515,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=6",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6496,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6535,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6539,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6549,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=8",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6762,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx/workflow-state"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(255, 255, 255, 0.46) 0px 0px 0px 0p"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 7066,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6651,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx",
+   "PUT http://127.0.0.1:5291/api/projects/asp-mtlozhdx"
+  ],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CURRENT PROJECT CORE RESEARCH TOOLS ADMINISTRATION Reopening the canonical ASP Model Studio sports project…"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6488,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&step=9",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio CORE RESEARCH TOOLS ADMINISTRATION Verifying the persisted sport, league, and workflow manifest…"
+ },
+ {
+  "label": "admin",
+  "path": "/data-sources-rights",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6486,
+  "finalUrl": "/data-sources-rights",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/data-sources-rights",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6532,
+  "finalUrl": "/data-sources-rights",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "admin",
+  "path": "/data-sources-rights",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6577,
+  "finalUrl": "/data-sources-rights",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Data Sources & Rights",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/data-sources-rights",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6466,
+  "finalUrl": "/data-sources-rights",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "Data Sources & Rights",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "admin",
+  "path": "/admin",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6592,
+  "finalUrl": "/admin",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "Administration",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/admin",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6516,
+  "finalUrl": "/admin",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Administration",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/admin",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6521,
+  "finalUrl": "/admin",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Administration",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/admin",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6438,
+  "finalUrl": "/admin",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "Administration",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "admin",
+  "path": "/account",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6504,
+  "finalUrl": "/account",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "Account",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/account",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6486,
+  "finalUrl": "/account",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Account",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/account",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6535,
+  "finalUrl": "/account",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "Account",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/account",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6449,
+  "finalUrl": "/account",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "Account",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Warning: Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or o"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/nfl",
+  "viewport": "1920x1080",
+  "status": 200,
+  "ms": 6522,
+  "finalUrl": "/workflows/nfl",
+  "hOverflow": false,
+  "clientWidth": 1920,
+  "scrollWidth": 1920,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/nfl",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6504,
+  "finalUrl": "/workflows/nfl",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/nfl",
+  "viewport": "1024x768",
+  "status": 200,
+  "ms": 6447,
+  "finalUrl": "/workflows/nfl",
+  "hOverflow": false,
+  "clientWidth": 1024,
+  "scrollWidth": 1024,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "admin",
+  "path": "/workflows/nfl",
+  "viewport": "390x844",
+  "status": 200,
+  "ms": 6473,
+  "finalUrl": "/workflows/nfl",
+  "hOverflow": false,
+  "clientWidth": 390,
+  "scrollWidth": 390,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "BUTTON",
+   "text": "Close navigation",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model L"
+ },
+ {
+  "label": "userA-foreign",
+  "path": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6448,
+  "finalUrl": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "CORE RESEARCH TOOLS ADMINISTRATION You do not have permission to perform this action on this project."
+ },
+ {
+  "label": "userA-foreign",
+  "path": "/project-overview?projectId=asp-mtlozhdx",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6452,
+  "finalUrl": "/project-overview?projectId=asp-mtlozhdx",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "A",
+   "text": "Studio Home",
+   "outline": "solid 2px",
+   "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence CORE Studio Home Sports Projects Sports Workflows Data Warehouse Player & Team State Participation & Usage Model Laboratory PA Mode"
+ },
+ {
+  "label": "userA",
+  "path": "/workflows/mlb?projectId=does-not-exist-zzz&stage=3",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6525,
+  "finalUrl": "/workflows/mlb?projectId=does-not-exist-zzz&stage=3",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "",
+  "hasLoginForm": false,
+  "consoleErrors": [],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "body"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence Loading secure sports modeling workspace…"
+ },
+ {
+  "label": "userA-revoked",
+  "path": "/dashboard",
+  "viewport": "1440x900",
+  "status": 200,
+  "ms": 6771,
+  "finalUrl": "/login?returnTo=%2Fdashboard",
+  "hOverflow": false,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "h1": "Sign in to ASP Model Studio",
+  "hasLoginForm": true,
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "api5xx": [],
+  "writesOnLoad": [],
+  "focusVisible": {
+   "tag": "INPUT",
+   "text": "",
+   "outline": "auto 1px",
+   "boxShadow": "none"
+  },
+  "textSample": "ASP Model Studio Sports Forecasting, Simulation & Model Intelligence SPORTS MODEL INTELLIGENCE Build the models behind the game. Player state, participation, event and drive models, simulation, tempor"
+ },
+ {
+  "label": "nav",
+  "afterBack": "http://127.0.0.1:5291/workflows/mlb?projectId=asp-mtlozhdx&stage=2",
+  "afterFwd": "http://127.0.0.1:5291/login?returnTo=%2Fworkflows%2Fmlb%3FprojectId%3Dasp-mtlozhdx%26stage%3D2",
+  "logoutResult": "logout-click-failed: Error: no user menu",
+  "pageErrors": []
+ }
+]
