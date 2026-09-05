@@ -1,0 +1,20 @@
+{
+  "schema": "ASP_FULL_BACKEND_NATIVE_READER_REVIEW_V1",
+  "scope": "Read-only static review of candidate-2 server/tests and installed NumPy path loader; no new full run or operational probe.",
+  "guardClass": "Python audit hook plus repository known-reader wrappers, not an OS sandbox",
+  "observations": [
+    "Repository conftest installs guarded PyArrow read_table/ParquetFile/dataset, Pandas, Polars, Joblib, builtins.open and Path.read_bytes wrappers before test collection.",
+    "Installed NumPy path-based load calls Python builtins.open; direct test NPZ reads use freshly generated tmp_path archives.",
+    "Server NPZ inputs pass contained manifest/request and byte authentication, or use a just-written temporary archive.",
+    "Cockpit research data loading first resolves exact registry authority and authenticates object bytes; operational SQLite/metadata/byte reads are blocked by the pre-import guard.",
+    "All located PyArrow read_metadata uses consume in-memory BufferReader objects, from already guarded byte reads.",
+    "Static scan found no direct absolute reader call arguments and no server memory_map/OSFile/open_input_file/NumPy memmap/fromfile use."
+  ],
+  "limitations": [
+    "The Python audit hook alone cannot intercept arbitrary native extension system calls.",
+    "Known-reader wrappers and static call-site review do not establish exhaustive dynamic dataflow or OS-level filesystem/network telemetry.",
+    "Zero-access counters in raw guard receipts are policy/covered-boundary assertions, not independent native syscall measurement.",
+    "No reachable direct native operational read was identified in this bounded review; full candidate retained identical instrumentation and isolated environment."
+  ],
+  "runningCandidateWasChanged": false
+}

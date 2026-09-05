@@ -1,0 +1,74 @@
+{
+  "artifact_baseline": {
+    "sourceRoot": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2",
+    "exitCode": 1,
+    "passed": 4,
+    "failed": 3,
+    "failedTests": [
+      "..\\..\\..\\..\\..\\..\\..\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\tests\\tenant_stage3_artifact_authority_test.py::test_project_science_stays_separate_under_concurrent_resolution",
+      "..\\..\\..\\..\\..\\..\\..\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\tests\\tenant_stage3_artifact_authority_test.py::test_selected_project_chain_rejects_foreign_receipts[None]",
+      "..\\..\\..\\..\\..\\..\\..\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\tests\\tenant_stage3_artifact_authority_test.py::test_three_fold_project_plan_and_manifest_bind_exact_science"
+    ]
+  },
+  "cache_baseline": {
+    "sourceRoot": "C:\\Users\\james\\asp-model-studio\\.tmp\\asp-player-prior-wave2",
+    "exitCode": 1,
+    "passed": 0,
+    "failed": 3,
+    "failedTests": [
+      "cache preserves authored drafts while omitting computed evidence",
+      "old snapshots are sanitized on read without modifying the stored original",
+      "session changes notify immediately and cannot restore another user draft"
+    ]
+  },
+  "artifact_candidate": {
+    "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+    "exitCode": 0,
+    "passed": 7,
+    "failed": 0,
+    "failedTests": []
+  },
+  "cache_candidate": {
+    "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+    "exitCode": 0,
+    "passed": 3,
+    "failed": 0,
+    "failedTests": []
+  },
+  "focused_workflow_artifact_game": {
+    "sourceRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+    "passed": 42,
+    "failed": 0,
+    "elapsedSeconds": 10.82,
+    "toolReceipt": "exec session 60944; final completion fabf6d",
+    "testFiles": [
+      "tests/tenant_stage3_workflow_binding_test.py",
+      "tests/tenant_stage3_artifact_authority_test.py",
+      "tests/sports_stage3_game_scoring_test.py"
+    ],
+    "safety": "Synthetic authorities and disposable game-scoring database/files; no authoritative fit, provider request, operational database write, or OOT data read."
+  },
+  "testHashes": {
+    "tests/tenant_stage3_workflow_binding_test.py": "dcf973a7e3f45366a235a803f7336cbc1988d6c7a766eac11b68405c7adf3a1e",
+    "tests/tenant_stage3_artifact_authority_test.py": "1c1997838594ecbd374533a35ae8efb305002c439ef6cbb767069d436ba52046",
+    "tests/tenantCockpitCacheIsolation.test.mjs": "853af234c2d6d2ffe2bd38fd75f5d06d704306876bc4aba398976afcee3b0d82",
+    "tests/sports_stage3_game_scoring_test.py": "a9ba2802ffcad29d1849624906741f91fe896f64d4cab34b86c57fed06261f5d"
+  },
+  "route_project_handoff": {
+    "baseline": {
+      "passed": 0,
+      "failed": 3
+    },
+    "candidate": {
+      "passed": 3,
+      "failed": 0
+    },
+    "toolReceipt": "exec completion 7bfc01",
+    "testFile": "tests/tenantStage3RouteProjectHandoff.test.mjs",
+    "cases": [
+      "Null contract uses canonical route project on first render",
+      "Stale foreign contract cannot override route project",
+      "Missing selected project does not mount a placeholder cockpit"
+    ]
+  }
+}

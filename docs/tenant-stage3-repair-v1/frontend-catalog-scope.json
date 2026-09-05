@@ -1,0 +1,19 @@
+{
+  "schema": "ASP_FRONTEND_CATALOG_SCOPE_RECEIPT_V1",
+  "files": [
+    "src/sports/cockpit/Gen3AuthorityPanel.tsx",
+    "src/sports/cockpit/Gen3CatalogSection.tsx"
+  ],
+  "catalogRequestsRequireExplicitProject": true,
+  "reactiveAuthenticatedUser": true,
+  "projectFallbackRemoved": true,
+  "userProjectKeyedSubtrees": true,
+  "isolatedTypeScriptSyntaxCheck": "PASS",
+  "gitDiffCheck": "PASS",
+  "focusedCatalogWiringGate": "1 PASSED",
+  "coordinatedFullBuild": "PASS: TypeScript and 2337 Vite modules; workflow agent final receipt",
+  "mainAsset": "main-C4SfSlYd.js",
+  "mainAssetSha256": "dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520",
+  "frontendComparison": "1097 passed; 56 unchanged observed failures; zero new failed names or changed normalized reason hashes",
+  "applicationOrProviderRequestsExecutedByTheseChecks": false
+}

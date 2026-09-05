@@ -1,0 +1,189 @@
+{
+  "createdAt": "2026-09-05T20:15:14.091134+00:00",
+  "heads": {
+    "wave2": "bff19a8a657bc96dea0469fad481acdcb4234386",
+    "repairBase": "bff19a8a657bc96dea0469fad481acdcb4234386"
+  },
+  "scope": "Bounded project-authority workflow repair; no production execution claim.",
+  "ownedFiles": {
+    "backend": [
+      "server/sports_current_statcast/stage3_model_laboratory.py",
+      "server/sports_current_statcast/stage3_model_jobs.py",
+      "server/sports_current_statcast/stage3_candidate_evaluation.py",
+      "server/sports_current_statcast/stage3_executable_artifact.py",
+      "server/sports_current_statcast/stage3_game_scoring.py"
+    ],
+    "frontend": [
+      "src/apps/ModelingApp.tsx",
+      "src/lib/authSession.ts",
+      "src/sports/sportsEvidenceApi.ts",
+      "src/sports/workflow/GuidedStageContent.tsx",
+      "src/sports/workflow/GuidedWorkflow.tsx",
+      "src/sports/workflow/DatasetBindingPanel.tsx",
+      "src/sports/cockpit/DataPreviewPanel.tsx",
+      "src/sports/cockpit/PaModelingCockpit.tsx",
+      "src/sports/cockpit/ProjectBoundDownstreamWorkflow.tsx",
+      "src/sports/cockpit/ProjectBoundModelLab.tsx",
+      "src/sports/cockpit/ProjectBoundWorkflowGate.tsx",
+      "src/sports/cockpit/cockpitApi.ts",
+      "src/sports/cockpit/cockpitPersistence.ts",
+      "src/sports/cockpit/cockpitSteps1.tsx",
+      "src/sports/cockpit/projectModelLabApi.ts"
+    ],
+    "tests": [
+      "tests/tenant_stage3_artifact_authority_test.py",
+      "tests/tenant_stage3_workflow_binding_test.py",
+      "tests/tenantCockpitCacheIsolation.test.mjs",
+      "tests/cockpitFeatureAndPersistence.test.mjs",
+      "tests/cockpitModelLab.test.mjs",
+      "tests/sportsStage3ExecutableArtifactScoringFrontend.test.mjs",
+      "tests/sportsStage3ProjectBoundModelLabFrontend.test.mjs",
+      "tests/sports_current_gold_stage2_review_test.py",
+      "tests/sports_stage3_candidate_evaluation_test.py",
+      "tests/sports_stage3_downstream_workflow_test.py",
+      "tests/sports_stage3_executable_artifact_test.py",
+      "tests/sports_stage3_feature_engineering_test.py",
+      "tests/sports_stage3_full_model_development_lab_test.py",
+      "tests/sports_stage3_game_scoring_test.py",
+      "tests/sports_stage3_project_eda_test.py",
+      "tests/sports_stage3_project_model_laboratory_test.py",
+      "tests/sports_stage3_split_balance_test.py",
+      "tests/sports_stage3_treatments_test.py",
+      "tests/tenantStage3RouteProjectHandoff.test.mjs"
+    ]
+  },
+  "sourceSha256": {
+    "server/sports_current_statcast/stage3_model_laboratory.py": "d1e9db9738afce6cfd1440ae37efb9fa2c4877e7ecc0df9e8315897242d79705",
+    "server/sports_current_statcast/stage3_model_jobs.py": "7b8b3b0b629068826657b70f7cf892758bccd0d4d860cd20e09f98bc16c30860",
+    "server/sports_current_statcast/stage3_candidate_evaluation.py": "ba4f2e6aa8be63971fc16f35f8c5c9fcecc76046bbbd7a594ae13552683e2d94",
+    "server/sports_current_statcast/stage3_executable_artifact.py": "7087ea2bb2a83ce92d313c03360a58cb4b42fab153b24203a8d547051d157172",
+    "server/sports_current_statcast/stage3_game_scoring.py": "1a6fca0b24a87ceadfed85091c2a79f3dc4a1c3313419c30362e77285193c1af",
+    "src/apps/ModelingApp.tsx": "196358a8b4b3379442c3e0d53ff1efa1d57d4f48c43f10adbb85156c3d47c1a3",
+    "src/lib/authSession.ts": "78785c806af971ef8ffe741c2a22f712dcc449599c55f45496fa97029d67ebe4",
+    "src/sports/sportsEvidenceApi.ts": "784d5071e9374785a05ebbc66c8c4b30da3e075702a38701ccb4f126f74972aa",
+    "src/sports/workflow/GuidedStageContent.tsx": "3f7aa82fa5582eaae7d2b9cfda6b1ae1a931cfa341e73b026f7e580dbc6f922b",
+    "src/sports/workflow/GuidedWorkflow.tsx": "fbde9b9a6a2f3eaee9b878946be8b1beb39a1ed6dacff2067a05d9175c4b73ea",
+    "src/sports/workflow/DatasetBindingPanel.tsx": "bc70229979cd83d03f225bd7165e48fd383832eefe17159301713d8ddb503d59",
+    "src/sports/cockpit/DataPreviewPanel.tsx": "ccbba842f39b2be9a3d8ca1fc2d9be39d0613079e78d3ea82f299d5e1e0ff906",
+    "src/sports/cockpit/PaModelingCockpit.tsx": "d4f5305700d74adae03ef760f87e412c790696545754619fc460afa6adb1de4f",
+    "src/sports/cockpit/ProjectBoundDownstreamWorkflow.tsx": "d18602f8f0694718d2d7ccb68eed98c0eff47916aa38969d69a6dae41bcd7f30",
+    "src/sports/cockpit/ProjectBoundModelLab.tsx": "9f92daa169d7c51300e142a2a37e2fb8001633b66a5a5857011c4886c562a6b7",
+    "src/sports/cockpit/ProjectBoundWorkflowGate.tsx": "2c28adc043db1d3b51e9e93b5b4e2108cb594b39d8c2c1d02b45c2319607ef0a",
+    "src/sports/cockpit/cockpitApi.ts": "51a1d56ecaf59ff5166d1caa724ef1bb49ef3220eb07ba653e8af5956d8ed6bb",
+    "src/sports/cockpit/cockpitPersistence.ts": "9141ad35360a94dd355e8e73bae68b265bdb1ea4853e8403128b41c87ae0a932",
+    "src/sports/cockpit/cockpitSteps1.tsx": "afac45462b353c9bb61ca4e4d03b765a0ff7f2dc03800eb546dd12d782f96eb2",
+    "src/sports/cockpit/projectModelLabApi.ts": "1fbbc610d94bacfede7dcda6219bd1004c6f5fa90f424a027f3448488a73a07c",
+    "tests/tenant_stage3_artifact_authority_test.py": "1c1997838594ecbd374533a35ae8efb305002c439ef6cbb767069d436ba52046",
+    "tests/tenant_stage3_workflow_binding_test.py": "dcf973a7e3f45366a235a803f7336cbc1988d6c7a766eac11b68405c7adf3a1e",
+    "tests/tenantCockpitCacheIsolation.test.mjs": "853af234c2d6d2ffe2bd38fd75f5d06d704306876bc4aba398976afcee3b0d82",
+    "tests/cockpitFeatureAndPersistence.test.mjs": "a438239fafb8b496f93b105a864c981afbb9ffe75fee910063c004712f3fdd13",
+    "tests/cockpitModelLab.test.mjs": "30cb3bc90a05268e3491ffd062cad34bf623520959f28b24b26cfe2a5e75a3ac",
+    "tests/sportsStage3ExecutableArtifactScoringFrontend.test.mjs": "f3b3f3a9d0981916c96ae5f57991a6960785225694e51e665f228b6145e56fcc",
+    "tests/sportsStage3ProjectBoundModelLabFrontend.test.mjs": "afa0fbd45cf7c4d4f56900b367f75726a123034b6b87d28f4291277a077842fc",
+    "tests/sports_current_gold_stage2_review_test.py": "fafaaa271fb411b6d0cda2e2785830f4f25731f48125d92c082a773abaf86f93",
+    "tests/sports_stage3_candidate_evaluation_test.py": "d115ba4322107a8554b7576284008bb2e37fb1aeae88498888629e1b82a6ca9b",
+    "tests/sports_stage3_downstream_workflow_test.py": "3d19490b9a312df2df36e0219903b200c3986e7897242a0b55146bb749a73efe",
+    "tests/sports_stage3_executable_artifact_test.py": "d31ab96f90a9dcc51dff74ecb8bf4933de9e98ddfa2b448f65d1ad450b77b166",
+    "tests/sports_stage3_feature_engineering_test.py": "ba4ed4311dba477797d5e19db6bca9f8e181520a864c0f31dd34c0d4db43c680",
+    "tests/sports_stage3_full_model_development_lab_test.py": "1e053d351af33e74ffb552b47eb92e8bfb82a321746f733416e9595f14414b6b",
+    "tests/sports_stage3_game_scoring_test.py": "a9ba2802ffcad29d1849624906741f91fe896f64d4cab34b86c57fed06261f5d",
+    "tests/sports_stage3_project_eda_test.py": "a872634f926e166a5b3e51a7d2532b3fef41714898cb3115e039e90b4555005c",
+    "tests/sports_stage3_project_model_laboratory_test.py": "ebca9c382e10b09b6c4c79759037723b741621226953df35ca8588fa11beaf27",
+    "tests/sports_stage3_split_balance_test.py": "b8bcf0e4816869fe38dddf052445e795b526624c6831d279bc5d972fd1c6e693",
+    "tests/sports_stage3_treatments_test.py": "4c3edfd9293777ad76920d222b650a7c1d69af170cc9ef150bbc3bfb0ecc61e7",
+    "tests/tenantStage3RouteProjectHandoff.test.mjs": "040983b2052edf46987db4306ccf551cf5cb11f9b1746ad15ed992d22106ffcf"
+  },
+  "focusedBackend": {
+    "passed": 42,
+    "failed": 0,
+    "receipt": "workflow-focused-probes.json",
+    "notAdditiveWithFullBackendSuite": true
+  },
+  "regressionProbes": {
+    "artifactBase": {
+      "passed": 4,
+      "failed": 3
+    },
+    "artifactCandidate": {
+      "passed": 7,
+      "failed": 0
+    },
+    "cacheBase": {
+      "passed": 0,
+      "failed": 3
+    },
+    "cacheCandidate": {
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "frontend": {
+    "enumeratedFiles": 165,
+    "executedFiles": 163,
+    "fileStatusCounts": {
+      "PASS": 112,
+      "ASSERTION_OR_RUNTIME_FAILURE": 43,
+      "DEPENDENCY_UNAVAILABLE": 7,
+      "SAFETY_GUARD_BLOCKED": 1
+    },
+    "namedTestTotals": {
+      "tests": 1153,
+      "passed": 1097,
+      "failed": 56,
+      "skipped": 0
+    },
+    "excluded": {
+      "bureauReviewAutomaticDetection.browser.test.mjs": "REQUIRES_SEPARATE_ISOLATED_BROWSER_BUILD_FIXTURE",
+      "hermetic_node_guard.test.mjs": "REQUIRES_HERMETIC_CHILD_DEPENDENCY_HASH_ENVIRONMENT"
+    },
+    "candidateNonpassFilesRecheckedAgainstExactBase": 51,
+    "introducedNamedFailures": 0,
+    "changedNormalizedFailureReasons": 0,
+    "topLevelAbortFilesWithLaterAssertionsUnreached": 16,
+    "receipt": "frontend-suite-comparison.json",
+    "limitation": "No introduced observed failure is not equivalent to a clean full suite; prerequisite/import/guard failures prevent some later assertions."
+  },
+  "build": {
+    "status": "PASS",
+    "command": "npm run build (tsc -b && vite build --mode modeling)",
+    "apiBase": "/api",
+    "modulesTransformed": 2337,
+    "mainAsset": "dist/assets/main-C4SfSlYd.js",
+    "mainSha256": "dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520",
+    "indexSha256": "9651d83539c47dca88e31190f9114c3ab3e14b60047bb63ec4fc371fbba710bc",
+    "warnings": [
+      "Large main bundle",
+      "Outdated browser compatibility metadata",
+      "PaModelingCockpit mixed static/dynamic imports"
+    ],
+    "toolReceipt": "exec session 95986; final build completion recorded"
+  },
+  "projectMetadata": {
+    "challengerTreatmentStatus": "DRAFT",
+    "developmentRows": 683662,
+    "finalOotRows": 14067,
+    "finalOotLocked": true,
+    "authenticatedPriorFeatureCounts": {
+      "V1": 11,
+      "V2": 10,
+      "retired": 3,
+      "blocked": 0
+    },
+    "wave2FoldAuthorities": 5,
+    "historicalPilotReadView": {
+      "status": "ADOPTED_REGISTERED_HISTORY",
+      "sealedRunReceipts": 5,
+      "optInOnly": true,
+      "verifiedWithoutGoldPartitionReads": true
+    },
+    "sourceReceipt": "Independent metadata-probe.json and canonical-resolver-independent-verification.json"
+  },
+  "knownLimitations": [
+    "Primary protected checkout has not been integrated with this repair; canonical publication is separate from deployment.",
+    "Registered ready-project control flow is preserved. Actual pilot live-control browser verification is not performed because the existing EDA resolver opens and hashes Gold partitions containing final-OOT data.",
+    "Historical view authenticates sealed metadata and receipts; row-derived feature-universe compatibility was not recomputed.",
+    "New executable-artifact production supports XGBoost only and derives each project science from its accepted receipt; other families fail closed.",
+    "Game scoring remains blocked without governed lineup/starter authority.",
+    "Overall security readiness is determined by the parent report; pending auth/security patch approval is not resolved by these workflow tests."
+  ]
+}

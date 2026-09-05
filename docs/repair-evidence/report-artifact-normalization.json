@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "ASP_REPAIR_JUNIT_TEXT_NORMALIZATION_V1",
+  "change": "Removed trailing whitespace after six otherwise-empty pytest E-lines in each copied JUnit XML. No outcome, element or attribute changed; original runner reports preserved.",
+  "reports": [
+    {
+      "report": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\tenant-stage3-repair-v1\\full-backend-baseline.xml",
+      "rawRunnerReport": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-repair-full-backend-13dbdd5c26184defa68376a8c63ad757\\baseline-5\\reports\\full-backend.xml",
+      "rawSha256": "27b3cee1e74c16fce9584c560475571e87cd68822c4e0062a19094a6cc95f339",
+      "normalizedSha256": "617707f0e9a87930fca22d0f16cae02a876560dbe4cfdd5b3184983604d764fa",
+      "linesNormalized": 6,
+      "caseAndSuiteElementsAndAttributesUnchanged": true
+    },
+    {
+      "report": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\docs\\tenant-stage3-repair-v1\\full-backend-candidate.xml",
+      "rawRunnerReport": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-repair-full-backend-13dbdd5c26184defa68376a8c63ad757\\candidate-2\\reports\\full-backend.xml",
+      "rawSha256": "7190d228e38353994dc89fcbecf460b70d757a305276e20baff38cbd844440ef",
+      "normalizedSha256": "2ab3d75ed9a94f6581236cce90d576b00313c0f8e005d3e0fdb033aed0f47bea",
+      "linesNormalized": 6,
+      "caseAndSuiteElementsAndAttributesUnchanged": true
+    }
+  ]
+}

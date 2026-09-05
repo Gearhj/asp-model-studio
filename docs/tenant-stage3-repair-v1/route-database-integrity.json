@@ -1,0 +1,13 @@
+{
+  "schema": "ASP_ROUTE_TEST_DATABASE_INTEGRITY_V1",
+  "databases": [
+    {
+      "path": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-route-final-9d3b19042da84bd2b6b322a80f3ec727\\pytest\\four-project-db0\\projects.db",
+      "integrityCheck": [
+        "ok"
+      ],
+      "foreignKeyViolations": 0
+    }
+  ],
+  "operationalDatabasesOpened": 0
+}

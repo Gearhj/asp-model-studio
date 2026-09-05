@@ -1,0 +1,261 @@
+{
+  "schemaVersion": "ASP_REPAIR_PROTECTED_STATE_V1",
+  "capturedAt": "2026-09-05T19:11:29.270476+00:00",
+  "scope": "Primary Model Studio logical database tables and immutable prior/parent JSON evidence",
+  "beforeCapturedAt": "2026-09-05T18:24:58.783612+00:00",
+  "afterCapturedAt": "2026-09-05T19:07:40.123813+00:00",
+  "before": {
+    "active_modeling_dataset_versions": {
+      "rows": 2,
+      "sha256": "4a6fb19a428f3ec7cff6a137dfab49597d4953ae3ff3ddb85de1c374adaad4a4"
+    },
+    "candidate_selection_decisions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "export_artifacts": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "holdout_exposures": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "model_versions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "models": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_collaborators": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_dataset_activation_events": {
+      "rows": 4,
+      "sha256": "3a489e326f0f3e7beca9f4a8738473cc6e12c91c06a72e9f602651ac851bf4f3"
+    },
+    "project_dataset_links": {
+      "rows": 2,
+      "sha256": "a3237c161eb78aeee4dd02c7f79b5f4f056f1d32fc4c5fbe5444ec24b22e4610"
+    },
+    "projects": {
+      "rows": 5,
+      "sha256": "e6c167ed37e2cc5850dc6374a39269131e786dd4ec0803b4cbf1a8f4de9034c9"
+    },
+    "resource_permissions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "run_records": {
+      "rows": 30,
+      "sha256": "910f0a677980c3cff654649517854a1f60d16822472229b54801529cbaa11f66"
+    },
+    "schema_migrations": {
+      "rows": 38,
+      "sha256": "5e75ecd1ab667d68e15df7e469d1ef8ea0e2793544508eaa2ec9822b66e4e1e5"
+    },
+    "sports_dataset_partitions": {
+      "rows": 1122,
+      "sha256": "a2167ca1aee014b56f7129f460a68b8f2331be50a404100f0b96ab54e0bd96b0"
+    },
+    "sports_dataset_query_audit": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sports_dataset_registrations": {
+      "rows": 6,
+      "sha256": "4da4e9057fd62731428019be6b47a85639fdcc5bdc5216a59e79b971e11ceaf0"
+    },
+    "stage3_feature_set_events": {
+      "rows": 6,
+      "sha256": "e8d7713044caac2455df3c80d7131cc99fc5df8a258637b13a652f73e40b1ed6"
+    },
+    "stage3_feature_set_versions": {
+      "rows": 6,
+      "sha256": "6e2126cb576bc2d6ced2feb2bb70bc3b2c62c52022179882a8c4f52acc35f664"
+    },
+    "stage3_feature_treatment_spec_events": {
+      "rows": 8,
+      "sha256": "70d1dc58a822841bfb6d75d752be861bf74ad8bd65ad62dc534d3e310b0ab76c"
+    },
+    "stage3_feature_treatment_spec_versions": {
+      "rows": 8,
+      "sha256": "427876680c0514e241c0309498117a04fa9a0f80189001e9e509f91311a1c0f3"
+    },
+    "stage3_predicted_imputation_preview_events": {
+      "rows": 4,
+      "sha256": "66679f30bd2c1ffc2556249006b966047ee2ee79e752c87b7cce907a004c85cb"
+    },
+    "stage3_predicted_imputation_previews": {
+      "rows": 1,
+      "sha256": "1fdafd4a42906a7104916b9c3cf5b851ebbbe97b3133e92de69c68b5ab923497"
+    },
+    "stage3_split_contract_events": {
+      "rows": 2,
+      "sha256": "2676ce40d3237e259cb4c75527390cd0a951244249781644991092fd5e9d3548"
+    },
+    "stage3_split_contract_feature_sets": {
+      "rows": 6,
+      "sha256": "c72aadb299a66be054e4261e88a0915ccddcc9311e70991a3879e54be37f71f2"
+    },
+    "stage3_split_contract_versions": {
+      "rows": 2,
+      "sha256": "a1979af61822d469dbfb323db652da65c907f28e0d3683083b0e6b6468db2d02"
+    },
+    "stage3_treatment_policy_events": {
+      "rows": 40,
+      "sha256": "2bd9f532e5c5c9f95212057084de75009f9315a9c00501242fa347305f75bb97"
+    },
+    "stage3_treatment_policy_versions": {
+      "rows": 23,
+      "sha256": "6bc592b10e47df30c99971df7804eca0f031828f870b2f0ff8fb29e1ab5c8fc0"
+    },
+    "workflow_state": {
+      "rows": 5,
+      "sha256": "90e5a6345e9d8b78482fca717491c374d956fe902c23e151662c55e6efb348e8"
+    }
+  },
+  "after": {
+    "active_modeling_dataset_versions": {
+      "rows": 2,
+      "sha256": "4a6fb19a428f3ec7cff6a137dfab49597d4953ae3ff3ddb85de1c374adaad4a4"
+    },
+    "candidate_selection_decisions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "export_artifacts": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "holdout_exposures": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "model_versions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "models": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_collaborators": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project_dataset_activation_events": {
+      "rows": 4,
+      "sha256": "3a489e326f0f3e7beca9f4a8738473cc6e12c91c06a72e9f602651ac851bf4f3"
+    },
+    "project_dataset_links": {
+      "rows": 2,
+      "sha256": "a3237c161eb78aeee4dd02c7f79b5f4f056f1d32fc4c5fbe5444ec24b22e4610"
+    },
+    "projects": {
+      "rows": 5,
+      "sha256": "e6c167ed37e2cc5850dc6374a39269131e786dd4ec0803b4cbf1a8f4de9034c9"
+    },
+    "resource_permissions": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "run_records": {
+      "rows": 30,
+      "sha256": "910f0a677980c3cff654649517854a1f60d16822472229b54801529cbaa11f66"
+    },
+    "schema_migrations": {
+      "rows": 38,
+      "sha256": "5e75ecd1ab667d68e15df7e469d1ef8ea0e2793544508eaa2ec9822b66e4e1e5"
+    },
+    "sports_dataset_partitions": {
+      "rows": 1122,
+      "sha256": "a2167ca1aee014b56f7129f460a68b8f2331be50a404100f0b96ab54e0bd96b0"
+    },
+    "sports_dataset_query_audit": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sports_dataset_registrations": {
+      "rows": 6,
+      "sha256": "4da4e9057fd62731428019be6b47a85639fdcc5bdc5216a59e79b971e11ceaf0"
+    },
+    "stage3_feature_set_events": {
+      "rows": 6,
+      "sha256": "e8d7713044caac2455df3c80d7131cc99fc5df8a258637b13a652f73e40b1ed6"
+    },
+    "stage3_feature_set_versions": {
+      "rows": 6,
+      "sha256": "6e2126cb576bc2d6ced2feb2bb70bc3b2c62c52022179882a8c4f52acc35f664"
+    },
+    "stage3_feature_treatment_spec_events": {
+      "rows": 8,
+      "sha256": "70d1dc58a822841bfb6d75d752be861bf74ad8bd65ad62dc534d3e310b0ab76c"
+    },
+    "stage3_feature_treatment_spec_versions": {
+      "rows": 8,
+      "sha256": "427876680c0514e241c0309498117a04fa9a0f80189001e9e509f91311a1c0f3"
+    },
+    "stage3_predicted_imputation_preview_events": {
+      "rows": 4,
+      "sha256": "66679f30bd2c1ffc2556249006b966047ee2ee79e752c87b7cce907a004c85cb"
+    },
+    "stage3_predicted_imputation_previews": {
+      "rows": 1,
+      "sha256": "1fdafd4a42906a7104916b9c3cf5b851ebbbe97b3133e92de69c68b5ab923497"
+    },
+    "stage3_split_contract_events": {
+      "rows": 2,
+      "sha256": "2676ce40d3237e259cb4c75527390cd0a951244249781644991092fd5e9d3548"
+    },
+    "stage3_split_contract_feature_sets": {
+      "rows": 6,
+      "sha256": "c72aadb299a66be054e4261e88a0915ccddcc9311e70991a3879e54be37f71f2"
+    },
+    "stage3_split_contract_versions": {
+      "rows": 2,
+      "sha256": "a1979af61822d469dbfb323db652da65c907f28e0d3683083b0e6b6468db2d02"
+    },
+    "stage3_treatment_policy_events": {
+      "rows": 40,
+      "sha256": "2bd9f532e5c5c9f95212057084de75009f9315a9c00501242fa347305f75bb97"
+    },
+    "stage3_treatment_policy_versions": {
+      "rows": 23,
+      "sha256": "6bc592b10e47df30c99971df7804eca0f031828f870b2f0ff8fb29e1ab5c8fc0"
+    },
+    "workflow_state": {
+      "rows": 5,
+      "sha256": "90e5a6345e9d8b78482fca717491c374d956fe902c23e151662c55e6efb348e8"
+    }
+  },
+  "unchanged": true,
+  "integrityBefore": [
+    "ok"
+  ],
+  "integrityAfter": [
+    "ok"
+  ],
+  "sourcePriorFilesPreserved": 40,
+  "sourcePriorInventoryUnchanged": true,
+  "goldManifest": {
+    "path": "C:\\Users\\james\\asp-data-staging\\mlb-current-statcast-gold-v1\\publications\\sha256\\67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758\\manifest.json",
+    "bytes": 13511,
+    "sha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758"
+  },
+  "companionManifest": {
+    "path": "C:\\Users\\james\\asp-data-staging\\mlb-current-statcast-gold-v1\\sufficient-statistics\\publications\\sha256\\98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33\\manifest.json",
+    "bytes": 20647,
+    "sha256": "98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33"
+  },
+  "authoritativeChanges": {
+    "canonicalPriorObjectsCreated": 9,
+    "canonicalPriorLocatorCreated": true,
+    "databaseRecordsChanged": 0,
+    "sourceFilesChanged": 0,
+    "goldMutations": 0
+  }
+}

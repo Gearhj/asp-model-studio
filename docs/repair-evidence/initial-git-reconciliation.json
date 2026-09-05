@@ -1,0 +1,69 @@
+{
+  "activeTargetProcesses": [],
+  "newWorktree": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "auditHead": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+  "main": "924db29511f93909f9d785855bfa056775443690",
+  "existingWorktrees": [
+    "worktree C:/Users/james/asp-model-studio",
+    "HEAD 33cd85fa5074efeec3077036baea9c8b2ef86bdf",
+    "branch refs/heads/codex/mlb-governed-prior-engine-v1",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-interaction-authority-v1",
+    "HEAD 09006653b3f1714574a88efca8650d4f967ab3cd",
+    "branch refs/heads/codex/mlb-interaction-authority-v1",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-player-prior-wave2",
+    "HEAD bff19a8a657bc96dea0469fad481acdcb4234386",
+    "branch refs/heads/codex/mlb-player-prior-wave2",
+    "",
+    "worktree C:/Users/james/asp-model-studio/.tmp/asp-remaining-feature-authority-wave1",
+    "HEAD 64a74be89b029adc013e118b14aad75e3ddc0232",
+    "branch refs/heads/codex/mlb-remaining-feature-authority-wave1",
+    "",
+    "worktree C:/Users/james/worktrees/asp-model-studio-fable51-audit",
+    "HEAD 3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+    "branch refs/heads/claude/fable51-model-studio-security-ml-integrity-audit",
+    "",
+    "worktree C:/Users/james/worktrees/asp-remaining-authority-audit",
+    "HEAD 056aca14c5dfa959b244cf629bc12fca7a5e9186",
+    "branch refs/heads/claude/mlb-remaining-feature-authority-audit",
+    ""
+  ],
+  "initialStatuses": [
+    {
+      "status": [],
+      "head": "33cd85fa5074efeec3077036baea9c8b2ef86bdf",
+      "root": "C:/Users/james/asp-model-studio"
+    },
+    {
+      "status": [],
+      "head": "09006653b3f1714574a88efca8650d4f967ab3cd",
+      "root": "C:/Users/james/asp-model-studio/.tmp/asp-interaction-authority-v1"
+    },
+    {
+      "status": [],
+      "head": "bff19a8a657bc96dea0469fad481acdcb4234386",
+      "root": "C:/Users/james/asp-model-studio/.tmp/asp-player-prior-wave2"
+    },
+    {
+      "status": [],
+      "head": "64a74be89b029adc013e118b14aad75e3ddc0232",
+      "root": "C:/Users/james/asp-model-studio/.tmp/asp-remaining-feature-authority-wave1"
+    },
+    {
+      "status": [],
+      "head": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+      "root": "C:/Users/james/worktrees/asp-model-studio-fable51-audit"
+    },
+    {
+      "status": [],
+      "head": "056aca14c5dfa959b244cf629bc12fca7a5e9186",
+      "root": "C:/Users/james/worktrees/asp-remaining-authority-audit"
+    }
+  ],
+  "newBranch": "codex/model-studio-tenant-workflow-repair-v1",
+  "capturedAt": "2026-09-05T18:17:55.8543456Z",
+  "appTaskCheck": "No other active Codex task for the intended branch/worktree was listed",
+  "auditDeltaDocsOnly": true,
+  "requiredBase": "bff19a8a657bc96dea0469fad481acdcb4234386"
+}

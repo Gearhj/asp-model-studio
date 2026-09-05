@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "ASP_REPAIR_SCIENTIFIC_BOUNDARIES_V1",
+  "scope": "Authoritative projects and operational data; disposable synthetic tests are separately labelled",
+  "finalOotOpens": 0,
+  "finalOotTargetReads": 0,
+  "targetColumnsRead": [],
+  "holdoutExposureRowsBefore": 0,
+  "holdoutExposureRowsAfter": 0,
+  "datasetQueryAuditRowsBefore": 0,
+  "datasetQueryAuditRowsAfter": 0,
+  "publicationGuardViolations": [],
+  "earlierMetadataProbe": {
+    "blockedRowFileOpenAttempts": 1,
+    "actualRowFileOpens": 0,
+    "explanation": "The first authority probe attempted the old EDA path. The audit hook rejected a Parquet open before it happened. It was replaced with authenticated metadata-only resolution."
+  },
+  "predictiveFits": 0,
+  "tuningRuns": 0,
+  "scoringRuns": 0,
+  "calibrations": 0,
+  "modelPromotions": 0,
+  "championMutations": 0,
+  "featureSetRegistrations": 0,
+  "treatmentPolicyAdoptions": 0,
+  "providerCalls": 0,
+  "currentGoldMutations": 0,
+  "newAuthoritativeScienceIdentities": 0,
+  "treatmentState": "DRAFT",
+  "rivalryActivated": false,
+  "verificationLimits": "Logical database and JSON metadata checks do not certify service deployment. Final acceptance also requires the isolated test/browser receipts."
+}

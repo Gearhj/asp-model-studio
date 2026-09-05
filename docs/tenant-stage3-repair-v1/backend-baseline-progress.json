@@ -1,0 +1,13 @@
+{
+  "schema": "ASP_FULL_BACKEND_BASELINE_PROGRESS_V1",
+  "status": "BASELINE_AND_CANDIDATE_COMPLETED_WITH_CLASSIFIED_NONPASSES",
+  "timestamp": "2026-09-05T20:18:14.433470+00:00",
+  "base": "bff19a8a657bc96dea0469fad481acdcb4234386",
+  "finalBaselineReceipt": "full-backend-baseline.json",
+  "finalComparisonReceipt": "full-backend-comparison.json",
+  "commonOutcomesChanged": 0,
+  "commonNormalizedReasonsChanged": 0,
+  "addedPasses": 393,
+  "addedHarnessConstraints": 3,
+  "laterCatalogFollowupPasses": 8
+}

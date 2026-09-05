@@ -1,0 +1,38 @@
+{
+  "schema": "ASP_STAGE3_F006_ADVERSARIAL_RECEIPT_V1",
+  "baseline": {
+    "finding": "F-006",
+    "base": "bff19a8a657bc96dea0469fad481acdcb4234386",
+    "projects": 4,
+    "requestActor": "user-a",
+    "requestedProject": "user-b-project-1",
+    "status": 200,
+    "unscopedSyntheticDataReached": true,
+    "realDataReads": 0,
+    "modelFits": 0,
+    "database": "disposable"
+  },
+  "candidate": {
+    "focusedTests": 338,
+    "focusedPassed": 338,
+    "existingGen3AclPassed": 3,
+    "existingGen3AclSkipped": 2,
+    "existingArtifactRouterPassed": 2,
+    "crossUserHttpProbes": 180,
+    "anonymousHttpProbes": 90,
+    "configurationAndSupportForeignUserProbes": 20,
+    "concurrentUsers": 2,
+    "projectsPerUser": 2,
+    "providerCalls": 0,
+    "realDataReads": 0,
+    "modelFits": 0,
+    "finalOotReads": 0
+  },
+  "limitations": [
+    "Existing Gen3 runtime-dependent tests skipped because no real Gen3 objects were copied; all new authority tests use synthetic records."
+  ],
+  "testReceipts": [
+    "route-results.xml",
+    "tamper-results.xml"
+  ]
+}

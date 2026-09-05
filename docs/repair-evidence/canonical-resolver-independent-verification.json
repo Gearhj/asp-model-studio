@@ -1,0 +1,79 @@
+{
+  "status": "PASS",
+  "codeRoot": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1",
+  "metadataDatabase": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\persistence\\asp_model_studio.db",
+  "canonicalPriorRoot": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\stage3-player-prior-authorities-v2",
+  "priorAuthority": {
+    "status": "AUTHENTICATED",
+    "wave2": {
+      "authorityId": "MLB_PLAYER_STATE_PRIOR_AUTHORITY_V2:sha256:9d9cfaf34f87be67f7d3ab2b8b024d83a6fc5e8abe0dde8de7be0866f1b8366e",
+      "authorityChecksum": "9d9cfaf34f87be67f7d3ab2b8b024d83a6fc5e8abe0dde8de7be0866f1b8366e",
+      "foldAuthorities": [
+        {
+          "foldNumber": null,
+          "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:GOVERNED_CHRONOLOGICAL_FOLD_1:sha256:0d35d54561459534e73edb7a63271e133b64782a6ed459838a37f19243fbf4c6",
+          "fittedChecksum": "0d35d54561459534e73edb7a63271e133b64782a6ed459838a37f19243fbf4c6"
+        },
+        {
+          "foldNumber": null,
+          "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:GOVERNED_CHRONOLOGICAL_FOLD_2:sha256:6d0b453ec2cb1eaaa8044918ff3d13f3e883bf725407c16af92c17cc1b533c15",
+          "fittedChecksum": "6d0b453ec2cb1eaaa8044918ff3d13f3e883bf725407c16af92c17cc1b533c15"
+        },
+        {
+          "foldNumber": null,
+          "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:GOVERNED_CHRONOLOGICAL_FOLD_3:sha256:13aa1f8c2e14db935250b84be5c297e15654d619627563503c4bb50323356d6c",
+          "fittedChecksum": "13aa1f8c2e14db935250b84be5c297e15654d619627563503c4bb50323356d6c"
+        },
+        {
+          "foldNumber": null,
+          "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:GOVERNED_CHRONOLOGICAL_FOLD_4:sha256:5b5524d092cc7868fd5c32750a6d8555783a989c559adeeeb3bad9b36b69f3e4",
+          "fittedChecksum": "5b5524d092cc7868fd5c32750a6d8555783a989c559adeeeb3bad9b36b69f3e4"
+        },
+        {
+          "foldNumber": null,
+          "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:GOVERNED_CHRONOLOGICAL_FOLD_5:sha256:599ad47c6ec704d349f4c766260070d4d423b27ddee404cb33ebb98b1608f2af",
+          "fittedChecksum": "599ad47c6ec704d349f4c766260070d4d423b27ddee404cb33ebb98b1608f2af"
+        }
+      ],
+      "finalDevelopmentAuthority": {
+        "fittedId": "MLB_PLAYER_STATE_FITTED_PRIOR_V2:FINAL_DEVELOPMENT:sha256:5ae0f9f560f83935e1f89440657ac4080afc33ac3318c3c2c8e50656a9eee526",
+        "fittedChecksum": "5ae0f9f560f83935e1f89440657ac4080afc33ac3318c3c2c8e50656a9eee526"
+      }
+    },
+    "v1": {
+      "authorityId": "MLB_PLAYER_STATE_PRIOR_AUTHORITY_V2:sha256:9d9cfaf34f87be67f7d3ab2b8b024d83a6fc5e8abe0dde8de7be0866f1b8366e",
+      "authorityChecksum": "9d9cfaf34f87be67f7d3ab2b8b024d83a6fc5e8abe0dde8de7be0866f1b8366e",
+      "readyV1FeatureCount": 11,
+      "readyV2FeatureCount": 10,
+      "retiredFeatureCount": 3,
+      "blockedFeatureCount": 0
+    },
+    "featureCounts": {
+      "readyGovernedPriorV1": 11,
+      "readyGovernedPriorV2": 10,
+      "retiredByScientificDecision": 3
+    },
+    "source": "IMMUTABLE_PROJECT_TREATMENT_RECEIPT_AND_CONTENT_ADDRESSED_PRIOR"
+  },
+  "population": {
+    "scope": "DEVELOPMENT_ONLY",
+    "developmentRows": 683662,
+    "startDate": "2023-03-30",
+    "endDate": "2026-08-13",
+    "finalOotRows": 14067,
+    "finalOotStartDate": "2026-08-14",
+    "finalOotEndDate": "2026-08-27",
+    "finalOotLocked": true,
+    "finalOotTargetsMaterialized": false
+  },
+  "treatment": {
+    "status": "DRAFT",
+    "canAdopt": false,
+    "adoptionPerformed": false
+  },
+  "guardViolations": [],
+  "operationalWrites": 0,
+  "finalOotOpens": 0,
+  "providerCalls": 0,
+  "operationalProcessUpdated": false
+}

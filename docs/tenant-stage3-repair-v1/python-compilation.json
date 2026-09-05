@@ -1,0 +1,39 @@
+{
+  "schema": "ASP_ROUTE_COMPILATION_RECEIPT_V1",
+  "files": [
+    {
+      "path": "server/core/modeling_scope.py",
+      "sha256": "4b2c6cd72b497ec61fea862131f94f11293ee3a4acac8582a7e94028af58e99d",
+      "compile": "PASS"
+    },
+    {
+      "path": "server/persistence/persistence_router.py",
+      "sha256": "0f0054915649c54ce4c8cfeea3a49bae426f14a4678e31dad1d5c13ba2031491",
+      "compile": "PASS"
+    },
+    {
+      "path": "server/sports_cockpit/router.py",
+      "sha256": "ecc2229c38d68a9adfc4c16ae9d82675ffe96c556f11298280e486429785b52f",
+      "compile": "PASS"
+    },
+    {
+      "path": "server/sports_cockpit/engine.py",
+      "sha256": "e58dc15ff255f8423245bb5447790805356b1052aac9fff221db478f4498ada7",
+      "compile": "PASS"
+    },
+    {
+      "path": "server/sports_cockpit/gen3_authority.py",
+      "sha256": "1c1754834ebe90addd53025cf28202664e199de86eba7897fba357d162b418c5",
+      "compile": "PASS"
+    },
+    {
+      "path": "tests/tenant_stage3_route_authorization_test.py",
+      "sha256": "24da9a511636c878c5b0d37dfa8f2fa2c40735a56b0c7cfefe88e8cd08dec63f",
+      "compile": "PASS"
+    }
+  ],
+  "bytecodeRoot": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-route-compile-xnaognxp",
+  "applicationImports": 0,
+  "diffCheckExitCode": 0,
+  "diffCheckOutput": ""
+}

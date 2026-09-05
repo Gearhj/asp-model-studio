@@ -1,0 +1,4283 @@
+{
+  "checks": [
+    {
+      "name": "real_cookie_login_admin",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_admin_preserves_deep_link",
+      "pass": true,
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_modellab_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "modellab",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_modellab_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_modellab_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_modellab_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_evaluation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "evaluation",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_evaluation_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_evaluation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_evaluation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_refinement_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "refinement",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_refinement_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_refinement_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refinement_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_calibration_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "calibration",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_calibration_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_calibration_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_calibration_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_simulation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "simulation",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_simulation_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_simulation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_simulation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_champion_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "champion",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_champion_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_champion_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_champion_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_registry_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "registry",
+      "viewport": "1920x1080",
+      "layout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_registry_title",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_asp-mtlozhdx_registry_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_population",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_registry_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_navigation_click_evaluation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1920x1080_navigation_click_refinement_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1920x1080_navigation_click_calibration_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1920x1080_navigation_click_simulation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1920x1080_navigation_click_champion_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1920x1080_navigation_click_registry_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1920x1080_previous_click_returns_to_champion",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_refresh_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_back_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_forward_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_navigator_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "1920x1080_authority_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_admin",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_admin_preserves_deep_link",
+      "pass": true,
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_modellab_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "modellab",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_modellab_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_modellab_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_modellab_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_evaluation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "evaluation",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_evaluation_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_evaluation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_evaluation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_refinement_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "refinement",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_refinement_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_refinement_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refinement_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_calibration_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "calibration",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_calibration_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_calibration_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_calibration_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_simulation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "simulation",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_simulation_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_simulation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_simulation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_champion_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "champion",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_champion_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_champion_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_champion_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_registry_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "registry",
+      "viewport": "1024x768",
+      "layout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_registry_title",
+      "pass": true
+    },
+    {
+      "name": "1024x768_asp-mtlozhdx_registry_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_population",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "1024x768_registry_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "1024x768_navigation_click_evaluation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1024x768_navigation_click_refinement_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1024x768_navigation_click_calibration_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "1024x768_navigation_click_simulation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1024x768_navigation_click_champion_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1024x768_navigation_click_registry_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "1024x768_previous_click_returns_to_champion",
+      "pass": true
+    },
+    {
+      "name": "1024x768_refresh_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1024x768_back_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1024x768_forward_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "1024x768_navigator_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "1024x768_authority_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_admin",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_admin_preserves_deep_link",
+      "pass": true,
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_modellab_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "modellab",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_modellab_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_modellab_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_modellab_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_evaluation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "evaluation",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_evaluation_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_evaluation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_evaluation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_refinement_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "refinement",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_refinement_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_refinement_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_refinement_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_calibration_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "calibration",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_calibration_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_calibration_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_calibration_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_simulation_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "simulation",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_simulation_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_simulation_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_simulation_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_champion_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "champion",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_champion_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_champion_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_champion_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_registry_project_binding",
+      "pass": true,
+      "project": "asp-mtlozhdx",
+      "step": "registry",
+      "viewport": "390x844",
+      "layout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_registry_title",
+      "pass": true
+    },
+    {
+      "name": "390x844_asp-mtlozhdx_registry_no_document_horizontal_overflow",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_correct_project_name",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_draft_preserved",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_population",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_prior_authenticated",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_disabled_action_has_reason",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_primary_action_not_horizontally_clipped",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_disabled_reason_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_exact_bundle_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_exact_final_development_visible",
+      "pass": true
+    },
+    {
+      "name": "390x844_registry_no_pilot_candidate_leak",
+      "pass": true
+    },
+    {
+      "name": "390x844_navigation_click_evaluation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "390x844_navigation_click_refinement_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "390x844_navigation_click_calibration_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "next_footer"
+    },
+    {
+      "name": "390x844_navigation_click_simulation_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "390x844_navigation_click_champion_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "390x844_navigation_click_registry_preserves_project_and_step",
+      "pass": true,
+      "navigationMode": "workflow_drawer"
+    },
+    {
+      "name": "390x844_previous_click_returns_to_champion",
+      "pass": true
+    },
+    {
+      "name": "390x844_refresh_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "390x844_back_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "390x844_forward_preserves_project",
+      "pass": true
+    },
+    {
+      "name": "390x844_navigator_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "390x844_authority_escape_restores_focus",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_alpha",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_alpha_preserves_deep_link",
+      "pass": true,
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "name": "ordinary_alpha_entitled_challenger",
+      "pass": true
+    },
+    {
+      "name": "simultaneous_beta_real_login",
+      "pass": true
+    },
+    {
+      "name": "simultaneous_cookie_sessions_remain_separate",
+      "pass": true
+    },
+    {
+      "name": "ordinary_alpha_nonmember_pilot_denied",
+      "pass": true
+    },
+    {
+      "name": "nonmember_pilot_browser_no_candidates",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_beta",
+      "pass": true
+    },
+    {
+      "name": "real_cookie_login_beta_preserves_deep_link",
+      "pass": true,
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=evaluation",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=evaluation"
+    },
+    {
+      "name": "same_browser_beta_cannot_see_alpha_challenger",
+      "pass": true
+    },
+    {
+      "name": "ordinary_beta_challenger_denied",
+      "pass": true
+    },
+    {
+      "name": "no_eda_or_row_route_requested",
+      "pass": true
+    },
+    {
+      "name": "no_placeholder_project_request",
+      "pass": true
+    },
+    {
+      "name": "no_external_application_requests",
+      "pass": true
+    },
+    {
+      "name": "no_page_script_errors",
+      "pass": true
+    },
+    {
+      "name": "no_console_errors_during_entitled_navigation",
+      "pass": true
+    }
+  ],
+  "screenshots": [
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_modellab.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_evaluation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_refinement.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_calibration.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_simulation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_champion.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_asp-mtlozhdx_registry.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_navigator.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1920x1080_authority.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_modellab.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_evaluation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_refinement.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_calibration.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_simulation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_champion.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_asp-mtlozhdx_registry.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_navigator.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\1024x768_authority.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_modellab.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_evaluation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_refinement.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_calibration.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_simulation.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_champion.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_asp-mtlozhdx_registry.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_navigator.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\390x844_authority.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\ordinary_alpha_denied_pilot.png",
+    "C:\\Users\\james\\.codex\\visualizations\\2026\\09\\05\\01a07207-5300-7111-93e9-eb8006555c9b\\browser-acceptance-d5cb085eab6e\\browser\\ordinary_beta_denied_challenger.png"
+  ],
+  "network": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/forecast-contract",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/evidence-dataset",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/sports/stage3-model-laboratory/summary",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtddc6pw",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtddc6pw/workflow-state",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx",
+      "status": 403
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/asp-mtlozhdx/workflow-state",
+      "status": 403
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": "http://127.0.0.1:55946/api/auth/me"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": "http://127.0.0.1:55946/api/auth/me"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": "http://127.0.0.1:55946/api/auth/me"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": "http://127.0.0.1:55946/api/auth/me"
+    },
+    {
+      "phase": "intentional_denial_checks",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "location": "http://127.0.0.1:55946/api/projects/asp-mtddc6pw"
+    },
+    {
+      "phase": "intentional_denial_checks",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "location": "http://127.0.0.1:55946/api/projects/asp-mtddc6pw/workflow-state"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "location": "http://127.0.0.1:55946/api/auth/me"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "location": "http://127.0.0.1:55946/api/projects/asp-mtlozhdx"
+    },
+    {
+      "phase": "authentication",
+      "message": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "location": "http://127.0.0.1:55946/api/projects/asp-mtlozhdx/workflow-state"
+    }
+  ],
+  "blockedRequests": [],
+  "viewports": [
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "finalLayout": {
+        "viewportWidth": 1920,
+        "documentWidth": 1920,
+        "bodyWidth": 1920,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 1806
+      }
+    },
+    {
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "finalLayout": {
+        "viewportWidth": 1024,
+        "documentWidth": 1024,
+        "bodyWidth": 1024,
+        "focusMode": "active",
+        "headerHeight": 84,
+        "canvasWidth": 918
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "finalLayout": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "bodyWidth": 390,
+        "focusMode": "active",
+        "headerHeight": 110,
+        "canvasWidth": 374
+      }
+    }
+  ],
+  "loginLandings": [
+    {
+      "user": "admin",
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "user": "admin",
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "user": "admin",
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "user": "alpha",
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=modellab"
+    },
+    {
+      "user": "beta",
+      "requested": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=evaluation",
+      "actual": "/workflows/mlb?projectId=asp-mtlozhdx&stage=3&stage3Step=evaluation"
+    }
+  ],
+  "pilotRowBasedControls": "NOT_VERIFIED: preserved existing ready flow requires forbidden row/Parquet resolution",
+  "summary": {
+    "checks": 331,
+    "passed": 331,
+    "failed": 0,
+    "exception": false,
+    "exploratory": false
+  }
+}

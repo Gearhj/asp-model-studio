@@ -1,0 +1,151 @@
+[
+  {
+    "run": "browser-acceptance-04298765068a",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-20d4d60690eb",
+    "classification": "Actual catalog integer season projection TypeError; fixed public metadata projection without changing registration/science identity."
+  },
+  {
+    "run": "browser-acceptance-340b96fa25a1",
+    "classification": "299/304 checks passed. Three focus-return assertions ran before requestAnimationFrame; fixed retrying assertion. Actual mlb-gen2 transient request and post-login dashboard redirect were subsequently fixed in product source.",
+    "summary": {
+      "checks": 304,
+      "passed": 299,
+      "failed": 5,
+      "exception": false,
+      "exploratory": false
+    },
+    "failedChecks": [
+      "1024x768_navigator_escape_restores_focus",
+      "1024x768_authority_escape_restores_focus",
+      "390x844_authority_escape_restores_focus",
+      "ordinary_alpha_entitled_challenger",
+      "no_console_errors_during_entitled_navigation"
+    ],
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-48fb93111f29",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-621915313722",
+    "classification": "98 assertions passed, then harness selector timed out: desktop uses destination labels, mobile uses Next, and three guarded stages use the navigator. Corrected selectors to actual controls; no product change.",
+    "summary": {
+      "checks": 98,
+      "passed": 98,
+      "failed": 0,
+      "exception": true,
+      "exploratory": false
+    },
+    "failedChecks": [],
+    "exceptionType": "TimeoutError",
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-87875365b4b8",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-8a58f782a0a1",
+    "classification": "Harness rejected its own scratch SQLite file URI because canonicalization was wrong; five prevented opens, no operational DB open. Fixed URI parsing.",
+    "summary": {
+      "checks": 18,
+      "passed": 6,
+      "failed": 12,
+      "exception": false,
+      "exploratory": true
+    },
+    "failedChecks": [
+      "1920x1080_asp-mtlozhdx_modellab_project_binding",
+      "1920x1080_asp-mtlozhdx_modellab_title",
+      "1920x1080_modellab_correct_project_name",
+      "1920x1080_modellab_draft_preserved",
+      "1920x1080_modellab_population",
+      "1920x1080_modellab_prior_authenticated",
+      "1920x1080_modellab_disabled_action_has_reason",
+      "1920x1080_modellab_primary_action_not_horizontally_clipped",
+      "1920x1080_modellab_disabled_reason_visible",
+      "1920x1080_refresh_preserves_project",
+      "1920x1080_back_preserves_project",
+      "1920x1080_forward_preserves_project"
+    ],
+    "guardViolationCount": 5,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-93ea12cb0a09",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-a794edd10b52",
+    "classification": "Workflow presentation autosaves were initially blocked by harness. Two exact scratch workflow-state PUT paths reviewed and authorized; science routes remained blocked.",
+    "summary": {
+      "checks": 23,
+      "passed": 22,
+      "failed": 1,
+      "exception": false,
+      "exploratory": true
+    },
+    "failedChecks": [
+      "no_console_errors_during_entitled_navigation"
+    ],
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-b3f0f149ceb7",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-c493c6f2de80",
+    "classification": "Fresh browser lacked browser-local Stage2 acceptance and could not inspect downstream metadata; fixed read-view routing exemption without adopting anything.",
+    "summary": {
+      "checks": 4,
+      "passed": 4,
+      "failed": 0,
+      "exception": true,
+      "exploratory": true
+    },
+    "failedChecks": [],
+    "exceptionType": "Error",
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-d029cb971ac9",
+    "classification": "Reproduced real authentication deep-link loss: login200 landed at dashboard. Authenticated login redirect was fixed to preserve the safe return path.",
+    "summary": {
+      "checks": 24,
+      "passed": 23,
+      "failed": 1,
+      "exception": false,
+      "exploratory": true
+    },
+    "failedChecks": [
+      "real_cookie_login_admin_preserves_deep_link"
+    ],
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-d9f5b86115ad",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit."
+  },
+  {
+    "run": "browser-acceptance-eea904fa4756",
+    "classification": "Chromium sandbox spawn EPERM; later narrow browser-process escalation approved.",
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  },
+  {
+    "run": "browser-acceptance-fc9e1e1f697f",
+    "classification": "Preparation/metadata probe only; no completed browser acceptance credit.",
+    "guardViolationCount": 0,
+    "ownedServerStopped": true
+  }
+]

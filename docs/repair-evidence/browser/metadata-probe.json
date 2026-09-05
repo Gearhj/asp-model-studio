@@ -1,0 +1,16 @@
+[
+  {
+    "projectId": "asp-mtlozhdx",
+    "treatmentStatus": "DRAFT",
+    "developmentRows": 683662,
+    "historicalRuns": 0,
+    "priorStatus": "AUTHENTICATED"
+  },
+  {
+    "projectId": "asp-mtddc6pw",
+    "treatmentStatus": "ADOPTED_REGISTERED_HISTORY",
+    "developmentRows": 683662,
+    "historicalRuns": 5,
+    "priorStatus": null
+  }
+]

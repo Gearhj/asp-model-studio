@@ -1,0 +1,50 @@
+{
+  "schema": "ASP_SEASON_CATALOG_PROJECTION_FOLLOWUP_V1",
+  "timestamp": "2026-09-05T20:05:52.756013+00:00",
+  "problem": "Valid companion season integer array was indexed as dictionaries by the catalog public projection.",
+  "change": "Exact int seasons project into year-only records; existing dict rows and order preserved; absent metrics and dates remain null; other scalar types rejected.",
+  "scope": [
+    "server/sports_datasets/registry.py",
+    "tests/sports_dataset_season_projection_test.py"
+  ],
+  "baselineBase": "bff19a8a657bc96dea0469fad481acdcb4234386",
+  "targetedResults": [
+    {
+      "source": "C:\\Users\\james\\AppData\\Local\\Temp\\asp-repair-full-backend-13dbdd5c26184defa68376a8c63ad757\\baseline-5\\source\\server\\sports_datasets\\registry.py",
+      "sourceSha256": "9772b273441c542cdea30c21723c8d22fe2f845c6cc1c04e5b21bc0cbcc875cc",
+      "exitCode": 1,
+      "summary": "2 failed, 6 passed in 0.35s",
+      "exactMethodsExtracted": [
+        "__init__",
+        "_decode_row",
+        "public_dataset"
+      ],
+      "applicationImports": 0,
+      "databaseWrites": 0,
+      "operationalDataReads": 0,
+      "providerCalls": 0,
+      "sourceNormalizedTextSha256": "615e4362d1f3455537c4f229dccf54af1f83684ebc8d7c213009532c60980f9d"
+    },
+    {
+      "source": "C:\\Users\\james\\worktrees\\asp-model-studio-tenant-workflow-repair-v1\\server\\sports_datasets\\registry.py",
+      "sourceSha256": "37514432d046e0827ce582b66e12a6dd05fb822e9becb993b8aa83c0ff3a2a6a",
+      "exitCode": 0,
+      "summary": "8 passed in 0.17s",
+      "exactMethodsExtracted": [
+        "__init__",
+        "_decode_row",
+        "public_dataset"
+      ],
+      "applicationImports": 0,
+      "databaseWrites": 0,
+      "operationalDataReads": 0,
+      "providerCalls": 0,
+      "sourceNormalizedTextSha256": "669aa0b732f13db872ced3b8fbfc10ca07bcb4b4b4b9556cf1c135e3f2b4bdb6"
+    }
+  ],
+  "fullCandidateSnapshot": "candidate-2; intentionally unchanged and does not include this later follow-up",
+  "candidateSourceSha256": "9772b273441c542cdea30c21723c8d22fe2f845c6cc1c04e5b21bc0cbcc875cc",
+  "finalSourceSha256": "37514432d046e0827ce582b66e12a6dd05fb822e9becb993b8aa83c0ff3a2a6a",
+  "noRegistrationOrScienceIdentityMutation": true,
+  "validationLimit": "Targeted tests execute exact AST methods with read-only synthetic metadata; final real application projection is separately checked by the authenticated scratch browser harness."
+}

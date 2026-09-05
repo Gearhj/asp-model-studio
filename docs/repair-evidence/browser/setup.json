@@ -1,0 +1,129 @@
+{
+  "metadataCloneIntegrity": "ok",
+  "clonedAllowlistedTables": {
+    "users": 6,
+    "projects": 5,
+    "datasets": 0,
+    "dataset_versions": 0,
+    "project_dataset_links": 2,
+    "active_modeling_dataset_versions": 2,
+    "sports_dataset_registrations": 6,
+    "sports_dataset_partitions": 1122,
+    "sports_dataset_schemas": 96,
+    "sports_dataset_populations": 12,
+    "sports_dataset_temporal_folds": 2,
+    "sports_dataset_rights": 19,
+    "sports_dataset_limitations": 32,
+    "sports_research_projects": 1,
+    "stage3_treatment_policy_versions": 23,
+    "stage3_treatment_policy_events": 40,
+    "stage3_predicted_imputation_previews": 1,
+    "stage3_predicted_imputation_preview_events": 4,
+    "stage3_feature_set_versions": 6,
+    "stage3_feature_set_events": 6,
+    "stage3_split_contract_versions": 2,
+    "stage3_split_contract_feature_sets": 6,
+    "stage3_split_contract_events": 2,
+    "stage3_feature_treatment_spec_versions": 8,
+    "stage3_feature_treatment_spec_events": 8
+  },
+  "allOtherTables": "schema only; no source records copied",
+  "presentationFixtures": "empty Dataset Library catalog and empty workflow history; no data files copied",
+  "sourceStage3MetadataPreservedInClone": true,
+  "copiedJsonFiles": [
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106\\manifest.json",
+      "bytes": 12587,
+      "sha256": "019e819401d34133d03507b0409f1f371ae7a481e9d04f3442f6c00a17f7c106"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46\\manifest.json",
+      "bytes": 4069,
+      "sha256": "0377749ebcc4c58c8ba6d4b2d8e8cfbe6fcfbc9bdf755d762f70b3f2b3e04a46"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f\\manifest.json",
+      "bytes": 12739,
+      "sha256": "1bf9054416d3618042a23253f9d9dca16125135fa74b6971a315e1be4ac0c50f"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede\\manifest.json",
+      "bytes": 12570,
+      "sha256": "8bac5e6afbf625fdc4f1ff86acde36994a54ab9ad60afac45e1a3ab0b0857ede"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658\\manifest.json",
+      "bytes": 12651,
+      "sha256": "abc475107302781f9eb2fad17ad6261eef43a7a180880426ed96e4581b7f4658"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec\\manifest.json",
+      "bytes": 10728,
+      "sha256": "bac2d184d88b0a7b2b395951d7b8b7d50f493ea967539f6c75110ef9e5534bec"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b\\manifest.json",
+      "bytes": 12697,
+      "sha256": "bcb41a0cc33a61953250a241088acbc228094f080275e4465b10874802eee66b"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43\\manifest.json",
+      "bytes": 12712,
+      "sha256": "e32f0003da5a9c6a7202590bfc618192900ec38e7ba795a9d770587caa92ff43"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\objects\\sha256\\f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044\\manifest.json",
+      "bytes": 90410,
+      "sha256": "f888bb4b6d3be988e3a52c57d80f48230a9c7e399c451623286ce854143a0044"
+    },
+    {
+      "relativePath": "runtime\\stage3-player-prior-authorities-v2\\projects\\asp-mtlozhdx\\current.json",
+      "bytes": 295,
+      "sha256": "2fdafb2f098c23d9504d5a84bbbe706ab45a5bda79413cbf991f88e2f4d6c4e2"
+    },
+    {
+      "relativePath": "runtime\\stage3-model-laboratory\\objects\\sha256\\0549e19980748471509cfd89b33a6fece186c321aa052e00097d1a6a613488bd.json",
+      "bytes": 240194,
+      "sha256": "0549e19980748471509cfd89b33a6fece186c321aa052e00097d1a6a613488bd"
+    },
+    {
+      "relativePath": "runtime\\stage3-model-laboratory\\objects\\sha256\\1371d10f584e9e0627b042a259f2d1339840d2c5ff95c06393efff3a31c2fb6a.json",
+      "bytes": 240195,
+      "sha256": "1371d10f584e9e0627b042a259f2d1339840d2c5ff95c06393efff3a31c2fb6a"
+    },
+    {
+      "relativePath": "runtime\\stage3-model-laboratory\\objects\\sha256\\41a5f91b0f01568e00f56f4c7aa85cdae41919a54f64752ac79512cdaa615a2d.json",
+      "bytes": 449801,
+      "sha256": "41a5f91b0f01568e00f56f4c7aa85cdae41919a54f64752ac79512cdaa615a2d"
+    },
+    {
+      "relativePath": "runtime\\stage3-model-laboratory\\objects\\sha256\\726934c6a500cf410c8ea12b8fac991195736522453f4b8c4a942829bcb275c5.json",
+      "bytes": 1896503,
+      "sha256": "726934c6a500cf410c8ea12b8fac991195736522453f4b8c4a942829bcb275c5"
+    },
+    {
+      "relativePath": "runtime\\stage3-model-laboratory\\objects\\sha256\\932211b901ed8cee25b95f4fb7a05c2a207e222719c81e83fc03490213441553.json",
+      "bytes": 691249,
+      "sha256": "932211b901ed8cee25b95f4fb7a05c2a207e222719c81e83fc03490213441553"
+    }
+  ],
+  "frontendBuildFileHashes": {
+    "asp-mark.svg": "aab5be8cb2e5cfeedae9289651965918a36750ffd6068a4ca069e0893fe9b48e",
+    "assets\\AnalyticsWorkbench-CdmpHy-E.js": "68a990cf3a24d236e0e760166ffef07908518761c5641361710c432fac6568f2",
+    "assets\\ChartStudio-KCcsX7uk.js": "16fb2fe6e0b7b084416a0952e2b004847f2c4c72a1405d46ea0f6e60d0229f5e",
+    "assets\\evidenceGraph-DmQq5Y4R.js": "d0ec523d01b2990afbc14de6fd670a372220cd6178076a5041fc203574efda97",
+    "assets\\file-spreadsheet-CGJAWFZG.js": "bdafd8af9fb91a5b5f0beb70e75b2b5804ad0038fd05d8095da2e31ffb82f39b",
+    "assets\\file-text-BRrKxUs0.js": "b8f499c8f362c6c56421fe387f866453480fa8013bd827dd6846571d088c707c",
+    "assets\\guitar-fretboard.png": "d4eb7f51e14954335694ba6e9a018f483e8638b596ba13c6ebfb85700282ce45",
+    "assets\\main-BeqAwvnT.css": "b3bd9e421b7f4d080bb79beb2f8b2d6b2cae60712072e231c1fee032535ff894",
+    "assets\\main-C4SfSlYd.js": "dfca0032e3b152434cfb8cfb8d08262e0c9a3bedf38c3fa538ba3e38e702a520",
+    "assets\\modelDiagnostics-CKi7hkN-.js": "f4525a7c226c34720844af7186b6008aa96226472db4c60765d93400fbc4e555",
+    "assets\\ModelDocumentationStudio-D1yqe8Hy.js": "7069342f245214c2cff0634b811bec606bbbd43509482fd04af1c61e3fef9636",
+    "assets\\SqlDataStudio-Dm0_AsXc.js": "36b0a8179d01fe12584a0a11b9a3d93e7b9de5647994ef3201b57ec31e191052",
+    "index.html": "9651d83539c47dca88e31190f9114c3ab3e14b60047bb63ec4fc371fbba710bc"
+  },
+  "frontendBuildFingerprint": "46c4489b0f6de87c1e8b1f6b2f0067fec4f59350cbca16d12b379bb13356cf9f",
+  "lifespan": "off",
+  "startupScanner": "intentionally not invoked",
+  "origin": "http://127.0.0.1:55946"
+}
