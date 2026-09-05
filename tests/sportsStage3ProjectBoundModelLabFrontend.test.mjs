@@ -43,7 +43,7 @@ test("Model Laboratory is an explicit multi-model batch builder with bounded con
   ], "multi-model controls");
   assert.ok(lab.includes('tuningMode: "FIXED"'), "new drafts must start with fixed configurations");
   assert.ok(lab.includes("item.available && item.automaticBundleEligible"), "automatic bundles must exclude guarded/manual algorithms");
-  assert.ok(lab.includes("asp-stage3-multimodel:v2:"), "stale unsafe GRID drafts must not be restored");
+  assert.ok(lab.includes("asp-stage3-multimodel:v3:"), "stale unsafe GRID drafts must not be restored");
   assert.ok(lab.includes("Opening this page performs zero fits."));
   assert.ok(lab.includes("Final OOT") && lab.includes("No training, tuning, calibration, or selection access"));
 });
@@ -205,11 +205,11 @@ test("client uses project-scoped plan, jobs, cancellation, Evaluation, finalist,
 
 test("client preserves exact current authority and fails closed on OOT, legacy, provider, or promotion drift", () => {
   includesAll(api, [
-    'const CURRENT_PROJECT_ID = "asp-mtddc6pw"',
     'const CURRENT_GOLD_ID = "gold-table:gold_mlb_current_pa_v1"',
     "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
     "683_662", "14_067", "CURRENT_TARGET_ORDER", "CURRENT_FEATURE_SET_IDS",
     "finalOotLocked !== true", "finalOotTargetAccessed !== false", "providerCalls !== 0",
     "legacyGlobalMatrixUsed !== false", "autoPromoted !== false", 'promotionStatus !== "NOT_PROMOTED"',
   ], "client safety boundary");
+  assert.doesNotMatch(api, /CURRENT_PROJECT_ID/, "Project identity must come from the selected project request");
 });

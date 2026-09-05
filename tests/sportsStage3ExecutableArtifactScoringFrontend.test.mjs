@@ -28,8 +28,8 @@ test("artifact responses are rejected unless exact authority and verified comple
   assert.match(api, /CURRENT_CHALLENGER_FINGERPRINT = "stage3-candidate-spec-1348285dbc6b9afb0445f0c26953564675c2afb4a4d838aff913314d85e71138"/);
   assert.match(api, /CURRENT_CHALLENGER_FEATURE_COUNT = 234/);
   assert.match(api, /CURRENT_OOF_ROWS = 501_590/);
-  assert.match(api, /value\.workload\.modelFits !== 6/);
-  assert.match(api, /value\.execution\.computeClass !== "VERY_HIGH"/);
+  assert.match(api, /value\.workload\.modelFits !== value\.workload\.foldCount \+ 1/);
+  assert.match(api, /!nonEmptyString\(value\.execution\.computeClass\)/);
   assert.match(api, /value\.status === "EXECUTABLE_RESEARCH_ARTIFACT_MATERIALIZED"/);
   assert.match(api, /metrics\.status === "PASS"/);
   assert.match(api, /reload\.freshProcess === true/);
@@ -47,7 +47,7 @@ test("Step 15 reviews frozen science, restores real progress, and only renders v
   assert.match(workflow, /BUILD EXECUTABLE RESEARCH ARTIFACT/);
   assert.match(workflow, /Review comes before execution/);
   assert.match(workflow, /Planning starts zero model fits/);
-  assert.match(workflow, /Five-fold OOF/);
+  assert.match(workflow, /Registered-fold OOF/);
   assert.match(workflow, /Final development fit/);
   assert.match(workflow, /Expected artifacts/);
   assert.match(workflow, /Zero-OOT guarantee/);

@@ -21,7 +21,7 @@ from server.sports_gold.contracts import GOLD_FEATURES
 
 def _fake_authority():
     public = {
-        "projectId": "asp-mtddc6pw",
+        "projectId": "synthetic-stage3-project",
         "sourceDatasetId": "asp.mlb.statcast.current-pa.v1",
         "sourceManifestSha": "1" * 64,
         "goldDatasetId": "gold-table:gold_mlb_current_pa_v1",
@@ -58,7 +58,7 @@ def _fake_authority():
             }
         )
     return SimpleNamespace(
-        project_id="asp-mtddc6pw",
+        project_id="synthetic-stage3-project",
         registration_id="registration-current",
         dataset_version_id="dataset-version-current",
         activation_revision=7,

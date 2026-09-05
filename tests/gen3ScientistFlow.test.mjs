@@ -13,11 +13,16 @@ const [catalog, warehouse, dataPop, labPanel, modelLab] = await Promise.all([
   read("src/sports/cockpit/cockpitSteps2.tsx"),
 ]);
 
-test("Data Warehouse renders the server catalog (Gate 2), not a hard-coded card", () => {
+test("Data Warehouse catalog requires a selected project; authorized consumers read the server catalog (Gate 2)", () => {
   assert.ok(warehouse.includes('import Gen3CatalogSection from "./cockpit/Gen3CatalogSection"'));
   assert.ok(warehouse.includes('<Gen3CatalogSection mode="warehouse"'));
-  // catalog is fetched from the server, never hard-coded
-  assert.ok(catalog.includes('getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog")'));
+  // Dataset metadata still comes from the server after explicit user/project selection.
+  assert.ok(catalog.includes('export function useGen3Catalog(projectId: string)'));
+  assert.ok(catalog.includes('getJSON<{ datasets: CatalogEntry[] }>(`/cockpit/gen3/catalog?projectId=${encodeURIComponent(projectId)}`)'));
+  assert.ok(catalog.includes('if (!projectId.trim() || !userId)'));
+  assert.ok(catalog.includes('Select a project and sign in to inspect its governed datasets.'));
+  assert.ok(catalog.includes('postJSON<Binding>("/cockpit/gen3/bind", { projectId, datasetVersionId: versionId })'));
+  assert.ok(!catalog.includes('projectId || "mlb-gen2"'));
 });
 
 test("catalog shows Gen-2/Gen-3 with server fields and marks the sealed object restricted (Gate 2/12)", () => {

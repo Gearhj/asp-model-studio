@@ -46,7 +46,7 @@ def _row(
 
 def _authority() -> SimpleNamespace:
     eda = SimpleNamespace(
-        project_id="asp-mtddc6pw",
+        project_id="synthetic-stage3-project",
         source_dataset_id="asp.mlb.statcast.current-pa.v1",
         source_manifest_sha="1" * 64,
         gold_manifest_sha=lab.EXPECTED_GOLD_MANIFEST_SHA,
@@ -54,11 +54,13 @@ def _authority() -> SimpleNamespace:
         review_digest="3" * 64,
     )
     return SimpleNamespace(
-        project_id="asp-mtddc6pw",
+        project_id="synthetic-stage3-project",
         authority_key="authority-key",
         project_name="MLB 2026 Current-Data Game Forecast Challenger",
         eda_authority=eda,
         split={
+            "development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]},
+            "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
             "contractId": lab.EXPECTED_SPLIT["splitContractId"],
             "contractVersion": 2,
             "checksum": lab.EXPECTED_SPLIT["checksum"],
@@ -828,13 +830,13 @@ def test_cancel_unstarted_is_idempotent_and_preserves_original_timestamp(
     job_id = "stage3-model-job-test"
     row: dict[str, object] = {
         "run_id": job_id,
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
         "workflow_type": "sports_stage3_model_development",
         "status": "RUNNING",
         "started_at": "2026-09-02T08:00:00Z",
         "completed_at": None,
-        "parameters_json": jobs.json_dumps({"planId": "plan"}),
+        "parameters_json": jobs.json_dumps({"planId": "plan", "projectId": "synthetic-stage3-project"}),
         "metrics_json": jobs.json_dumps(
             {"state": "RUNNING", "completedFits": 5, "totalFits": 25}
         ),
@@ -858,11 +860,11 @@ def test_cancel_unstarted_is_idempotent_and_preserves_original_timestamp(
     monkeypatch.setattr(jobs, "RunRepository", lambda _database: repository)
     monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
     first = jobs.cancel_unstarted_model_development_work(
-        object(), lab.EXPECTED_PROJECT_ID, job_id, actor_user_id="scientist"
+        object(), "synthetic-stage3-project", job_id, actor_user_id="scientist"
     )
     requested_at = first["job"]["progress"]["cancelRequestedAt"]
     second = jobs.cancel_unstarted_model_development_work(
-        object(), lab.EXPECTED_PROJECT_ID, job_id, actor_user_id="scientist"
+        object(), "synthetic-stage3-project", job_id, actor_user_id="scientist"
     )
     assert second["job"]["idempotentReplay"] is True
     assert second["job"]["progress"]["cancelRequestedAt"] == requested_at
@@ -897,13 +899,13 @@ def _job_row(
 ) -> dict[str, object]:
     return {
         "run_id": job_id,
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
         "workflow_type": "sports_stage3_model_development",
         "status": status,
         "started_at": "2026-09-02T08:00:00Z",
         "completed_at": None,
-        "parameters_json": jobs.json_dumps({"planId": "plan"}),
+        "parameters_json": jobs.json_dumps({"planId": "plan", "projectId": "synthetic-stage3-project"}),
         "metrics_json": jobs.json_dumps(
             {
                 "state": status,
@@ -990,7 +992,7 @@ def test_failure_terminal_write_wins_cancel_race_and_preserves_audit_fields(
     jobs._finish_failed_job(
         object(),
         str(row["run_id"]),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "scientist",
         {"totalFits": 25},
         "TEST_FAILURE",
@@ -1051,7 +1053,7 @@ def test_queued_coordinator_cancellation_terminalizes_without_model_activity(
     monkeypatch.setattr(jobs, "_runtime_root", lambda: tmp_path)
     plan = {"totalFits": 15, "totalConfigurations": 3}
     jobs._finish_cancelled_before_start(
-        object(), job_id, lab.EXPECTED_PROJECT_ID, "scientist", plan
+        object(), job_id, "synthetic-stage3-project", "scientist", plan
     )
     progress = jobs.json_loads(row["metrics_json"], {})
     assert row["status"] == "CANCELLED"
@@ -1183,7 +1185,7 @@ def test_execute_job_heartbeats_and_isolates_one_candidate_failure(
     jobs._execute_job(
         str(tmp_path / "ignored.db"),
         job_id,
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "scientist",
         plan,
     )
@@ -1223,3 +1225,12 @@ def test_execute_job_heartbeats_and_isolates_one_candidate_failure(
     )
     assert failed_payload["candidate"]["runtimeMs"] > 0
     assert failed_payload["candidate"]["errorCode"] == "BOUNDED_CANDIDATE_FAILURE"
+
+
+@pytest.fixture(autouse=True)
+def synthetic_execution_context(monkeypatch):
+    """Estimator/receipt unit tests have no authenticated database; ACL probes live in the tenant suite."""
+    monkeypatch.setattr(lab, "require_model_execution_authority", lambda *args: None)
+    from server.sports_current_statcast import stage3_model_jobs, stage3_executable_artifact
+    monkeypatch.setattr(stage3_model_jobs, "require_model_execution_authority", lambda *args: None)
+    monkeypatch.setattr(stage3_executable_artifact, "require_model_execution_authority", lambda *args: None)

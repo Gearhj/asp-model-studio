@@ -13,7 +13,7 @@ globalThis.localStorage = { _s: new Map(), getItem(k) { return this._s.has(k) ? 
 
 async function transpile(src, out) {
   let code = await readFile(new URL(src, ROOT), "utf8");
-  code = ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
+  code = ts.transpileModule(code, { fileName: src, compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
   code = code.replace(/from\s+["'](\.{1,2}\/[^"']+)["']/g, (m, s) => (s.endsWith(".js") || s.endsWith(".json") ? m : m.replace(s, `${s}.js`)));
   await mkdir(path.dirname(out), { recursive: true });
   await writeFile(out, code, "utf8");
@@ -21,6 +21,7 @@ async function transpile(src, out) {
 await rm(TMP, { recursive: true, force: true });
 await mkdir(path.join(TMP, "src/lib"), { recursive: true });
 await writeFile(path.join(TMP, "src/lib/api.js"), "export const BASE='/api'; export async function getJSON(){return {};} export async function postJSON(){return {};}\n", "utf8");
+await transpile("src/lib/authSession.ts", path.join(TMP, "src/lib/authSession.js"));
 await transpile("src/sports/cockpit/cockpitApi.ts", path.join(TMP, "src/sports/cockpit/cockpitApi.js"));
 await transpile("src/sports/cockpit/cockpitPersistence.ts", path.join(TMP, "src/sports/cockpit/cockpitPersistence.js"));
 const api = await import(pathToFileURL(path.join(TMP, "src/sports/cockpit/cockpitApi.js")).href);
@@ -79,7 +80,7 @@ test("champion reference is prominent and never auto-displaced", () => {
 });
 
 // ---------------- store persistence of lab state ----------------
-test("lab selections + suite persist and rehydrate (project-scoped)", () => {
+test("lab selections persist while computed suite evidence requires authenticated refetch", () => {
   store.setState({ labSelected: [], labTuneSelected: [], labSuite: {}, notes: {}, config: store.getState().config });
   store.getState().setLabSelected(["logistic", "random_forest"]);
   store.getState().toggleLabFamily("mlp");
@@ -88,11 +89,12 @@ test("lab selections + suite persist and rehydrate (project-scoped)", () => {
   const snap = persist.saveCockpitSnapshot("proj-lab", { config: store.getState().config, notes: {}, engineeredProfiles: {}, savedSteps: {}, labSelected: store.getState().labSelected, labTuneSelected: store.getState().labTuneSelected, labSuite: store.getState().labSuite, activeStep: "modellab" });
   store.setState({ labSelected: [], labTuneSelected: [], labSuite: {} });
   const loaded = persist.loadCockpitSnapshot("proj-lab");
-  store.getState().hydrate({ labSelected: loaded.labSelected, labTuneSelected: loaded.labTuneSelected, labSuite: loaded.labSuite });
+  store.getState().hydrate({ labSelected: loaded.labSelected, labTuneSelected: loaded.labTuneSelected });
   const s = store.getState();
   assert.deepEqual(s.labSelected.sort(), ["logistic", "mlp", "random_forest"]);
   assert.deepEqual(s.labTuneSelected, ["logistic"]);
-  assert.equal(s.labSuite.logistic.val.logLoss, 1.48);
+  assert.equal(loaded.labSuite, undefined);
+  assert.deepEqual(s.labSuite, {});
   assert.equal(snap.version, 1);
 });
 

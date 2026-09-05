@@ -17,7 +17,7 @@ from server.persistence.repositories.stage3_treatment_repository import (
 from server.sports_current_statcast import stage3_treatments as treatments
 
 
-PROJECT_ID = "asp-mtddc6pw"
+PROJECT_ID = "synthetic-stage3-project"
 
 
 def _authority() -> SimpleNamespace:

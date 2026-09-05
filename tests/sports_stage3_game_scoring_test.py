@@ -21,7 +21,7 @@ from server.sports_current_statcast.stage3_game_probability_adapter import (
     FOLD_VALIDATION_MODEL,
     VerifiedStage3ArtifactBinding,
 )
-from server.sports_current_statcast.stage3_model_laboratory import EXPECTED_PROJECT_ID
+EXPECTED_PROJECT_ID = "synthetic-stage3-project"
 from server.sports_modeling.metrics import PA_CLASS_ORDER
 from server.sports_phase5 import base_out_transition as bt
 from server.sports_phase5 import whole_game_monte_carlo as mc

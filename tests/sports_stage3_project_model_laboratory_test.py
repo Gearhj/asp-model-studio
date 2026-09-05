@@ -15,7 +15,7 @@ from server.sports_current_statcast import stage3_model_jobs as jobs
 from server.sports_current_statcast import stage3_model_laboratory as lab
 
 
-PROJECT_ID = lab.EXPECTED_PROJECT_ID
+PROJECT_ID = "synthetic-stage3-project"
 
 
 def test_model_laboratory_routes_require_authenticated_users() -> None:
@@ -163,8 +163,8 @@ def _feature_set(authority: SimpleNamespace, feature_set_id: str, index: int) ->
             "goldManifestSha": authority.gold_manifest_sha,
             "reviewDigest": authority.review_digest,
         },
-        "development": {"rows": lab.EXPECTED_DEVELOPMENT[2]},
-        "finalOot": {"rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
+        "development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]},
+        "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
         "orderedFeatures": ["feature_numeric", "feature_category"],
         "transformationContracts": {
             "ordered": [
@@ -177,8 +177,8 @@ def _feature_set(authority: SimpleNamespace, feature_set_id: str, index: int) ->
         },
         "unavailableExclusions": [],
         "treatmentPolicies": {
-            "outlier": {"policyId": lab.EXPECTED_OUTLIER_POLICY["policyId"]},
-            "missing": {"policyId": lab.EXPECTED_MISSING_POLICY["policyId"]},
+            "outlier": dict(lab.EXPECTED_OUTLIER_POLICY),
+            "missing": dict(lab.EXPECTED_MISSING_POLICY),
         },
         "checksum": str(index + 5) * 64,
     }
@@ -206,12 +206,13 @@ def _split(authority: SimpleNamespace) -> dict[str, object]:
         "status": "REGISTERED",
         "goldManifestSha": authority.gold_manifest_sha,
         "authorityReviewDigest": authority.review_digest,
-        "development": {"rows": lab.EXPECTED_DEVELOPMENT[2]},
-        "finalOot": {"rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
+        "development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]},
+        "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
         "foldCount": 5,
         "selectedFeatureSetIds": list(lab.EXPECTED_FEATURE_SET_IDS),
         "checksum": lab.EXPECTED_SPLIT["checksum"],
         "contract": {
+            "selectedFeatureSets": [{"featureSetId": fid, "checksum": str(index + 5) * 64} for index, fid in enumerate(lab.EXPECTED_FEATURE_SET_IDS)],
             "folds": folds,
             "preprocessingScope": "FIT_INSIDE_EACH_TRAINING_FOLD_ONLY",
             "allBlockingGatesPass": True,
@@ -303,6 +304,9 @@ def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database,
     class Splits:
         def __init__(self, _database: Database) -> None:
             pass
+
+        def list_versions(self, project_id: str, review_digest: str) -> list[dict[str, object]]:
+            return [split]
 
         def get(self, contract_id: str) -> dict[str, object] | None:
             return split if contract_id == split["contractId"] else None
@@ -834,8 +838,17 @@ def test_final_oot_target_is_filtered_before_materialization(
         return scoped[list(dict.fromkeys(columns))].copy()
 
     monkeypatch.setattr(lab.eda, "_scan", scan)
-    monkeypatch.setattr(lab, "EXPECTED_DEVELOPMENT", ("2026-08-13", "2026-08-13", 1))
+    current.split["development"] = {"startDate": "2026-08-13", "endDate": "2026-08-13", "rows": 1}
     frame = lab._fold_frame(current, ["feature_numeric"])
     assert observed
     assert frame["outcome"].tolist() == [lab.GOLD_CLASS_ORDER[0]]
     assert "FINAL_OOT_POISON" not in set(frame["outcome"])
+
+
+@pytest.fixture(autouse=True)
+def synthetic_execution_context(monkeypatch):
+    """Estimator/receipt unit tests have no authenticated database; ACL probes live in the tenant suite."""
+    monkeypatch.setattr(lab, "require_model_execution_authority", lambda *args: None)
+    from server.sports_current_statcast import stage3_model_jobs, stage3_executable_artifact
+    monkeypatch.setattr(stage3_model_jobs, "require_model_execution_authority", lambda *args: None)
+    monkeypatch.setattr(stage3_executable_artifact, "require_model_execution_authority", lambda *args: None)

@@ -16,7 +16,7 @@ from server.persistence.repositories.stage3_split_contract_repository import (
 from server.sports_current_statcast import stage3_split_balance as split
 
 
-PROJECT_ID = "asp-mtddc6pw"
+PROJECT_ID = "synthetic-stage3-project"
 FEATURE_SET_ID = "stage3-feature-set-core-48-v1"
 FEATURE_SET_SHA = "a" * 64
 

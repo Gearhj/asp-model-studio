@@ -14,13 +14,13 @@ from server.sports_current_statcast import stage3_model_laboratory as lab
 
 def _resolved() -> SimpleNamespace:
     return SimpleNamespace(
-        project_id=lab.EXPECTED_PROJECT_ID,
+        project_id="synthetic-stage3-project",
         project_name="MLB 2026 Current-Data Game Forecast Challenger",
         authority_key="authority-key",
         eda_authority=SimpleNamespace(
             gold_manifest_sha=lab.EXPECTED_GOLD_MANIFEST_SHA,
         ),
-        split={"contractId": lab.EXPECTED_SPLIT["splitContractId"], "checksum": lab.EXPECTED_SPLIT["checksum"]},
+        split={"development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]}, "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True}, "contractId": lab.EXPECTED_SPLIT["splitContractId"], "checksum": lab.EXPECTED_SPLIT["checksum"]},
         outlier_policy={"policyId": lab.EXPECTED_OUTLIER_POLICY["policyId"], "checksum": lab.EXPECTED_OUTLIER_POLICY["checksum"]},
         missing_policy={"policyId": lab.EXPECTED_MISSING_POLICY["policyId"], "checksum": lab.EXPECTED_MISSING_POLICY["checksum"]},
         feature_sets=[],
@@ -70,7 +70,7 @@ def _run(candidate: dict[str, object], receipt: str, *, schema: str = lab.RUN_RE
         "runReceiptSha256": receipt,
         "createdAt": "2026-09-01T12:00:00Z",
         "identity": {
-            "projectId": lab.EXPECTED_PROJECT_ID,
+            "projectId": "synthetic-stage3-project",
             "goldDatasetId": lab.CURRENT_GOLD_DATASET_ID,
             "goldManifestSha": lab.EXPECTED_GOLD_MANIFEST_SHA,
             "splitContractId": lab.EXPECTED_SPLIT["splitContractId"],
@@ -131,7 +131,7 @@ def _incremental_fixture(tmp_path) -> tuple[
     }
     unsigned_plan = {
         "schemaVersion": jobs.MODEL_DEVELOPMENT_PLAN_SCHEMA_VERSION,
-        "projectId": lab.EXPECTED_PROJECT_ID,
+        "projectId": "synthetic-stage3-project",
         "authorityKey": resolved.authority_key,
         "splitContractId": resolved.split["contractId"],
         "splitChecksum": resolved.split["checksum"],
@@ -172,7 +172,7 @@ def _incremental_fixture(tmp_path) -> tuple[
     payload = {
         "schemaVersion": evaluation.INCREMENTAL_RECEIPT_SCHEMA_VERSION,
         "jobId": "job-one",
-        "projectId": lab.EXPECTED_PROJECT_ID,
+        "projectId": "synthetic-stage3-project",
         "planId": plan["planId"],
         "planChecksum": plan["checksum"],
         "createdAt": "2026-09-02T09:00:00Z",
@@ -184,7 +184,7 @@ def _incremental_fixture(tmp_path) -> tuple[
     directory.mkdir(parents=True)
     row = {
         "run_id": "job-one",
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "run_type": jobs.MODEL_DEVELOPMENT_JOB_TYPE,
         "status": "RUNNING",
         "started_at": "2026-09-02T08:00:00Z",
@@ -273,7 +273,7 @@ def test_project_evaluation_is_read_only_project_bound_and_oot_locked(monkeypatc
             "heldClosedReceipts": 0,
         },
     )
-    result = evaluation.project_candidate_evaluation(object(), lab.EXPECTED_PROJECT_ID)
+    result = evaluation.project_candidate_evaluation(object(), "synthetic-stage3-project")
     assert result["authority"]["legacyGlobalMatrixUsed"] is False
     assert result["authority"]["base22FallbackAvailable"] is False
     assert result["population"]["finalOotLocked"] is True
@@ -291,7 +291,7 @@ def test_verified_active_candidate_receipt_is_interim_and_not_selection_eligible
     _install_active_row(monkeypatch, row)
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["status"] == "ACTIVE_WITH_VERIFIED_EVIDENCE"
     assert result["verifiedCandidateReceipts"] == 1
@@ -308,7 +308,7 @@ def test_verified_active_candidate_receipt_is_interim_and_not_selection_eligible
     raw = (directory / f"{receipt_sha}.json").read_bytes()
     (directory / f"{receipt_sha}.json").write_bytes(raw + b" ")
     tampered = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert tampered["candidateGroups"] == []
     assert tampered["heldClosedReceipts"] == 1
@@ -326,7 +326,7 @@ def test_incremental_receipt_rejects_boolean_configuration_index(
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["candidateGroups"] == []
     assert result["heldClosedReceipts"] == 1
@@ -345,7 +345,7 @@ def test_orphaned_terminal_job_preserves_verified_candidate_attempt_evidence(
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["status"] == "ORPHANED_TERMINAL_WITH_VERIFIED_EVIDENCE"
     assert result["verifiedCandidateReceipts"] == 1
@@ -371,7 +371,7 @@ def test_orphan_candidate_receipt_is_not_duplicated_after_terminal_v2_receipt(
     }
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, [terminal]
+        object(), "synthetic-stage3-project", resolved, [terminal]
     )
     assert result["status"] == "TERMINAL_RECEIPT_AVAILABLE"
     assert result["candidateGroups"] == []
@@ -398,7 +398,7 @@ def test_incremental_receipt_binds_feature_tuning_and_resource_authority(
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["candidateGroups"] == []
     assert result["heldClosedReceipts"] == 1
@@ -425,7 +425,7 @@ def test_incremental_evidence_requires_current_plan_schema(
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["status"] == "HELD_CLOSED"
     assert result["diagnostics"][0]["code"] == "INCREMENTAL_PLAN_AUTHORITY_INVALID"
@@ -448,7 +448,7 @@ def test_incremental_evidence_fails_closed_on_malformed_decoded_shapes(
     monkeypatch.setattr(evaluation, "_runtime_root", lambda: tmp_path)
 
     result = evaluation._incremental_current_evidence(
-        object(), lab.EXPECTED_PROJECT_ID, resolved, []
+        object(), "synthetic-stage3-project", resolved, []
     )
     assert result["status"] in {"HELD_CLOSED", "ACTIVE_NO_VERIFIED_EVIDENCE"}
     assert result["candidateGroups"] == []
@@ -483,7 +483,7 @@ def test_current_and_historical_rows_are_grouped_from_their_own_receipt_sources(
         },
     )
 
-    result = evaluation.project_candidate_evaluation(object(), lab.EXPECTED_PROJECT_ID)
+    result = evaluation.project_candidate_evaluation(object(), "synthetic-stage3-project")
     assert len(result["currentBatches"]) == 1
     assert result["currentBatches"][0]["meanOofLogLoss"] == pytest.approx(1.40)
     assert result["currentBatches"][0]["evidenceSources"] == ["CURRENT_BATCH"]
@@ -571,7 +571,7 @@ def test_finalist_receipt_is_not_champion_and_binds_attempt_evidence(monkeypatch
     monkeypatch.setattr(evaluation, "_read_runs", lambda *_args: [run])
     monkeypatch.setattr(evaluation, "_persist_object", lambda _kind, body: {**body, "receiptSha256": "a" * 64})
     result = evaluation.save_finalist_selection(
-        object(), lab.EXPECTED_PROJECT_ID,
+        object(), "synthetic-stage3-project",
         _finalist_payload(group, "HISTORICAL_BASELINE"),
         actor_user_id="scientist",
     )
@@ -629,7 +629,7 @@ def test_finalist_save_rejects_non_exact_source_or_attempt_evidence(
 
     with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
         evaluation.save_finalist_selection(
-            object(), lab.EXPECTED_PROJECT_ID, payload, actor_user_id="scientist"
+            object(), "synthetic-stage3-project", payload, actor_user_id="scientist"
         )
     assert exc_info.value.code == expected_code
 
@@ -669,7 +669,7 @@ def test_latest_finalist_receipt_is_current_and_source_scoped(
     old_group = evaluation._group_attempts([historical_selected])[0]
     old_result = evaluation.save_finalist_selection(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         _finalist_payload(old_group, "HISTORICAL_BASELINE"),
         actor_user_id="scientist",
     )
@@ -681,7 +681,7 @@ def test_latest_finalist_receipt_is_current_and_source_scoped(
     )[0]
     new_result = evaluation.save_finalist_selection(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         _finalist_payload(combined_group, "CURRENT_BATCH"),
         actor_user_id="scientist",
     )
@@ -689,7 +689,7 @@ def test_latest_finalist_receipt_is_current_and_source_scoped(
     repository.rows[new_id]["started_at"] = "2026-09-02T12:00:00Z"
 
     result = evaluation.project_candidate_evaluation(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert result["currentFinalistSelectionId"] == new_id
     assert result["finalists"][0]["authorityStatus"] == "CURRENT"
@@ -734,7 +734,7 @@ def test_refinement_uses_frozen_finalist_attempt_after_later_rerun(
     selected_group = evaluation._group_attempts([selected_run])[0]
     evaluation.save_finalist_selection(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         _finalist_payload(selected_group, "CURRENT_BATCH"),
         actor_user_id="scientist",
     )
@@ -748,7 +748,7 @@ def test_refinement_uses_frozen_finalist_attempt_after_later_rerun(
 
     result = evaluation.plan_model_refinement(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": selected_group["candidateFingerprint"],
             "method": "STABILITY_SELECTION",
@@ -801,7 +801,7 @@ def test_shap_request_persists_sample_identity_and_fails_closed_without_dependen
     monkeypatch.setattr(evaluation, "_persist_object", lambda _kind, body: {**body, "receiptSha256": "a" * 64})
     monkeypatch.setattr(evaluation.importlib.util, "find_spec", lambda name: None if name == "shap" else object())
     result = evaluation.request_candidate_analysis(
-        object(), lab.EXPECTED_PROJECT_ID,
+        object(), "synthetic-stage3-project",
         {"candidateFingerprint": group["candidateFingerprint"], "analysisKind": "SHAP", "sampleSize": 500, "seed": 12, "targetClass": "HOME_RUN"},
         actor_user_id="scientist",
     )
@@ -823,7 +823,7 @@ def test_shap_and_sensitivity_require_a_persisted_finalist_receipt(monkeypatch: 
         with pytest.raises(lab.Stage3ModelLaboratoryError, match="finalist selection receipt"):
             evaluation.request_candidate_analysis(
                 object(),
-                lab.EXPECTED_PROJECT_ID,
+                "synthetic-stage3-project",
                 {
                     "candidateFingerprint": group["candidateFingerprint"],
                     "analysisKind": kind,
@@ -846,3 +846,9 @@ def test_parallelism_is_bounded_and_estimator_workers_remain_one(monkeypatch: py
     assert contract["nestedOversubscriptionProhibited"] is True
     with pytest.raises(lab.Stage3ModelLaboratoryError, match="at most 2"):
         jobs._parallelism([{"computeIntensity": "LOW"}], 3)
+
+
+@pytest.fixture(autouse=True)
+def synthetic_persisted_receipt_boundary(monkeypatch):
+    from server.sports_current_statcast import stage3_model_laboratory as lab
+    monkeypatch.setattr(lab, "persisted_project_workflow_state", lambda db, pid: None)

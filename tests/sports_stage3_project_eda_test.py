@@ -23,7 +23,7 @@ RUNTIME_DATABASE = (
     / "persistence"
     / "asp_model_studio.db"
 )
-PROJECT_ID = "asp-mtddc6pw"
+PROJECT_ID = "synthetic-stage3-project"
 SOURCE_DATASET_ID = "asp.mlb.statcast.current-pa.v1"
 SOURCE_MANIFEST_SHA = "03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c"
 GOLD_MANIFEST_SHA = "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758"

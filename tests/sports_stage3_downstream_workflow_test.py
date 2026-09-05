@@ -27,13 +27,15 @@ class _Repository:
 
 def _resolved() -> SimpleNamespace:
     return SimpleNamespace(
-        project_id=lab.EXPECTED_PROJECT_ID,
+        project_id="synthetic-stage3-project",
         project_name="MLB 2026 Current-Data Game Forecast Challenger",
         authority_key="current-gold-authority",
         eda_authority=SimpleNamespace(
             gold_manifest_sha=lab.EXPECTED_GOLD_MANIFEST_SHA,
         ),
         split={
+            "development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]},
+            "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
             "contractId": lab.EXPECTED_SPLIT["splitContractId"],
             "checksum": lab.EXPECTED_SPLIT["checksum"],
         },
@@ -114,7 +116,7 @@ def _run(
         "runReceiptSha256": receipt_sha,
         "createdAt": created_at,
         "identity": {
-            "projectId": lab.EXPECTED_PROJECT_ID,
+            "projectId": "synthetic-stage3-project",
             "goldDatasetId": lab.CURRENT_GOLD_DATASET_ID,
             "goldManifestSha": lab.EXPECTED_GOLD_MANIFEST_SHA,
             "splitContractId": lab.EXPECTED_SPLIT["splitContractId"],
@@ -230,7 +232,7 @@ def workflow(monkeypatch: pytest.MonkeyPatch):
     group = groups[0]
     downstream.save_finalist_selection(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         _finalist_payloads(groups),
         actor_user_id="scientist",
     )
@@ -242,7 +244,7 @@ def test_project_downstream_replaces_zero_fit_placeholder_with_current_evidence(
 ) -> None:
     _repository, group = workflow
     result = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert result["finalists"][0]["candidateFingerprint"] == group[
         "candidateFingerprint"
@@ -271,7 +273,7 @@ def test_worse_candidate_can_be_registered_as_research_challenger_without_promot
     fingerprint = str(group["candidateFingerprint"])
     calibration = downstream.save_project_calibration_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"candidateFingerprint": fingerprint, "disposition": "RETAIN_RAW"},
         actor_user_id="scientist",
     )["decision"]
@@ -280,7 +282,7 @@ def test_worse_candidate_can_be_registered_as_research_challenger_without_promot
 
     game = downstream.save_project_game_evaluation_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": fingerprint,
             "disposition": "DEFER_UNTIL_EXECUTABLE_ARTIFACT",
@@ -293,7 +295,7 @@ def test_worse_candidate_can_be_registered_as_research_challenger_without_promot
 
     selection = downstream.save_project_challenger_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": fingerprint,
             "decision": "REGISTER_RESEARCH_CHALLENGER",
@@ -310,7 +312,7 @@ def test_worse_candidate_can_be_registered_as_research_challenger_without_promot
 
     registered = downstream.register_project_research_handoff(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"selectionId": selection["decisionId"]},
         actor_user_id="scientist",
     )
@@ -323,7 +325,7 @@ def test_worse_candidate_can_be_registered_as_research_challenger_without_promot
     assert registered["entry"]["modelsFit"] == 0
     replay = downstream.register_project_research_handoff(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"selectionId": selection["decisionId"]},
         actor_user_id="scientist",
     )
@@ -340,7 +342,7 @@ def test_game_evaluation_fails_closed_until_calibration_disposition_is_saved(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
         downstream.save_project_game_evaluation_decision(
             object(),
-            lab.EXPECTED_PROJECT_ID,
+            "synthetic-stage3-project",
             {
                 "candidateFingerprint": group["candidateFingerprint"],
                 "disposition": "DEFER_UNTIL_EXECUTABLE_ARTIFACT",
@@ -355,7 +357,7 @@ def test_second_finalist_recalibration_invalidates_the_older_game_chain(
 ) -> None:
     _repository, first_group = workflow
     initial = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert len(initial["finalists"]) == 2
     first_fingerprint = str(first_group["candidateFingerprint"])
@@ -367,13 +369,13 @@ def test_second_finalist_recalibration_invalidates_the_older_game_chain(
 
     first_calibration = downstream.save_project_calibration_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"candidateFingerprint": first_fingerprint, "disposition": "RETAIN_RAW"},
         actor_user_id="scientist",
     )["decision"]
     downstream.save_project_game_evaluation_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": first_fingerprint,
             "disposition": "DEFER_UNTIL_EXECUTABLE_ARTIFACT",
@@ -381,19 +383,19 @@ def test_second_finalist_recalibration_invalidates_the_older_game_chain(
         actor_user_id="scientist",
     )
     before_change = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert before_change["gates"]["gameEvaluationDecisionCurrent"] is True
 
     second_calibration = downstream.save_project_calibration_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"candidateFingerprint": second_fingerprint, "disposition": "RETAIN_RAW"},
         actor_user_id="scientist",
     )["decision"]
     assert second_calibration["decisionId"] != first_calibration["decisionId"]
     after_change = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert after_change["gates"]["calibrationDecisionCurrent"] is True
     assert after_change["gates"]["gameEvaluationDecisionCurrent"] is False
@@ -402,7 +404,7 @@ def test_second_finalist_recalibration_invalidates_the_older_game_chain(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
         downstream.save_project_challenger_decision(
             object(),
-            lab.EXPECTED_PROJECT_ID,
+            "synthetic-stage3-project",
             {
                 "candidateFingerprint": second_fingerprint,
                 "decision": "REGISTER_RESEARCH_CHALLENGER",
@@ -419,18 +421,18 @@ def test_new_finalist_selection_invalidates_old_selection_and_registry_chain(
     _repository, group = workflow
     fingerprint = str(group["candidateFingerprint"])
     initial = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     initial_finalist_selection_id = initial["authority"]["finalistSelectionId"]
     downstream.save_project_calibration_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"candidateFingerprint": fingerprint, "disposition": "RETAIN_RAW"},
         actor_user_id="scientist",
     )
     downstream.save_project_game_evaluation_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": fingerprint,
             "disposition": "DEFER_UNTIL_EXECUTABLE_ARTIFACT",
@@ -439,7 +441,7 @@ def test_new_finalist_selection_invalidates_old_selection_and_registry_chain(
     )
     selection = downstream.save_project_challenger_decision(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {
             "candidateFingerprint": fingerprint,
             "decision": "REGISTER_RESEARCH_CHALLENGER",
@@ -448,12 +450,12 @@ def test_new_finalist_selection_invalidates_old_selection_and_registry_chain(
     )["decision"]
     downstream.register_project_research_handoff(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         {"selectionId": selection["decisionId"]},
         actor_user_id="scientist",
     )
     current = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert current["gates"]["challengerDecisionCurrent"] is True
     assert current["gates"]["registryHandoffCurrent"] is True
@@ -461,14 +463,14 @@ def test_new_finalist_selection_invalidates_old_selection_and_registry_chain(
     monkeypatch.setattr(downstream, "now_iso", lambda: "2099-01-01T00:00:00Z")
     new_finalists = downstream.save_finalist_selection(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         _finalist_payload(group),
         actor_user_id="scientist",
     )["selection"]
     assert new_finalists["selectionId"] != initial_finalist_selection_id
 
     stale = downstream.project_stage3_downstream(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert stale["gates"]["calibrationDecisionCurrent"] is False
     assert stale["gates"]["challengerDecisionCurrent"] is False
@@ -477,8 +479,14 @@ def test_new_finalist_selection_invalidates_old_selection_and_registry_chain(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as exc_info:
         downstream.register_project_research_handoff(
             object(),
-            lab.EXPECTED_PROJECT_ID,
+            "synthetic-stage3-project",
             {"selectionId": selection["decisionId"]},
             actor_user_id="scientist",
         )
     assert exc_info.value.code == "STAGE3_RESEARCH_CHALLENGER_SELECTION_REQUIRED"
+
+
+@pytest.fixture(autouse=True)
+def synthetic_persisted_receipt_boundary(monkeypatch):
+    from server.sports_current_statcast import stage3_model_laboratory as lab
+    monkeypatch.setattr(lab, "persisted_project_workflow_state", lambda db, pid: None)

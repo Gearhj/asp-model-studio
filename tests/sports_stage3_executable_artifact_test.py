@@ -87,10 +87,14 @@ def _chain() -> dict[str, object]:
         contextual_manifest_sha=artifact.EXPECTED_CONTEXTUAL_MANIFEST_SHA256,
     )
     resolved = SimpleNamespace(
+        project_id="synthetic-stage3-project",
         project_name="MLB 2026 Current-Data Game Forecast Challenger",
         authority_key="authority-key",
         eda_authority=eda,
         split={
+            "development": {"startDate": lab.EXPECTED_DEVELOPMENT[0], "endDate": lab.EXPECTED_DEVELOPMENT[1], "rows": lab.EXPECTED_DEVELOPMENT[2]},
+            "finalOot": {"startDate": lab.EXPECTED_FINAL_OOT[0], "endDate": lab.EXPECTED_FINAL_OOT[1], "rows": lab.EXPECTED_FINAL_OOT[2], "locked": True},
+            "contract": {"folds": [dict(zip(("foldNumber", "trainStart", "trainEnd", "trainRows", "trainGames", "validationStart", "validationEnd", "validationRows", "validationGames"), boundary)) for boundary in lab.EXPECTED_FOLDS]},
             "contractId": lab.EXPECTED_SPLIT["splitContractId"],
             "contractVersion": 2,
             "checksum": lab.EXPECTED_SPLIT["checksum"],
@@ -99,7 +103,7 @@ def _chain() -> dict[str, object]:
         missing_policy=lab.EXPECTED_MISSING_POLICY,
     )
     return {
-        "projectId": lab.EXPECTED_PROJECT_ID,
+        "projectId": "synthetic-stage3-project",
         **artifact.EXPECTED_SELECTION,
         **{
             key: artifact.EXPECTED_CANDIDATE[key]
@@ -116,7 +120,18 @@ def _chain() -> dict[str, object]:
             "checksum": artifact.EXPECTED_CANDIDATE["featureSetChecksum"],
             "orderedFeatures": [f"feature_{index:03d}" for index in range(234)],
         },
+        "sourceCandidate": {"modelFamily": "xgboost", "hyperparameters": dict(artifact.EXPECTED_HYPERPARAMETERS),
+            "candidateId": artifact.EXPECTED_CANDIDATE["candidateAttemptId"],
+            "featureSetId": artifact.EXPECTED_CANDIDATE["featureSetId"],
+            "featureSetChecksum": artifact.EXPECTED_CANDIDATE["featureSetChecksum"],
+            "candidateSpecificationTemplateSha256": artifact.EXPECTED_CANDIDATE["candidateSpecificationTemplateSha256"],
+            "evaluationEvidence": {"oofPredictionEvidenceSha256": artifact.EXPECTED_OOF_EVIDENCE_SHA256},
+            "durationSeconds": 1529.298,
+            **artifact.EXPECTED_METRICS,
+            "folds": [{**dict(boundary), "metrics": {"multiclassLogLoss": loss}} for boundary, loss in zip(resolved.split["contract"]["folds"], artifact.EXPECTED_FOLD_LOG_LOSSES)]},
+        "experiment": {"seed": artifact.EXPECTED_CANDIDATE["seed"]},
         "sourceRun": {
+            "plan": {**artifact.EXPECTED_SOURCE_PLAN, "projectId": "synthetic-stage3-project"},
             "environment": {
                 "modelLabImplementationSha256": artifact.EXPECTED_MODEL_LAB_IMPLEMENTATION_SHA256
             }
@@ -221,11 +236,11 @@ def _write_bundle(
             if source_plan is not None
             else "stage3-executable-artifact-unit"
         ),
-        "projectId": lab.EXPECTED_PROJECT_ID,
+        "projectId": "synthetic-stage3-project",
         "authority": source_plan["authority"]
         if source_plan is not None
         else {
-            "projectId": lab.EXPECTED_PROJECT_ID,
+            "projectId": "synthetic-stage3-project",
             "projectName": "MLB 2026 Current-Data Game Forecast Challenger",
             "sourceDatasetId": lab.EXPECTED_SOURCE_DATASET_ID,
             "sourceManifestSha": artifact.EXPECTED_SOURCE_MANIFEST_SHA256,
@@ -520,11 +535,16 @@ def test_plan_is_immutable_deterministic_and_zero_promotion(
 ) -> None:
     monkeypatch.setattr(artifact, "_resolved_chain", lambda _db, _pid: _chain())
     first = artifact.plan_executable_artifact(
-        object(), lab.EXPECTED_PROJECT_ID, {"nativeWorkers": 2}, actor_user_id="a"
+        object(), "synthetic-stage3-project", {"nativeWorkers": 2}, actor_user_id="a"
     )["plan"]
     second = artifact.plan_executable_artifact(
-        object(), lab.EXPECTED_PROJECT_ID, {"nativeWorkers": 2}, actor_user_id="b"
+        object(), "synthetic-stage3-project", {"nativeWorkers": 2}, actor_user_id="a"
     )["plan"]
+    other_actor = artifact.plan_executable_artifact(
+        object(), "synthetic-stage3-project", {"nativeWorkers": 2}, actor_user_id="b"
+    )["plan"]
+    assert other_actor["checksum"] != first["checksum"]
+    assert first["executionActorUserId"] == "a"
     assert first["planId"] == second["planId"]
     assert first["checksum"] == second["checksum"]
     assert first["workload"] == {
@@ -550,7 +570,7 @@ def test_plan_is_immutable_deterministic_and_zero_promotion(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as forbidden:
         artifact.plan_executable_artifact(
             object(),
-            lab.EXPECTED_PROJECT_ID,
+            "synthetic-stage3-project",
             {"seed": 7},
             actor_user_id="a",
         )
@@ -689,7 +709,7 @@ def test_fold_reproduction_is_durable_and_manifest_authority_validates_it(
             for index, boundary in enumerate(lab.EXPECTED_FOLDS)
         ]
     }
-    evidence = artifact._fold_metric_reconciliation(reproduced)
+    evidence = artifact._fold_metric_reconciliation(reproduced, _chain())
     assert [item["status"] for item in evidence] == ["PASS"] * 5
     assert [item["delta"] for item in evidence] == [0.0] * 5
 
@@ -740,9 +760,9 @@ def test_finalize_rehashes_every_staged_member_before_atomic_rename(
 def test_job_decode_normalizes_empty_and_malformed_errors_to_null() -> None:
     row = {
         "run_id": "job",
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "status": "COMPLETE",
-        "parameters_json": "{}",
+        "parameters_json": '{"projectId":"synthetic-stage3-project"}',
         "metrics_json": "{}",
         "artifacts_json": "{}",
         "error_json": "{}",
@@ -789,10 +809,10 @@ def test_active_synchronous_recovery_is_not_reconciled_after_startup_grace() -> 
     job_id = "stage3-executable-artifact-recovery-live"
     row = {
         "run_id": job_id,
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "run_type": artifact.EXECUTABLE_ARTIFACT_JOB_TYPE,
         "status": "RUNNING",
-        "parameters_json": "{}",
+        "parameters_json": '{"projectId":"synthetic-stage3-project"}',
         "metrics_json": json.dumps({"state": "RUNNING"}),
         "artifacts_json": json.dumps(
             {
@@ -1225,7 +1245,7 @@ def _recovery_source_row(
 ) -> dict[str, object]:
     return {
         "run_id": source_job_id,
-        "project_id": lab.EXPECTED_PROJECT_ID,
+        "project_id": "synthetic-stage3-project",
         "run_type": artifact.EXECUTABLE_ARTIFACT_JOB_TYPE,
         "workflow_type": "sports_stage3_executable_artifact",
         "status": "FAILED",
@@ -1247,7 +1267,7 @@ def _recovery_source_row(
             "code": "STAGE3_EXECUTABLE_ARTIFACT_EXECUTION_FAILED",
             "message": "transient Windows publication failure",
         },
-        "created_by": "source-actor",
+        "created_by": plan.get("executionActorUserId") or "source-actor",
     }
 
 
@@ -1267,7 +1287,7 @@ def _prepare_recovery_test(
     }
     monkeypatch.setattr(artifact, "_resolved_chain", lambda _db, _project: chain)
     plan = artifact.plan_executable_artifact(
-        object(), lab.EXPECTED_PROJECT_ID, {"nativeWorkers": 2}, actor_user_id="a"
+        object(), "synthetic-stage3-project", {"nativeWorkers": 2}, actor_user_id="a"
     )["plan"]
     _relative, manifest_sha, target = _write_bundle(
         artifact_root, source_plan=plan
@@ -1333,7 +1353,7 @@ def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempo
     }
     first = artifact.recover_failed_executable_artifact_publication(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "unit",
         payload,
         actor_user_id="recovery-actor",
@@ -1366,7 +1386,7 @@ def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempo
     assert not interrupted_temp.exists()
     assert not staging.exists()
     summary = artifact.executable_artifact_summary(
-        object(), lab.EXPECTED_PROJECT_ID
+        object(), "synthetic-stage3-project"
     )
     assert summary["currentJob"]["jobId"] == first["jobId"]
     assert summary["currentJob"]["status"] == "COMPLETE"
@@ -1375,7 +1395,7 @@ def test_recovery_creates_new_complete_audit_run_without_refitting_and_is_idempo
 
     second = artifact.recover_failed_executable_artifact_publication(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "unit",
         payload,
         actor_user_id="recovery-actor",
@@ -1401,7 +1421,7 @@ def test_recovery_completes_after_crash_window_when_only_public_target_exists(
     )
     result = artifact.recover_failed_executable_artifact_publication(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "unit",
         {
             "expectedManifestSha256": manifest_sha,
@@ -1424,7 +1444,7 @@ def test_recovery_prefers_verified_public_target_over_partial_redundant_staging(
     (staging / "model.joblib").write_bytes(b"partially cleaned private staging")
     result = artifact.recover_failed_executable_artifact_publication(
         object(),
-        lab.EXPECTED_PROJECT_ID,
+        "synthetic-stage3-project",
         "unit",
         {
             "expectedManifestSha256": manifest_sha,
@@ -1450,7 +1470,7 @@ def test_recovery_rejects_tampered_staging_before_creating_audit_run(
     with pytest.raises(lab.Stage3ModelLaboratoryError) as rejected:
         artifact.recover_failed_executable_artifact_publication(
             object(),
-            lab.EXPECTED_PROJECT_ID,
+            "synthetic-stage3-project",
             "unit",
             {
                 "expectedManifestSha256": manifest_sha,
@@ -1461,3 +1481,13 @@ def test_recovery_rejects_tampered_staging_before_creating_audit_run(
     assert rejected.value.code == "STAGE3_ARTIFACT_MEMBER_CHECKSUM_MISMATCH"
     assert list(repository.rows) == ["unit"]
     assert repository.get("unit")["status"] == "FAILED"
+
+
+@pytest.fixture(autouse=True)
+def synthetic_execution_context(monkeypatch):
+    """Estimator/receipt unit tests have no authenticated database; ACL probes live in the tenant suite."""
+    monkeypatch.setattr(lab, "persisted_project_workflow_state", lambda *args: None)
+    monkeypatch.setattr(lab, "require_model_execution_authority", lambda *args: None)
+    from server.sports_current_statcast import stage3_model_jobs, stage3_executable_artifact
+    monkeypatch.setattr(stage3_model_jobs, "require_model_execution_authority", lambda *args: None)
+    monkeypatch.setattr(stage3_executable_artifact, "require_model_execution_authority", lambda *args: None)
