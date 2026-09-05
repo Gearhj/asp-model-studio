@@ -1,0 +1,19 @@
+{
+ "schemaVersion": "FABLE51_COMMIT_RECEIPT_V1",
+ "auditBase": "bff19a8a657bc96dea0469fad481acdcb4234386",
+ "branch": "claude/fable51-model-studio-security-ml-integrity-audit",
+ "deliverablesCommit": "df5c14fd32f986560bb25001a20c1d2a231c3a58",
+ "deliverablesCommitFiles": 81,
+ "deliverablesCommitInsertions": 3804,
+ "receiptCommit": "HEAD of the audit branch (the commit containing this file)",
+ "mainHead": "924db29511f93909f9d785855bfa056775443690",
+ "primaryCheckout": {
+  "branch": "codex/mlb-governed-prior-engine-v1",
+  "head": "33cd85f",
+  "status": "clean, untouched"
+ },
+ "pushed": false,
+ "merged": false,
+ "applicationSourceChanged": false,
+ "recordedAt": "2026-09-05T13:40:27-04:00"
+}

@@ -274,7 +274,7 @@ No page failed to render, no server error surfaced in the UI, and the authorizat
 2. Repository root: `C:\Users\james\asp-model-studio`.
 3. Audited base: `codex/mlb-player-prior-wave2` @ `bff19a8a657bc96dea0469fad481acdcb4234386`.
 4. Why: sole tip containing all prior branches (linear chain; only a docs-only Claude audit branch is outside its ancestry).
-5. Final audit branch / HEAD: `claude/fable51-model-studio-security-ml-integrity-audit` — HEAD recorded in the commit receipt appended below.
+5. Final audit branch / HEAD: `claude/fable51-model-studio-security-ml-integrity-audit`; deliverables commit `df5c14fd32f986560bb25001a20c1d2a231c3a58`; final HEAD is the receipt commit recorded in section 18 and `ASP_MODEL_STUDIO_FABLE51_COMMIT_RECEIPT.json`.
 6. Main HEAD: `924db29511f93909f9d785855bfa056775443690`.
 7. Worktree: `C:\Users\james\worktrees\asp-model-studio-fable51-audit`.
 8. Git status before: clean (all worktrees); after: clean except the committed `docs/` deliverables on the audit branch; primary checkout untouched (`33cd85f`, clean).
@@ -318,3 +318,16 @@ No page failed to render, no server error surfaced in the UI, and the authorizat
 64. Rejected busy work: repair plan section G.
 65. Exact next action: fix F-001 (grant bootstrap) and republish the V2 store into the primary runtime root (F-002) before the `.tmp/asp-player-prior-wave2` worktree is pruned; then generalize the Model Laboratory (F-003).
 66. Verdict: `ASP_MODEL_STUDIO_NOT_READY_TENANT_ISOLATION_BLOCKERS` (+ WORKFLOW, SCALE, BACKUP_RESTORE, DATA_RIGHTS); private research ready for a single operator.
+
+---
+
+## 18. Commit receipt
+
+| Item | Value |
+| --- | --- |
+| audit branch | `claude/fable51-model-studio-security-ml-integrity-audit` (worktree `C:\Users\james\worktrees\asp-model-studio-fable51-audit`) |
+| base | `bff19a8a657bc96dea0469fad481acdcb4234386` (`codex/mlb-player-prior-wave2`) |
+| deliverables commit | `df5c14fd32f986560bb25001a20c1d2a231c3a58` — 81 files, 3,804 insertions, all under `docs/` (16 deliverables + 65 screenshots) |
+| receipt commit | the commit that adds this section and `ASP_MODEL_STUDIO_FABLE51_COMMIT_RECEIPT.json`; its SHA is the final HEAD reported in the closing message |
+| pushes / merges | none; main remains `924db29511f93909f9d785855bfa056775443690`; primary checkout remains `codex/mlb-governed-prior-engine-v1` @ `33cd85f`, clean |
+| application source changed | none (`git diff --stat bff19a8..HEAD -- . ':!docs'` is empty) |
