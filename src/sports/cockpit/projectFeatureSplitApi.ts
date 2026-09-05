@@ -2,8 +2,12 @@ import { BASE, getJSON, postJSON } from "../../lib/api";
 import {
   GOVERNED_PRIOR_BINDING_READY_STATUS,
   GOVERNED_PRIOR_BLOCKED_STATUS,
-  GOVERNED_PRIOR_EXECUTABLE_STATUS,
   GOVERNED_PRIOR_RETIRED_STATUS,
+  governedPriorPreprocessingExecutable,
+  governedPriorRawFeatureSelectable,
+  isGovernedPriorExecutableStatus,
+  type GovernedPriorFittedAuthority,
+  type GovernedPriorOutputContract,
 } from "./projectTreatmentApi";
 
 export type StudioAudit = {
@@ -56,7 +60,10 @@ export type GovernedPreprocessingPriorAuthority = {
   featureName?: string;
   authorityName: string;
   authorityId: string;
+  authorityChecksum: string;
+  familyId: string;
   method: string;
+  requiredEstimator: string;
   hierarchy: string[];
   exposureFeature: string | null;
   exposureDefinition: string;
@@ -64,22 +71,45 @@ export type GovernedPreprocessingPriorAuthority = {
   foldLocal: string;
   pointInTime: string;
   status: string;
+  /** Executability of the fitted preprocessing family, not of the raw field. */
+  preprocessingExecutable: boolean;
   executable: boolean;
+  /** Legacy display alias for rawFeatureSelectable. */
   selectable: boolean;
+  rawFeatureSelectable: boolean;
   blockedReason: string | null;
   resolution: string | null;
   retirementReason: string | null;
   derivedOutputs: string[];
+  outputContract: GovernedPriorOutputContract;
+  modelCandidateOutputs: string[];
+  auditOnlyOutputs: string[];
+  recommendedAblationBundle: string[];
+  fittedFoldStatus: string;
+  fittedFoldAuthorities: GovernedPriorFittedAuthority[];
+  finalDevelopmentAuthority: GovernedPriorFittedAuthority | null;
+  companionBindingIdentity: string;
+  effectiveSampleSizeSupport: boolean | null;
+  reliabilitySupport: boolean | null;
+  uncertaintySupport: boolean | null;
   readyFeatureCount: number | null;
+  readyV1FeatureCount: number | null;
+  readyV2FeatureCount: number | null;
   bindingReadyRequiresWave2EngineFeatureCount: number | null;
   retiredFeatureCount: number | null;
   blockedFeatureCount: number | null;
   featureCount: number | null;
+  fitBundleId: string;
+  fitBundleChecksum: string;
+  companionBindingAuthorityId: string;
+  foldAuthorities: GovernedPriorFittedAuthority[];
   bindings: GovernedPreprocessingPriorAuthority[];
 };
 
 export type PriorExecutionSummary = Record<string, unknown> & {
   hierarchicalPriorReady?: number;
+  hierarchicalPriorReadyV1?: number;
+  hierarchicalPriorReadyV2?: number;
   hierarchicalPriorBindingReady?: number;
   hierarchicalPriorRetired?: number;
   hierarchicalPriorBlocked?: number;
@@ -121,7 +151,9 @@ export type GovernedInteractionAuthoritySummary = {
 
 export type TreatmentSpecificationResolution = {
   executableStatus: string;
+  preprocessingExecutable: boolean;
   executable: boolean;
+  rawFeatureSelectable: boolean;
   executableSelectable: boolean;
   blockedReason: string | null;
   resolution: string | null;
@@ -623,20 +655,112 @@ function normalizedStringList(raw: unknown): string[] {
 
 function isGovernedPriorStatus(status: string): boolean {
   return (
-    status === GOVERNED_PRIOR_EXECUTABLE_STATUS ||
+    isGovernedPriorExecutableStatus(status) ||
     status === GOVERNED_PRIOR_BINDING_READY_STATUS ||
     status === GOVERNED_PRIOR_RETIRED_STATUS ||
     status === GOVERNED_PRIOR_BLOCKED_STATUS
   );
 }
 
+function normalizedFittedAuthority(
+  raw: unknown,
+): GovernedPriorFittedAuthority | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  return {
+    ...value,
+    foldId: value.foldId == null ? undefined : String(value.foldId),
+    foldChecksum:
+      value.foldChecksum == null ? undefined : String(value.foldChecksum),
+    fittedId: value.fittedId == null ? undefined : String(value.fittedId),
+    fittedChecksum:
+      value.fittedChecksum == null ? undefined : String(value.fittedChecksum),
+    artifactSha256:
+      value.artifactSha256 == null ? undefined : String(value.artifactSha256),
+    trainingStart:
+      value.trainingStart == null ? undefined : String(value.trainingStart),
+    trainingEnd:
+      value.trainingEnd == null ? undefined : String(value.trainingEnd),
+    trainingRows:
+      value.trainingRows == null ? undefined : Number(value.trainingRows),
+  };
+}
+
+function normalizedFittedAuthorities(raw: unknown): GovernedPriorFittedAuthority[] {
+  return (Array.isArray(raw) ? raw : [])
+    .map(normalizedFittedAuthority)
+    .filter(
+      (value): value is GovernedPriorFittedAuthority => value !== null,
+    );
+}
+
+function normalizedPriorOutputContract(raw: unknown): GovernedPriorOutputContract {
+  const value = raw && typeof raw === "object"
+    ? (raw as Record<string, unknown>)
+    : {};
+  return {
+    ...value,
+    modelCandidateOutputs: normalizedStringList(value.modelCandidateOutputs),
+    auditOnlyOutputs: normalizedStringList(value.auditOnlyOutputs),
+    recommendedAblationBundle: normalizedStringList(
+      value.recommendedAblationBundle,
+    ),
+    rawFeatureSelectable:
+      typeof value.rawFeatureSelectable === "boolean"
+        ? value.rawFeatureSelectable
+        : undefined,
+    defaultSelected:
+      typeof value.defaultSelected === "boolean"
+        ? value.defaultSelected
+        : undefined,
+  };
+}
+
+type PriorExecutionOverrides = {
+  preprocessingExecutable?: unknown;
+  rawFeatureSelectable?: unknown;
+};
+
 function normalizedPriorAuthority(
   raw: any,
   derivedOutputs?: unknown,
+  executionOverrides: PriorExecutionOverrides = {},
 ): GovernedPreprocessingPriorAuthority | null {
   if (!raw || typeof raw !== "object") return null;
   const hierarchy = normalizedStringList(raw.hierarchy);
   const status = String(raw.status ?? "SUMMARY");
+  const outputContract = normalizedPriorOutputContract(raw.outputContract);
+  const modelCandidateOutputs = normalizedStringList(
+    raw.modelCandidateOutputs ?? outputContract.modelCandidateOutputs,
+  );
+  const auditOnlyOutputs = normalizedStringList(
+    raw.auditOnlyOutputs ?? outputContract.auditOnlyOutputs,
+  );
+  const recommendedAblationBundle = normalizedStringList(
+    raw.recommendedAblationBundle ?? outputContract.recommendedAblationBundle,
+  );
+  const preprocessingExecutable = governedPriorPreprocessingExecutable({
+    status,
+    executable: raw.executable,
+    preprocessingExecutable:
+      executionOverrides.preprocessingExecutable ?? raw.preprocessingExecutable,
+  });
+  const rawFeatureSelectable = governedPriorRawFeatureSelectable({
+    status,
+    selectable: raw.selectable,
+    rawFeatureSelectable:
+      executionOverrides.rawFeatureSelectable ?? raw.rawFeatureSelectable,
+    outputContract,
+  });
+  const fittedFoldAuthorities = normalizedFittedAuthorities(
+    raw.fittedFoldAuthorities ?? raw.foldAuthorities,
+  );
+  const foldAuthorities = normalizedFittedAuthorities(
+    raw.foldAuthorities ?? raw.fittedFoldAuthorities,
+  );
+  const normalizedDerivedOutputs = normalizedStringList(
+    derivedOutputs ?? raw.derivedOutputs ?? raw.derivedOutputMap,
+  );
   return {
     featureName:
       raw.featureName == null && raw.feature == null
@@ -644,7 +768,10 @@ function normalizedPriorAuthority(
         : String(raw.featureName ?? raw.feature),
     authorityName: String(raw.authorityName ?? "NOT_REPORTED"),
     authorityId: String(raw.authorityId ?? "NOT_REPORTED"),
+    authorityChecksum: String(raw.authorityChecksum ?? "NOT_REPORTED"),
+    familyId: String(raw.familyId ?? "NOT_REPORTED"),
     method: String(raw.method ?? "NOT_REPORTED"),
+    requiredEstimator: String(raw.requiredEstimator ?? raw.method ?? "NOT_REPORTED"),
     hierarchy,
     exposureFeature:
       raw.exposureFeature == null ? null : String(raw.exposureFeature),
@@ -653,18 +780,50 @@ function normalizedPriorAuthority(
     foldLocal: String(raw.foldLocal ?? "NOT_REPORTED").toUpperCase(),
     pointInTime: String(raw.pointInTime ?? "NOT_REPORTED").toUpperCase(),
     status,
-    executable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
-    selectable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
+    preprocessingExecutable,
+    executable: preprocessingExecutable,
+    rawFeatureSelectable,
+    selectable: rawFeatureSelectable,
     blockedReason:
       raw.blockedReason == null ? null : String(raw.blockedReason),
     resolution: raw.resolution == null ? null : String(raw.resolution),
     retirementReason:
       raw.retirementReason == null ? null : String(raw.retirementReason),
-    derivedOutputs: normalizedStringList(
-      derivedOutputs ?? raw.derivedOutputs ?? raw.derivedOutputMap,
+    derivedOutputs: normalizedDerivedOutputs.length
+      ? normalizedDerivedOutputs
+      : [...modelCandidateOutputs, ...auditOnlyOutputs],
+    outputContract,
+    modelCandidateOutputs,
+    auditOnlyOutputs,
+    recommendedAblationBundle,
+    fittedFoldStatus: String(raw.fittedFoldStatus ?? "NOT_REPORTED"),
+    fittedFoldAuthorities,
+    finalDevelopmentAuthority: normalizedFittedAuthority(
+      raw.finalDevelopmentAuthority,
     ),
+    companionBindingIdentity: String(
+      raw.companionBindingIdentity ??
+        raw.companionBindingAuthorityId ??
+        "NOT_REPORTED",
+    ),
+    effectiveSampleSizeSupport:
+      typeof raw.effectiveSampleSizeSupport === "boolean"
+        ? raw.effectiveSampleSizeSupport
+        : null,
+    reliabilitySupport:
+      typeof raw.reliabilitySupport === "boolean"
+        ? raw.reliabilitySupport
+        : null,
+    uncertaintySupport:
+      typeof raw.uncertaintySupport === "boolean"
+        ? raw.uncertaintySupport
+        : null,
     readyFeatureCount:
       raw.readyFeatureCount == null ? null : Number(raw.readyFeatureCount),
+    readyV1FeatureCount:
+      raw.readyV1FeatureCount == null ? null : Number(raw.readyV1FeatureCount),
+    readyV2FeatureCount:
+      raw.readyV2FeatureCount == null ? null : Number(raw.readyV2FeatureCount),
     bindingReadyRequiresWave2EngineFeatureCount:
       raw.bindingReadyRequiresWave2EngineFeatureCount == null &&
       raw.bindingReadyFeatureCount == null
@@ -678,6 +837,14 @@ function normalizedPriorAuthority(
     blockedFeatureCount:
       raw.blockedFeatureCount == null ? null : Number(raw.blockedFeatureCount),
     featureCount: raw.featureCount == null ? null : Number(raw.featureCount),
+    fitBundleId: String(raw.fitBundleId ?? "NOT_REPORTED"),
+    fitBundleChecksum: String(raw.fitBundleChecksum ?? "NOT_REPORTED"),
+    companionBindingAuthorityId: String(
+      raw.companionBindingAuthorityId ??
+        raw.companionBindingIdentity ??
+        "NOT_REPORTED",
+    ),
+    foldAuthorities,
     bindings: (Array.isArray(raw.bindings) ? raw.bindings : [])
       .map((binding: unknown) => normalizedPriorAuthority(binding))
       .filter(
@@ -703,18 +870,44 @@ function normalizedTreatmentSpecificationResolution(
   const effectivePriorStatus = isGovernedPriorStatus(executableStatus)
     ? executableStatus
     : nestedPriorStatus;
+  const declaredPreprocessingExecutable =
+    raw.preprocessingExecutable ??
+    raw.preprocessing_executable ??
+    raw.executable ??
+    raw.execution_contract?.preprocessingExecutable ??
+    raw.execution_contract?.executable;
+  const declaredRawFeatureSelectable =
+    raw.rawFeatureSelectable ??
+    raw.raw_feature_selectable ??
+    raw.executableSelectable ??
+    raw.executable_selectable ??
+    raw.execution_contract?.rawFeatureSelectable ??
+    raw.execution_contract?.selectable;
+  const preprocessingExecutable = governedPriorStatus
+    ? governedPriorPreprocessingExecutable({
+        status: effectivePriorStatus,
+        executable: raw.executable,
+        preprocessingExecutable: declaredPreprocessingExecutable,
+      })
+    : raw.executable === true || raw.execution_contract?.executable === true;
+  const rawFeatureSelectable = governedPriorStatus
+    ? governedPriorRawFeatureSelectable({
+        status: effectivePriorStatus,
+        selectable: declaredRawFeatureSelectable,
+        rawFeatureSelectable: declaredRawFeatureSelectable,
+        outputContract: raw.priorAuthority?.outputContract,
+      })
+    : raw.executableSelectable === true || raw.executable_selectable === true;
   const retirementReason =
     raw.priorAuthority?.retirementReason == null
       ? null
       : String(raw.priorAuthority.retirementReason);
   return {
     executableStatus,
-    executable: governedPriorStatus
-      ? effectivePriorStatus === GOVERNED_PRIOR_EXECUTABLE_STATUS
-      : raw.executable === true || raw.execution_contract?.executable === true,
-    executableSelectable: governedPriorStatus
-      ? effectivePriorStatus === GOVERNED_PRIOR_EXECUTABLE_STATUS
-      : raw.executableSelectable === true || raw.executable_selectable === true,
+    preprocessingExecutable,
+    executable: preprocessingExecutable,
+    rawFeatureSelectable,
+    executableSelectable: rawFeatureSelectable,
     blockedReason: raw.blockedReason == null ? null : String(raw.blockedReason),
     resolution: raw.resolution == null ? null : String(raw.resolution),
     retirementReason,
@@ -724,6 +917,10 @@ function normalizedTreatmentSpecificationResolution(
     priorAuthority: normalizedPriorAuthority(
       raw.priorAuthority,
       derivedPriorOutputs,
+      {
+        preprocessingExecutable,
+        rawFeatureSelectable,
+      },
     ),
     interactionAuthority: normalizedInteractionAuthority(
       raw.interactionAuthority,

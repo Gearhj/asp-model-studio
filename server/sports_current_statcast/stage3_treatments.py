@@ -125,6 +125,45 @@ _GOVERNED_DOMAIN_BOUNDS: Mapping[str, tuple[float, float]] = {
 # canonical executable contract enter this set.  In particular, a nearby PA or
 # BF count never makes a different rate scientifically eligible.
 _GOVERNED_PRIOR_FEATURES: frozenset[str] = SUPPORTED_PRIOR_FEATURES
+_GOVERNED_PRIOR_READY_STATUSES = frozenset(
+    {"READY_GOVERNED_PRIOR_V1", "READY_GOVERNED_PRIOR_V2"}
+)
+
+
+def _runtime_governed_prior_bindings(
+    database: Database, authority: eda._Authority
+) -> dict[str, dict[str, Any]]:
+    """Resolve executable priors from the same live compiler as Stage 3."""
+
+    from . import stage3_player_prior_authority_v2 as prior_v2
+    from .stage3_feature_treatment_spec import compile_project_specification
+
+    public = authority.public() if callable(getattr(authority, "public", None)) else {}
+    gold_manifest = public.get("goldManifestSha") or getattr(
+        authority, "gold_manifest_sha", None
+    )
+    if gold_manifest != prior_v2.EXPECTED_GOLD_MANIFEST_SHA256:
+        # Wave 2 is deliberately bound to one exact Current Gold. Other projects
+        # retain the established V1 behavior without requiring the full MLB
+        # treatment compiler merely to render a generic Missing Values surface.
+        return {
+            feature: binding
+            for feature in SUPPORTED_PRIOR_FEATURES
+            if (binding := player_prior_binding(feature)) is not None
+            and binding.get("status") == "READY_GOVERNED_PRIOR_V1"
+            and binding.get("executable") is True
+        }
+    manifest = compile_project_specification(database, authority.project_id).get(
+        "priorAuthority"
+    ) or {}
+    return {
+        str(binding.get("feature") or ""): dict(binding)
+        for binding in manifest.get("bindings") or []
+        if isinstance(binding, Mapping)
+        and str(binding.get("status") or "") in _GOVERNED_PRIOR_READY_STATUSES
+        and binding.get("executable") is True
+        and str(binding.get("feature") or "")
+    }
 
 _RESULT_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _PROFILE_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -1928,7 +1967,16 @@ def _prime_missing_profiles(
     return result
 
 
-def _imputation_eligibility(meta: Mapping[str, Any], variable: str) -> tuple[list[str], dict[str, str]]:
+def _imputation_eligibility(
+    meta: Mapping[str, Any],
+    variable: str,
+    governed_prior_bindings: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    governed_prior_features = (
+        frozenset(governed_prior_bindings)
+        if governed_prior_bindings is not None
+        else _GOVERNED_PRIOR_FEATURES
+    )
     role = str(meta.get("role") or "")
     data_type = str(meta.get("dataType") or "")
     reasons: dict[str, str] = {}
@@ -1943,14 +1991,14 @@ def _imputation_eligibility(meta: Mapping[str, Any], variable: str) -> tuple[lis
         return [], {method: f"{role} fields are not eligible for predictor imputation." for method in IMPUTATION_METHODS}
     if _looks_binary(variable, meta):
         methods = ["RETAIN_WITH_INDICATOR", "MODE", "CONSTANT", "PREDICTED", "DROP_VARIABLE", "EXCLUDE_ROW"]
-        if variable in _GOVERNED_PRIOR_FEATURES:
+        if variable in governed_prior_features:
             methods.insert(4, "GOVERNED_PRIOR")
         reasons["MEAN"] = "Mean imputation is not permitted for binary predictors."
         reasons["MEDIAN"] = "Median imputation is not permitted for binary predictors."
         reasons["UNKNOWN_CATEGORY"] = "UNKNOWN_CATEGORY is valid only for nominal categorical predictors."
     elif data_type == "numeric":
         methods = ["RETAIN_WITH_INDICATOR", "MEAN", "MEDIAN", "CONSTANT", "PREDICTED", "DROP_VARIABLE", "EXCLUDE_ROW"]
-        if variable in _GOVERNED_PRIOR_FEATURES:
+        if variable in governed_prior_features:
             methods.insert(5, "GOVERNED_PRIOR")
         reasons["MODE"] = "Mode imputation requires binary, categorical, low-cardinality, or explicitly governed ordinal semantics."
         reasons["UNKNOWN_CATEGORY"] = "UNKNOWN_CATEGORY is valid only for categorical predictors."
@@ -1958,11 +2006,11 @@ def _imputation_eligibility(meta: Mapping[str, Any], variable: str) -> tuple[lis
         methods = ["RETAIN_WITH_INDICATOR", "MODE", "CONSTANT", "PREDICTED", "UNKNOWN_CATEGORY", "DROP_VARIABLE", "EXCLUDE_ROW"]
         reasons["MEAN"] = "Mean imputation is valid only for continuous numeric predictors."
         reasons["MEDIAN"] = "Median imputation requires a numeric or governed ordinal predictor."
-        if variable in _GOVERNED_PRIOR_FEATURES:
+        if variable in governed_prior_features:
             methods.insert(4, "GOVERNED_PRIOR")
         else:
             reasons["GOVERNED_PRIOR"] = "No registered categorical hierarchy or league-prior contract exists for this variable."
-    if variable not in _GOVERNED_PRIOR_FEATURES:
+    if variable not in governed_prior_features:
         reasons["GOVERNED_PRIOR"] = "No registered hierarchical or league-prior contract exists for this variable."
     return methods, reasons
 
@@ -1981,17 +2029,27 @@ def _effective_imputation_method(
     requested_method: str,
     *,
     explicit_override: bool,
+    governed_prior_bindings: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[str, bool]:
     """Resolve a heterogeneous global imputation control for one variable."""
     requested = str(requested_method).upper()
     if requested in _IMPUTATION_DEFAULT_ALIASES:
+        binding = (governed_prior_bindings or {}).get(variable)
+        if (
+            isinstance(binding, Mapping)
+            and str(binding.get("status") or "") in _GOVERNED_PRIOR_READY_STATUSES
+            and binding.get("executable") is True
+        ):
+            return "GOVERNED_PRIOR", False
         return _default_imputation(meta), False
     if requested not in IMPUTATION_METHODS:
         raise Stage3TreatmentError(
             "IMPUTATION_METHOD_UNSUPPORTED",
             f"Unsupported imputation method: {requested}.",
         )
-    eligible, reasons = _imputation_eligibility(meta, variable)
+    eligible, reasons = _imputation_eligibility(
+        meta, variable, governed_prior_bindings
+    )
     if requested in eligible:
         return requested, False
     if explicit_override:
@@ -2038,10 +2096,13 @@ def _missing_row(
     filters: Mapping[str, Any],
     global_method: str,
     override: Mapping[str, Any] | None,
+    governed_prior_bindings: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     variable = str(meta["name"])
     profile = _missing_profile(authority, meta, filters)
-    eligible, reasons = _imputation_eligibility(meta, variable)
+    eligible, reasons = _imputation_eligibility(
+        meta, variable, governed_prior_bindings
+    )
     explicit_method = bool(
         override is not None
         and "method" in override
@@ -2053,6 +2114,7 @@ def _missing_row(
         variable,
         requested_method,
         explicit_override=explicit_method,
+        governed_prior_bindings=governed_prior_bindings,
     )
     count = int(profile["missingCount"])
     reason_counts = dict(profile["reasonCounts"])
@@ -2107,10 +2169,10 @@ def _missing_row(
         "identityFailureCount": ordinary_reasons["IDENTITY_FAILURE"],
         "pairedMissingnessIndicator": profile["pairedIndicator"],
         "canonicalPredictedPreviewSeed": PREDICTED_PREVIEW_SEED,
-        "governedPriorAvailable": variable in _GOVERNED_PRIOR_FEATURES,
+        "governedPriorAvailable": variable in governed_prior_bindings,
         "governedPriorUnavailableReason": (
             None
-            if variable in _GOVERNED_PRIOR_FEATURES
+            if variable in governed_prior_bindings
             else "No registered hierarchical or league-prior authority exists for this variable."
         ),
         "selectedImputationMethod": selected,
@@ -2152,10 +2214,21 @@ def _missing_rows(
     if global_method not in _IMPUTATION_DEFAULT_ALIASES and global_method not in IMPUTATION_METHODS:
         raise Stage3TreatmentError("IMPUTATION_METHOD_UNSUPPORTED", f"Unsupported global imputation method: {global_method}.")
     overrides = _overrides(payload)
+    governed_prior_bindings = _runtime_governed_prior_bindings(
+        database, authority
+    )
     metas = _prefilter_meta(_eligible_missing_meta(authority), payload)
     _prime_missing_profiles(authority, metas, filters)
     def build(meta: Mapping[str, Any]) -> dict[str, Any]:
-        return _missing_row(database, authority, meta, filters, global_method, overrides.get(str(meta["name"])))
+        return _missing_row(
+            database,
+            authority,
+            meta,
+            filters,
+            global_method,
+            overrides.get(str(meta["name"])),
+            governed_prior_bindings,
+        )
     return [build(meta) for meta in metas]
 
 
@@ -2642,6 +2715,9 @@ def _missing_detail_data(
     meta = catalog.get(variable)
     if not meta or not meta.get("selectable"):
         raise Stage3TreatmentError("MISSING_VARIABLE_INELIGIBLE", f"{variable} is not an eligible predictor.")
+    governed_prior_bindings = _runtime_governed_prior_bindings(
+        database, authority
+    )
     explicit_method = any(
         key in payload and str(payload.get(key) or "").strip()
         for key in ("imputationMethod", "method")
@@ -2657,8 +2733,11 @@ def _missing_detail_data(
         variable,
         requested_method,
         explicit_override=explicit_method,
+        governed_prior_bindings=governed_prior_bindings,
     )
-    eligible, ineligible = _imputation_eligibility(meta, variable)
+    eligible, ineligible = _imputation_eligibility(
+        meta, variable, governed_prior_bindings
+    )
     columns = [
         variable,
         *[
@@ -2755,13 +2834,13 @@ def _missing_detail_data(
         # chronological training fold is explicitly supplied.
         fill_value = None
         imputed = pd.Series(False, index=original.index)
-        binding = player_prior_binding(variable)
+        binding = governed_prior_bindings.get(variable)
         fill_policy = (
-            f"{PLAYER_PRIOR_AUTHORITY_NAME} · parameter fit deferred to the authorized training fold"
+            f"{binding.get('authorityName', PLAYER_PRIOR_AUTHORITY_NAME) if binding else PLAYER_PRIOR_AUTHORITY_NAME} · exact fitted fold authority"
         )
         formula = (
-            "posterior = (prior_strength × training_prior_mean + exact_exposure × raw_rate) "
-            "/ (prior_strength + exact_exposure); source/computation failures remain missing"
+            str((binding or {}).get("operationFormula") or (binding or {}).get("componentDefinition") or "")
+            + "; source/computation failures remain distinct and no page-load fit occurs"
         )
     elif method == "PREDICTED":
         fill_policy = "Row-specific · OOF preview available" if predicted else "Row-specific · preview not run"
@@ -2838,15 +2917,18 @@ def _missing_detail_data(
         "sharedAxis": axis,
         "pairedIndicator": _paired_indicator(variable, catalog),
         "canonicalPredictedPreviewSeed": PREDICTED_PREVIEW_SEED,
-        "governedPriorAvailable": variable in _GOVERNED_PRIOR_FEATURES,
+        "governedPriorAvailable": variable in governed_prior_bindings,
         "governedPriorUnavailableReason": (
             None
-            if variable in _GOVERNED_PRIOR_FEATURES
+            if variable in governed_prior_bindings
             else "No registered hierarchical or league-prior authority exists for this variable."
         ),
         "governedPriorAuthority": (
             {
-                "authorityName": PLAYER_PRIOR_AUTHORITY_NAME,
+                "authorityName": binding.get("authorityName", PLAYER_PRIOR_AUTHORITY_NAME),
+                "authorityId": binding.get("authorityId"),
+                "authorityChecksum": binding.get("authorityChecksum"),
+                "familyId": binding.get("familyId"),
                 "method": binding["method"],
                 "hierarchy": binding["hierarchy"],
                 "exposureFeature": binding["exposureFeature"],
@@ -2855,6 +2937,9 @@ def _missing_detail_data(
                 "foldLocal": "PASS",
                 "pointInTime": "PASS",
                 "status": binding["status"],
+                "fittedFoldStatus": binding.get("fittedFoldStatus"),
+                "companionBindingIdentity": binding.get("companionBindingIdentity"),
+                "outputContract": binding.get("outputContract"),
             }
             if method == "GOVERNED_PRIOR" and binding
             else None
@@ -3344,6 +3429,9 @@ def _validate_policy_payload(
             "descriptivePreviewThresholdsAreAuthoritative": False,
         }
     else:
+        governed_prior_bindings = _runtime_governed_prior_bindings(
+            database, authority
+        )
         global_method = str(payload.get("globalMethod") or DEFAULT_IMPUTATION_METHOD).upper()
         if global_method in _IMPUTATION_DEFAULT_ALIASES:
             global_method = DEFAULT_IMPUTATION_METHOD
@@ -3356,7 +3444,7 @@ def _validate_policy_payload(
         indicator_default = str(payload.get("indicatorDefault") or "RETAIN").upper()
         available_prior_features = sorted(
             feature
-            for feature in _GOVERNED_PRIOR_FEATURES
+            for feature in governed_prior_bindings
             if feature in catalog and catalog[feature].get("selectable")
         )
         if cold_start_default not in allowed_cold_start:
@@ -3381,6 +3469,7 @@ def _validate_policy_payload(
                 variable,
                 requested_method,
                 explicit_override=explicit_method,
+                governed_prior_bindings=governed_prior_bindings,
             )
             if resolved_method == "PREDICTED":
                 predictors, _excluded = _predictor_contract(
@@ -3401,6 +3490,7 @@ def _validate_policy_payload(
                 variable,
                 requested_method,
                 explicit_override=explicit_method,
+                governed_prior_bindings=governed_prior_bindings,
             )
             if method == "CONSTANT":
                 raw = override.get("constantValue")
@@ -3456,7 +3546,7 @@ def _validate_policy_payload(
             retain_indicator = override.get("retainIndicator", indicator_default == "RETAIN")
             if cold_start_method not in allowed_cold_start:
                 raise Stage3TreatmentError("COLD_START_POLICY_INVALID", f"Unsupported cold-start rule for {variable}: {cold_start_method}.")
-            if cold_start_method == "GOVERNED_PRIOR_WITH_INDICATOR" and variable not in _GOVERNED_PRIOR_FEATURES:
+            if cold_start_method == "GOVERNED_PRIOR_WITH_INDICATOR" and variable not in governed_prior_bindings:
                 raise Stage3TreatmentError(
                     "COLD_START_GOVERNED_PRIOR_UNAVAILABLE",
                     f"{variable} has no registered hierarchical/league-prior authority.",

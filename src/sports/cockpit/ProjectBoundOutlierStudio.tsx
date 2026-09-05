@@ -1498,7 +1498,7 @@ export function ProjectBoundOutlierStudio({
                   {OUTLIER_COLUMNS.map(({ label, field }, index) => (
                     <th
                       key={label}
-                      className={`border-b px-3 py-2 ${index < 2 ? "sticky z-30 bg-slate-100" : ""}`}
+                      className={`border-b px-3 py-2 ${index < 2 ? "xl:sticky xl:z-30 xl:bg-slate-100" : ""}`}
                       style={
                         index === 0
                           ? { left: 0 }
@@ -1542,7 +1542,7 @@ export function ProjectBoundOutlierStudio({
                           : "bg-slate-50 text-slate-500"
                       }
                     >
-                      <td className="sticky left-0 z-10 w-[150px] border-b bg-white px-3 py-2">
+                      <td className="w-[150px] border-b bg-white px-3 py-2 xl:sticky xl:left-0 xl:z-10">
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -1564,7 +1564,7 @@ export function ProjectBoundOutlierStudio({
                           </b>
                         </label>
                       </td>
-                      <td className="sticky left-[150px] z-10 w-[230px] border-b bg-white px-3 py-2 font-mono font-semibold text-slate-900">
+                      <td className="w-[230px] border-b bg-white px-3 py-2 font-mono font-semibold text-slate-900 xl:sticky xl:left-[150px] xl:z-10">
                         {row.variable}
                         {override || row.override ? (
                           <span className="ml-2 rounded bg-cyan-100 px-1.5 py-0.5 font-sans text-[8px] text-cyan-800">
@@ -1610,7 +1610,7 @@ export function ProjectBoundOutlierStudio({
                           {formatValue(value)}
                         </td>
                       ))}
-                      <td className="sticky right-[420px] z-10 border-b bg-white px-3 py-2">
+                      <td className="border-b bg-white px-3 py-2 xl:sticky xl:right-[420px] xl:z-10">
                         {eligible ? (
                           <select
                             aria-label={`Detection method for ${row.variable}`}
@@ -1651,7 +1651,7 @@ export function ProjectBoundOutlierStudio({
                           </span>
                         )}
                       </td>
-                      <td className="sticky right-[210px] z-10 border-b bg-white px-3 py-2">
+                      <td className="border-b bg-white px-3 py-2 xl:sticky xl:right-[210px] xl:z-10">
                         {eligible ? (
                           <select
                             aria-label={`Treatment for ${row.variable}`}
@@ -1708,7 +1708,7 @@ export function ProjectBoundOutlierStudio({
                           </div>
                         ) : null}
                       </td>
-                      <td className="sticky right-0 z-10 w-[210px] border-b bg-white px-3 py-2">
+                      <td className="w-[210px] border-b bg-white px-3 py-2 xl:sticky xl:right-0 xl:z-10">
                         <button
                           type="button"
                           disabled={!eligible}

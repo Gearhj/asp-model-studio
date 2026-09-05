@@ -37,8 +37,11 @@ import type {
   TreatmentSpecificationFeature,
 } from "./projectTreatmentApi";
 import {
-  GOVERNED_PRIOR_EXECUTABLE_STATUS,
+  GOVERNED_PRIOR_EXECUTABLE_V1_STATUS,
+  GOVERNED_PRIOR_EXECUTABLE_V2_STATUS,
   governedPriorBucket,
+  governedPriorPreprocessingExecutable,
+  governedPriorRawFeatureSelectable,
   hasCurrentTreatmentSpecificationDraft,
   useTreatmentSpecification,
 } from "./projectTreatmentApi";
@@ -793,10 +796,24 @@ function featurePriorAuthority(
     feature.executable_resolution ?? feature.executableResolution;
   const status =
     typeof priorAuthority.status === "string" ? priorAuthority.status : "";
+  const executionView = {
+    ...priorAuthority,
+    status,
+    preprocessingExecutable:
+      executionContract?.preprocessingExecutable ?? priorAuthority.preprocessingExecutable,
+    rawFeatureSelectable:
+      executionContract?.rawFeatureSelectable ??
+      executionContract?.selectable ??
+      feature.executable_selectable ??
+      priorAuthority.rawFeatureSelectable,
+  };
   return {
     ...priorAuthority,
-    executable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
-    selectable: status === GOVERNED_PRIOR_EXECUTABLE_STATUS,
+    preprocessingExecutable:
+      governedPriorPreprocessingExecutable(executionView),
+    executable: governedPriorPreprocessingExecutable(executionView),
+    rawFeatureSelectable: governedPriorRawFeatureSelectable(executionView),
+    selectable: governedPriorRawFeatureSelectable(executionView),
     resolution:
       typeof resolution === "string" && resolution.trim()
         ? resolution
@@ -889,7 +906,7 @@ const PRIOR_BUCKET_VIEW: Record<
   }
 > = {
   executable: {
-    label: "EXECUTABLE V1",
+    label: "EXECUTABLE PRIOR",
     cardClass: "border-emerald-200 bg-emerald-50/50",
     badgeClass: "bg-emerald-700 text-white",
     reasonLabel: "",
@@ -920,7 +937,15 @@ const PRIOR_BUCKET_VIEW: Record<
 
 function priorBucketView(authority: GovernedPriorAuthority) {
   const bucket = governedPriorBucket(authority);
-  return { bucket, ...PRIOR_BUCKET_VIEW[bucket] };
+  const view = PRIOR_BUCKET_VIEW[bucket];
+  const status = priorField(authority.status, "");
+  const label =
+    status === GOVERNED_PRIOR_EXECUTABLE_V2_STATUS
+      ? "EXECUTABLE · V2"
+      : status === GOVERNED_PRIOR_EXECUTABLE_V1_STATUS
+        ? "EXECUTABLE · V1"
+        : view.label;
+  return { bucket, ...view, label };
 }
 
 function priorAuthorityReason(
@@ -958,6 +983,32 @@ function priorDerivedOutputs(
     : [];
 }
 
+function priorOutputRole(
+  authority: GovernedPriorAuthority,
+  role:
+    | "modelCandidateOutputs"
+    | "auditOnlyOutputs"
+    | "recommendedAblationBundle",
+): string[] {
+  const direct = authority[role];
+  const nested = authority.outputContract?.[role];
+  const value = Array.isArray(direct) ? direct : nested;
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === "string" && Boolean(item),
+      )
+    : [];
+}
+
+function fittedAuthorityLabel(
+  authority: GovernedPriorAuthority["finalDevelopmentAuthority"],
+): string {
+  if (!authority) return "NOT_REPORTED";
+  return priorField(
+    authority.fittedId ?? authority.fittedChecksum ?? authority.artifactSha256,
+  );
+}
+
 export function GovernedPriorAuthorityCard({
   authority,
   featureName,
@@ -979,16 +1030,35 @@ export function GovernedPriorAuthorityCard({
     authority,
     /reliab|uncert|variance|standard_deviation|posterior_std/i,
   );
+  const modelCandidateOutputs = priorOutputRole(
+    authority,
+    "modelCandidateOutputs",
+  );
+  const auditOnlyOutputs = priorOutputRole(authority, "auditOnlyOutputs");
+  const recommendedAblationBundle = priorOutputRole(
+    authority,
+    "recommendedAblationBundle",
+  );
   const allOutputs = Array.isArray(authority.derivedOutputs)
     ? authority.derivedOutputs.filter(
         (value): value is string => typeof value === "string",
       )
     : [];
+  const preprocessingExecutable = governedPriorPreprocessingExecutable(authority);
+  const rawFeatureSelectable = governedPriorRawFeatureSelectable(authority);
+  const fittedFolds = Array.isArray(authority.fittedFoldAuthorities)
+    ? authority.fittedFoldAuthorities
+    : [];
+  const hasSupportEvidence =
+    authority.effectiveSampleSizeSupport !== undefined ||
+    authority.reliabilitySupport !== undefined ||
+    authority.uncertaintySupport !== undefined;
 
   return (
     <article
       className={`min-w-0 rounded-xl border p-3 ${presentation.cardClass}`}
       data-testid={`stage3-governed-prior-${presentation.bucket}`}
+      data-prior-status={status}
     >
       <div className="flex flex-wrap items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -1006,13 +1076,13 @@ export function GovernedPriorAuthorityCard({
         </span>
       </div>
       <div className="mt-2 break-all font-mono text-[9px] text-slate-600">
-        {status} · executable {String(presentation.bucket === "executable")} · selectable {String(presentation.bucket === "executable")}
+        {status} · preprocessing executable {String(preprocessingExecutable)} · raw feature selectable {String(rawFeatureSelectable)}
       </div>
       <dl className="mt-3 grid gap-2 text-[10px] leading-4 sm:grid-cols-2">
         <div>
-          <dt className="font-semibold uppercase text-slate-500">Method / hierarchy</dt>
+          <dt className="font-semibold uppercase text-slate-500">Estimator family / hierarchy</dt>
           <dd className="mt-0.5 text-slate-800">
-            {priorField(authority.method)} · {priorHierarchy(authority.hierarchy)}
+            {priorField(authority.familyId)} · {priorField(authority.method)} · {priorHierarchy(authority.hierarchy)}
           </dd>
         </div>
         <div>
@@ -1046,11 +1116,72 @@ export function GovernedPriorAuthorityCard({
               : ""}
           </dd>
         </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Companion binding</dt>
+          <dd className="mt-0.5 break-all font-mono text-slate-800">
+            {priorField(authority.companionBindingIdentity)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold uppercase text-slate-500">Fitted authority</dt>
+          <dd className="mt-0.5 break-all text-slate-800">
+            {priorField(authority.fittedFoldStatus)} · {fittedFolds.length} fold children · final {fittedAuthorityLabel(authority.finalDevelopmentAuthority)}
+          </dd>
+        </div>
+        {hasSupportEvidence ? (
+          <div className="sm:col-span-2">
+            <dt className="font-semibold uppercase text-slate-500">Published support</dt>
+            <dd className="mt-0.5 text-slate-800">
+              Effective sample size {priorGateStatus(authority.effectiveSampleSizeSupport)} · reliability {priorGateStatus(authority.reliabilitySupport)} · uncertainty {priorGateStatus(authority.uncertaintySupport)}
+            </dd>
+          </div>
+        ) : null}
       </dl>
-      {allOutputs.length ? (
+      {modelCandidateOutputs.length || auditOnlyOutputs.length ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div
+            className="rounded-lg border border-emerald-200 bg-white/80 p-2 text-[9px] leading-4 text-emerald-950"
+            data-testid="stage3-prior-model-candidate-outputs"
+          >
+            <b>Model-candidate outputs · {modelCandidateOutputs.length}</b>
+            <div className="mt-1 break-all font-mono">
+              {modelCandidateOutputs.join(", ") || "None published"}
+            </div>
+            {recommendedAblationBundle.length ? (
+              <div className="mt-1 text-slate-600">
+                Recommended later ablation: {recommendedAblationBundle.join(", ")}
+              </div>
+            ) : null}
+          </div>
+          <div
+            className="rounded-lg border border-slate-200 bg-white/80 p-2 text-[9px] leading-4 text-slate-700"
+            data-testid="stage3-prior-audit-only-outputs"
+          >
+            <b>Audit-only outputs · {auditOnlyOutputs.length}</b>
+            <div className="mt-1 break-all font-mono">
+              {auditOnlyOutputs.join(", ") || "None published"}
+            </div>
+            <div className="mt-1">Inspect only · not independently selectable</div>
+          </div>
+        </div>
+      ) : allOutputs.length ? (
         <p className="mt-2 break-words rounded-lg bg-white/70 p-2 text-[9px] leading-4 text-slate-600">
-          <b>Governed preprocessing outputs:</b> {allOutputs.join(", ")}
+          <b>Governed preprocessing outputs (legacy contract):</b> {allOutputs.join(", ")}
         </p>
+      ) : null}
+      {fittedFolds.length ? (
+        <details className="mt-2 rounded-lg border border-white bg-white/70 p-2">
+          <summary className="cursor-pointer text-[9px] font-semibold text-slate-700">
+            Content-addressed fitted folds · {fittedFolds.length}
+          </summary>
+          <ol className="mt-1 space-y-1 pl-4 text-[9px] text-slate-600">
+            {fittedFolds.map((fold, index) => (
+              <li key={fold.fittedId ?? fold.fittedChecksum ?? index} className="break-all font-mono">
+                {priorField(fold.foldId, `Fold ${index + 1}`)} · {priorField(fold.fittedId ?? fold.fittedChecksum)}
+              </li>
+            ))}
+          </ol>
+        </details>
       ) : null}
       {resolutionReason ? (
         <p className={`mt-2 rounded-lg border bg-white p-2 text-[10px] leading-4 ${presentation.reasonClass}`}>
@@ -1101,22 +1232,30 @@ function GovernedPriorAuthorityPanel({
     ? featureAuthorities
     : summaryAuthorities;
   const derivedCounts = {
-    executable: 0,
+    executableV1: 0,
+    executableV2: 0,
     bindingReady: 0,
     retired: 0,
     blocked: 0,
   };
   bindingRows.forEach(([, authority]) => {
     const bucket = governedPriorBucket(authority);
-    if (bucket === "executable") derivedCounts.executable += 1;
-    else if (bucket === "binding-ready") derivedCounts.bindingReady += 1;
+    if (authority.status === GOVERNED_PRIOR_EXECUTABLE_V1_STATUS) {
+      derivedCounts.executableV1 += 1;
+    } else if (authority.status === GOVERNED_PRIOR_EXECUTABLE_V2_STATUS) {
+      derivedCounts.executableV2 += 1;
+    } else if (bucket === "binding-ready") derivedCounts.bindingReady += 1;
     else if (bucket === "retired") derivedCounts.retired += 1;
     else derivedCounts.blocked += 1;
   });
-  const reportedReady =
-    typeof summary?.readyFeatureCount === "number"
-      ? summary.readyFeatureCount
-      : derivedCounts.executable;
+  const reportedReadyV1 =
+    typeof summary?.readyV1FeatureCount === "number"
+      ? summary.readyV1FeatureCount
+      : derivedCounts.executableV1;
+  const reportedReadyV2 =
+    typeof summary?.readyV2FeatureCount === "number"
+      ? summary.readyV2FeatureCount
+      : derivedCounts.executableV2;
   const reportedBindingReady =
     typeof summary?.bindingReadyRequiresWave2EngineFeatureCount === "number"
       ? summary.bindingReadyRequiresWave2EngineFeatureCount
@@ -1136,6 +1275,18 @@ function GovernedPriorAuthorityPanel({
     : summaryAuthorities.length
       ? summaryAuthorities
       : [["Authority summary", representative] as [string, GovernedPriorAuthority]];
+  const summaryFolds = Array.isArray(summary?.foldAuthorities)
+    ? summary.foldAuthorities
+    : Array.isArray(representative.fittedFoldAuthorities)
+      ? representative.fittedFoldAuthorities
+      : [];
+  const summaryFinal =
+    summary?.finalDevelopmentAuthority ??
+    representative.finalDevelopmentAuthority ??
+    null;
+  const companionIdentity =
+    summary?.companionBindingAuthorityId ??
+    representative.companionBindingIdentity;
 
   return (
     <section
@@ -1151,15 +1302,19 @@ function GovernedPriorAuthorityPanel({
             {priorField(representative.authorityName)}
           </h3>
           <p className="mt-1 max-w-4xl text-[10px] leading-4 text-slate-600">
-            Read-only player-history → governed-fallback contracts. Executable
-            V1 bindings, Wave 2 engine dependencies, scientific retirements,
-            and true missing-evidence blockers remain separate; this page does
-            not fit priors, models, or validation data.
+            Read-only player-history → governed-fallback contracts. Exact V1
+            bindings, fitted Wave 2 preprocessing families, binding-only
+            dependencies, scientific retirements, and true missing-evidence
+            blockers remain separate; this page does not fit priors, models,
+            or validation data.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 text-[9px] font-semibold">
           <span className="rounded-full bg-emerald-700 px-2 py-1 text-white">
-            {reportedReady} EXECUTABLE V1
+            {reportedReadyV1} EXECUTABLE V1
+          </span>
+          <span className="rounded-full bg-violet-700 px-2 py-1 text-white">
+            {reportedReadyV2} EXECUTABLE V2
           </span>
           <span className="rounded-full border border-cyan-300 bg-white px-2 py-1 text-cyan-950">
             {reportedBindingReady} BINDING READY · WAVE 2
@@ -1200,7 +1355,38 @@ function GovernedPriorAuthorityPanel({
           value={`Fold-local ${priorGateStatus(representative.foldLocal)} · PIT ${priorGateStatus(representative.pointInTime)}`}
           detail="Training-fold authority only; final OOT remains locked"
         />
+        <SpecificationFact
+          label="Companion binding"
+          value={priorField(companionIdentity)}
+          detail="Exact sufficient-statistics evidence identity"
+          mono
+        />
+        <SpecificationFact
+          label="Fitted folds"
+          value={`${summaryFolds.length} content-addressed children`}
+          detail={priorField(representative.fittedFoldStatus, "Five chronological training-fold fits are frozen")}
+        />
+        <SpecificationFact
+          label="Final-development fit"
+          value={fittedAuthorityLabel(summaryFinal)}
+          detail="Separate from every fold-local child"
+          mono
+        />
       </div>
+      {summaryFolds.length ? (
+        <details className="mt-3 rounded-lg border border-violet-100 bg-white/70 p-2">
+          <summary className="cursor-pointer text-[10px] font-semibold text-slate-900">
+            Fitted-fold evidence · {summaryFolds.length} children
+          </summary>
+          <ol className="mt-2 grid gap-1 text-[9px] text-slate-600 lg:grid-cols-2">
+            {summaryFolds.map((fold, index) => (
+              <li key={fold.fittedId ?? fold.fittedChecksum ?? index} className="break-all font-mono">
+                {priorField(fold.foldId, `Fold ${index + 1}`)} · {priorField(fold.fittedId ?? fold.fittedChecksum)}
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
       <details open className="mt-3 rounded-lg border border-violet-100 bg-white/70 p-2">
         <summary className="cursor-pointer text-[10px] font-semibold text-slate-900">
           Per-feature authority · {displayRows.length}

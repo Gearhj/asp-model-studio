@@ -1614,7 +1614,7 @@ export function ProjectBoundMissingStudio({
               className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-normal normal-case"
             >
               <option value="DATA_TYPE_AWARE">
-                Data-type aware · median / mode; retain cold start + indicator
+                Governed prior when bound · otherwise median / mode
               </option>
               <option value="MEDIAN">Median where eligible</option>
               <option value="MODE">Mode where eligible</option>
@@ -1700,10 +1700,10 @@ export function ProjectBoundMissingStudio({
             Clear selected overrides
           </button>
           <span className="ml-auto max-w-lg text-[10px] leading-4 text-slate-500">
-            Continuous ordinary missingness → median; binary/categorical → mode;
-            cold start → retain missing + indicator unless registered prior
-            authority exists; source/computation failure → review required;
-            simulator state → supplied by simulator.
+            Exact executable prior authority takes precedence for bound player-state
+            features; other continuous missingness → median; other binary/categorical
+            missingness → mode; source/computation failure → review required; simulator
+            state → supplied by simulator.
           </span>
         </div>
         {bulkNotice ? (
@@ -1770,7 +1770,7 @@ export function ProjectBoundMissingStudio({
                   {MISSING_COLUMNS.map(({ label, field }, index) => (
                     <th
                       key={label}
-                      className={`border-b px-3 py-2 ${index < 2 ? "sticky z-30 bg-slate-100" : ""}`}
+                      className={`border-b px-3 py-2 ${index < 2 ? "xl:sticky xl:z-30 xl:bg-slate-100" : ""}`}
                       style={
                         index === 0
                           ? { left: 0 }
@@ -1814,7 +1814,7 @@ export function ProjectBoundMissingStudio({
                           : "bg-slate-50 text-slate-500"
                       }
                     >
-                      <td className="sticky left-0 z-10 w-[165px] border-b bg-white px-3 py-2">
+                      <td className="w-[165px] border-b bg-white px-3 py-2 xl:sticky xl:left-0 xl:z-10">
                         <label className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -1836,7 +1836,7 @@ export function ProjectBoundMissingStudio({
                           </b>
                         </label>
                       </td>
-                      <td className="sticky left-[165px] z-10 w-[230px] border-b bg-white px-3 py-2 font-mono font-semibold text-slate-900">
+                      <td className="w-[230px] border-b bg-white px-3 py-2 font-mono font-semibold text-slate-900 xl:sticky xl:left-[165px] xl:z-10">
                         {row.variable}
                         {override || row.override ? (
                           <span className="ml-2 rounded bg-cyan-100 px-1.5 py-0.5 font-sans text-[8px] text-cyan-800">
@@ -1885,7 +1885,7 @@ export function ProjectBoundMissingStudio({
                       <td className="border-b px-3 py-2 font-mono">
                         {row.pairedMissingnessIndicator ?? "—"}
                       </td>
-                      <td className="sticky right-[390px] z-10 border-b bg-white px-3 py-2">
+                      <td className="border-b bg-white px-3 py-2 xl:sticky xl:right-[390px] xl:z-10">
                         {eligible ? (
                           <select
                             aria-label={`Imputation method for ${row.variable}`}
@@ -1924,7 +1924,7 @@ export function ProjectBoundMissingStudio({
                           </span>
                         )}
                       </td>
-                      <td className="sticky right-[200px] z-10 w-[190px] border-b bg-white px-3 py-2">
+                      <td className="w-[190px] border-b bg-white px-3 py-2 xl:sticky xl:right-[200px] xl:z-10">
                         <div>
                           {override?.method === "PREDICTED"
                             ? "Row-specific · preview not run"
@@ -1965,7 +1965,7 @@ export function ProjectBoundMissingStudio({
                           </div>
                         ) : null}
                       </td>
-                      <td className="sticky right-0 z-10 w-[200px] border-b bg-white px-3 py-2">
+                      <td className="w-[200px] border-b bg-white px-3 py-2 xl:sticky xl:right-0 xl:z-10">
                         <button
                           type="button"
                           disabled={!eligible}

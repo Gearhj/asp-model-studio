@@ -28,6 +28,8 @@ from ..sports_datasets.consumer import canonical_json_bytes
 from . import stage3_eda as eda
 from . import stage3_interaction_recomputation_authority as interaction_authority
 from . import stage3_player_prior_authority as player_prior
+from . import stage3_player_prior_authority_v2 as player_prior_v2
+from . import stage3_player_prior_resolution_v2 as player_prior_resolution_v2
 from . import stage3_treatments as treatments
 from . import sufficient_stats
 
@@ -286,14 +288,33 @@ def _execution_contract(
             else player_prior.feature_binding(feature_name)
         )
         if binding and binding["executable"]:
+            binding_status = str(binding.get("status") or "")
+            output_contract = binding.get("outputContract") or {}
+            raw_selectable = bool(
+                output_contract.get("rawFeatureSelectable", binding.get("selectable", True))
+            )
+            is_wave2 = binding_status == player_prior_v2.READY_GOVERNED_PRIOR_V2
             return {
-                "executableStatus": "READY_GOVERNED_PRIOR_V1",
+                "executableStatus": binding_status,
                 "executable": True,
-                "selectable": True,
-                "resolution": "EXECUTE_GOVERNED_PLAYER_TO_MLB_LEAGUE_EMPIRICAL_BAYES_PRIOR",
+                "preprocessingExecutable": True,
+                "selectable": raw_selectable,
+                "resolution": (
+                    "EXECUTE_GOVERNED_SHARED_WAVE2_EMPIRICAL_BAYES_PRIOR_OUTPUT_FAMILY"
+                    if is_wave2
+                    else "EXECUTE_GOVERNED_PLAYER_TO_MLB_LEAGUE_EMPIRICAL_BAYES_PRIOR"
+                ),
                 "blockedReason": None,
-                "treeModel": "RETAIN_RAW_PLUS_GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE",
-                "denseModel": "GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE_WITH_TRAINING_ONLY_SCALING",
+                "treeModel": (
+                    "WAVE2_DERIVED_OUTPUTS_REQUIRE_LATER_REGISTERED_FEATURE_SET_ABLATION"
+                    if is_wave2
+                    else "RETAIN_RAW_PLUS_GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE"
+                ),
+                "denseModel": (
+                    "WAVE2_DERIVED_OUTPUTS_REQUIRE_LATER_REGISTERED_FEATURE_SET_ABLATION"
+                    if is_wave2
+                    else "GOVERNED_POSTERIOR_EFFECTIVE_N_RELIABILITY_AND_STATE_WITH_TRAINING_ONLY_SCALING"
+                ),
                 "fallbackLabel": None,
             }
         binding_status = str((binding or {}).get("status") or "")
@@ -546,8 +567,12 @@ def _structured_execution_contract(
         "HIERARCHICAL_PRIOR_PLUS_INDICATOR",
         "ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR",
     }:
-        if execution["selectable"]:
-            missing_strategy = "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
+        if execution["executable"]:
+            missing_strategy = (
+                "GOVERNED_SHARED_EMPIRICAL_BAYES_PRIOR_V2"
+                if prior_status == player_prior_v2.READY_GOVERNED_PRIOR_V2
+                else "GOVERNED_PLAYER_TO_MLB_LEAGUE_BETA_BINOMIAL_PRIOR_V1"
+            )
         elif execution["executableStatus"] == "BLOCKED":
             missing_strategy = "GOVERNED_PRIOR_REQUIRED_EXACT_SUFFICIENT_STATISTIC_UNAVAILABLE"
         elif prior_status == "BINDING_READY_REQUIRES_WAVE2_ENGINE":
@@ -571,6 +596,14 @@ def _structured_execution_contract(
     return {
         "selectable": bool(execution["selectable"]),
         "executable": bool(execution["executable"]),
+        "preprocessingExecutable": bool(
+            execution.get("preprocessingExecutable", execution["selectable"])
+        ),
+        "rawFeatureSelectable": bool(
+            (prior_binding or {}).get("outputContract", {}).get(
+                "rawFeatureSelectable", execution["selectable"]
+            )
+        ),
         "exclusionReason": (
             None
             if execution["selectable"]
@@ -600,7 +633,12 @@ def _structured_execution_contract(
             "fallbackLabel": execution["fallbackLabel"],
             "priorAuthority": (
                 {
-                    "authorityName": player_prior.AUTHORITY_NAME,
+                    "authorityName": prior_binding.get(
+                        "authorityName", player_prior.AUTHORITY_NAME
+                    ),
+                    "authorityId": prior_binding.get("authorityId"),
+                    "authorityChecksum": prior_binding.get("authorityChecksum"),
+                    "familyId": prior_binding.get("familyId"),
                     "method": prior_binding["method"],
                     "hierarchy": prior_binding["hierarchy"],
                     "roleAuthority": prior_binding["roleAuthority"],
@@ -636,6 +674,30 @@ def _structured_execution_contract(
                     ),
                     "derivedOutputs": list(executable_prior_outputs.values()),
                     "derivedOutputMap": executable_prior_outputs,
+                    "outputContract": prior_binding.get("outputContract"),
+                    "modelCandidateOutputs": list(
+                        (prior_binding.get("outputContract") or {}).get(
+                            "modelCandidateOutputs", ()
+                        )
+                    ),
+                    "auditOnlyOutputs": list(
+                        (prior_binding.get("outputContract") or {}).get(
+                            "auditOnlyOutputs", ()
+                        )
+                    ),
+                    "recommendedAblationBundle": list(
+                        (prior_binding.get("outputContract") or {}).get(
+                            "recommendedAblationBundle", ()
+                        )
+                    ),
+                    "fittedFoldStatus": prior_binding.get("fittedFoldStatus"),
+                    "foldContract": prior_binding.get("foldContract"),
+                    "fittedFoldAuthorities": prior_binding.get("fittedFoldAuthorities"),
+                    "finalDevelopmentAuthority": prior_binding.get("finalDevelopmentAuthority"),
+                    "companionBindingIdentity": prior_binding.get("companionBindingIdentity"),
+                    "effectiveSampleSizeSupport": prior_binding.get("effectiveSampleSizeSupport"),
+                    "reliabilitySupport": prior_binding.get("reliabilitySupport"),
+                    "uncertaintySupport": prior_binding.get("uncertaintySupport"),
                     "rawFeatureDecision": prior_binding["rawFeatureDecision"],
                 }
                 if prior_binding
@@ -846,6 +908,10 @@ def _reconcile(
             "executable_status": execution["executableStatus"],
             "executable_resolution": execution["resolution"],
             "executable_selectable": execution["selectable"],
+            "preprocessing_executable": bool(
+                execution.get("preprocessingExecutable", execution["selectable"])
+            ),
+            "raw_feature_selectable": bool(execution["selectable"]),
             "blocked_reason": execution["blockedReason"],
             "model_family_resolution": {
                 "tree_native_missing": execution["treeModel"],
@@ -933,6 +999,7 @@ def _exception_rows(
         if status in {
             "READY",
             "READY_GOVERNED_PRIOR_V1",
+            "READY_GOVERNED_PRIOR_V2",
             "READY_GOVERNED_INTERACTION_V1",
         } and disposition not in _EXCLUDED_DISPOSITIONS:
             continue
@@ -984,11 +1051,38 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             output_root=eda._gold_root(),
         )
     )
-    prior_authority = player_prior.project_authority_manifest(
+    v1_prior_authority = player_prior.project_authority_manifest(
         authority,
         treatment_specification_key=SPECIFICATION_KEY,
         treatment_source_sha256=str(source["source_content_sha256"]),
         sufficient_statistics_authority=sufficient_statistics_authority,
+    )
+    exact_wave2_source = (
+        v1_prior_authority.get("goldManifestSha")
+        == player_prior_v2.EXPECTED_GOLD_MANIFEST_SHA256
+        and (sufficient_statistics_authority or {}).get("manifestSha256")
+        == player_prior_v2.EXPECTED_COMPANION_MANIFEST_SHA256
+    )
+    resolved_wave2 = (
+        player_prior_resolution_v2.resolve_project_fit_bundle(
+            project_authority=authority,
+            v1_authority_manifest=v1_prior_authority,
+            sufficient_statistics_authority=sufficient_statistics_authority,
+            treatment_specification_key=SPECIFICATION_KEY,
+            treatment_source_sha256=str(source["source_content_sha256"]),
+            compiler_version=str(source["compiler_version"]),
+            compiler_sha256=_normalized_file_sha256(Path(__file__)),
+        )
+        if exact_wave2_source
+        else None
+    )
+    wave2_bundle = resolved_wave2[0] if resolved_wave2 is not None else None
+    prior_authority = (
+        player_prior_v2.combined_project_authority_manifest(
+            v1_prior_authority, wave2_bundle
+        )
+        if wave2_bundle is not None
+        else v1_prior_authority
     )
     prior_bindings = {
         str(binding["feature"]): binding
@@ -1060,6 +1154,19 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         "sourceWorkbook": source["source_workbook"],
         "projectAuthority": treatments._authority_payload(authority),
         "priorAuthority": prior_authority,
+        "wave2PriorFitBundle": (
+            {
+                "authorityId": wave2_bundle["authorityId"],
+                "authorityChecksum": wave2_bundle["authorityChecksum"],
+                "foldContract": wave2_bundle["foldContract"],
+                "foldAuthorities": wave2_bundle["foldAuthorities"],
+                "finalDevelopmentAuthority": wave2_bundle["finalDevelopmentAuthority"],
+                "companionBindingAuthorityId": wave2_bundle["companionBindingAuthorityId"],
+                "status": player_prior_v2.READY_GOVERNED_PRIOR_V2,
+            }
+            if wave2_bundle is not None
+            else None
+        ),
         "interactionAuthority": interaction_manifest,
         "semanticAuthorityAudit": {
             "status": "HELD_CLOSED",
@@ -1101,7 +1208,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "workbookFeatures": len(features),
             "additionalHeldClosed": len(additional),
             "ready": int(status_counts["READY"]),
-            "readyGovernedPrior": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "readyGovernedPrior": int(
+                status_counts["READY_GOVERNED_PRIOR_V1"]
+                + status_counts["READY_GOVERNED_PRIOR_V2"]
+            ),
+            "readyGovernedPriorV1": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "readyGovernedPriorV2": int(status_counts["READY_GOVERNED_PRIOR_V2"]),
             "bindingReadyRequiresWave2": int(
                 status_counts["BINDING_READY_REQUIRES_WAVE2_ENGINE"]
             ),
@@ -1141,7 +1253,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
                 disposition_counts["HIERARCHICAL_PRIOR_PLUS_INDICATOR"]
                 + disposition_counts["ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR"]
             ),
-            "hierarchicalPriorReady": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "hierarchicalPriorReady": int(
+                status_counts["READY_GOVERNED_PRIOR_V1"]
+                + status_counts["READY_GOVERNED_PRIOR_V2"]
+            ),
+            "hierarchicalPriorReadyV1": int(status_counts["READY_GOVERNED_PRIOR_V1"]),
+            "hierarchicalPriorReadyV2": int(status_counts["READY_GOVERNED_PRIOR_V2"]),
             "hierarchicalPriorBindingReady": int(
                 status_counts["BINDING_READY_REQUIRES_WAVE2_ENGINE"]
             ),
@@ -1204,6 +1321,9 @@ def _policy_inputs(compiled: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
         disposition = str(row["recommended_inclusion"])
         name = str(row["feature_name"])
         selectable = bool(row["executable_selectable"])
+        preprocessing_executable = bool(
+            row.get("preprocessing_executable", row.get("executable_selectable"))
+        )
         if row["data_type"] == "numeric" and not selectable and row["backend_eligibility"]:
             numeric_exclusions[name] = {
                 "detectionMethod": "NO_STATISTICAL_DETECTION",
@@ -1227,7 +1347,7 @@ def _policy_inputs(compiled: Mapping[str, Any]) -> tuple[dict[str, Any], dict[st
             }
         if not row["backend_eligibility"]:
             continue
-        if not selectable:
+        if not selectable and not preprocessing_executable:
             missing_overrides[name] = {
                 "method": "DROP_VARIABLE",
                 "coldStartMethod": "REVIEW_REQUIRED",
@@ -1377,6 +1497,16 @@ def current_draft_execution_overlay(
             overlay[str(row["feature_name"])] = {
                 "executableStatus": row.get("executable_status"),
                 "executable": bool(execution_contract.get("executable")),
+                "preprocessingExecutable": bool(
+                    execution_contract.get(
+                        "preprocessingExecutable", execution_contract.get("selectable")
+                    )
+                ),
+                "rawFeatureSelectable": bool(
+                    execution_contract.get(
+                        "rawFeatureSelectable", row.get("executable_selectable")
+                    )
+                ),
                 "executableSelectable": bool(row.get("executable_selectable")),
                 "blockedReason": row.get("blocked_reason"),
                 "resolution": row.get("executable_resolution"),
@@ -1403,6 +1533,7 @@ def current_draft_execution_overlay(
         "manifestChecksum": draft.get("manifestChecksum"),
         "status": "DRAFT_NEGATIVE_GATES_ONLY",
         "priorAuthority": manifest.get("priorAuthority"),
+        "wave2PriorFitBundle": manifest.get("wave2PriorFitBundle"),
         "interactionAuthority": manifest.get("interactionAuthority"),
         "semanticAuthorityAudit": manifest.get("semanticAuthorityAudit"),
         "rivalryAuthorityAudit": manifest.get("rivalryAuthorityAudit"),

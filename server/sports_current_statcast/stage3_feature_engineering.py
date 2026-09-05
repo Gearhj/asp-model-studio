@@ -381,6 +381,12 @@ def _apply_treatment_spec_draft_gates(
 
 def _prior_gate_reason(binding: Mapping[str, Any]) -> str:
     status = str(binding.get("status") or "")
+    if (
+        status == "READY_GOVERNED_PRIOR_V2"
+        and binding.get("executable") is True
+        and binding.get("selectable") is False
+    ):
+        return "RAW_FEATURE_NONSELECTABLE_WAVE2_DERIVED_OUTPUT_FAMILY_INSPECTABLE_FOR_LATER_ABLATION"
     if status == "BINDING_READY_REQUIRES_WAVE2_ENGINE":
         return "VALIDATED_SUFFICIENT_STATISTIC_BINDING_AWAITS_WAVE2_ESTIMATOR"
     if status == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION":
@@ -400,8 +406,8 @@ def _apply_current_prior_authority_gates(
 ) -> None:
     """Apply fail-closed prior status directly from the current compiler.
 
-    Only the exact executable V1 status plus both executable/selectable flags
-    may pass this gate.  The gate is deliberately negative-only: it never
+    Only an exact executable V1/V2 status plus both executable and raw-feature
+    selectable flags may pass this gate.  The gate is deliberately negative-only: it never
     reactivates a field held closed by another source authority.
     """
 
@@ -419,7 +425,8 @@ def _apply_current_prior_authority_gates(
             continue
         status = str(binding.get("status") or "")
         exact_executable = (
-            status == "READY_GOVERNED_PRIOR_V1"
+            status
+            in {"READY_GOVERNED_PRIOR_V1", "READY_GOVERNED_PRIOR_V2"}
             and binding.get("executable") is True
             and binding.get("selectable") is True
         )
