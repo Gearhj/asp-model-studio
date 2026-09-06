@@ -1,0 +1,12 @@
+scenario,actor,target,base_result,repair_result,repair_status,evidence
+foreign self-grant owner/admin,User A,User B project,SUCCEEDS (A gains admin ACL; takeover),HTTP 403 no membership no role change,PASS,sec_harness F001
+foreign ACL/membership read,User A,User B project ACL,RETURNS ACL rows (no auth; existence oracle),HTTP 403,PASS,sec_harness F004
+unknown-project ACL read,User A,nonexistent project,HTTP 200 empty (discloses non-existence),HTTP 403 (same as foreign),PASS,sec_harness F004 nondisclosure
+forced create/update race (barrier),User A vs B,B-created project,TAKEOVER: created_by=B updated_by=A name=A-HIJACKED,A denied; B remains owner/creator/name,PASS,race_harness forced_base
+concurrent create+update x25,User A vs B,per-round project,vulnerable,0/25 takeovers; A denied 13/13 when B created; 0 names hijacked,PASS,race_harness concurrent
+same-ID simultaneous create x10,User A vs B,same project id,vulnerable,10/10 exactly one winner; 10/10 one owner membership; 10/10 loser update denied; 0 duplicates,PASS,race_harness sameid
+audit-persistence failure during create,owner B,new project,partial state possible,full rollback: no project row no ACL rows,PASS,audit_rollback ROLLBACK_CLEAN
+legitimate owner reads own ACL,owner B,own project,ok,ok (1 row),PASS,sec_harness legit
+legitimate owner grants member,owner B,grant A editor/viewer,ok,ok; A can then view (not edit),PASS,sec_harness legit + scope_probe
+viewer attempts edit scope,granted-viewer A,B project,n/a,HTTP 403 (permission ranking),PASS,scope_probe A_after_grant_edit
+blank project_id,User A,"   ",n/a,HTTP 400,PASS,scope_probe blank_project

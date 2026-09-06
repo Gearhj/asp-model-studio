@@ -1,0 +1,25 @@
+{
+  "schema": "ASP_MODEL_STUDIO_TENANT_REPAIR_TEST_BUILD_RECEIPT_V1",
+  "capturedAt": "2026-09-06T00:55:49Z",
+  "repairHead": "9f02e6835f578b13d0429d0a7442b3634048f8f2",
+  "interpreter": "C:/Users/james/asp-model-studio/.venv (Python 3.12); Node 24.3.0",
+  "independentServiceHarnesses": {
+    "sec_harness (F-001/F-004)": "base VULNERABLE / repair CLOSED (403, nondisclosure)",
+    "race_harness forced_base": "base TAKEOVER reproduced (name/updater hijacked)",
+    "race_harness concurrent x25": "0 takeovers; A denied 13/13 when B created",
+    "race_harness sameid x10": "one winner + one membership each; loser update denied 10/10",
+    "audit_rollback": "ROLLBACK_CLEAN true",
+    "scope_probe": "owner ALLOW; foreign/anon 403; missing 404; blank 400; viewer edit 403"
+  },
+  "repairTestSuites": {
+    "tenant_project_access_repair_test.py + tenant_project_atomic_authorization_test.py + tenant_stage3_route_authorization_test.py + tenant_stage3_workflow_binding_test.py + tenant_stage3_artifact_authority_test.py": "374 passed",
+    "sports_stage3_prior_publication_test.py + sports_stage3_downstream_workflow_test.py + sports_stage3_project_model_laboratory_test.py + sports_stage3_candidate_evaluation_test.py": "72 passed",
+    "total_repair_tests_passed": 446, "failures": 0
+  },
+  "waveTwoPublication": {"canonicalResolves": true, "allObjectsContentAddressed": true, "tamperFailClosed": true},
+  "frontend": {"mjs_contract_tests": "NOT_RUN — node_modules/build not provisioned in the isolated verification worktree; frontend project-binding covered at the source layer (ProjectBoundWorkflowGate.tsx, cockpitPersistence) and via the real-httpx route-authorization suite (215 checks)"},
+  "browserAcceptance": {"status": "PARTIAL — performed at the API/backend-integration layer (real httpx route authorization + service harnesses); a live 3-viewport browser session was not run in this verification because the isolated worktree was not provisioned with a built frontend. The GO-gate criteria (tenant isolation, atomic race, route scope, Wave 2 resolution, no pilot leakage, no science/OOT alteration) are all verified without it."},
+  "typescript_build": {"status": "NOT_RUN in isolation (no node_modules); repair diff includes matching TS/DTO changes; full build not re-executed"},
+  "gitDiffCheck": "clean; verification worktree changes are docs-only on the verification branch",
+  "classificationNote": "No test was modified to make verification pass. Repair suites executed as-committed on the repair HEAD."
+}

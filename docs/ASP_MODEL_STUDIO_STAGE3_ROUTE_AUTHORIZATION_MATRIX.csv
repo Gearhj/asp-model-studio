@@ -1,0 +1,13 @@
+router_file,project_bearing_path_routes,guarded,retired_410,unguarded_active,guard_mechanism,notes
+server/persistence/persistence_router.py,73,73,0,0,require_project_view / require_project_edit (Depends) + _authorize_project,all project path routes gated
+server/sports_cockpit/router.py,47 total,38 active guarded,9,0,require_legacy_research_project (->require_project_view + Gen2 binding) / require_project_view|edit + authorize_modeling_scope,legacy /cockpit/* now require an authorized Gen-2 research binding
+scope_primitive_probe,owner_view,ALLOW,,,authorize_modeling_scope,owner authorized
+scope_primitive_probe,foreign_view,403,,,authorize_modeling_scope,foreign denied
+scope_primitive_probe,foreign_edit,403,,,authorize_modeling_scope,foreign denied
+scope_primitive_probe,anonymous_view,403,,,authorize_modeling_scope,no user denied
+scope_primitive_probe,missing_project,404,,,authorize_modeling_scope,project not found
+scope_primitive_probe,blank_project,400,,,authorize_modeling_scope,project_id required
+scope_primitive_probe,viewer_edit,403,,,authorize_modeling_scope,permission ranking enforced
+legacy_routes_not_in_scope,14 pre-existing routes,,,14,unchanged by repair,"credit_risk/validation/bureau_metadata/analytics_engine/registry — not Stage 3, untouched by the repair (out of scope, not a regression)"
+security_router_project_access,3 routes,guarded via service,,,assert_can_manage inside list_project_access/grant_project_access,verified dynamically (F-004 -> 403)
+dynamic_http_route_suite,tenant_stage3_route_authorization_test.py,215 checks,,,real httpx WSGI,PASS

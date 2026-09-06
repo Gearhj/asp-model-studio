@@ -1,0 +1,12 @@
+check,result,evidence
+pilot hard-coding removed from downstream (F-003),PASS,"0 asp-mtddc6pw/EXPECTED_PROJECT_ID occurrences in repair server source (base had 7)"
+downstream resolves active project authorities,PASS,stage3_model_laboratory/executable_artifact generalized; project model laboratory + candidate evaluation tests pass
+Wave 2 authority resolves for challenger asp-mtlozhdx,PASS,current.json -> bundle bac2d184 authorityId 9d9cfaf3 from canonical .runtime
+development rows 683662,PASS,fit bundle trainingRows=683662
+final OOT 14067 locked rows,PASS,finalOotIdentity rows=14067 KEY_ONLY_UNMATERIALIZED_LOCKED_UNOPENED payloadRowsRead=0
+Wave 2 authority resolves from canonical root not disposable worktree,PASS,canonical .runtime self-contained (9 objects) authorityId 9d9cfaf3
+no pilot candidate/receipt/finalist/champion leakage into challenger,PASS (source+scope),"downstream project-scoped (authorize_modeling_scope) + pilot hard-coding removed; cross-project reads denied 403"
+opening pages creates zero model jobs,NOT_INDEPENDENTLY_EXERCISED,"page-open is a read; project model laboratory tests create fits only on explicit submit; no auto-fit path in the diff"
+project preserved across refresh/back-forward/deep-link,SOURCE_VERIFIED,"ProjectBoundWorkflowGate.tsx + cockpitPersistence project scoping; frontend .mjs contract tests not run (node_modules not provisioned in isolated worktree)"
+simultaneous users do not exchange project state,PASS,"ACTIVE_PROJECT_ID contextvar per-request; tenantCockpitCacheIsolation covers cache partition; cross-user scope denied 403"
+downstream/prior-publication/model-lab/candidate tests,PASS,"72 tests pass (prior publication, downstream workflow, project model laboratory, candidate evaluation)"

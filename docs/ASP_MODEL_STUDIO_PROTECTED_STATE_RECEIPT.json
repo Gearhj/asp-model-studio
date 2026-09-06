@@ -1,0 +1,16 @@
+{
+  "schema": "ASP_MODEL_STUDIO_PROTECTED_STATE_BEFORE_AFTER_RECEIPT_V1",
+  "capturedAt": "2026-09-06T00:55:02Z",
+  "note": "This verification performed ZERO writes to the authoritative persistence database and ZERO writes to canonical runtime objects. All dynamic/concurrency tests used disposable SQLite DBs and temporary roots under the scratch directory. Before == After by construction; the primary DB and canonical objects were opened read-only.",
+  "primaryPersistenceDb": {"path": "C:/Users/james/asp-model-studio/.runtime/asp-model-studio/persistence/asp_model_studio.db", "readOnly": true,
+    "counts": {"projects": 5, "stage3_treatment_policy_versions": 23, "stage3_feature_set_versions": 6, "run_records": 30, "audit_log": 30396, "total_tables": 114}},
+  "scienceAuthorities": {
+    "currentGold": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+    "companion": "98673b65dc5eab61e39b16d1313c27bbb2cf908c525f80db579cb07a5cfdab33",
+    "waveTwoAuthority": "9d9cfaf34f87be67f7d3ab2b8b024d83a6fc5e8abe0dde8de7be0866f1b8366e",
+    "finalDevelopmentFitted": "5ae0f9f560f83935e1f89440657ac4080afc33ac3318c3c2c8e50656a9eee526",
+    "foldCount": 5, "foldContract": "cd72058500333f9fae8dcb11867dbc674a015f2c84585ccb3cd81bf62c437d31"},
+  "before": {"authoritativeFits": 0, "tuningRuns": 0, "scores": 0, "calibrations": 0, "promotions": 0, "championChanges": 0, "policyAdoptions": 0, "featureSetRegistrations": 0, "goldMutations": 0, "companionMutations": 0, "finalOotOpens": 0, "providerCalls": 0},
+  "after": {"authoritativeFits": 0, "tuningRuns": 0, "scores": 0, "calibrations": 0, "promotions": 0, "championChanges": 0, "policyAdoptions": 0, "featureSetRegistrations": 0, "goldMutations": 0, "companionMutations": 0, "finalOotOpens": 0, "providerCalls": 0},
+  "equal": true
+}

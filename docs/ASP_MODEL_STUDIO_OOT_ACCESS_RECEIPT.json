@@ -1,0 +1,9 @@
+{
+  "schema": "ASP_MODEL_STUDIO_OOT_ACCESS_RECEIPT_V1",
+  "capturedAt": "2026-09-06T00:55:02Z",
+  "finalOotIdentity": {"startDate": "2026-08-14", "endDate": "2026-08-27", "rows": 14067, "status": "KEY_ONLY_UNMATERIALIZED_LOCKED_UNOPENED"},
+  "payloadRowsReadInBundle": 0,
+  "auditorFinalOotOpens": 0,
+  "auditorTargetColumnReads": 0,
+  "detail": "The final-OOT identity was read from the canonical fit-bundle manifest only (metadata: date range, row count, sealed status). No OOT payload row, target column, or outcome value was read, materialized, scored, or previewed. The bundle records payloadRowsRead=0 and status KEY_ONLY_UNMATERIALIZED_LOCKED_UNOPENED."
+}
