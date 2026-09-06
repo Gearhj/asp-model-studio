@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CheckCircle2, CircleDashed, Database, Fingerprint, LockKeyhole, RefreshCw, Scale, ShieldCheck } from "lucide-react";
 import { me } from "../lib/auth";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 import Gen3CatalogSection from "./cockpit/Gen3CatalogSection";
 import {
   logicalExchangeUri,
@@ -498,6 +500,9 @@ function DatasetCatalogSelection({
 }
 
 export function DataWarehouseEvidencePage() {
+  const [params] = useSearchParams();
+  const selectedProjectId = useWorkflowStore((state) => state.projectId);
+  const projectId = (params.get("projectId") || selectedProjectId || "").trim();
   const evidence = useSportsDatasetCatalog();
   const [selectedRegistrationId, setSelectedRegistrationId] = useState("");
   const [leagueFilter, setLeagueFilter] = useState<"ALL" | "MLB" | "NFL">("ALL");
@@ -515,7 +520,7 @@ export function DataWarehouseEvidencePage() {
   const status = selected ? selected.validationStatus : evidence.status === "loading" ? "Loading" : "Not registered";
   const summary = useMemo(() => selected ? `${selected.datasetId} · ${selected.registrationId}` : "", [selected]);
   return <Page status={status}>
-    <div className="mb-4"><Gen3CatalogSection mode="warehouse" /></div>
+    <div className="mb-4"><Gen3CatalogSection mode="warehouse" projectId={projectId} /></div>
     {evidence.status === "ready" ? <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4" aria-label="Data Warehouse sport and league filters"><div><p className="text-sm font-semibold text-slate-950">Sport / league classification</p><p className="text-xs text-slate-500">Read-only filtering never changes a registration.</p></div><div className="flex gap-2">{(["ALL", "MLB", "NFL"] as const).map((filter) => <button key={filter} type="button" aria-pressed={leagueFilter === filter} onClick={() => setLeagueFilter(filter)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${leagueFilter === filter ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 text-slate-600"}`}>{filter === "ALL" ? "All Sports" : filter}</button>)}</div></section> : null}
     {evidence.status === "loading" ? <StateMessage kind="loading" title="Loading governed dataset evidence" detail="Reading the target-local registration service." /> : evidence.status === "error" ? <StateMessage kind="error" title="Dataset evidence unavailable" detail={evidence.error}><button type="button" onClick={evidence.refresh} className="mt-5 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950"><RefreshCw size={15} /> Retry</button></StateMessage> : evidence.status === "empty" ? <StateMessage kind="empty" title="No Sports Dataset Registered" detail="No governed sports manifest is registered in this workspace. No warehouse values are inferred or prefilled."><div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-700">SPORTS_DATASET_MANIFEST_V1</div><RegistrationAction onRegistered={evidence.refresh} /></StateMessage> : filteredDatasets.length === 0 ? <StateMessage kind="empty" title={`No ${leagueFilter} dataset registered`} detail="This filter has no governed dataset authority. No placeholder dataset is shown." /> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span className="flex items-center gap-2 font-semibold"><ShieldCheck size={17} /> Registered evidence is {selected?.validationStatus}</span><span className="break-all font-mono text-xs">{summary}</span></div><DatasetCatalogSelection datasets={filteredDatasets} selectedRegistrationId={selectedRegistrationId} onSelect={setSelectedRegistrationId} onRefresh={evidence.refresh} />{selected ? <DatasetDetails dataset={selected} /> : null}</>}
   </Page>;

@@ -262,7 +262,7 @@ export default function ModelingApp() {
                   <Route path="/datasets/*" element={<Navigate to="/data-warehouse" replace />} />
                   <Route path="/player-team-state" element={<PlayerTeamStatePage />} />
                   <Route path="/participation-usage" element={<ParticipationUsagePage />} />
-                  <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
+                  <Route path="/model-laboratory" element={<ProjectAwareModelLaboratoryRoute />} />
                   <Route path="/pa-modeling-cockpit" element={<StandaloneCockpitRoute />} />
                   <Route path="/modeling-cockpit" element={<Navigate to="/pa-modeling-cockpit" replace />} />
                   <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
@@ -309,6 +309,19 @@ export default function ModelingApp() {
       </div>
     </Stage3FocusModeProvider>
   );
+}
+
+// Keep the top-level navigation honest for an opened sports project. The legacy
+// workspace laboratory summarizes the globally active dataset, while the Stage 3
+// laboratory is the tenant-authoritative surface for the selected project.
+function ProjectAwareModelLaboratoryRoute() {
+  const [params] = useSearchParams();
+  const requestedProjectId = (params.get("projectId") || "").trim();
+  const selectedProjectId = useWorkflowStore((state) => state.projectId);
+  const projectId = requestedProjectId || (selectedProjectId || "").trim();
+  if (!projectId) return <ModelLaboratoryPage />;
+  const target = new URLSearchParams({ projectId, stage3Step: "modellab" });
+  return <Navigate to={`/pa-modeling-cockpit?${target.toString()}`} replace />;
 }
 
 // The standalone PA Modeling Cockpit route resolves the GOVERNED project explicitly instead of a fixed default:

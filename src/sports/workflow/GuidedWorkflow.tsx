@@ -156,7 +156,7 @@ export default function GuidedWorkflow() {
         </div>
       </section> : null}
 
-      <div className={focus.number === 3 ? "min-w-0" : `grid gap-5 ${navCollapsed ? "lg:grid-cols-[64px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]"}`}>
+      <div className={focus.number === 3 ? "min-w-0" : `grid gap-5 ${navCollapsed ? "xl:grid-cols-[64px_minmax(0,1fr)]" : "xl:grid-cols-[300px_minmax(0,1fr)]"}`}>
         {focus.number !== 3 ? <nav className="lg:sticky lg:top-4 lg:self-start" aria-label="Program stages">
           <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
             <button onClick={() => setNavCollapsed((c) => !c)} className="mb-1 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50" title={navCollapsed ? "Expand stages" : "Collapse stages"}>
