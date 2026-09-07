@@ -489,6 +489,8 @@ export type CandidateAttempt = {
   errorReason?: string | null;
   folds: Array<Record<string, any>>;
   classCalibration: Array<Record<string, any>>;
+  probabilityReconciliation?: Record<string, any> | null;
+  memoryEvidence?: Record<string, any> | null;
   reliabilityBands?: Array<Record<string, any>>;
   modelComplexity?: Record<string, any> | string | null;
   interpretabilityEvidence?: Record<string, any> | null;
@@ -595,6 +597,7 @@ export type ProjectCandidateEvaluation = {
     incrementalVerifiedCandidateReceipts?: number;
     incrementalHeldClosedReceipts?: number;
   };
+  tuningDecision?: Record<string, any> | null;
   currentBatches: CandidateGroup[];
   incrementalCurrentEvidence?: {
     status: string;

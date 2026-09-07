@@ -18,6 +18,18 @@ from server.sports_current_statcast import stage3_model_laboratory as lab
 PROJECT_ID = "synthetic-stage3-project"
 
 
+def test_probability_reconciliation_fails_closed_on_invalid_probabilities() -> None:
+    valid = np.array([[0.25, 0.75], [0.60, 0.40]], dtype=float)
+    invalid = np.array([[0.25, np.nan], [-0.10, 1.10]], dtype=float)
+    assert lab._probability_reconciliation(valid)["status"] == "PASS"
+    result = lab._probability_reconciliation(invalid)
+    assert result["status"] == "FAIL"
+    assert result["nonFiniteValues"] == 1
+    assert result["negativeValues"] == 1
+    assert result["aboveOneValues"] == 1
+    assert result["maximumAbsoluteRowSumError"] is None
+
+
 def test_model_laboratory_routes_require_authenticated_users() -> None:
     for method, path in (
         ("GET", "/projects/{project_id}/sports/stage3-model-laboratory/summary"),
@@ -591,6 +603,12 @@ def test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing(
     assert np.isfinite(result["macroOvrRocAuc"])
     assert len(result["reliabilityBands"]) == 10
     assert len(result["classCalibration"]) == 8
+    assert all(np.isfinite(item["oneVsRestRocAuc"]) for item in result["classCalibration"])
+    assert result["probabilityReconciliation"]["status"] == "PASS"
+    assert result["probabilityReconciliation"]["maximumAbsoluteRowSumError"] <= 1e-8
+    assert result["memoryEvidence"]["atStart"]["status"] in {
+        "MEASURED", "UNAVAILABLE_ON_HOST"
+    }
     evidence = result["evaluationEvidence"]
     assert evidence["reloadableArtifactStatus"] == "PERSISTED_CONTENT_ADDRESSED_DEVELOPMENT_ONLY"
     assert len(evidence["reloadableArtifactSha256"]) == 64
@@ -600,12 +618,15 @@ def test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing(
     assert persisted.num_rows == 40
     assert persisted.column_names == [
         "canonicalPaId",
+        "canonicalGameId",
         "foldNumber",
         "observedClassIndex",
         *[f"probability_{name}" for name in lab.GOLD_CLASS_ORDER],
     ]
     contract = persisted.schema.metadata[b"asp_oof_contract"]
     assert b'"finalOotTargetAccessed":false' in contract
+    assert b'"clusterResamplingKey":"canonicalGameId"' in contract
+    assert b'"schemaVersion":"SPORTS_STAGE3_DEVELOPMENT_OOF_PREDICTIONS_V2"' in contract
     assert result["rareClassStability"]["totalOofSupport"] == 5
     assert result["modelComplexity"]["parameterCount"] is not None or family == "histogram_gradient_boosting"
     assert len(result["interpretabilityEvidence"]["foldStatuses"]) == 5

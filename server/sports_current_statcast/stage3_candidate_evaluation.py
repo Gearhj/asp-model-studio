@@ -46,6 +46,7 @@ from .stage3_model_laboratory import (
     _runtime_root,
     resolve_model_lab_authority,
 )
+from .mlb_core_challenger_tuning import latest_tuning_decision
 
 
 EVALUATION_SCHEMA_VERSION = "SPORTS_STAGE3_PROJECT_CANDIDATE_EVALUATION_V1"
@@ -336,6 +337,8 @@ def _attempt(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, 
         "errorReason": candidate.get("errorReason"),
         "folds": candidate.get("folds") or [],
         "classCalibration": candidate.get("classCalibration") or candidate.get("classCalibrationDiagnostics") or [],
+        "probabilityReconciliation": candidate.get("probabilityReconciliation"),
+        "memoryEvidence": candidate.get("memoryEvidence"),
         "reliabilityBands": candidate.get("reliabilityBands") or [],
         "modelComplexity": candidate.get("modelComplexity"),
         "interpretabilityEvidence": candidate.get("interpretabilityEvidence"),
@@ -1084,6 +1087,15 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
                 row["candidateFingerprint"] in finalist_fingerprints
                 and finalist_evidence_source in row["evidenceSources"]
             )
+    tuning_decision = latest_tuning_decision(project_id)
+    if tuning_decision is not None:
+        tuning_authority = tuning_decision.get("authority") or {}
+        if (
+            tuning_authority.get("authorityKey") != resolved.authority_key
+            or tuning_authority.get("splitContractId") != resolved.split["contractId"]
+            or tuning_authority.get("splitChecksum") != resolved.split["checksum"]
+        ):
+            tuning_decision = None
     return {
         "ok": True,
         "schemaVersion": EVALUATION_SCHEMA_VERSION,
@@ -1172,6 +1184,7 @@ def project_candidate_evaluation(database: Database, project_id: str) -> dict[st
             for row in analyses
         ],
         "selectionMetric": "MEAN_FIVE_FOLD_OOF_MULTICLASS_LOG_LOSS",
+        "tuningDecision": tuning_decision,
         "promotionStatus": "NOT_PROMOTED",
         "finalOotAccessed": False,
     }

@@ -2052,6 +2052,11 @@ def _metrics(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
                     abs(predicted.mean() - observed.mean())
                 ),
                 "oneVsRestBrier": float(np.mean((predicted - observed) ** 2)),
+                "oneVsRestRocAuc": (
+                    float(roc_auc_score(observed, predicted))
+                    if 0 < int(observed.sum()) < int(observed.size)
+                    else None
+                ),
             }
         )
     predicted_labels = probabilities.argmax(axis=1)
@@ -2112,9 +2117,91 @@ def _metrics(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _probability_reconciliation(probabilities: np.ndarray) -> dict[str, Any]:
+    tolerance = 1e-8
+    finite_mask = np.isfinite(probabilities)
+    non_finite_values = int((~finite_mask).sum())
+    negative_values = int((finite_mask & (probabilities < 0.0)).sum())
+    above_one_values = int((finite_mask & (probabilities > 1.0)).sum())
+    row_sums = probabilities.sum(axis=1)
+    finite_values = probabilities[finite_mask]
+    maximum_row_sum_error = (
+        float(np.max(np.abs(row_sums - 1.0)))
+        if bool(np.isfinite(row_sums).all())
+        else None
+    )
+    passed = (
+        non_finite_values == 0
+        and negative_values == 0
+        and above_one_values == 0
+        and maximum_row_sum_error is not None
+        and maximum_row_sum_error <= tolerance
+    )
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "rows": int(probabilities.shape[0]),
+        "classCount": int(probabilities.shape[1]),
+        "nonFiniteValues": non_finite_values,
+        "negativeValues": negative_values,
+        "aboveOneValues": above_one_values,
+        "minimumProbability": float(finite_values.min()) if finite_values.size else None,
+        "maximumProbability": float(finite_values.max()) if finite_values.size else None,
+        "maximumAbsoluteRowSumError": maximum_row_sum_error,
+        "tolerance": tolerance,
+    }
+
+
+def _process_memory_evidence() -> dict[str, Any]:
+    """Return local-process working-set evidence where the host exposes it."""
+
+    if os.name != "nt":
+        return {
+            "status": "UNAVAILABLE_ON_HOST",
+            "measurementScope": "LOCAL_MODEL_JOB_PROCESS",
+        }
+    try:
+        import ctypes
+
+        class _ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("page_fault_count", ctypes.c_ulong),
+                ("peak_working_set_size", ctypes.c_size_t),
+                ("working_set_size", ctypes.c_size_t),
+                ("quota_peak_paged_pool_usage", ctypes.c_size_t),
+                ("quota_paged_pool_usage", ctypes.c_size_t),
+                ("quota_peak_non_paged_pool_usage", ctypes.c_size_t),
+                ("quota_non_paged_pool_usage", ctypes.c_size_t),
+                ("pagefile_usage", ctypes.c_size_t),
+                ("peak_pagefile_usage", ctypes.c_size_t),
+            ]
+
+        counters = _ProcessMemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        process = ctypes.windll.kernel32.GetCurrentProcess()
+        if not ctypes.windll.psapi.GetProcessMemoryInfo(
+            process, ctypes.byref(counters), counters.cb
+        ):
+            raise OSError("GetProcessMemoryInfo returned false")
+        return {
+            "status": "MEASURED",
+            "measurementScope": "LOCAL_MODEL_JOB_PROCESS",
+            "measurementKind": "PROCESS_LIFETIME_PEAK_WORKING_SET",
+            "workingSetBytes": int(counters.working_set_size),
+            "peakWorkingSetBytes": int(counters.peak_working_set_size),
+        }
+    except Exception as exc:  # pragma: no cover - host instrumentation only
+        return {
+            "status": "UNAVAILABLE_ON_HOST",
+            "measurementScope": "LOCAL_MODEL_JOB_PROCESS",
+            "reason": type(exc).__name__,
+        }
+
+
 def _persist_oof_predictions(
     *,
     canonical_pa_ids: Sequence[str],
+    canonical_game_ids: Sequence[str],
     fold_numbers: np.ndarray,
     labels: np.ndarray,
     probabilities: np.ndarray,
@@ -2127,6 +2214,7 @@ def _persist_oof_predictions(
     row_count = int(labels.size)
     if (
         len(canonical_pa_ids) != row_count
+        or len(canonical_game_ids) != row_count
         or int(fold_numbers.size) != row_count
         or probabilities.shape != (row_count, len(GOLD_CLASS_ORDER))
     ):
@@ -2141,9 +2229,16 @@ def _persist_oof_predictions(
             "The row-level OOF evidence contains duplicate canonical plate-appearance keys.",
             status_code=409,
         )
+    if any(not str(value) for value in canonical_game_ids):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_OOF_GAME_KEY_MISSING",
+            "The row-level OOF evidence contains a missing game-cluster key.",
+            status_code=409,
+        )
     metadata = {
-        "schemaVersion": "SPORTS_STAGE3_DEVELOPMENT_OOF_PREDICTIONS_V1",
+        "schemaVersion": "SPORTS_STAGE3_DEVELOPMENT_OOF_PREDICTIONS_V2",
         "scope": "FIVE_FOLD_OOF_DEVELOPMENT_ONLY",
+        "clusterResamplingKey": "canonicalGameId",
         "modelFamily": model_family,
         "featureSetId": feature_set_id,
         "seed": int(seed),
@@ -2153,6 +2248,7 @@ def _persist_oof_predictions(
     }
     columns: dict[str, pa.Array] = {
         "canonicalPaId": pa.array(canonical_pa_ids, type=pa.string()),
+        "canonicalGameId": pa.array(canonical_game_ids, type=pa.string()),
         "foldNumber": pa.array(fold_numbers, type=pa.int8()),
         "observedClassIndex": pa.array(labels, type=pa.int8()),
     }
@@ -2670,6 +2766,7 @@ def _evaluate_candidate(
     artifact_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    memory_at_start = _process_memory_evidence()
     runtime_workers = _bounded_native_workers(native_workers)
     features = list((feature_set or {}).get("orderedFeatures") or [])
     labels = frame["outcome"].map({name: index for index, name in enumerate(GOLD_CLASS_ORDER)})
@@ -2682,6 +2779,7 @@ def _evaluate_candidate(
     all_probabilities: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
     all_oof_keys: list[str] = []
+    all_oof_game_ids: list[str] = []
     all_oof_fold_numbers: list[np.ndarray] = []
     fold_selection_evidence: list[dict[str, Any]] = []
     contract_folds = list((split.get("contract") or {}).get("folds") or [])
@@ -2926,6 +3024,9 @@ def _evaluate_candidate(
                 "validationRows": int(validation_mask.sum()),
                 "validationGames": validation_games,
                 "metrics": metrics,
+                "probabilityReconciliation": _probability_reconciliation(
+                    probabilities
+                ),
                 "preprocessing": preprocessing,
                 "modelComplexity": complexity,
                 "interpretabilityEvidence": interpretability,
@@ -2937,6 +3038,9 @@ def _evaluate_candidate(
         all_labels.append(validation_labels)
         all_oof_keys.extend(
             frame.loc[validation_mask, "canonicalPaId"].astype(str).tolist()
+        )
+        all_oof_game_ids.extend(
+            frame.loc[validation_mask, "canonicalGameId"].astype(str).tolist()
         )
         all_oof_fold_numbers.append(
             np.full(int(validation_mask.sum()), int(fold["foldNumber"]), dtype=np.int8)
@@ -3031,6 +3135,7 @@ def _evaluate_candidate(
     combined = _metrics(combined_probabilities, combined_labels)
     oof_artifact = _persist_oof_predictions(
         canonical_pa_ids=all_oof_keys,
+        canonical_game_ids=all_oof_game_ids,
         fold_numbers=combined_fold_numbers,
         labels=combined_labels,
         probabilities=combined_probabilities,
@@ -3068,6 +3173,9 @@ def _evaluate_candidate(
         "macroOvrRocAuc": combined["macroOvrRocAuc"],
         "reliabilityBands": combined["reliabilityBands"],
         "classCalibration": combined["classCalibration"],
+        "probabilityReconciliation": _probability_reconciliation(
+            combined_probabilities
+        ),
         "rareClassStability": {
             "class": combined["rareClass"]["class"],
             "totalOofSupport": combined["rareClass"]["support"],
@@ -3105,6 +3213,15 @@ def _evaluate_candidate(
         "warnings": candidate_warnings,
         "folds": fold_results,
         "runtimeMs": int((time.perf_counter() - started) * 1000),
+        "memoryEvidence": {
+            "atStart": memory_at_start,
+            "atCompletion": _process_memory_evidence(),
+            "candidateSpecificPeakAvailable": False,
+            "limitation": (
+                "The governed executor uses one local process; Windows exposes the "
+                "process-lifetime peak rather than an isolated per-configuration peak."
+            ),
+        },
         "errorReason": None,
     }
 

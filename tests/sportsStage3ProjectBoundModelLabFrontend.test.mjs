@@ -4,12 +4,13 @@ import test from "node:test";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (path) => readFile(new URL(path, ROOT), "utf8");
-const [cockpit, lab, evaluation, refinement, comparison, api] = await Promise.all([
+const [cockpit, lab, evaluation, refinement, comparison, tuningDecision, api] = await Promise.all([
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
   read("src/sports/cockpit/ProjectBoundModelLab.tsx"),
   read("src/sports/cockpit/ProjectBoundCandidateEvaluation.tsx"),
   read("src/sports/cockpit/ProjectBoundModelRefinement.tsx"),
   read("src/sports/cockpit/ProjectCandidateComparison.tsx"),
+  read("src/sports/cockpit/GovernedTuningDecisionPanel.tsx"),
   read("src/sports/cockpit/projectModelLabApi.ts"),
 ]);
 
@@ -171,6 +172,29 @@ test("Evaluation compares project-bound development evidence and selects finalis
     "number(group.macroOvrRocAuc)", "colSpan={19}",
   ], "sortable candidate comparison");
   assert.doesNotMatch(evaluation, /selectChampion|promoteModel|auto.?promot/i);
+});
+
+test("Model Lab and Evaluation expose the frozen tuning decision without widening authority", () => {
+  includesAll(lab, [
+    "GovernedTuningDecisionPanel", "Tuning decision frozen · stop boundary",
+    "Feature refinement, calibration, SHAP, recursive feature elimination",
+  ], "Model Lab tuning decision");
+  includesAll(evaluation, [
+    "GovernedTuningDecisionPanel", "Tuning decision stop boundary",
+    "The frozen tuning decision creates no finalist authority",
+    "Post-tuning analyses are held closed",
+  ], "Evaluation tuning decision");
+  includesAll(tuningDecision, [
+    "Governed compact tuning decision", "First screen", "Best tuned",
+    "Null baseline", "Absolute improvement", "Relative improvement", "Worst fold", "Fold SD",
+    "ROC-AUC", "Exact hyperparameters", "Game-clustered HGB − RF",
+    "Immutable run identity", "immutableModelRunReceiptSha256",
+    "Shared class-frequency null beside every comparison",
+    "FINAL OOT SEALED", "ADVANCE_TO_REFINEMENT",
+    "RETAIN_AS_DIVERSITY_CHALLENGER", "NO_TUNING_GAIN", "REQUIRES_REPAIR",
+    "no new finalist label", "No champion · no promotion",
+  ], "governed tuning panel");
+  assert.ok(api.includes("tuningDecision?: Record<string, any> | null"));
 });
 
 test("Refinement creates immutable reduced challengers without mutating parents", () => {
