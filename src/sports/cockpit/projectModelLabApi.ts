@@ -237,6 +237,9 @@ export type ProjectModelLabSummary = {
     deferredContextFeatures: string[];
     retiredFeatureCount: number;
     includedFeatureCount: number;
+    sourceFeatureCount?: number;
+    addedPriorOutputCount?: number;
+    semanticTreatmentVersion?: string | null;
     finalOotLocked: true;
   };
   split: {
@@ -473,6 +476,7 @@ export type CandidateAttempt = {
   featureSetId: string | null;
   featureSetName: string;
   featureCount: number;
+  physicalSourceFeatureCount?: number;
   hyperparameters: Record<string, unknown>;
   tuningMode: string;
   gridPreset: string;
@@ -505,6 +509,7 @@ export type CandidateGroup = {
   featureSetId: string | null;
   featureSetName: string;
   featureCount: number;
+  physicalSourceFeatureCount?: number;
   hyperparameters: Record<string, unknown>;
   tuningMode: string;
   gridPreset: string;

@@ -13,6 +13,7 @@ local runtime root.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -338,6 +339,20 @@ def _feature_sets_by_exact_identity(
         if item is None:
             raise Stage3ModelLaboratoryError("MODEL_LAB_FEATURE_SET_MISSING", "A split-bound registered project feature set is unavailable.", status_code=409)
         ordered = list(item.get("orderedFeatures") or [])
+        allowed_columns = set(authority.schema.names)
+        if _uses_corrected_treatment(item):
+            from . import stage3_feature_engineering as feature_engineering
+            catalog_rows, _ = feature_engineering._catalog(authority)
+            catalog = {str(row["name"]): dict(row) for row in catalog_rows}
+            try:
+                feature_engineering._corrected_registration_contract(
+                    database, authority, item["transformationContracts"], ordered, catalog,
+                )
+            except feature_engineering.Stage3FeatureEngineeringError as error:
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_CORRECTED_FEATURE_AUTHORITY_MISMATCH", str(error), status_code=409,
+                ) from error
+            allowed_columns.update(name for name, row in catalog.items() if row.get("derivedFromFeature") in authority.schema.names)
         if (item.get("status") != "REGISTERED" or item.get("projectId") != authority.project_id
             or (item.get("authority") or {}).get("goldManifestSha") != authority.gold_manifest_sha
             or (item.get("authority") or {}).get("reviewDigest") != authority.review_digest
@@ -345,7 +360,7 @@ def _feature_sets_by_exact_identity(
             or (item.get("finalOot") or {}).get("locked") is not True
             or item.get("development") != split.get("development")
             or not ordered or len(ordered) != len(set(ordered))
-            or set(ordered) - set(authority.schema.names) or item.get("unavailableExclusions")):
+            or set(ordered) - allowed_columns or item.get("unavailableExclusions")):
             raise Stage3ModelLaboratoryError("MODEL_LAB_FEATURE_SET_AUTHORITY_MISMATCH", "A feature registration differs from its exact project/split/Gold binding.", status_code=409)
         _transformation_groups(item, ordered)
         output.append(item)
@@ -914,6 +929,8 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
     combined_treatment = resolved.treatment_specification or {}
     treatment_manifest = combined_treatment.get("manifest") or {}
     core_decision = treatment_manifest.get("coreChallengerDecision") or {}
+    corrected_decision = treatment_manifest.get("correctedTreatmentDecision") or {}
+    model_schema = treatment_manifest.get("modelFeatureSchema") or {}
     prior_manifest = treatment_manifest.get("priorAuthority") or {}
     prior_bindings = list(prior_manifest.get("bindings") or [])
     feature_sets = []
@@ -972,9 +989,9 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
             "checksum": combined_treatment.get("checksum"),
             "manifestChecksum": combined_treatment.get("manifestChecksum"),
             "status": combined_treatment.get("status") or "UNAVAILABLE",
-            "predecessor": core_decision.get("predecessor") or {},
-            "decisionId": core_decision.get("decisionId"),
-            "decisionStatus": core_decision.get("decisionStatus"),
+            "predecessor": corrected_decision.get("predecessor") or core_decision.get("predecessor") or {},
+            "decisionId": corrected_decision.get("decisionId") or core_decision.get("decisionId"),
+            "decisionStatus": corrected_decision.get("status") or core_decision.get("decisionStatus"),
             "governedPriorFeatureCount": sum(
                 1
                 for item in prior_bindings
@@ -989,7 +1006,10 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
                 if item.get("status")
                 == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
             ),
-            "includedFeatureCount": int(eligibility["featureCount"]),
+            "includedFeatureCount": int(model_schema.get("modelFeatureCount") or eligibility["featureCount"]),
+            "sourceFeatureCount": int(model_schema.get("sourceFeatureCount") or eligibility["featureCount"]),
+            "addedPriorOutputCount": int(model_schema.get("wave1AddedOutputCount") or 0),
+            "semanticTreatmentVersion": model_schema.get("semanticTreatmentVersion"),
             "finalOotLocked": True,
         },
         "split": _split_ref(resolved.split),
@@ -1220,11 +1240,26 @@ def _fold_frame(
     features: Sequence[str],
     *,
     include_oof_identity: bool = False,
+    include_target: bool = True,
 ) -> pd.DataFrame:
+    corrected_set = next(
+        (item for item in resolved.feature_sets
+         if _uses_corrected_treatment(item)
+         and list(item.get("orderedFeatures") or []) == list(features)), None
+    )
+    if corrected_set:
+        features = list(corrected_set["transformationContracts"]["sourceOrderedFeatures"])
     runtime = resolved.governed_prior_runtime or {}
     selected_v1 = sorted(set(features) & set(runtime.get("v1Features") or ()))
     selected_v2 = sorted(set(features) & set(runtime.get("v2Features") or ()))
-    requested = [*features, "game_date", "outcome", "canonicalGameId"]
+    requested = [*features, "game_date", "canonicalGameId"]
+    if include_target:
+        requested.append("outcome")
+    if corrected_set:
+        from .stage3_semantic_treatment import required_input_columns
+        from .stage3_corrected_eligibility import required_input_columns as eligibility_input_columns
+        requested.extend(required_input_columns(features))
+        requested.extend(eligibility_input_columns(corrected_set))
     if selected_v1:
         requested.extend(player_prior.required_input_columns(selected_v1))
     if selected_v2:
@@ -1250,14 +1285,15 @@ def _fold_frame(
             "The scanned execution population differs from the registered development dates.",
             status_code=409,
         )
-    outcomes = frame["outcome"].astype(str)
-    invalid = sorted(set(outcomes.unique()) - set(GOLD_CLASS_ORDER))
-    if invalid:
-        raise Stage3ModelLaboratoryError(
-            "MODEL_LAB_TARGET_TAXONOMY_MISMATCH",
-            "Development rows contain values outside the governed target order: " + ", ".join(invalid),
-            status_code=409,
-        )
+    if include_target:
+        outcomes = frame["outcome"].astype(str)
+        invalid = sorted(set(outcomes.unique()) - set(GOLD_CLASS_ORDER))
+        if invalid:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_TARGET_TAXONOMY_MISMATCH",
+                "Development rows contain values outside the governed target order: " + ", ".join(invalid),
+                status_code=409,
+            )
     frame = frame.copy()
     frame["game_date"] = dates.dt.date.astype(str)
     if selected_v2:
@@ -1319,7 +1355,83 @@ def _fold_frame(
     frame.attrs["governedPriorRuntime"] = runtime
     frame.attrs["selectedV1PriorFeatures"] = selected_v1
     frame.attrs["selectedV2PriorFeatures"] = selected_v2
+    if corrected_set:
+        frame.attrs["interactionAuthority"] = (
+            (resolved.treatment_specification or {}).get("manifest") or {}
+        ).get("interactionAuthority")
+        frame.attrs["correctedSourceIdentity"] = {
+            "authorityKey": resolved.authority_key,
+            "featureSetId": corrected_set.get("featureSetId"),
+            "featureSetChecksum": corrected_set.get("checksum"),
+            "treatmentSpecificationId": (resolved.treatment_specification or {}).get("specificationId"),
+            "treatmentManifestChecksum": (resolved.treatment_specification or {}).get("manifestChecksum"),
+            "splitContractId": resolved.split.get("contractId"),
+            "splitChecksum": resolved.split.get("checksum"),
+            "development": dict(resolved.split["development"]),
+        }
     return frame
+
+
+def _uses_corrected_treatment(feature_set: Mapping[str, Any]) -> bool:
+    return (feature_set.get("transformationContracts") or {}).get(
+        "semanticTreatmentVersion"
+    ) == "MLB_SEMANTIC_TREATMENT_V1"
+
+
+def _prepare_corrected_fold(
+    frame: pd.DataFrame, *, train_mask: np.ndarray, validation_mask: np.ndarray,
+    fold: Mapping[str, Any], feature_set: Mapping[str, Any], model_family: str,
+    seed: int, eligibility_mask: np.ndarray | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """The Model Lab's target-free, training-only corrected treatment seam."""
+    from .stage3_corrected_prior_treatment import fit_transform_prior_pair
+    from .stage3_semantic_treatment import fit_semantic_treatment, transform_semantic_treatment, validate_model_frame
+    from .stage3_corrected_eligibility import eligibility_mask as frozen_eligibility_mask
+
+    if not _uses_corrected_treatment(feature_set):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_SUCCESSOR_REQUIRED", "Corrected treatment requires its registered successor contract.")
+    if bool((train_mask & validation_mask).any()):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_FOLD_OVERLAP", "Training and validation rows overlap.")
+    source_columns = [name for name in frame.columns if name not in {"outcome", "target", "label", "observedClassIndex"}]
+    source = frame.loc[:, source_columns].copy()
+    expected_eligible, eligibility_evidence = frozen_eligibility_mask(source, feature_set)
+    if eligibility_mask is not None and not np.array_equal(eligibility_mask, expected_eligible):
+        raise Stage3ModelLaboratoryError("MODEL_LAB_ELIGIBILITY_POLICY_MISMATCH", "Only the exact frozen outcome-independent quarantine may change model eligibility.")
+    eligibility_mask = expected_eligible
+    train, validation, prior_evidence, prior_payload = fit_transform_prior_pair(
+        source, train_mask=train_mask, validation_mask=validation_mask,
+        fold=fold, feature_set=feature_set, eligibility_mask=eligibility_mask,
+    )
+    source_features = list(feature_set["transformationContracts"]["sourceOrderedFeatures"])
+    semantic_payload = fit_semantic_treatment(
+        source.loc[train_mask].copy(), features=source_features, model_family=model_family, fold=fold,
+        interaction_authority_manifest=frame.attrs.get("interactionAuthority"),
+        source_identity=frame.attrs.get("correctedSourceIdentity") or {}, seed=seed,
+    )
+    train, train_evidence = transform_semantic_treatment(train, semantic_payload)
+    validation, validation_evidence = transform_semantic_treatment(validation, semantic_payload)
+    train_validation = validate_model_frame(train, feature_set=feature_set, semantic_fitted=semantic_payload, prior_fitted=prior_payload)
+    validation_validation = validate_model_frame(validation, feature_set=feature_set, semantic_fitted=semantic_payload, prior_fitted=prior_payload)
+    payload = {
+        "schemaVersion": "MLB_CORRECTED_FITTED_PREPROCESSING_V1",
+        "scope": "DEVELOPMENT_ONLY", "fold": dict(fold), "seed": seed,
+        "modelFamily": model_family,
+        "sourceIdentity": frame.attrs.get("correctedSourceIdentity") or {},
+        "sourceColumns": source_columns,
+        "sourceOrderedFeatures": source_features,
+        "orderedFeatures": list(feature_set["orderedFeatures"]),
+        "transformationContracts": feature_set["transformationContracts"],
+        "prior": prior_payload, "semantic": semantic_payload,
+        "trainingBranchCounts": train_evidence,
+        "validationBranchCounts": validation_evidence,
+        "priorExecution": prior_evidence,
+        "rowEligibility": eligibility_evidence,
+        "trainingModelInputValidation": train_validation,
+        "validationModelInputValidation": validation_validation,
+        "validationRowsUsedForParameters": 0, "finalOotRowsUsedForParameters": 0,
+        "targetColumnsReadForTreatment": [],
+    }
+    return train, validation, prior_evidence, payload
 
 
 def _transformation_groups(
@@ -1378,7 +1490,11 @@ def _transformation_groups(
     }
     for name in ordered_features:
         steps = entries[name]
-        if steps == ("RETAIN_RAW",):
+        if steps == ("SEMANTIC_NUMERIC_PASSTHROUGH",) and _uses_corrected_treatment(feature_set):
+            groups["numeric"].append(name)
+        elif steps == ("SEMANTIC_BOOLEAN_PASSTHROUGH",) and _uses_corrected_treatment(feature_set):
+            groups["binary"].append(name)
+        elif steps == ("RETAIN_RAW",):
             groups["numeric"].append(name)
         elif steps == ("GOVERNED_PRIOR_POSTERIOR_MEAN",):
             groups["numeric"].append(name)
@@ -1528,7 +1644,7 @@ def _column_groups(
                 f"Registered feature {name} is absent from the execution frame.",
                 status_code=409,
             )
-        if frame[name].notna().sum() == 0:
+        if frame[name].notna().sum() == 0 and not _uses_corrected_treatment(feature_set):
             raise Stage3ModelLaboratoryError(
                 "MODEL_LAB_SOURCE_UNAVAILABLE_FEATURE",
                 f"Registered feature {name} is entirely unavailable in the training population; zeros were not fabricated and ordinary imputation was refused.",
@@ -1542,6 +1658,8 @@ def _column_groups(
                 status_code=409,
             )
     for name in groups["binary"]:
+        if _uses_corrected_treatment(feature_set) and not frame[name].isin([0, 1, False, True]).all():
+            raise Stage3ModelLaboratoryError("MODEL_LAB_BOOLEAN_DOMAIN_INVALID", f"Corrected Boolean {name} must be exactly 0 or 1.")
         if frame[name].isna().any():
             raise Stage3ModelLaboratoryError(
                 "MODEL_LAB_BINARY_PASSTHROUGH_MISSING",
@@ -1599,7 +1717,10 @@ def _preprocessor(
         transformers.append(
             (
                 "numeric",
-                Pipeline([("imputer", SimpleImputer(strategy="median"))]),
+                (
+                    "passthrough" if _uses_corrected_treatment(feature_set)
+                    else Pipeline([("imputer", SimpleImputer(strategy="median"))])
+                ),
                 numeric,
             )
         )
@@ -1960,6 +2081,13 @@ def fit_stage3_pipeline(
     fit.  It never performs a data scan and therefore cannot broaden the
     caller's authorized population.
     """
+
+    if _uses_corrected_treatment(feature_set):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_CORRECTED_FOLD_ENTRY_REQUIRED",
+            "The corrected research treatment is authorized only through registered fold execution; an additional full-Development fit is not authorized.",
+            status_code=409,
+        )
 
     features = list(feature_set.get("orderedFeatures") or [])
     if not features or len(features) != len(set(features)):
@@ -2769,6 +2897,18 @@ def _evaluate_candidate(
     memory_at_start = _process_memory_evidence()
     runtime_workers = _bounded_native_workers(native_workers)
     features = list((feature_set or {}).get("orderedFeatures") or [])
+    model_eligible = np.ones(len(frame), dtype=bool)
+    eligibility_evidence = None
+    if _uses_corrected_treatment(feature_set or {}):
+        if model_family != "histogram_gradient_boosting" or fold_local_selector or (feature_set or {}).get("foldLocalSelector"):
+            raise Stage3ModelLaboratoryError("MODEL_LAB_CORRECTED_STUDY_SCOPE", "The corrected study authorizes one HGB configuration without selection or ablation fits.")
+        dates = pd.to_datetime(frame["game_date"], errors="coerce")
+        if dates.isna().any() or dates.gt(pd.Timestamp(EXPECTED_DEVELOPMENT[1])).any():
+            raise Stage3ModelLaboratoryError("MODEL_LAB_CORRECTED_FINAL_OOT_SEALED", "Corrected execution rejects non-Development dates before reading targets.")
+        from .stage3_corrected_eligibility import eligibility_mask as frozen_eligibility_mask
+        model_eligible, eligibility_evidence = frozen_eligibility_mask(
+            frame.drop(columns=[name for name in ("outcome", "target", "label", "observedClassIndex") if name in frame]), feature_set or {},
+        )
     labels = frame["outcome"].map({name: index for index, name in enumerate(GOLD_CLASS_ORDER)})
     if labels.isna().any():
         raise Stage3ModelLaboratoryError(
@@ -2814,9 +2954,15 @@ def _evaluate_candidate(
             )
         train_labels = y[train_mask]
         validation_labels = y[validation_mask]
+        registered_train_mask, registered_validation_mask = train_mask.copy(), validation_mask.copy()
+        if eligibility_evidence is not None:
+            train_mask &= model_eligible
+            validation_mask &= model_eligible
+            train_labels, validation_labels = y[train_mask], y[validation_mask]
         fold_started = time.perf_counter()
         fold_warnings: list[dict[str, str]] = []
         governed_prior_evidence: dict[str, Any] | None = None
+        corrected_payload: dict[str, Any] | None = None
         if model_family == "class_frequency_null":
             counts = np.bincount(train_labels, minlength=len(GOLD_CLASS_ORDER)).astype(float)
             probabilities = np.tile(counts / counts.sum(), (int(validation_mask.sum()), 1))
@@ -2841,15 +2987,20 @@ def _evaluate_candidate(
                 "selectionConstraint": "REFERENCE_MODEL_NOT_A_FEATURE_SELECTION_AUTHORITY",
             }
         else:
-            train_frame, validation_frame, governed_prior_evidence = (
-                _apply_fold_local_governed_priors(
+            if _uses_corrected_treatment(feature_set or {}):
+                train_frame, validation_frame, governed_prior_evidence, corrected_payload = _prepare_corrected_fold(
+                    frame, train_mask=registered_train_mask, validation_mask=registered_validation_mask,
+                    fold=fold, feature_set=feature_set or {}, model_family=model_family,
+                    seed=seed + int(fold["foldNumber"]), eligibility_mask=model_eligible,
+                )
+            else:
+                train_frame, validation_frame, governed_prior_evidence = _apply_fold_local_governed_priors(
                     frame,
                     train_mask=train_mask,
                     validation_mask=validation_mask,
                     fold=fold,
                     feature_set=feature_set or {},
                 )
-            )
             selector = fold_local_selector or (feature_set or {}).get("foldLocalSelector")
             selection_evidence: dict[str, Any] | None = None
             if selector:
@@ -2937,7 +3088,7 @@ def _evaluate_candidate(
             complexity = _model_complexity(estimator, train_values)
             interpretability = _native_interpretability(estimator, preprocessor)
             numeric_medians: dict[str, float] = {}
-            if transformation_groups["numeric"]:
+            if transformation_groups["numeric"] and corrected_payload is None:
                 statistics = preprocessor.named_transformers_["numeric"].named_steps[
                     "imputer"
                 ].statistics_
@@ -3008,6 +3159,74 @@ def _evaluate_candidate(
                 ).hexdigest(),
                 "foldLocalSelection": selection_evidence if selector else None,
             }
+            if corrected_payload is not None:
+                from .stage3_corrected_preprocessing_artifacts import (
+                    FrozenCorrectedPreprocessor, persist_and_verify, persist_json,
+                )
+                source_columns = corrected_payload["sourceColumns"]
+                corrected_payload["categoricalLevelsIncludingUnknown"] = categorical_levels
+                corrected_payload["transformedFeatureNames"] = preprocessor.get_feature_names_out().tolist()
+                corrected_payload["environment"] = _environment_identity()
+                implementation_files = [
+                    Path(__file__),
+                    Path(__file__).with_name("stage3_semantic_treatment.py"),
+                    Path(__file__).with_name("stage3_corrected_prior_treatment.py"),
+                    Path(__file__).with_name("stage3_corrected_preprocessing_artifacts.py"),
+                    Path(__file__).with_name("stage3_corrected_eligibility.py"),
+                    Path(__file__).with_name("stage3_corrected_treatment_spec.py"),
+                    Path(__file__).with_name("mlb_corrected_treatment_decision_v1.json"),
+                    Path(__file__).with_name("stage3_player_prior_authority.py"),
+                    Path(__file__).with_name("stage3_player_prior_authority_v2.py"),
+                    Path(__file__).with_name("stage3_prior_estimators_v2.py"),
+                    Path(__file__).with_name("stage3_interaction_recomputation_authority.py"),
+                ]
+                implementation = {path.name: {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                             "sourceBytesBase64": base64.b64encode(path.read_bytes()).decode("ascii")}
+                                  for path in implementation_files}
+                corrected_payload["implementationSnapshot"] = persist_json(
+                    {"schemaVersion": "MLB_LOCAL_RESEARCH_IMPLEMENTATION_SNAPSHOT_V1", "files": implementation},
+                    root=_runtime_root(),
+                )
+                frozen = FrozenCorrectedPreprocessor(
+                    prior=corrected_payload["prior"], semantic=corrected_payload["semantic"],
+                    encoder=preprocessor, source_columns=source_columns,
+                    ordered_features=features, feature_set=feature_set or {},
+                )
+                local_pipeline = Stage3FittedPipeline(
+                    ordered_features=source_columns, target_order=GOLD_CLASS_ORDER,
+                    preprocessor=frozen, estimator=estimator,
+                )
+                with threadpool_limits(limits=runtime_workers):
+                    reload_evidence = persist_and_verify(
+                        pipeline=local_pipeline, preprocessing_payload=corrected_payload,
+                        validation_source=frame.loc[validation_mask, source_columns],
+                        validation_values=validation_values, probabilities=probabilities,
+                        root=_runtime_root(),
+                    )
+                preprocessing.update({
+                    "kind": "MLB_SEMANTIC_TREATMENT_V1",
+                    "numericMissingTreatment": "GOVERNED_REASON_AWARE_NO_GENERIC_FALLBACK",
+                    "binaryTreatment": "VALIDATED_SEMANTIC_BOOLEAN_PASSTHROUGH",
+                    "artifactSha256": reload_evidence["preprocessing"]["sha256"],
+                    "fittedArtifact": reload_evidence["preprocessing"],
+                    "localResearchArtifact": reload_evidence,
+                    "trainingBranchCounts": corrected_payload["trainingBranchCounts"],
+                    "validationBranchCounts": corrected_payload["validationBranchCounts"],
+                    "actualSourceFeatureCount": len(corrected_payload["sourceOrderedFeatures"]),
+                    "actualModelFeatureCount": len(features),
+                    "transformedFeatureCount": int(train_values.shape[1]),
+                    "foldSeed": seed + int(fold["foldNumber"]),
+                    "parentOnlyAblations": "DEFERRED_BY_EXPLICIT_USER_DECISION",
+                    "rowEligibility": {
+                        "policy": corrected_payload["rowEligibility"],
+                        "registeredTrainRows": int(registered_train_mask.sum()),
+                        "modelTrainRows": int(train_mask.sum()),
+                        "quarantinedTrainRows": int((registered_train_mask & ~model_eligible).sum()),
+                        "registeredValidationRows": int(registered_validation_mask.sum()),
+                        "modelValidationRows": int(validation_mask.sum()),
+                        "quarantinedValidationRows": int((registered_validation_mask & ~model_eligible).sum()),
+                    },
+                })
         probabilities = _validate_probability_matrix(
             probabilities, expected_rows=int(validation_mask.sum())
         )
@@ -3019,10 +3238,14 @@ def _evaluate_candidate(
                 "trainEnd": fold["trainEnd"],
                 "trainRows": int(train_mask.sum()),
                 "trainGames": train_games,
+                "registeredTrainRows": int(registered_train_mask.sum()),
+                "modelTrainGames": int(frame.loc[train_mask, "canonicalGameId"].nunique()),
                 "validationStart": fold["validationStart"],
                 "validationEnd": fold["validationEnd"],
                 "validationRows": int(validation_mask.sum()),
                 "validationGames": validation_games,
+                "registeredValidationRows": int(registered_validation_mask.sum()),
+                "modelValidationGames": int(frame.loc[validation_mask, "canonicalGameId"].nunique()),
                 "metrics": metrics,
                 "probabilityReconciliation": _probability_reconciliation(
                     probabilities
@@ -3161,6 +3384,9 @@ def _evaluate_candidate(
         "featureSetChecksum": refinement_evidence["reducedFeatureSetChecksum"] if refinement_evidence else (feature_set or {}).get("checksum"),
         "featureCount": len(stable_features),
         "sourceFeatureCount": len(features),
+        "physicalSourceFeatureCount": len((feature_set or {}).get("transformationContracts", {}).get("sourceOrderedFeatures") or features),
+        "seed": int(seed),
+        "rowEligibility": eligibility_evidence,
         "orderedFeatures": stable_features,
         "refinementEvidence": refinement_evidence,
         "status": "COMPLETE",

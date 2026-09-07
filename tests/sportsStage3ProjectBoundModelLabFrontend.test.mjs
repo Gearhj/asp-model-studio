@@ -16,6 +16,11 @@ const [cockpit, lab, evaluation, refinement, comparison, tuningDecision, api] = 
 
 const includesAll = (source, values, label) => values.forEach((value) => assert.ok(source.includes(value), `${label} missing: ${value}`));
 
+test("successor treatment evidence reports its actual source and derived schema", () => {
+  includesAll(lab, ["corrected-treatment-schema", "summary.treatment.sourceFeatureCount", "summary.treatment.addedPriorOutputCount", "Valid raw Wave 1 values are preserved", "Parent-only ablations remain deferred"], "corrected schema evidence");
+  includesAll(api, ["sourceFeatureCount?: number", "addedPriorOutputCount?: number", "semanticTreatmentVersion?: string"], "corrected schema contract");
+});
+
 test("Stage 3 exposes the governed fifteen-step model-development sequence", () => {
   includesAll(cockpit, [
     'id: "modellab", n: "09", label: "Model Development Laboratory"',

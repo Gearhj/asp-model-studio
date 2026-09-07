@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "MLB_REPEAT_OPPONENT_BOOLEAN_DIAGNOSTIC_V1",
+  "scope": "DEVELOPMENT_FEATURE_ONLY_SOURCE_DOMAIN_DIAGNOSTIC_NOT_A_MODEL_RUN",
+  "sourceRows": 683662,
+  "developmentStart": "2023-03-30",
+  "developmentEnd": "2026-08-13",
+  "goldManifestSha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+  "contextualManifestSha256": "4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e",
+  "diagnosticOrigin": "Root agent target-free Boolean validation across complete registered Development population",
+  "sourceConstruction": {
+    "path": "server/sports_current_statcast/contextual_features.py",
+    "function": "build_team_game_context",
+    "countConstructionLine": 271,
+    "publicationLine": 294,
+    "formula": "SUM_OF_PRIOR_GAMES_WITH_MATCHING_CURRENT_OPPONENT_IN_TRAILING_7_OR_14_DAYS"
+  },
+  "features": [
+    {
+      "feature": "fielding_repeat_opponent_within_7_days",
+      "sourceWorkbookRow": 124,
+      "nonBooleanIntegerCountRows": 261756,
+      "observedMinimum": 0,
+      "observedMaximum": 4,
+      "nullRows": 0
+    },
+    {
+      "feature": "fielding_repeat_opponent_within_14_days",
+      "sourceWorkbookRow": 125,
+      "nonBooleanIntegerCountRows": 275046,
+      "observedMinimum": 0,
+      "observedMaximum": 7,
+      "nullRows": 0
+    },
+    {
+      "feature": "batting_repeat_opponent_within_7_days",
+      "sourceWorkbookRow": 191,
+      "nonBooleanIntegerCountRows": 261756,
+      "observedMinimum": 0,
+      "observedMaximum": 4,
+      "nullRows": 0
+    },
+    {
+      "feature": "batting_repeat_opponent_within_14_days",
+      "sourceWorkbookRow": 192,
+      "nonBooleanIntegerCountRows": 275046,
+      "observedMinimum": 0,
+      "observedMaximum": 7,
+      "nullRows": 0
+    }
+  ],
+  "workbookDomain": "{0,1} or registered Boolean encoding",
+  "workbookTreatment": "Retain valid states; reject or repair invalid Boolean domain. Recompute deterministic fields or fail validation if future values are absent.",
+  "proposedSuccessorRepair": "VALIDATE_FINITE_NONNEGATIVE_INTEGER_THEN_COUNT_GT_ZERO_INDICATOR; NO_NULL_FILL",
+  "unrelatedExpectedStructuralNulls": {
+    "fieldingRowsPerFeature": 4520,
+    "battingRowsPerFeature": 4519,
+    "featuresPerSide": 4,
+    "disposition": "EXISTING_REASON_AWARE_STRUCTURAL_ZERO_TREATMENT"
+  },
+  "qualification": "Counts describe original physical Development cells including the56 separately held rows. They are not unique affected-PA sums, disjoint OOF counts or recorded transformed branch counters.",
+  "targetPayloadValuesRead": 0,
+  "finalOotPayloadRowsRead": 0,
+  "predictiveFits": 0
+}

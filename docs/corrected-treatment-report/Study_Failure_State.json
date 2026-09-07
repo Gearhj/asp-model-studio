@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "MLB_CORRECTED_V18_STUDY_FAILURE_REPORT_V1",
+  "status": "PRESERVED_FAILED_ATTEMPT_NO_RETRY",
+  "scope": "Existing failed-study receipts and root-agent diagnostic summary; no model/data/DB action performed by this report update.",
+  "jobId": "stage3-model-job-86b72c0cee694779bb3cab64eb28cc45",
+  "runId": "stage3-model-development-run-80b4d7d7dbf04c7a9e35fd975b786750",
+  "runStatus": "PARTIAL",
+  "runReceipt": {
+    "sha256": "cf308ac9f910073a170f5ab6fa5e4adfd969b2eed2ec8e5ff3d17c54ee77cbc8",
+    "path": "C:/Users/james/asp-model-studio/.runtime/asp-model-studio/stage3-model-laboratory/objects/sha256/cf308ac9f910073a170f5ab6fa5e4adfd969b2eed2ec8e5ff3d17c54ee77cbc8.json",
+    "contentSha256Verified": true
+  },
+  "candidateId": "stage3-candidate-b1d1d475d49342969983c7b9f42e880e",
+  "candidateStatus": "FAILED",
+  "candidateReceipt": {
+    "sha256": "f9abd8c13bc57d741d6d2758e4491d002684147758e2b9c9d5717ca93067ffea",
+    "path": "C:/Users/james/asp-model-studio/.runtime/asp-model-studio/stage3-model-laboratory/candidate-attempts/objects/sha256/f9abd8c13bc57d741d6d2758e4491d002684147758e2b9c9d5717ca93067ffea.json",
+    "contentSha256Verified": true
+  },
+  "failure": {
+    "code": "MODEL_DEVELOPMENT_CONFIGURATION_FAILED",
+    "recordedReason": "[WinError 5] Access is denied",
+    "localizedInfrastructureIssue": "WINDOWS_PIPE_CREATION_DURING_HGB_BINNING_IN_RESTRICTED_ENVIRONMENT",
+    "localizationEvidence": "Root agent reproduced on an artificial80x4 matrix with HGB1iteration and4nativeworkers; the same artificial test passed elevated. This is a diagnostic reproduction, not an authorized real-study retry."
+  },
+  "executionAccounting": {
+    "scheduledFolds": 5,
+    "completedFolds": 0,
+    "aggregateScheduledFitsMarkedFailed": 5,
+    "actualFoldAttemptsStarted": 1,
+    "startedFoldNumber": 1,
+    "laterUnattemptedFolds": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "actualBoostingIterationCount": null,
+    "iterationCountReason": "NOT_RECORDED_DO_NOT_INFER_ZERO_OR500",
+    "progressElapsedSeconds": 111.747,
+    "runReceiptRuntimeMs": 111735,
+    "candidateReceiptRuntimeMs": 103474,
+    "nativeWorkers": 4,
+    "realStudyRetries": 0
+  },
+  "preservedAuthorities": {
+    "treatmentVersion": 18,
+    "treatmentId": "stage3-feature-treatment-spec-711fbb376e9a4d419f826de593195638",
+    "treatmentManifestSha256": "4d158e01a4a7d84fe6e7641f61edf0e9848f1775e025a2cec6c29cda22d479f3",
+    "featureSetId": "stage3-feature-set-486aefc6482f46ddac2bed94b210e05d",
+    "featureColumns": 273,
+    "sourceColumns": 218,
+    "allFiveProvisionalPreprocessingPreflights": "PRESERVED_PASS_NOT_V18_PREDICTIVE_FITS",
+    "originalV14EvidencePreserved": true
+  },
+  "unavailableResults": {
+    "correctedLogLoss": null,
+    "correctedBrier": null,
+    "correctedRocAuc": null,
+    "correctedCalibration": null,
+    "pairedGameClusteredConfidenceInterval": null,
+    "correctedSubgroupMetrics": null,
+    "trainedV18PredictiveModelArtifact": null,
+    "trainedV18ModelArtifactReplay": null,
+    "reason": "NO_COMPLETED_V18_PREDICTIVE_FOLD"
+  },
+  "finalOot": {
+    "runReceiptAccessed": false,
+    "runReceiptTargetsMaterialized": false,
+    "status": "SEALED_NO_NEW_AUTHORIZATION"
+  },
+  "promotionStatus": "NOT_PROMOTED",
+  "recommendedNextStep": "Address the Windows execution-environment Pipe/permission blocker and obtain explicit authorization for a bounded retry of the same frozen configuration. Retain saved V14 results as comparison baseline and preserve V18 corrections; do not roll back to incorrect preprocessing merely to complete a run.",
+  "noRetryAuthorizedByThisFailureReport": true
+}

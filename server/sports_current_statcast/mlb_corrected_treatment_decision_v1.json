@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "MLB_CORRECTED_TREATMENT_SCIENTIFIC_DECISION_V1",
+  "decisionId": "MLB_CORRECTED_TREATMENT_AUTHORIZATION_V1",
+  "projectId": "asp-mtlozhdx",
+  "semanticTreatmentVersion": "MLB_SEMANTIC_TREATMENT_V1",
+  "authorization": {
+    "source": "USER_EXPLICIT_IMPLEMENTATION_AND_BOUNDED_STUDY_REQUEST",
+    "attachmentId": "a473cf43-0669-40b6-b361-86c3840a87d5",
+    "sha256": "61046f7c1465733f70623bb74533e050fbca8ed93a8c2fb55346e71afa6f1ae9",
+    "sourceWorkbookFilename": "ASP_MLB_Feature_Treatment_Specification.xlsx",
+    "sourceWorkbookSha256": "c5f941236246442977a88865774903dea0ad37cab1ff1c3514cd6a78af2758e3",
+    "requestedWorkbookVariant": "ASP_MLB_Feature_Treatment_Specification(1).xlsx",
+    "requestedVariantLocated": false,
+    "recommendationReconciliation": "240_BY_26_NORMALIZED_SOURCE_CELLS_IDENTICAL_TO_REGISTERED_SOURCE",
+    "auditWorkbookSha256": "2b99078a95120bdbd32ccd5ac68923fc67e5422fe37d52e759a33b49c2f9061e"
+  },
+  "predecessor": {
+    "specificationVersion": 14,
+    "specificationId": "stage3-feature-treatment-spec-cd6c877bc9474fa7ab2b716209321d78",
+    "manifestChecksum": "ba36557bb986f87be40dc18a4a669f4e5d4f979becf2d0e70fda5226f15f544d",
+    "contentSha256": "74071f88294f299de33a990e655481ee8b778e0f91bdfc79bc67a4ab7d6010eb"
+  },
+  "approvedCorrections": {
+    "matchup_platoon_advantage": "DETERMINISTIC_MATCHUP_BOOLEAN_NO_BAYESIAN_PRIOR",
+    "wave1Representation": "PRESERVE_VALID_RAW_PLUS_REGISTERED_POSTERIOR_EFFECTIVE_N_RELIABILITY_STD_AND_HISTORY_STATE",
+    "wave2Representation": "PRESERVE_POSTERIOR_ONLY_MODEL_SCOPE_OPTIONAL_AUXILIARY_OUTPUTS_NOT_SELECTED",
+    "parentOnlyAblations": "EXPLICITLY_DEFERRED_EVALUATION_NOT_A_TREATMENT_IMPLEMENTATION_BLOCKER",
+    "repeatOpponentBooleanRepair": {
+      "features": ["fielding_repeat_opponent_within_7_days", "fielding_repeat_opponent_within_14_days", "batting_repeat_opponent_within_7_days", "batting_repeat_opponent_within_14_days"],
+      "sourceWorkbookRows": [124, 125, 191, 192],
+      "workbookDomain": "{0,1} OR REGISTERED_BOOLEAN_ENCODING",
+      "sourceConstruction": "contextual_features.py:271 counts matching-opponent prior games; line294 publishes counts unchanged",
+      "authorization": "USER_REQUEST_SECTION_2_DOMAIN_VALIDATION_AND_APPROVED_SPECIFICATION_ROUTINE_IMPLEMENTATION_CHOICES",
+      "successorRepresentation": "VALIDATE_FINITE_NONNEGATIVE_INTEGER_COUNT_THEN_DETERMINISTIC_INDICATOR_COUNT_GREATER_THAN_ZERO",
+      "nullInvalidHandling": "REJECT_NO_NULL_FILL_NO_FRACTIONAL_NEGATIVE_OR_NONFINITE_COERCION",
+      "historicalSourceValuesPreserved": true,
+      "newFeatureExclusion": false,
+      "rivalryDeferralApplies": false,
+      "auditCorrection": "FOUR_NEWLY_EXPOSED_DOMAIN_GAPS_WITHIN_ORIGINAL_137_IMPLEMENTED_AUDIT_ROWS; ORIGINAL_AUDIT_RETAINED_UNCHANGED"
+    }
+  },
+  "correctedRowEligibility": {
+    "schemaVersion": "MLB_CORRECTED_ROW_ELIGIBILITY_V1",
+    "reason": "V1_KNOWN_ZERO_PRIOR_PA_UNSUPPORTED_HISTORY_STATE",
+    "authorizationSection": "USER_REQUEST_SECTION_5_OUTCOME_INDEPENDENT_ELIGIBILITY_AND_MATCHING_OBSERVATIONS",
+    "affectedFeatures": ["batter_so_per_pa", "batter_bb_hbp_per_pa", "batter_hr_per_pa"],
+    "exactPredicate": "ALL_THREE_RAW_RATES_NULL_AND_FINITE_NUMERIC_BATTER_LOG1P_PA_EXACT_ZERO_AND_VALID_BOOLEAN_BATTER_PRIOR_MISSING_FALSE",
+    "action": "HOLD_MODEL_ROW_WITH_IMMUTABLE_KEY_AND_REASON_NOT_IMPUTATION_NOT_COLD_START_RELABELING",
+    "sourcePopulationRows": 683662,
+    "sourcePopulationAndFoldBoundariesPreserved": true,
+    "expectedDevelopmentHeldRows": 56,
+    "expectedDevelopmentEligibleRows": 683606,
+    "expectedValidationHeldRowsAcrossFiveFolds": 51,
+    "heldCanonicalPaIdNewlineChecksum": "ab4fed275010a340bddb80057e80205bf8fdb1030744d4f0e86e0b0488507872",
+    "diagnosticEvidence": {
+      "relativePath": "docs/corrected-treatment-diagnostics/sha256/08b0d20c8339810249bbe55ca92134664be8febda26b6777909514e49ed670fd.json",
+      "sha256": "08b0d20c8339810249bbe55ca92134664be8febda26b6777909514e49ed670fd",
+      "targetPayloadValuesRead": 0,
+      "finalOotPayloadRowsRead": 0
+    },
+    "whipGovernedFallbackPreserved": true,
+    "otherInvalidStates": "EXISTING_FAIL_CLOSED_GUARDS_STILL_APPLY",
+    "comparison": "MATCHING_ELIGIBLE_OOF_OBSERVATIONS_PLUS_ORIGINAL_V14_ON_ORIGINAL_POPULATION",
+    "remainingScientificIssue": "V1_KNOWN_ZERO_OPPORTUNITY_HAS_NO_REGISTERED_EXECUTABLE_STATE"
+  },
+  "protectedScope": {
+    "preservedWorkbookExclusions": 22,
+    "preservedAdditionalRivalryDeferrals": 14,
+    "developmentRows": 683662,
+    "folds": 5,
+    "authorizedModelFamily": "histogram_gradient_boosting",
+    "authorizedConfigurations": 1,
+    "authorizedFullPopulationFits": 5,
+    "finalOotStatus": "LOCKED_UNOPENED",
+    "finalOotPayloadReadsAuthorized": 0,
+    "promotionAuthorized": false,
+    "productionExportAuthorized": false
+  }
+}

@@ -1208,7 +1208,79 @@ def _exception_rows(
     return output
 
 
-def compile_project_specification(database: Database, project_id: str) -> dict[str, Any]:
+def compile_project_specification(
+    database: Database,
+    project_id: str,
+    *,
+    semantic_treatment_version: str | None = None,
+) -> dict[str, Any]:
+    """Compile the explicitly requested or currently adopted treatment family.
+
+    Historical receipts are never rewritten. The corrected family descends
+    from the exact immutable V14 payload, not a reinterpretation of V14 by a
+    newer compiler. Callers replaying a historical receipt use that receipt;
+    ``LEGACY`` explicitly retains the previous compilation behavior.
+    """
+    from . import stage3_corrected_treatment_spec as corrected
+
+    authority = eda._resolve_authority(database, project_id)
+    state: dict[str, Any] = {}
+    if semantic_treatment_version != "LEGACY":
+        try:
+            state = Stage3TreatmentRepository(database).combined_spec_state(
+                project_id, authority.review_digest
+            )
+        except Exception as exc:
+            if "no such table" not in str(exc).lower():
+                raise
+    adopted = state.get("adopted") or {}
+    adopted_version = (adopted.get("manifest") or {}).get("semanticTreatmentVersion")
+    version = semantic_treatment_version or adopted_version
+    if version in {None, "LEGACY"}:
+        return _compile_legacy_project_specification(database, project_id)
+    if version != corrected.SEMANTIC_TREATMENT_VERSION:
+        raise Stage3FeatureTreatmentSpecError(
+            "TREATMENT_SEMANTIC_VERSION_UNSUPPORTED", "The requested semantic treatment version is not registered."
+        )
+    predecessor = next(
+        (item for item in state.get("history", []) if item.get("specificationId") == corrected.REFERENCE_V14_ID),
+        None,
+    )
+    if not predecessor or predecessor.get("manifestChecksum") != corrected.REFERENCE_V14_MANIFEST_SHA:
+        raise Stage3FeatureTreatmentSpecError(
+            "CORRECTED_TREATMENT_PREDECESSOR_MISSING", "The exact adopted V14 predecessor is required for the correction."
+        )
+    base = predecessor.get("manifest") or {}
+    if (base.get("projectAuthority") or {}).get("authorityKey") != treatments._authority_payload(authority)["authorityKey"]:
+        raise Stage3FeatureTreatmentSpecError(
+            "CORRECTED_TREATMENT_SOURCE_AUTHORITY_MISMATCH", "The V14 predecessor does not match the current source authority."
+        )
+    try:
+        manifest = corrected.build_corrected_manifest(base)
+    except ValueError as exc:
+        raise Stage3FeatureTreatmentSpecError("CORRECTED_TREATMENT_CONTRACT_INVALID", str(exc)) from exc
+    implementation_files = (
+        "stage3_feature_treatment_spec.py", "stage3_corrected_treatment_spec.py",
+        "stage3_semantic_treatment.py", "stage3_corrected_prior_treatment.py",
+        "stage3_corrected_eligibility.py",
+        "stage3_corrected_preprocessing_artifacts.py", "stage3_model_laboratory.py",
+    )
+    manifest["correctedTreatment"]["implementationSourceSha256"] = {
+        name: _normalized_file_sha256(Path(__file__).with_name(name))
+        for name in implementation_files
+    }
+    checksum = _sha256(manifest)
+    return {
+        **manifest,
+        "manifestChecksum": checksum,
+        "specificationId": f"{SPECIFICATION_KEY}:sha256:{checksum}",
+        "canCreateDraft": not bool(manifest["reconciliation"].get("fatal")),
+        "canAdopt": not bool(manifest["reconciliation"].get("fatal")) and int(manifest["executionSummary"]["blocked"]) == 0,
+        "blockers": [item["detail"] for item in manifest["exceptions"] if item.get("disposition") == "BLOCKING"],
+    }
+
+
+def _compile_legacy_project_specification(database: Database, project_id: str) -> dict[str, Any]:
     authority = eda._resolve_authority(database, project_id)
     source = load_source_specification()
     core_challenger_decision = _core_challenger_decision(authority)
@@ -1671,8 +1743,10 @@ def current_draft_execution_overlay(
             "TREATMENT_SPEC_DRAFT_MANIFEST_CHECKSUM_MISMATCH",
             "The current combined treatment draft failed its content-address check.",
         )
-    current_manifest_checksum = compile_project_specification(
-        database, authority.project_id
+    version = manifest.get("semanticTreatmentVersion")
+    current_manifest_checksum = (
+        compile_project_specification(database, authority.project_id, semantic_treatment_version=str(version))
+        if version else compile_project_specification(database, authority.project_id)
     )["manifestChecksum"]
     if str(draft.get("manifestChecksum") or "") != current_manifest_checksum:
         raise Stage3FeatureTreatmentSpecError(
@@ -1868,7 +1942,11 @@ def save_treatment_specification_draft(
             "TREATMENT_SPEC_FILTER_SCOPE_PROHIBITED",
             "The canonical specification must bind the complete development population.",
         )
-    compiled = compile_project_specification(database, project_id)
+    requested_semantic_version = payload.get("semanticTreatmentVersion")
+    compiled = (
+        compile_project_specification(database, project_id, semantic_treatment_version=str(requested_semantic_version))
+        if requested_semantic_version else compile_project_specification(database, project_id)
+    )
     expected_checksum = str(payload.get("expectedManifestChecksum") or "")
     if expected_checksum != compiled["manifestChecksum"]:
         raise Stage3FeatureTreatmentSpecError(
@@ -1957,7 +2035,11 @@ def adopt_treatment_specification(
             "TREATMENT_SPEC_FILTER_SCOPE_PROHIBITED",
             "Specification adoption must bind the complete development population.",
         )
-    compiled = compile_project_specification(database, project_id)
+    requested_semantic_version = payload.get("semanticTreatmentVersion")
+    compiled = (
+        compile_project_specification(database, project_id, semantic_treatment_version=str(requested_semantic_version))
+        if requested_semantic_version else compile_project_specification(database, project_id)
+    )
     specification_draft_id = str(payload.get("specificationDraftId") or "").strip()
     expected_manifest_checksum = str(
         payload.get("expectedManifestChecksum") or ""

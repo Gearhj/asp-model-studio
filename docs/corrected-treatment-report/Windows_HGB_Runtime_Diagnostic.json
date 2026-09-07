@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "MLB_CORRECTED_HGB_WINDOWS_RUNTIME_DIAGNOSTIC_V1",
+  "date": "2026-09-07",
+  "scope": "SYNTHETIC_RUNTIME_DIAGNOSIS_ONLY_NOT_A_STUDY_RETRY",
+  "actualStudy": {
+    "jobId": "stage3-model-job-86b72c0cee694779bb3cab64eb28cc45",
+    "status": "PARTIAL",
+    "runReceiptSha256": "cf308ac9f910073a170f5ab6fa5e4adfd969b2eed2ec8e5ff3d17c54ee77cbc8",
+    "candidateReceiptSha256": "f9abd8c13bc57d741d6d2758e4491d002684147758e2b9c9d5717ca93067ffea",
+    "errorReason": "[WinError 5] Access is denied",
+    "completedFits": 0,
+    "foldsObservedStarted": [1],
+    "laterFoldsNotAttempted": [2, 3, 4, 5],
+    "schedulerFailedFitSlots": 5,
+    "schedulerCountIsNotFiveEstimatorFitCalls": true,
+    "actualBoostingIterationCount": null,
+    "actualIterationCountEvidence": "NOT_RECORDED_IN_FAILED_CANDIDATE_RECEIPT",
+    "automaticRetryPerformed": false
+  },
+  "syntheticReproduction": {
+    "runtime": "C:/Users/james/asp-model-studio/.venv/Scripts/python.exe",
+    "data": "X = np.arange(80*4, dtype=float).reshape(80,4); y = np.tile(np.arange(8),10)",
+    "estimator": "HistGradientBoostingClassifier(max_iter=1,min_samples_leaf=2,early_stopping=False,random_state=20260906)",
+    "threadpoolLimit": 4,
+    "insideSandbox": {
+      "status": "FAILED",
+      "error": "PermissionError: [WinError 5] Access is denied",
+      "stack": [
+        "HistGradientBoostingClassifier.fit",
+        "_bin_data",
+        "_bin_mapper.fit_transform",
+        "joblib.Parallel(n_jobs=self.n_threads, backend='threading')",
+        "multiprocessing.pool.ThreadPool",
+        "multiprocessing.queues.SimpleQueue",
+        "multiprocessing.connection.Pipe(duplex=False)",
+        "_winapi.CreateFile"
+      ],
+      "phase": "HGB histogram binning, before synthetic boosting iterations"
+    },
+    "outsideSandboxWithReviewedEscalation": {
+      "status": "PASS",
+      "completedSyntheticBoostingIterations": 1
+    },
+    "realDevelopmentRowsUsed": 0,
+    "finalOotRowsUsed": 0,
+    "realStudyConfigurationsRetried": 0
+  },
+  "interpretation": "The identical artificial diagnostic isolates Windows named-pipe/thread-pool restrictions as the runtime cause. The real failed receipt does not retain an estimator or iteration counter; do not substitute the synthetic counter for actual-study evidence.",
+  "requiredNextAuthority": "Explicitly authorize one bounded recovery attempt of the unchanged configuration and five folds outside the sandbox, preserving this failed study and all adopted treatment/history. No new tuning or Final OOT access."
+}

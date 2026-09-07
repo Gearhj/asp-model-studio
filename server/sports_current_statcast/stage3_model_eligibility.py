@@ -298,9 +298,43 @@ def _classification(
 def build_model_eligibility(authority: Any) -> dict[str, Any]:
     """Derive the exact content-addressed Full Eligible authority."""
 
-    rows, _ = feature_engineering._catalog(authority.eda_authority)
+    source_rows, _ = feature_engineering._catalog(authority.eda_authority)
+    # Derived model outputs must not mutate a shared physical-catalog snapshot.
+    rows = [dict(row) for row in source_rows]
     combined = getattr(authority, "treatment_specification", None) or {}
     manifest = combined.get("manifest") or {}
+    corrected_schema = None
+    physical_candidate_count = len(rows)
+    if manifest.get("semanticTreatmentVersion"):
+        from . import stage3_corrected_treatment_spec as corrected
+
+        if (
+            manifest.get("semanticTreatmentVersion") != corrected.SEMANTIC_TREATMENT_VERSION
+            or _sha(manifest) != combined.get("manifestChecksum")
+        ):
+            raise RuntimeError("Corrected model eligibility requires an authenticated adopted treatment manifest.")
+        corrected_schema = manifest["modelFeatureSchema"]
+        if _sha({key: value for key, value in corrected_schema.items() if key != "schemaChecksum"}) != corrected_schema["schemaChecksum"]:
+            raise RuntimeError("The adopted corrected model feature schema failed its checksum.")
+        by_name = {str(row["name"]): row for row in rows}
+        for column in corrected_schema["columns"]:
+            if column["feature"] in by_name:
+                continue
+            parent = by_name.get(column["sourceFeature"])
+            if parent is None or column["sourceFeature"] not in corrected_schema["wave1SourceFeatures"]:
+                raise RuntimeError("Corrected model output lacks its exact registered prior parent.")
+            rows.append({
+                **parent,
+                "name": column["feature"],
+                "order": len(rows) + 1,
+                "dataType": column["dataType"],
+                "binary": column["binary"],
+                "role": "PREGAME_FEATURE",
+                "governanceStatus": "ELIGIBLE",
+                "availabilityStatus": "REGISTERED_FOLD_LOCAL_PRIOR_OUTPUT",
+                "missingPercentDevelopment": None,
+                "sourceLineage": {"parentFeature": column["sourceFeature"], "outputRole": column["role"], "modelFeatureSchemaChecksum": corrected_schema["schemaChecksum"]},
+            })
     treatment_by_name = {
         str(item.get("feature_name") or item.get("featureName") or ""): item
         for item in manifest.get("features") or []
@@ -317,13 +351,30 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
         )
         for row in rows
     ]
+    if corrected_schema:
+        by_decision = {str(item["name"]): item for item in decisions}
+        if not all(by_decision[name]["eligible"] for name in corrected_schema["orderedFeatures"]):
+            raise RuntimeError("Corrected schema includes a source or output held closed by its governing authority.")
+        for name in corrected_schema["wave1SourceFeatures"]:
+            by_decision[name].update({
+                "status": "ELIGIBLE_CORRECTED_WAVE1_VALID_RAW_PLUS_REGISTERED_OUTPUTS",
+                "reason": "The corrected authority preserves valid raw values and separately registers required posterior, exposure, reliability, uncertainty, and state outputs.",
+                "requiresGovernedPriorTransformation": False,
+            })
+        for column in corrected_schema["columns"]:
+            if column["feature"] != column["sourceFeature"]:
+                by_decision[column["feature"]]["missingPercentDevelopment"] = None
     eligible = [item for item in decisions if item["eligible"]]
     excluded = [item for item in decisions if not item["eligible"]]
     ordered = [str(item["name"]) for item in eligible]
+    if corrected_schema:
+        if set(ordered) != set(corrected_schema["orderedFeatures"]):
+            raise RuntimeError("Corrected eligibility does not match its exact 273-column adopted schema.")
+        ordered = list(corrected_schema["orderedFeatures"])
     classifications = Counter(str(item["classification"]) for item in excluded)
 
     reconciliation = {
-        "physicalCandidateCount": len(decisions),
+        "physicalCandidateCount": physical_candidate_count,
         "eligiblePredictorCount": len(eligible),
         "excludedPredictorCount": len(excluded),
         "sourceUnavailable": classifications["SOURCE_UNAVAILABLE"],
@@ -333,8 +384,11 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
         "computationFailure": classifications["COMPUTATION_FAILURE"],
         "other": classifications["OTHER_GOVERNANCE"],
     }
+    if corrected_schema:
+        reconciliation["registeredDerivedOutputCount"] = len(rows) - physical_candidate_count
+        reconciliation["totalCandidateCount"] = len(decisions)
     if (
-        reconciliation["physicalCandidateCount"]
+        reconciliation["physicalCandidateCount"] + reconciliation.get("registeredDerivedOutputCount", 0)
         != reconciliation["eligiblePredictorCount"] + reconciliation["excludedPredictorCount"]
         or reconciliation["excludedPredictorCount"]
         != sum(
@@ -430,6 +484,12 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
             ],
         },
     }
+    if corrected_schema:
+        payload["semanticTreatmentVersion"] = manifest["semanticTreatmentVersion"]
+        payload["modelFeatureSchemaChecksum"] = corrected_schema["schemaChecksum"]
+        payload["transformationContracts"] = corrected.corrected_transformation_contracts({
+            **manifest, "manifestChecksum": combined["manifestChecksum"]
+        })
     checksum = _sha(payload)
     return {
         **payload,
@@ -467,6 +527,19 @@ def assess_feature_set(
     eligible_names = set(str(item) for item in eligibility.get("orderedFeatures") or [])
     known_names = eligible_names | set(excluded_by_name)
     incompatible = [excluded_by_name[name] for name in ordered if name in excluded_by_name]
+    expected_semantic_contract = eligibility.get("transformationContracts") or {}
+    if expected_semantic_contract.get("semanticTreatmentVersion") and (
+        dict(feature_set.get("transformationContracts") or {}) != dict(expected_semantic_contract)
+        or ordered != list(eligibility.get("orderedFeatures") or [])
+    ):
+        incompatible.append({
+            "name": "<corrected-treatment-contract>",
+            "classification": "OTHER_GOVERNANCE",
+            "status": "CORRECTED_TREATMENT_CONTRACT_REQUIRED",
+            "reason": "Current corrected execution requires the exact adopted expanded feature schema; historical registrations remain preserved but are not silently reinterpreted.",
+            "missingPercentDevelopment": None,
+            "overrideAllowed": False,
+        })
     if not ordered:
         incompatible.append(
             {

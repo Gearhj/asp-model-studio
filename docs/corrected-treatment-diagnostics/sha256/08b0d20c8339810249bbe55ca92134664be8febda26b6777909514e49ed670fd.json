@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "MLB_CORRECTED_ZERO_OPPORTUNITY_DIAGNOSTIC_V1",
+  "scope": "DEVELOPMENT_FEATURE_ONLY_NO_OUTCOMES_NO_PRIOR_OR_PREDICTIVE_FIT",
+  "sourceRows": 683662,
+  "developmentStart": "2023-03-30",
+  "developmentEnd": "2026-08-13",
+  "goldManifestSha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+  "contextualManifestSha256": "4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e",
+  "affectedFeatures": [
+    "batter_so_per_pa",
+    "batter_bb_hbp_per_pa",
+    "batter_hr_per_pa"
+  ],
+  "reason": "V1_KNOWN_ZERO_PRIOR_PA_UNSUPPORTED_HISTORY_STATE",
+  "invalidUniquePaRows": 56,
+  "affectedGames": 31,
+  "affectedCanonicalPlayers": 16,
+  "byYear": {
+    "2023": 5,
+    "2024": 2,
+    "2025": 46,
+    "2026": 3
+  },
+  "allAffectedRows": {
+    "rawAnnualRates": "NULL_ALL_THREE",
+    "batter_log1p_pa": 0,
+    "batter_prior_missing": false,
+    "companionBatterAbHitsDoublesTriplesHomeRuns": "EXACT_ZERO_ALL_FIVE",
+    "companionComponentNullCells": 0
+  },
+  "interpretation": "Known prior-season evidence exists but contains zero annual PA. V1 does not register TRUE_NO_OPPORTUNITY and leaves this combination COMPUTATION_FAILURE/NONE_FAIL_CLOSED. This is not source outage and must not be relabeled genuine no-history.",
+  "unaffectedV1FeatureCount": 8,
+  "otherV1InvalidRows": 0,
+  "v2FeaturesChecked": 10,
+  "v2DisallowedRows": 0,
+  "v2KnownZeroAbRows": 56,
+  "v2KnownZeroAbState": "TRUE_NO_OPPORTUNITY",
+  "v2WhipSeparatelyGovernedFallbackRows": 56,
+  "v2WhipFallbackPreserved": true,
+  "canonicalPaIdChecksumMethod": "SHA256_OF_SORTED_CANONICAL_PA_IDS_JOINED_WITH_LF_PLUS_FINAL_LF",
+  "canonicalPaIdChecksum": "ab4fed275010a340bddb80057e80205bf8fdb1030744d4f0e86e0b0488507872",
+  "foldHeldRows": [
+    {
+      "foldNumber": 1,
+      "train": 5,
+      "validation": 2
+    },
+    {
+      "foldNumber": 2,
+      "train": 7,
+      "validation": 2
+    },
+    {
+      "foldNumber": 3,
+      "train": 9,
+      "validation": 42
+    },
+    {
+      "foldNumber": 4,
+      "train": 51,
+      "validation": 2
+    },
+    {
+      "foldNumber": 5,
+      "train": 53,
+      "validation": 3
+    }
+  ],
+  "validationHeldRowsAcrossFiveFolds": 51,
+  "codeEvidence": [
+    {
+      "path": "server/sports_current_statcast/stage3_player_prior_authority.py",
+      "symbol": "_rates_and_successes",
+      "line": 1007
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_player_prior_authority.py",
+      "symbol": "transform_prior_feature",
+      "line": 1325
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_player_prior_authority_v2.py",
+      "symbol": "_family_evidence",
+      "line": 1420
+    },
+    {
+      "path": "server/sports_current_statcast/stage3_eda.py",
+      "symbol": "_scan",
+      "line": 1183
+    }
+  ],
+  "method": "Projected registered V1 inputs from Development-filtered Current Gold. Projected V2 sufficient-statistic inputs only from authenticated Development companion paths. Reused existing feature-only state masks; checked exact one-to-one canonical PA identity for 683662 rows. No fitted parameter estimation or transformation was needed.",
+  "targetPayloadValuesRead": 0,
+  "finalOotPayloadRowsRead": 0,
+  "priorFits": 0,
+  "predictiveFits": 0,
+  "sourceRowsDeleted": 0
+}

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$Start
+    [switch]$Start,
+    [switch]$EnvironmentOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -159,6 +160,11 @@ $environment = [ordered]@{
 
 foreach ($entry in $environment.GetEnumerator()) {
     [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, "Process")
+}
+
+if ($EnvironmentOnly) {
+    # Used by scoped local-service refreshes; never print secret values.
+    return
 }
 
 function Assert-PortAvailable([int]$Port) {

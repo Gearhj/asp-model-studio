@@ -1,0 +1,3 @@
+# Preserve content-addressed evidence bytes across Windows checkouts.
+docs/corrected-treatment-diagnostics/sha256/*.json -text
+outputs/mlb-corrected-treatment/*.json -text

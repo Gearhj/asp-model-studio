@@ -1416,6 +1416,69 @@ def _normalize_transformations(
     }
 
 
+def _corrected_registration_contract(
+    database: Database,
+    authority: eda._Authority,
+    payload: Any,
+    ordered_features: Sequence[str],
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Authorize expanded outputs only from the exact adopted successor.
+
+    The legacy catalog remains the immutable physical source inventory.
+    Virtual prior outputs enter a corrected set only through this complete,
+    content-addressed model schema; arbitrary extra columns are never allowed.
+    """
+    if not isinstance(payload, Mapping) or not payload.get("semanticTreatmentVersion"):
+        return None
+    from . import stage3_corrected_treatment_spec as corrected
+
+    if payload.get("semanticTreatmentVersion") != corrected.SEMANTIC_TREATMENT_VERSION:
+        raise Stage3FeatureEngineeringError("SEMANTIC_TREATMENT_VERSION_UNSUPPORTED", "Unknown corrected treatment marker.")
+    adopted = Stage3TreatmentRepository(database).combined_spec_state(
+        authority.project_id, authority.review_digest
+    ).get("adopted")
+    manifest = (adopted or {}).get("manifest") or {}
+    if (
+        manifest.get("semanticTreatmentVersion") != corrected.SEMANTIC_TREATMENT_VERSION
+        or corrected.content_sha(manifest) != (adopted or {}).get("manifestChecksum")
+    ):
+        raise Stage3FeatureEngineeringError(
+            "CORRECTED_TREATMENT_ADOPTION_REQUIRED", "The exact corrected treatment must be adopted before its feature schema is registered.", status_code=409
+        )
+    schema = manifest["modelFeatureSchema"]
+    expected = corrected.corrected_transformation_contracts({
+        **manifest, "manifestChecksum": adopted["manifestChecksum"]
+    })
+    if list(ordered_features) != schema["orderedFeatures"] or dict(payload) != expected:
+        raise Stage3FeatureEngineeringError(
+            "CORRECTED_FEATURE_SCHEMA_MISMATCH", "The corrected set must bind the exact adopted 273-column schema and transformation contract.", status_code=409
+        )
+    for column in schema["columns"]:
+        name = str(column["feature"])
+        if name in catalog:
+            if name not in schema["sourceOrderedFeatures"]:
+                raise Stage3FeatureEngineeringError("CORRECTED_SOURCE_PREFIX_INVALID", "A corrected source column is not authorized.")
+            continue
+        parent = catalog.get(str(column["sourceFeature"]))
+        if parent is None or column["sourceFeature"] not in schema["wave1SourceFeatures"]:
+            raise Stage3FeatureEngineeringError("CORRECTED_DERIVED_PARENT_INVALID", "A derived output lacks its exact eligible Wave 1 parent.")
+        catalog[name] = {
+            **parent,
+            "name": name,
+            "label": name,
+            "dataType": column["dataType"],
+            "binary": bool(column["binary"]),
+            "eligible": True,
+            "governanceStatus": "ELIGIBLE_ADOPTED_CORRECTED_OUTPUT",
+            "featureState": "ACTIVE",
+            "derivedFromFeature": column["sourceFeature"],
+            "derivedRole": column["role"],
+            "requiresGovernedPriorTransformation": False,
+        }
+    return expected
+
+
 def _validate_draft(
     authority: eda._Authority,
     database: Database,
@@ -1440,6 +1503,9 @@ def _validate_draft(
         raise Stage3FeatureEngineeringError(
             "FEATURE_SET_ORDER_INVALID", "orderedFeatures must be nonempty and contain no duplicates."
         )
+    corrected_contract = _corrected_registration_contract(
+        database, authority, payload.get("transformationContracts"), ordered_features, catalog
+    )
     unknown = [name for name in ordered_features if name not in catalog]
     if unknown:
         raise Stage3FeatureEngineeringError(
@@ -1463,7 +1529,7 @@ def _validate_draft(
         raise Stage3FeatureEngineeringError(
             "FEATURE_SET_NAME_INVALID", "Feature-set name must contain 1 through 200 characters."
         )
-    transformations = _normalize_transformations(
+    transformations = corrected_contract or _normalize_transformations(
         payload.get("transformationContracts"), ordered_features, catalog
     )
     steps_by_feature = {
@@ -1476,7 +1542,7 @@ def _validate_draft(
         if catalog[name].get("requiresGovernedPriorTransformation") is True
         and steps_by_feature.get(name) != ("GOVERNED_PRIOR_POSTERIOR_MEAN",)
     )
-    if missing_governed_transform:
+    if missing_governed_transform and corrected_contract is None:
         raise Stage3FeatureEngineeringError(
             "GOVERNED_PRIOR_TRANSFORMATION_REQUIRED",
             "Wave 2 raw statistics are nonselectable; their registered posterior-mean transformation is required for: "
@@ -1620,6 +1686,9 @@ def register_feature_set(
             exc.code, str(exc), status_code=exc.status_code
         ) from exc
     stored_features = [str(name) for name in draft.get("orderedFeatures") or []]
+    corrected_contract = _corrected_registration_contract(
+        database, authority, draft.get("transformationContracts"), stored_features, catalog
+    )
     unknown = [name for name in stored_features if name not in catalog]
     if unknown:
         raise Stage3FeatureEngineeringError(
@@ -1648,7 +1717,7 @@ def register_feature_set(
         if catalog[name].get("requiresGovernedPriorTransformation") is True
         and stored_steps.get(name) != ("GOVERNED_PRIOR_POSTERIOR_MEAN",)
     )
-    if invalid_wave2:
+    if invalid_wave2 and corrected_contract is None:
         raise Stage3FeatureEngineeringError(
             "GOVERNED_PRIOR_TRANSFORMATION_REQUIRED",
             "The immutable draft does not bind the required Wave 2 posterior-mean transformation for: "
