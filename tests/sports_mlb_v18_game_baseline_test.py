@@ -14,7 +14,7 @@ from server.sports_current_statcast.mlb_v18_game_baseline import (
 
 
 REPORT = Path("outputs/mlb-corrected-treatment/corrected-hgb-recovery-1-comparison-12bfbc8c4a17a7ef45ec102ef3cb7ca8a9e03b395d0941eed51c98ec3bdf699d.json")
-BASELINE_ROOT = Path("outputs/mlb-v18-pa-game-baseline/sha256/9ed04b20fb03b5399e77f7cd311db9d6aba50709fc8d368522e3b19f46de6504")
+BASELINE_ROOT = Path("outputs/mlb-v18-pa-game-baseline/sha256/5d0525475d26c63b275f2534badf668173b2a149c885327ad1dbcc4a6c5533ee")
 
 
 def _comparison():
@@ -63,3 +63,6 @@ def test_published_transition_foundation_separates_fit_and_evaluation_coverage()
     assert [row["foldNumber"] for row in evidence["folds"] if row["evaluationCompleted"]] == [1, 2, 3]
     assert evidence["folds"][3]["status"].startswith("FIT_COMPLETE_EVALUATION_BLOCKED")
     assert evidence["folds"][4]["transitionEstimatorFitStarted"] is False
+    for fold in evidence["folds"][:3]:
+        assert fold["evaluation"]["model"]["topTransitionExpectedCalibrationError"] >= 0.0
+        assert sum(row["observations"] for row in fold["evaluation"]["model"]["topTransitionReliabilityBands"]) == fold["reconstructedEligibleValidationTransitions"]

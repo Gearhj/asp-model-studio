@@ -13,7 +13,7 @@ templates are absent.  The module never opens Final OOT and never fits a PA esti
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -643,12 +643,17 @@ class _Metric:
     inning_end: int = 0
     run_abs: float = 0.0
     entropy: float = 0.0
+    calibration_rows: Counter[int] = field(default_factory=Counter)
+    calibration_confidence: defaultdict[int, float] = field(default_factory=lambda: defaultdict(float))
+    calibration_correct: Counter[int] = field(default_factory=Counter)
 
     def add(self, dist: Mapping[str, Any], actual: tuple[int, int, int]) -> float:
         probabilities = _distribution_map(dist)
         probability = max(probabilities.get(actual, 0.0), 1e-15)
         ordered = sorted(probabilities, key=lambda key: (-probabilities[key], key))
         best = ordered[0]
+        confidence = float(probabilities[best])
+        calibration_bin = min(9, int(confidence * 10.0))
         run_probability = max(sum(p for key, p in probabilities.items() if key[2] == actual[2]), 1e-15)
         expected_runs = sum(key[2] * p for key, p in probabilities.items())
         self.rows += 1
@@ -662,12 +667,32 @@ class _Metric:
         self.inning_end += int((best[0] == 3) == (actual[0] == 3))
         self.run_abs += abs(expected_runs - actual[2])
         self.entropy += -sum(p * math.log(p) for p in probabilities.values() if p > 0)
+        self.calibration_rows[calibration_bin] += 1
+        self.calibration_confidence[calibration_bin] += confidence
+        self.calibration_correct[calibration_bin] += int(best == actual)
         return -math.log(probability)
 
     def record(self) -> dict[str, Any]:
         n = self.rows
         if not n:
             return {"rows": 0}
+        bands = []
+        ece = 0.0
+        for index in range(10):
+            rows = int(self.calibration_rows[index])
+            mean_confidence = self.calibration_confidence[index] / rows if rows else None
+            observed_accuracy = self.calibration_correct[index] / rows if rows else None
+            gap = abs(mean_confidence - observed_accuracy) if rows else None
+            if gap is not None:
+                ece += rows / n * gap
+            bands.append({
+                "lowerBound": index / 10.0,
+                "upperBound": (index + 1) / 10.0,
+                "observations": rows,
+                "meanTopTransitionProbability": mean_confidence,
+                "observedTopTransitionAccuracy": observed_accuracy,
+                "absoluteCalibrationGap": gap,
+            })
         return {
             "rows": n,
             "nextTransitionLogLoss": self.log_loss / n,
@@ -680,6 +705,8 @@ class _Metric:
             "inningEndingAccuracy": self.inning_end / n,
             "expectedRunsMae": self.run_abs / n,
             "meanPredictiveEntropy": self.entropy / n,
+            "topTransitionExpectedCalibrationError": ece,
+            "topTransitionReliabilityBands": bands,
         }
 
 
@@ -1276,16 +1303,16 @@ def render_report(
         lines.append(f"| {row['capability']} | `{row['classification']}` | {row['implication']} |")
     lines += ["", "## Fold-local transition evidence", "",
         f"The registered FD1 authority supplied {reconstruction['terminalPaTransitionRows']:,} explicit terminal-PA transitions from {reconstruction['rawPlayTransitionRows']:,} play-transition rows across {reconstruction['games']:,} games, covering {reconstruction['minimumDate']} through {reconstruction['maximumDate']}. It is retrospective target evidence used only inside its corresponding training/evaluation windows. The opaque Current Gold 2025-2026 PA keys were not sorted or inferred.", "",
-        "| Fold | Status | Train transitions | Validation transitions | Model log loss | Null log loss | Difference | Base accuracy | Outs accuracy |", "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+        "| Fold | Status | Train transitions | Validation transitions | Model log loss | Null log loss | Difference | Transition ECE | Base accuracy | Outs accuracy |", "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for fold in folds:
         if not fold["evaluationCompleted"]:
             lines.append(
-                f"| {fold['foldNumber']} | `{fold['status']}` | {fold.get('reconstructedEligibleTrainingTransitions', fold.get('availableTrainingTransitions', 0)):,} | {fold.get('availableValidationTransitions', 0):,} (partial/not scored) | — | — | — | — | — |"
+                f"| {fold['foldNumber']} | `{fold['status']}` | {fold.get('reconstructedEligibleTrainingTransitions', fold.get('availableTrainingTransitions', 0)):,} | {fold.get('availableValidationTransitions', 0):,} (partial/not scored) | — | — | — | — | — | — |"
             )
             continue
         metric = fold["evaluation"]
         lines.append(
-            f"| {fold['foldNumber']} | `{fold['status']}` | {fold['reconstructedEligibleTrainingTransitions']:,} | {fold['reconstructedEligibleValidationTransitions']:,} | {metric['model']['nextTransitionLogLoss']:.6f} | {metric['leagueAverageStateNull']['nextTransitionLogLoss']:.6f} | {metric['modelMinusNullLogLoss']:+.6f} | {metric['model']['baseMaskAfterAccuracy']:.4f} | {metric['model']['outsAddedAccuracy']:.4f} |"
+            f"| {fold['foldNumber']} | `{fold['status']}` | {fold['reconstructedEligibleTrainingTransitions']:,} | {fold['reconstructedEligibleValidationTransitions']:,} | {metric['model']['nextTransitionLogLoss']:.6f} | {metric['leagueAverageStateNull']['nextTransitionLogLoss']:.6f} | {metric['modelMinusNullLogLoss']:+.6f} | {metric['model']['topTransitionExpectedCalibrationError']:.6f} | {metric['model']['baseMaskAfterAccuracy']:.4f} | {metric['model']['outsAddedAccuracy']:.4f} |"
         )
     lines += ["", f"Four transition estimators were fitted: folds 1-4 had complete training authority. Only folds 1-3 had complete validation authority and were evaluated. Fold 4 validation extends into 2026 and fold 5 training/validation require 2026, while registered FD1 ends on 2025-09-28. Partial fold-4 rows were not scored as complete-fold evidence. Each fitted JSON artifact contains exact counts and probabilities for outcome × outs × base, outcome × outs, and outcome backoffs, plus a uniform legal prior. Home runs use the deterministic conservation rule. Every artifact was reloaded and all 192 distributions were legality/sum checked.", "",
         "## Inning/game evaluation and comparisons", "",
