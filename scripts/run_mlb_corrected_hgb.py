@@ -60,7 +60,7 @@ def _append_exact(path: Path, payload: dict[str, Any]) -> None:
             raise RuntimeError(f"Concurrent study object conflicts: {path}")
 
 
-def validated_study(database: Database, eligibility_receipt: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+def validated_study(database: Database, eligibility_receipt: Path, *, batch_name: str = BATCH_NAME) -> tuple[dict[str, Any], dict[str, Any]]:
     baseline_run, baseline, seed = baseline_authority()
     resolved = resolve_model_lab_authority(database, PROJECT_ID)
     selected = [row for row in resolved.feature_sets if row.get("featureSetKey") == FEATURE_SET_KEY]
@@ -90,7 +90,7 @@ def validated_study(database: Database, eligibility_receipt: Path) -> tuple[dict
     eligibility_reference = {"path": str(eligibility_receipt.resolve()), "fileSha256": hashlib.sha256(evidence_raw).hexdigest(), "eligibilityChecksum": row_eligibility["eligibilityChecksum"]}
     payload = {
         "projectId": PROJECT_ID, "authorityKey": resolved.authority_key,
-        "splitContractId": split["contractId"], "seed": seed, "batchName": BATCH_NAME,
+        "splitContractId": split["contractId"], "seed": seed, "batchName": batch_name,
         "parallelWorkers": 1,
         "experiments": [exact_experiment(str(feature_set["featureSetId"]), baseline, seed)],
     }

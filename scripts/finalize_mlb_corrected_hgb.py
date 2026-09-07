@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import base64
+import argparse
 import hashlib
 import json
 import os
 import sys
 from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,16 @@ from server.sports_current_statcast.stage3_model_jobs import list_model_developm
 
 DATABASE_PATH = RUNTIME_ROOT / "persistence" / "asp_model_studio.db"
 OUTPUT_ROOT = REPOSITORY_ROOT / "outputs" / "mlb-corrected-treatment"
+ORIGINAL_STUDY_DIRECTORY = "corrected-hgb-study"
+RECOVERY_STUDY_DIRECTORY = "corrected-hgb-recovery-1"
+ORIGINAL_FAILED_STUDY_CHECKSUM = "94ce59613407da613b40c1fb7357e148b1053fc064977eeec6efb32acea7e4d0"
+PROVISIONAL_PREFLIGHT_RECEIPTS = (
+    "e4c4872d2438439ee6b4c8c7d730dd13b9eb7bc8c64b8aa2e54bc2449ec82e84",
+    "19836b2464b48a1941af8f58061592d4693f39e8bf2f2643304d27083f9e4dc6",
+    "e5bc9efadb8d39337b8a1cea0fa3200bda666d5c2e7662baba42012e56676548",
+    "cdf6cda911e1a71323b3b783ac8cc0c1fd7de4b16e131d7dfee03a8ff08c280a",
+    "8594d892090ae030ecf8e7ddebcd00e1d27c54d5f9fe430a91e67313b396ed07",
+)
 
 
 def _append(path: Path, raw: bytes) -> None:
@@ -46,6 +58,251 @@ def _append(path: Path, raw: bytes) -> None:
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def _study_path(directory_name: str) -> Path:
+    if directory_name not in {ORIGINAL_STUDY_DIRECTORY, RECOVERY_STUDY_DIRECTORY}:
+        raise ValueError("Finalization accepts only the original bounded study or its explicit recovery-1 directory.")
+    return lab._runtime_root() / directory_name / "study.json"
+
+
+def _matching_frozen_job(jobs: list[dict[str, Any]], study: dict[str, Any]) -> dict[str, Any] | None:
+    batch_name = str(study.get("plan", {}).get("batchName") or "")
+    if not batch_name:
+        raise RuntimeError("The frozen study has no batch identity.")
+    matches = [job for job in jobs if (job.get("plan") or {}).get("batchName") == batch_name]
+    if len(matches) > 1:
+        raise RuntimeError("Multiple jobs share the frozen study batch identity; finalization is ambiguous.")
+    if not matches:
+        return None
+    if matches[0]["plan"].get("checksum") != study["plan"]["checksum"]:
+        raise RuntimeError("The study batch job differs from its frozen plan checksum.")
+    return matches[0]
+
+
+def _read_recovery_accounting(study: dict[str, Any], *, study_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    from server.sports_current_statcast.mlb_hgb_recovery_telemetry import summarize_events
+
+    recovery = study["recovery"]
+    telemetry = recovery["actualFitTelemetry"]
+    event_path = Path(telemetry["path"]).resolve()
+    expected_event_path = (study_path.parent / "fit-events.jsonl").resolve()
+    if event_path != expected_event_path:
+        raise RuntimeError("Recovery telemetry must belong to this exact recovery study directory.")
+    accounting_path = Path(telemetry["accountingPath"]).resolve()
+    if accounting_path != (study_path.parent / "fit-accounting.json").resolve():
+        raise RuntimeError("Recovery fit accounting must belong to this exact recovery study directory.")
+    raw = accounting_path.read_bytes()
+    accounting = json.loads(raw)
+    if (accounting.get("schemaVersion") != "MLB_HGB_RECOVERY_FIT_ACCOUNTING_V1"
+            or accounting.get("recoveryId") != recovery["recoveryId"]
+            or content_sha({key: value for key, value in accounting.items() if key != "accountingChecksum"}) != accounting.get("accountingChecksum")
+            or accounting != summarize_events(event_path)):
+        raise RuntimeError("Recovery fit accounting does not reconcile with its authenticated append-only event log.")
+    reference = {"accountingPath": str(accounting_path.resolve()), "accountingFileSha256": hashlib.sha256(raw).hexdigest(),
+                 "accountingChecksum": accounting["accountingChecksum"], "eventPath": str(event_path),
+                 "eventsSha256": accounting["eventsSha256"], "lastEventChecksum": accounting["lastEventChecksum"]}
+    return accounting, reference
+
+
+def _recovery_event_timing(accounting: dict[str, Any]) -> dict[str, Any]:
+    """Derive durations only from the already authenticated, unchanged log."""
+    raw = Path(accounting["eventPath"]).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != accounting["eventsSha256"]:
+        raise RuntimeError("Recovery event log changed after accounting authentication.")
+    events = [json.loads(line) for line in raw.splitlines()]
+    previous = None
+    by_fold: dict[int, dict[str, Any]] = {}
+    timestamp_fields = {"FIT_STARTED": "fitStartUtc", "FIT_COMPLETED": "fitCompletedUtc", "FOLD_COMPLETED": "foldCompletedUtc"}
+    for event in events:
+        try:
+            timestamp = datetime.fromisoformat(event["utc"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise RuntimeError("Recovery event timing requires valid authenticated UTC timestamps.") from exc
+        if timestamp.tzinfo is None or timestamp.utcoffset() != timedelta(0) or (previous is not None and timestamp < previous):
+            raise RuntimeError("Recovery event UTC timestamps are not in nondecreasing sequence.")
+        previous = timestamp
+        field = timestamp_fields.get(event["event"])
+        if field:
+            number = event["foldNumber"]
+            row = by_fold.setdefault(number, {"foldNumber": number, "fitStartUtc": None, "fitCompletedUtc": None, "foldCompletedUtc": None})
+            if row[field] is not None:
+                raise RuntimeError("Recovery timing contains a duplicate fold milestone.")
+            row[field] = event["utc"]
+    for row in by_fold.values():
+        def elapsed(start: str, finish: str) -> float | None:
+            if row[finish] is None:
+                return None
+            if row[start] is None:
+                raise RuntimeError("Recovery timing completion lacks its preceding milestone.")
+            seconds = (datetime.fromisoformat(row[finish].replace("Z", "+00:00")) - datetime.fromisoformat(row[start].replace("Z", "+00:00"))).total_seconds()
+            if seconds < 0:
+                raise RuntimeError("Recovery timing cannot contain a negative duration.")
+            return seconds
+        row["estimatorFitSeconds"] = elapsed("fitStartUtc", "fitCompletedUtc")
+        row["postFitToFoldCompletionSeconds"] = elapsed("fitCompletedUtc", "foldCompletedUtc")
+    if (sorted(by_fold) != accounting["startedFoldNumbers"]
+            or [n for n, row in sorted(by_fold.items()) if row["fitCompletedUtc"] is not None] != accounting["fitCompletedFoldNumbers"]
+            or [n for n, row in sorted(by_fold.items()) if row["foldCompletedUtc"] is not None] != accounting["completedFoldNumbers"]):
+        raise RuntimeError("Recovery timing milestones differ from authenticated fit accounting.")
+    return {"basis": "AUTHENTICATED_EVENT_UTC_DIFFERENCES", "eventsSha256": accounting["eventsSha256"],
+            "folds": [by_fold[number] for number in sorted(by_fold)],
+            "caveat": "UTC wall-clock differences, not CPU time. Post-fit-to-fold-completion includes prediction, metrics, artifact persistence/reload, and other fold completion work; it is not pure reload time. Missing milestones remain NULL, not zero."}
+
+
+def _recovery_timing(study: dict[str, Any], job: dict[str, Any], accounting: dict[str, Any], *, study_path: Path) -> dict[str, Any]:
+    timing = _recovery_event_timing(accounting)
+    _, baseline, _ = baseline_authority()
+    timing["originalBaselineFoldRuntimes"] = {"candidateId": BASELINE_CANDIDATE_ID, "candidateReceiptSha256": BASELINE_CANDIDATE_SHA,
+        "scope": "RECORDED_WHOLE_FOLD_RUNTIME_NOT_ESTIMATOR_ONLY", "folds": [{"foldNumber": fold["foldNumber"], "runtimeMs": fold["runtimeMs"]} for fold in baseline["folds"]]}
+    timing["recoveryRuntimeSeconds"] = None
+    timing["recoveryRuntimeStatus"] = "NOT_AVAILABLE_NO_TERMINAL_COORDINATOR_RECEIPT"
+    terminal_path = study_path.parent / "terminal.json"
+    if terminal_path.is_file():
+        raw = terminal_path.read_bytes()
+        terminal = json.loads(raw)
+        seconds = terminal.get("recoveryRuntimeSeconds")
+        if (terminal.get("recoveryId") != study["recovery"]["recoveryId"] or terminal.get("studyChecksum") != study["studyChecksum"]
+                or terminal.get("jobId") != job["jobId"] or terminal.get("status") != job["status"]
+                or terminal.get("actualFitAccounting") != accounting or isinstance(seconds, bool)
+                or not isinstance(seconds, (int, float)) or not np.isfinite(seconds) or seconds < 0):
+            raise RuntimeError("Recovery terminal timing does not reconcile with this terminal job and authenticated accounting.")
+        timing.update(recoveryRuntimeSeconds=seconds, recoveryRuntimeStatus="RECORDED_COORDINATOR_ELAPSED_RUNTIME",
+                      terminalReceipt={"path": str(terminal_path.resolve()), "sha256": hashlib.sha256(raw).hexdigest()})
+    return timing
+
+
+def _compare_provisional_preflight(body: dict[str, Any]) -> dict[str, Any]:
+    folds = (body.get("treatmentExecution") or {}).get("fittedFoldArtifacts") or []
+    if not folds:
+        return {"status": "NOT_AVAILABLE_NO_COMPLETED_V18_FITTED_FOLD_ARTIFACTS", "folds": [], "modelFitsPerformedForComparison": 0}
+    results = []
+    for fold in folds:
+        number = int(fold["foldNumber"])
+        if not 1 <= number <= len(PROVISIONAL_PREFLIGHT_RECEIPTS):
+            raise RuntimeError("Unexpected V18 fold number in provisional preflight comparison.")
+        checksum = PROVISIONAL_PREFLIGHT_RECEIPTS[number - 1]
+        path = lab._runtime_root() / "objects" / "corrected-preprocessing" / "sha256" / (checksum + ".json")
+        provisional = read_immutable_json(path, checksum)
+        actual = _artifact_payload(fold["fittedArtifact"])
+        if (provisional.get("status") != "PASS" or provisional.get("scope") != "PREFLIGHT_PREPROCESSING_ONLY_NOT_A_MODEL_RUN"
+                or provisional.get("predictiveFits") != 0 or provisional.get("finalOotRowsRead") != 0
+                or provisional["fold"]["foldNumber"] != number):
+            raise RuntimeError("The preserved provisional preflight reference does not authenticate its original scope/fold.")
+        transform = fold["localResearchArtifact"]
+        actual_columns = len(actual["transformedFeatureNames"])
+        checks = {"validationMatrixDigestEqual": provisional["validationValuesSha256"] == transform["transformedValidationSha256"],
+                  "transformedColumnCountEqual": provisional["transformedColumns"] == actual_columns,
+                  "eligibleValidationRowCountEqual": provisional["modelValidationRows"] == transform["validationRows"],
+                  "eligibleTrainingRowCountEqual": provisional["modelTrainRows"] == actual["prior"]["modelEligibleTrainRows"],
+                  "trainingSemanticBranchCountsEqual": provisional["trainingBranchCounts"]["features"] == actual["trainingBranchCounts"]["features"],
+                  "validationSemanticBranchCountsEqual": provisional["validationBranchCounts"]["features"] == actual["validationBranchCounts"]["features"]}
+        prior = {}
+        for partition in ("train", "validation"):
+            left = {row["feature"]: row for row in provisional["priorExecution"][partition]["features"]}
+            right = {row["feature"]: row for row in actual["priorExecution"][partition]["features"]}
+            shared_equal = set(left) == set(right)
+            differences = {}
+            instrumentation = {}
+            for feature in sorted(set(left) & set(right)):
+                differing = [key for key in sorted(set(left[feature]) & set(right[feature])) if left[feature][key] != right[feature][key]]
+                if differing:
+                    differences[feature] = differing
+                    shared_equal = False
+                if set(left[feature]) != set(right[feature]):
+                    instrumentation[feature] = {"onlyInProvisional": sorted(set(left[feature]) - set(right[feature])), "onlyInV18": sorted(set(right[feature]) - set(left[feature]))}
+            prior[partition] = {"sharedFeatureCountersEqual": shared_equal, "fullCounterPayloadEquality": left == right,
+                                "differentSharedCounterKeys": differences, "instrumentationFieldDifferences": instrumentation}
+            checks[partition + "PriorSharedCountersEqual"] = shared_equal
+        results.append({"foldNumber": number, "status": "OBSERVED_BEHAVIORAL_COMPATIBILITY" if all(checks.values()) else "OBSERVED_DIFFERENCES_REQUIRE_REVIEW",
+                        "provisionalReceipt": {"sha256": checksum, "path": str(path)}, "provisionalIdentity": {
+                            "featureSetId": (provisional.get("rowEligibility") or {}).get("featureSetId"),
+                            "treatmentManifestChecksum": (provisional.get("rowEligibility") or {}).get("treatmentManifestChecksum")},
+                        "v18FittedArtifact": fold["fittedArtifact"], "checks": checks,
+                        "validationMatrixDigests": {"provisional": provisional["validationValuesSha256"], "v18": transform["transformedValidationSha256"]},
+                        "transformedColumnCounts": {"provisional": provisional["transformedColumns"], "v18": actual_columns}, "priorBranchComparison": prior})
+    return {"status": "ALL_COMPLETED_FOLDS_OBSERVED_COMPATIBLE" if all(row["status"] == "OBSERVED_BEHAVIORAL_COMPATIBILITY" for row in results) else "OBSERVED_DIFFERENCES_REQUIRE_REVIEW",
+            "folds": results, "modelFitsPerformedForComparison": 0, "matrixPayloadsReadForComparison": 0,
+            "scope": "EXACT_STORED_MATRIX_DIGEST_COLUMN_COUNT_AND_BRANCH_COUNTER_COMPARISON",
+            "limitation": "Matching validation matrices and observed counters support behavioral compatibility on these recorded populations, not proof of identical historical source code or all unseen inputs. Original provisional identities are preserved and are not relabeled V18."}
+
+
+def _attach_recovery_evidence(body: dict[str, Any], study: dict[str, Any], job: dict[str, Any], *, study_path: Path) -> dict[str, Any]:
+    recovery = study.get("recovery") or {}
+    predecessor = recovery.get("predecessor") or {}
+    if (recovery.get("recoveryAttemptNumber") != 1
+            or predecessor.get("studyChecksum") != ORIGINAL_FAILED_STUDY_CHECKSUM
+            or study["plan"].get("batchName") != "MLB corrected treatment bounded HGB recovery 1"
+            or int(study["authority"].get("treatmentVersion") or 0) != 18
+            or not recovery.get("authorityVerification") or not recovery.get("workerVerification")):
+        raise RuntimeError("Recovery must link the exact failed study, V18, and frozen compatibility verifications.")
+    verified_predecessor_files = []
+    for reference in predecessor.get("immutableFiles") or []:
+        path = Path(reference["path"]).resolve()
+        if REPOSITORY_ROOT.resolve() not in path.parents or path.suffix.lower() not in {".json", ".md"}:
+            raise RuntimeError("Predecessor preservation verification accepts repository metadata/report files only.")
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != reference["sha256"]:
+            raise RuntimeError("Preserved failed-study evidence changed: " + str(path))
+        verified_predecessor_files.append({"path": str(path), "sha256": actual})
+    if not verified_predecessor_files:
+        raise RuntimeError("Recovery has no frozen predecessor-file preservation evidence.")
+    accounting, reference = _read_recovery_accounting(study, study_path=study_path)
+    starts = accounting["actualFitStarts"]
+    completions = accounting["actualFitCompletions"]
+    folds = accounting["completedFolds"]
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in (starts, completions, folds)) or not 0 <= folds <= completions <= starts <= 5:
+        raise RuntimeError("Recovery actual-fit telemetry violates the bounded five-fit authorization.")
+    if job["status"] == "COMPLETE" and (accounting.get("status") != "COMPLETE" or (starts, completions, folds) != (5, 5, 5)
+            or any(accounting.get(key) != [1, 2, 3, 4, 5] for key in ("startedFoldNumbers", "fitCompletedFoldNumbers", "completedFoldNumbers"))):
+        raise RuntimeError("A complete recovery requires five authenticated actual starts, completions, and complete folds.")
+    transformations = study["plan"]["experiments"][0]["featureSetContract"]["transformationContracts"]
+    manifest = transformations["treatmentManifestChecksum"]
+    if manifest != study["rowEligibility"]["treatmentManifestChecksum"]:
+        raise RuntimeError("Recovery V18 manifest differs between treatment and eligibility authority.")
+    evidence = {"recoveryId": recovery["recoveryId"], "recoveryAttemptNumber": 1,
+                "frozenRecoveryContext": recovery, "failedStudyEvidencePreserved": verified_predecessor_files,
+                "actualFitAccounting": accounting, "actualFitAccountingReference": reference,
+                "timing": _recovery_timing(study, job, accounting, study_path=study_path),
+                "scheduledSlotAccounting": {key: (job.get("progress") or {}).get(key) for key in ("totalFits", "completedFits", "failedFits", "cancelledFits", "completedConfigurations", "failedConfigurations")},
+                "treatmentIdentity": {**study["authority"], "treatmentManifestChecksum": manifest, "modelFeatureSchemaChecksum": transformations["modelFeatureSchemaChecksum"]},
+                "preflightCompatibility": {"authorityVerification": recovery["authorityVerification"], "workerVerification": recovery["workerVerification"],
+                                            "basis": "EXACT_PRE_EXECUTION_FROZEN_REFERENCES_PROVISIONAL_PREFLIGHT_IDENTITIES_NOT_RELABELED"},
+                "observedProvisionalPreflightComparison": _compare_provisional_preflight(body),
+                "finalizerReads": "TERMINAL_HASH_CHAIN_AND_METADATA_ONLY_NO_FIT_OR_EVENT_LOG_REPAIR"}
+    result = {**body, "studyDirectoryName": RECOVERY_STUDY_DIRECTORY, "recoveryExecutionEvidence": evidence}
+    if "executionAccounting" in result:
+        result["executionAccounting"] = {**result["executionAccounting"], "actualEstimatorFitCallsStarted": starts,
+                                        "actualEstimatorFitCallsCompleted": completions, "completedFoldsFromRecoveryTelemetry": folds,
+                                        "actualEstimatorFitCallsStartedStatus": "AUTHENTICATED_APPEND_ONLY_RECOVERY_FIT_TELEMETRY",
+                                        "accountingCaveat": "Actual calls come from the separately authenticated recovery event log; failed scheduled slots remain scheduler bookkeeping, not a count of actual attempts."}
+    return result
+
+
+def _recovery_markdown_lines(result: dict[str, Any]) -> list[str]:
+    evidence = result.get("recoveryExecutionEvidence")
+    if not evidence:
+        return []
+    accounting = evidence["actualFitAccounting"]
+    reference = evidence["actualFitAccountingReference"]
+    predecessor = evidence["frozenRecoveryContext"]["predecessor"]
+    preflight = evidence["observedProvisionalPreflightComparison"]
+    lines = ["", "## Recovery provenance and actual fit telemetry", "",
+            f"Recovery `{evidence['recoveryId']}` is distinct from preserved failed study `{predecessor['studyChecksum']}`. No failed-study artifact was overwritten.",
+            f"V18 manifest: `{evidence['treatmentIdentity']['treatmentManifestChecksum']}`; model-schema checksum: `{evidence['treatmentIdentity']['modelFeatureSchemaChecksum']}`.",
+            f"Authenticated recovery telemetry: {accounting['actualFitStarts']} actual estimator-fit starts; {accounting['actualFitCompletions']} actual fit completions; {accounting['completedFolds']} completed folds. Scheduler slot counters remain separate in JSON.",
+            f"Fit accounting: `{reference['accountingPath']}` (SHA-256 `{reference['accountingFileSha256']}`). Event log: `{reference['eventPath']}` (SHA-256 `{reference['eventsSha256']}`).",
+            "Exact preflight authority/worker compatibility references are preserved in JSON. Provisional preflight identities remain provisional; they are not relabeled as fitted V18 model artifacts.",
+            f"Recorded V18 validation-matrix digest/column-count/branch comparison with the five immutable provisional preflight receipts: `{preflight['status']}`. This compares stored evidence only; no model or transform was fitted or replayed for the comparison."]
+    timing = evidence["timing"]
+    lines.extend(["", "| Recovery fold | Estimator fit seconds | Post-fit to fold completion seconds |", "| --- | ---: | ---: |"])
+    for fold in timing["folds"]:
+        values = ["Not completed" if fold[key] is None else f"{fold[key]:.3f}" for key in ("estimatorFitSeconds", "postFitToFoldCompletionSeconds")]
+        lines.append(f"| {fold['foldNumber']} | " + " | ".join(values) + " |")
+    lines.extend(["", timing["caveat"], "Exact fit-start, fit-completion, and fold-completion UTCs and original V14 whole-fold runtimes are preserved in JSON."])
+    if timing["recoveryRuntimeSeconds"] is not None:
+        lines.append(f"Total recovery coordinator elapsed time: {timing['recoveryRuntimeSeconds']:.3f} seconds, from the separately referenced terminal receipt.")
+    return lines
 
 
 def _artifact_payload(reference: dict[str, Any]) -> dict[str, Any]:
@@ -252,7 +509,7 @@ def _subgroup_results(database: Database, study: dict[str, Any], matched: pd.Dat
     return results
 
 
-def _incomplete_result(study: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+def _incomplete_result(study: dict[str, Any], job: dict[str, Any], *, study_path: Path | None = None) -> dict[str, Any]:
     """Report terminal metadata only; do not read/replay any OOF or model."""
     baseline_run, baseline, seed = baseline_authority()
     artifacts = job.get("artifacts") or {}
@@ -303,7 +560,7 @@ def _incomplete_result(study: dict[str, Any], job: dict[str, Any]) -> dict[str, 
                    "predictiveArtifactReloadVerification": "NOT_EVALUATED_NO_COMPLETED_STUDY_REPLAY",
                    "completedFoldReloadReceipts": sum(bool((fold.get("preprocessing") or {}).get("localResearchArtifact")) for candidate in candidates for fold in candidate.get("folds") or [])}
     return {"schemaVersion": RESULT_SCHEMA, "studyChecksum": study["studyChecksum"], "status": job["status"], "projectId": PROJECT_ID,
-            "authority": study["authority"], "studyArtifactPath": str(lab._runtime_root() / "corrected-hgb-study" / "study.json"),
+            "authority": study["authority"], "studyArtifactPath": str(study_path or _study_path(ORIGINAL_STUDY_DIRECTORY)),
             "executionAccounting": accounting, "runtimeMs": run.get("runtimeMs") if run else None,
             "failure": {"jobId": job["jobId"], "progress": progress, "error": job.get("error") or {}, "artifacts": artifacts,
                         "runStatus": run.get("status") if run else None, "runFailures": run.get("failures") if run else None, "candidates": candidates},
@@ -331,8 +588,10 @@ def _report_markdown(result: dict[str, Any]) -> str:
         accounting = result["executionAccounting"]
         baseline = result["baseline"]["originalPopulationMetrics"]
         reasons = sorted({str(row.get("reason") or row.get("errorReason")) for row in (result["failure"].get("runFailures") or result["failure"].get("candidates") or [])})
+        starts = accounting.get("actualEstimatorFitCallsStarted")
+        start_description = ("Actual fit starts are unknown from the retained terminal evidence." if starts is None else f"The separate recovery event log records {starts} actual fit starts and {accounting.get('actualEstimatorFitCallsCompleted')} actual completions.")
         lines.extend(["The authorized study did not complete. No automatic retry or additional fits were started by the finalizer.", "",
-                      f"{accounting['completedFitMilestones']} completed fit milestones; {accounting['completedFoldReceipts']} completed fold receipts; {accounting['failedConfigurations']} configuration failure(s). The queue's {accounting['scheduledFitSlotsMarkedFailed']} failed fit slots are scheduling/accounting entries—not evidence of that many actual estimator.fit calls. Actual fit starts are unknown from the retained terminal evidence.", "",
+                      f"{accounting['completedFitMilestones']} completed fit milestones; {accounting['completedFoldReceipts']} completed fold receipts; {accounting['failedConfigurations']} configuration failure(s). The queue's {accounting['scheduledFitSlotsMarkedFailed']} failed fit slots are scheduling/accounting entries—not evidence of that many actual estimator.fit calls. {start_description}", "",
                       "Recorded error: " + "; ".join(reasons) + ".", "",
                       f"Runtime: {result['runtimeMs'] / 1000:.3f} seconds." if result["runtimeMs"] is not None else "Runtime unavailable.", "",
                       f"The original V14 benchmark remains on its original {baseline['observations']:,}-PA OOF population. These are unchanged stored metrics; no prediction payload was reread:", "",
@@ -345,7 +604,9 @@ def _report_markdown(result: dict[str, Any]) -> str:
                       f"Study: `{result['studyArtifactPath']}`.", f"Baseline run: `{BASELINE_RUN_SHA}`; candidate: `{BASELINE_CANDIDATE_ID}`."])
         for reference in result["immutableArtifactReferences"]:
             lines.append(f"- {reference['kind']}: `{reference['path']}` (SHA-256 `{reference['sha256']}`).")
-        lines.extend(["", "The adjacent JSON preserves exact failure/candidate/job evidence, baseline per-fold/calibration diagnostics, fit-accounting limitations, and frozen design metadata.", "", f"Recommendation: {result['recommendation']}"])
+        lines.extend(["", "The adjacent JSON preserves exact failure/candidate/job evidence, baseline per-fold/calibration diagnostics, fit-accounting limitations, and frozen design metadata."])
+        lines.extend(_recovery_markdown_lines(result))
+        lines.extend(["", f"Recommendation: {result['recommendation']}"])
         return "\n".join(lines) + "\n"
     authority = result["authority"]
     coverage = result["coverage"]
@@ -393,20 +654,22 @@ def _report_markdown(result: dict[str, Any]) -> str:
     lines.extend(["", "Failure paths with zero observed activations remain tested guards; this report does not claim such failures occurred in Development. The JSON retains all per-feature branch counts and prior history-state counts.", "", f"All {branches['reloadVerifiedFoldCount']} saved transforms/models passed full validation-data/prediction reload without refitting. Runtime: {result['execution']['runtimeMs']/3600000:.3f} hours. Failures: {result['execution']['failedFits']}.", "", "V1 exact parameters are newly fitted successor evidence, not recovered historical V14 parameters. V2 parameters are the existing exact fold authorities. Parent-only ablations remain explicitly deferred; optional V2 outputs were not added. The 22 approved exclusions remain preserved.", "", "Final OOT: 14,067 rows remain sealed; no access, scoring, calibration, or selection. No champion, promotion, production export, or deployment.", "", f"Recommendation: {result['recommendation']}", "", "## Exact artifact references", "", f"Corrected run: `{result['execution']['modelRunReceiptSha256']}`.", f"Baseline run: `{BASELINE_RUN_SHA}`; candidate `{BASELINE_CANDIDATE_ID}`."])
     for fold in branches["fittedFoldArtifacts"]:
         lines.append(f"- Fold {fold['foldNumber']}: preprocessing `{fold['fittedArtifact']['relativePath']}`; model `{fold['localResearchArtifact']['model']['relativePath']}`.")
+    lines.extend(_recovery_markdown_lines(result))
     return "\n".join(lines) + "\n"
 
 
-def main() -> None:
-    study_path = lab._runtime_root() / "corrected-hgb-study" / "study.json"
+def finalize_study(study_directory_name: str = ORIGINAL_STUDY_DIRECTORY) -> dict[str, Any]:
+    study_path = _study_path(study_directory_name)
     study = json.loads(study_path.read_bytes())
     if content_sha({key: value for key, value in study.items() if key != "studyChecksum"}) != study.get("studyChecksum"):
         raise RuntimeError("Frozen study checksum mismatch.")
     database = Database(DATABASE_PATH)
-    job = matching_job(list_model_development_jobs(database, PROJECT_ID)["jobs"], study)
+    jobs = list_model_development_jobs(database, PROJECT_ID)["jobs"]
+    job = matching_job(jobs, study) if study_directory_name == ORIGINAL_STUDY_DIRECTORY else _matching_frozen_job(jobs, study)
     if job is None or job["status"] not in {"COMPLETE", "PARTIAL", "FAILED", "CANCELLED", "CANCELLED_PARTIAL"}:
         raise RuntimeError("The bounded study must have one terminal job before finalization.")
     if job["status"] != "COMPLETE":
-        body = _incomplete_result(study, job)
+        body = _incomplete_result(study, job, study_path=study_path)
     else:
         artifacts = job["artifacts"]
         run_sha = artifacts.get("modelRunReceiptSha256") or artifacts.get("runReceiptSha256")
@@ -466,13 +729,25 @@ def main() -> None:
         subgroups = _subgroup_results(database, study, matched, columns)
         recommendation = ("Retain the V14 model as the research comparison baseline pending assessment of the evidenced loss regression under corrected preprocessing; do not restore the incorrect treatment paths. Bet-readiness remains next after challenger finalization." if interval["confidenceInterval"]["lower"] > 0.0 else "Proceed toward challenger finalization with the corrected preprocessing and this preserved comparison; conduct bet-readiness and qualification analysis next. This is not a promotion or champion declaration.")
         body = {"schemaVersion": RESULT_SCHEMA, "status": "COMPLETE", "studyChecksum": study["studyChecksum"], "projectId": PROJECT_ID, "authority": study["authority"], "studyArtifactPath": str(study_path), "baseline": {"runReceiptSha256": BASELINE_RUN_SHA, "candidateId": BASELINE_CANDIDATE_ID}, "execution": {"jobId": job["jobId"], "modelRunId": run["runId"], "modelRunReceiptSha256": run_sha, "candidateId": candidate["candidateId"], "completedFits": 5, "failedFits": int(job["progress"].get("failedFits") or 0), "runtimeMs": run["runtimeMs"], "hyperparameters": candidate["hyperparameters"], "seed": seed, "foldSeeds": study["foldSeeds"]}, "executionResourceComparison": study["executionResourceComparison"], "sourceFeatureOrderMatchesBaselineExactly": study["sourceFeatureOrderMatchesBaselineExactly"], "coverage": coverage, "coverageLedgerVerification": coverage_ledger, "rowEligibility": study["rowEligibility"], "rowEligibilityReceipt": study["rowEligibilityReceipt"], "originalPopulationMetrics": {"baseline": original_before, "corrected": original_after}, "matchingObservationComparison": comparison, "pairedGameClusteredUncertainty": interval, "perFold": per_fold, "subgroups": subgroups, "treatmentExecution": branches, "finalOot": {"rows": 14067, "locked": True, "accessed": False, "scored": False, "targetsMaterialized": False}, "remainingWork": {"approvedExclusions": 22, "parentOnlyAblations": "DEFERRED_BY_EXPLICIT_USER_DECISION", "optionalWave2Outputs": "NOT_SELECTED_NOT_REQUIRED", "historicalV1Payloads": "NOT_RECOVERED_NEW_SUCCESSOR_FITS_ARE_DISTINCT"}, "recommendation": recommendation, "additionalFitsStartedByFinalizer": 0}
+    if study_directory_name == RECOVERY_STUDY_DIRECTORY:
+        body = _attach_recovery_evidence(body, study, job, study_path=study_path)
     checksum = content_sha(body)
     result = {**body, "resultChecksum": checksum}
-    json_path = OUTPUT_ROOT / f"corrected-hgb-comparison-{checksum}.json"
-    md_path = OUTPUT_ROOT / f"corrected-hgb-comparison-{checksum}.md"
+    report_prefix = "corrected-hgb-comparison" if study_directory_name == ORIGINAL_STUDY_DIRECTORY else "corrected-hgb-recovery-1-comparison"
+    json_path = OUTPUT_ROOT / f"{report_prefix}-{checksum}.json"
+    md_path = OUTPUT_ROOT / f"{report_prefix}-{checksum}.md"
     _append(json_path, canonical_json_bytes(result))
     _append(md_path, _report_markdown(result).encode("utf-8"))
-    print(json.dumps({"status": result["status"], "resultChecksum": checksum, "jsonReport": str(json_path), "markdownReport": str(md_path)}, sort_keys=True), flush=True)
+    output = {"status": result["status"], "resultChecksum": checksum, "jsonReport": str(json_path), "markdownReport": str(md_path)}
+    print(json.dumps(output, sort_keys=True), flush=True)
+    return output
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--study-directory", choices=(ORIGINAL_STUDY_DIRECTORY, RECOVERY_STUDY_DIRECTORY), default=ORIGINAL_STUDY_DIRECTORY)
+    arguments = parser.parse_args()
+    finalize_study(arguments.study_directory)
 
 
 if __name__ == "__main__":
