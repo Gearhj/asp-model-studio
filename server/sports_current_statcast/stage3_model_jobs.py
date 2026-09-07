@@ -1514,6 +1514,7 @@ def _execute_job(
                             frames[feature_key] = _fold_frame(
                                 resolved,
                                 list((feature_set or {}).get("orderedFeatures") or []),
+                                include_oof_identity=True,
                             )
                         frame = frames[feature_key]
                     result = _evaluate_candidate(

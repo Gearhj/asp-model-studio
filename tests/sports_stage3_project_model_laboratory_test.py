@@ -279,6 +279,47 @@ def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database,
         for index, feature_set_id in enumerate(lab.EXPECTED_FEATURE_SET_IDS)
     ]
     split = _split(authority)
+    treatment_manifest = {
+        "treatmentName": "Synthetic Core Challenger",
+        "coreChallengerDecision": {
+            "disposition": "DEFERRED_CONTEXT_AUTHORITY",
+            "deferredFeatures": [],
+            "predecessor": {},
+        },
+        "priorAuthority": {
+            "authorityId": "synthetic-v2-authority",
+            "authorityChecksum": "a" * 64,
+            "wave1AuthorityId": "synthetic-v1-authority",
+            "wave1AuthorityChecksum": "b" * 64,
+            "treatmentSpecificationSource": {
+                "key": "SYNTHETIC",
+                "sourceContentSha256": "c" * 64,
+            },
+            "bindings": [],
+        },
+    }
+    combined_treatment = {
+        "specificationId": "synthetic-core-treatment",
+        "specificationVersion": 9,
+        "status": "ADOPTED",
+        "projectId": PROJECT_ID,
+        "goldManifestSha": authority.gold_manifest_sha,
+        "authorityReviewDigest": authority.review_digest,
+        "manifest": treatment_manifest,
+        "manifestChecksum": lab._sha(treatment_manifest),
+        "checksum": "d" * 64,
+        "finalOot": {"locked": True},
+        "linkedPolicies": {
+            "outlier": {
+                "policyId": outlier["policyId"],
+                "checksum": outlier["checksum"],
+            },
+            "missing": {
+                "policyId": missing["policyId"],
+                "checksum": missing["checksum"],
+            },
+        },
+    }
 
     class Projects:
         def __init__(self, _database: Database) -> None:
@@ -293,6 +334,9 @@ def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database,
 
         def list_versions(self, _project: str, kind: str, _digest: str) -> list[dict[str, object]]:
             return [later_outlier, draft_v3, outlier] if kind == "OUTLIER" else [missing]
+
+        def combined_spec_state(self, _project: str, _digest: str) -> dict[str, object]:
+            return {"latestDraft": None, "adopted": combined_treatment}
 
     class Features:
         def __init__(self, _database: Database) -> None:
@@ -317,6 +361,42 @@ def resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Database,
     monkeypatch.setattr(lab, "Stage3FeatureSetRepository", Features)
     monkeypatch.setattr(lab, "Stage3SplitContractRepository", Splits)
     monkeypatch.setattr(lab, "_runtime_root", lambda: tmp_path / "runs")
+    monkeypatch.setattr(
+        lab.sufficient_stats,
+        "registered_sufficient_statistics_authority",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        lab.player_prior,
+        "project_authority_manifest",
+        lambda *_args, **_kwargs: {
+            "authorityId": "synthetic-v1-authority",
+            "authorityChecksum": "b" * 64,
+            "featureSets": {"executable": []},
+        },
+    )
+    v2_bundle = {
+        "authorityId": "synthetic-v2-authority",
+        "authorityChecksum": "a" * 64,
+        "definition": {"artifactSha256": "e" * 64},
+        "foldAuthorities": [],
+    }
+    monkeypatch.setattr(lab, "runtime_prior_root", lambda: tmp_path / "priors")
+    monkeypatch.setattr(lab, "load_current_bundle", lambda *_args, **_kwargs: v2_bundle)
+    monkeypatch.setattr(lab, "load_artifact", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        lab.player_prior_v2,
+        "_validate_bundle",
+        lambda bundle, **_kwargs: bundle,
+    )
+    monkeypatch.setattr(
+        lab.player_prior_v2,
+        "authenticate_companion",
+        lambda *_args, **_kwargs: {
+            "_developmentPaths": (),
+            "authenticationChecksum": "f" * 64,
+        },
+    )
     database = Database(tmp_path / "unused.db")
     current = lab.resolve_model_lab_authority(database, PROJECT_ID)
     monkeypatch.setattr(lab, "build_model_eligibility", lambda _resolved: _synthetic_eligibility(current))
@@ -445,6 +525,7 @@ def _small_frame_and_split() -> tuple[pd.DataFrame, dict[str, object]]:
                 {
                     "game_date": game_date,
                     "canonicalGameId": f"game-{date_index}",
+                    "canonicalPaId": f"pa-{date_index}-{class_index}",
                     "outcome": outcome,
                     "feature_numeric": float(class_index + date_index),
                     "feature_category": "EVEN" if class_index % 2 == 0 else "ODD",
@@ -475,7 +556,10 @@ def _small_frame_and_split() -> tuple[pd.DataFrame, dict[str, object]]:
 )
 def test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing(
     family: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(lab, "_runtime_root", lambda: tmp_path / "runs")
     frame, split = _small_frame_and_split()
     feature_set = None if family == "class_frequency_null" else {
         "featureSetId": lab.EXPECTED_FEATURE_SET_IDS[0],
@@ -504,7 +588,24 @@ def test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing(
     assert result["foldsCompleted"] == 5
     assert np.isfinite(result["meanOofLogLoss"])
     assert np.isfinite(result["summedBrier"])
+    assert np.isfinite(result["macroOvrRocAuc"])
+    assert len(result["reliabilityBands"]) == 10
     assert len(result["classCalibration"]) == 8
+    evidence = result["evaluationEvidence"]
+    assert evidence["reloadableArtifactStatus"] == "PERSISTED_CONTENT_ADDRESSED_DEVELOPMENT_ONLY"
+    assert len(evidence["reloadableArtifactSha256"]) == 64
+    artifact = tmp_path / "runs" / evidence["reloadableArtifactRelativePath"]
+    assert artifact.is_file()
+    persisted = lab.pq.read_table(artifact)
+    assert persisted.num_rows == 40
+    assert persisted.column_names == [
+        "canonicalPaId",
+        "foldNumber",
+        "observedClassIndex",
+        *[f"probability_{name}" for name in lab.GOLD_CLASS_ORDER],
+    ]
+    contract = persisted.schema.metadata[b"asp_oof_contract"]
+    assert b'"finalOotTargetAccessed":false' in contract
     assert result["rareClassStability"]["totalOofSupport"] == 5
     assert result["modelComplexity"]["parameterCount"] is not None or family == "histogram_gradient_boosting"
     assert len(result["interpretabilityEvidence"]["foldStatuses"]) == 5
@@ -580,7 +681,10 @@ def test_registered_categorical_contract_maps_null_and_fold_unseen_to_unknown() 
     assert transformed[:, categorical_indices].sum(axis=1).tolist() == [1.0, 1.0]
 
 
-def test_reduced_challenger_selects_inside_each_training_fold_without_validation_or_oot() -> None:
+def test_reduced_challenger_selects_inside_each_training_fold_without_validation_or_oot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(lab, "_runtime_root", lambda: tmp_path / "runs")
     frame, split = _small_frame_and_split()
     frame["feature_numeric_two"] = frame["feature_numeric"] * 0.5 + 1.0
     feature_set = {

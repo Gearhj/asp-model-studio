@@ -204,6 +204,25 @@ def test_summary_reconciles_exact_inventory_families_and_interactions(service):
     )
 
 
+def test_unselected_interactions_are_not_transitively_activatable() -> None:
+    contracts = {
+        item["name"]: item
+        for item in feature._interaction_contracts(
+            (
+                "batting_long_travel_x_short_rest",
+                "fielding_long_travel_x_short_rest",
+            )
+        )
+    }
+
+    assert contracts["long_travel_x_short_rest"]["status"] == "MATERIALIZED"
+    assert contracts["long_travel_x_short_rest"]["mayActivate"] is True
+    for name in ("home_x_holiday", "doubleheader_x_short_rest"):
+        assert contracts[name]["status"] == "EXCLUDED_FROM_FEATURE_SET"
+        assert contracts[name]["selectedPhysicalFeatures"] == []
+        assert contracts[name]["mayActivate"] is False
+
+
 def test_inventory_is_paginated_searchable_and_rejects_oot_target_access(service):
     database, authority, _ = service
     response = feature.feature_inventory(

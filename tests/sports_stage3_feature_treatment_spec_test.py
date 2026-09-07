@@ -89,6 +89,76 @@ def _source() -> dict[str, Any]:
     return specification.load_source_specification()
 
 
+def test_core_challenger_decision_defers_exact_context_without_transitive_authority() -> None:
+    authority = SimpleNamespace(
+        project_id="asp-mtlozhdx",
+        source_manifest_sha="03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c",
+        gold_manifest_sha="67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+        contextual_manifest_sha="4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e",
+        review_digest="af3e10a6d62537a57c2513a9ed6e96d44e5c7d5a6fdcf845a9fcb097ed8afe41",
+    )
+    decision = specification._core_challenger_decision(authority)
+    assert decision is not None
+    expected = {
+        "doubleheader_game_number",
+        "holiday_name",
+        *specification.EXPECTED_ADDITIONAL_FEATURES,
+    }
+    assert set(decision["deferredFeatures"]) == expected
+    assert len(decision["deferredFeatures"]) == 16
+    assert set(decision["deferredDerivedBindings"]) == set(
+        specification.EXPECTED_DEFERRED_DERIVED_BINDINGS
+    )
+    assert decision["disposition"] == "DEFERRED_CONTEXT_AUTHORITY"
+    assert decision["rules"] == {
+        "approveSourceAuthority": False,
+        "laterContextualWaveOnly": True,
+        "populateValues": False,
+        "preserveDefinitionsAndAuditEvidence": True,
+        "selectInFeatureSet": False,
+        "transformValues": False,
+        "transitiveReachability": False,
+        "derivedDoubleheaderBindingsReachable": False,
+        "derivedHolidayBindingsReachable": False,
+    }
+    assert decision["finalOotBoundary"]["targetAccessed"] is False
+    assert decision["finalOotBoundary"]["featurePayloadAccessed"] is False
+
+    rows = [
+        {
+            "feature_name": name,
+            "executable_status": "READY",
+            "executable_selectable": True,
+            "preprocessing_executable": True,
+            "execution_contract": {},
+        }
+        for name in (
+            "holiday_name",
+            "doubleheader_game_number",
+            *specification.EXPECTED_DEFERRED_DERIVED_BINDINGS,
+            "holiday_region",
+        )
+    ]
+    specification._apply_core_challenger_deferrals(rows, [], decision)
+    by_name = {row["feature_name"]: row for row in rows}
+    for name in (
+        "holiday_name",
+        "doubleheader_game_number",
+        *specification.EXPECTED_DEFERRED_DERIVED_BINDINGS,
+    ):
+        assert by_name[name]["executable_status"] == "DEFERRED_CONTEXT_AUTHORITY"
+        assert by_name[name]["executable_selectable"] is False
+        assert by_name[name]["preprocessing_executable"] is False
+        assert by_name[name]["core_challenger_transitively_reachable"] is False
+    for name in specification.EXPECTED_DEFERRED_HOLIDAY_DERIVED_BINDINGS:
+        assert by_name[name]["core_challenger_deferred_parent"] == "holiday_name"
+        assert by_name[name]["execution_contract"]["deferredParentFeature"] == "holiday_name"
+    for name in specification.EXPECTED_DEFERRED_DOUBLEHEADER_DERIVED_BINDINGS:
+        assert by_name[name]["core_challenger_deferred_parent"] == "doubleheader_game_number"
+        assert by_name[name]["execution_contract"]["deferredParentFeature"] == "doubleheader_game_number"
+    assert by_name["holiday_region"]["executable_status"] == "READY"
+
+
 def _write_source_workbook(
     path: Path,
     source: dict[str, Any],
@@ -431,7 +501,7 @@ def test_exact_reconciliation_has_no_fuzzy_path_and_holds_all_extras_closed(
         audit["mappingSource"] == "docs/MLB_RIVALRY_MAPPING_PROPOSAL_V1.json"
         and audit["mappingStatus"] == "PROPOSED_NOT_APPROVED"
         and audit["mappingSourceSha256"]
-        == "5bd1ad26acacdc32a1ad9edb377c72559402e161a32278971e3d07748b588d74"
+        == "0e5766427896d104cb7513b11c3ddae9eecaa04b7c4f3f0729b994b07170cc9f"
         and audit["source"]
         == "MLB_TEAM_GAME_CONTEXT_FEATURES_V1_RESEARCH_ONLY_EVIDENCE"
         and audit["formulaEvidenceOnly"] is True
@@ -989,6 +1059,8 @@ def test_combined_draft_is_append_only_idempotent_and_does_not_touch_gold_or_oot
         "gameScoringJobs": 0,
         "historicalArtifactMutations": 0,
         "providerCalls": 0,
+        "deferredFieldsSelected": 0,
+        "deferredFieldsTransitiveReachability": False,
     }
 
     second = _save(governed)["data"]

@@ -70,6 +70,7 @@ _METRIC_KEYS = (
     "meanOofLogLoss",
     "summedBrier",
     "ece",
+    "macroOvrRocAuc",
     "macroF1Diagnostic",
     "accuracyDiagnostic",
     "runtimeMs",
@@ -253,6 +254,7 @@ def _attempt_result_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
                 "ece": _finite(metrics.get("ece")),
                 "accuracy": _finite(metrics.get("accuracy")),
                 "macroF1": _finite(metrics.get("macroF1")),
+                "macroOvrRocAuc": _finite(metrics.get("macroOvrRocAuc")),
             }
         )
     return {
@@ -326,6 +328,7 @@ def _attempt(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, 
         ),
         "summedBrier": _finite(candidate.get("summedBrier")),
         "ece": _finite(candidate.get("ece")),
+        "macroOvrRocAuc": _finite(candidate.get("macroOvrRocAuc")),
         "macroF1": _finite(candidate.get("macroF1Diagnostic", candidate.get("macroF1"))),
         "accuracy": _finite(candidate.get("accuracyDiagnostic")),
         "runtimeMs": _finite(candidate.get("runtimeMs")),
@@ -333,9 +336,11 @@ def _attempt(run: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, 
         "errorReason": candidate.get("errorReason"),
         "folds": candidate.get("folds") or [],
         "classCalibration": candidate.get("classCalibration") or candidate.get("classCalibrationDiagnostics") or [],
+        "reliabilityBands": candidate.get("reliabilityBands") or [],
         "modelComplexity": candidate.get("modelComplexity"),
         "interpretabilityEvidence": candidate.get("interpretabilityEvidence"),
         "evaluationEvidence": candidate.get("evaluationEvidence"),
+        "warnings": candidate.get("warnings") or [],
         "orderedFeatures": list(candidate.get("orderedFeatures") or (experiment.get("featureSetContract") or {}).get("orderedFeatures") or []),
         "refinementEvidence": candidate.get("refinementEvidence"),
         "resultFingerprint": _sha(_attempt_result_payload(candidate)),
@@ -401,6 +406,7 @@ def _group_attempts(runs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "foldStandardDeviation": representative["foldStandardDeviation"],
                 "summedBrier": representative["summedBrier"],
                 "ece": representative["ece"],
+                "macroOvrRocAuc": representative["macroOvrRocAuc"],
                 "macroF1": representative["macroF1"],
                 "accuracy": representative["accuracy"],
                 "runtimeMs": representative["runtimeMs"],
@@ -408,6 +414,7 @@ def _group_attempts(runs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
                 "immutableEvidenceIdentity": representative["runReceiptSha256"],
                 "representativeAttemptId": representative["attemptId"],
                 "attempts": attempts,
+                "warnings": representative.get("warnings") or [],
             }
         )
     return _rank_group_rows(rows)
@@ -596,6 +603,7 @@ def _incremental_candidate_matches_plan(
                             "ece",
                             "accuracy",
                             "macroF1",
+                            "macroOvrRocAuc",
                         )
                     )
                     for fold in raw_folds

@@ -37,6 +37,10 @@ from . import sufficient_stats
 SCHEMA_VERSION = "ASP_MLB_FEATURE_TREATMENT_SPECIFICATION_V1"
 SPECIFICATION_KEY = "MLB_FEATURE_TREATMENT_SPEC_V1"
 SOURCE_PATH = Path(__file__).with_name("mlb_feature_treatment_spec_v1.json")
+CORE_CHALLENGER_DECISION_PATH = Path(__file__).with_name(
+    "mlb_core_challenger_decision_v1.json"
+)
+CORE_CHALLENGER_DEFERRED_STATUS = "DEFERRED_CONTEXT_AUTHORITY"
 
 EXPECTED_DISPOSITION_COUNTS: Mapping[str, int] = {
     "EXCLUDE_UNTIL_SOURCE_REPAIRED": 4,
@@ -73,6 +77,28 @@ EXPECTED_ADDITIONAL_FEATURES = (
     "fielding_weekend_home_rivalry",
     "fielding_home_x_rivalry",
     "fielding_rivalry_mapping_missing",
+)
+
+EXPECTED_DEFERRED_DOUBLEHEADER_DERIVED_BINDINGS = (
+    "is_doubleheader",
+    "batting_doubleheader_today",
+    "fielding_doubleheader_today",
+    "batting_doubleheader_x_short_rest",
+    "fielding_doubleheader_x_short_rest",
+)
+
+EXPECTED_DEFERRED_HOLIDAY_DERIVED_BINDINGS = (
+    "is_holiday",
+    "is_holiday_eve",
+    "batting_home_x_holiday",
+    "fielding_home_x_holiday",
+    "batting_holiday_calendar_missing",
+    "fielding_holiday_calendar_missing",
+)
+
+EXPECTED_DEFERRED_DERIVED_BINDINGS = (
+    *EXPECTED_DEFERRED_DOUBLEHEADER_DERIVED_BINDINGS,
+    *EXPECTED_DEFERRED_HOLIDAY_DERIVED_BINDINGS,
 )
 
 # These are negative, read-only authority findings for the two reviewed
@@ -177,6 +203,140 @@ def _sha256(value: Mapping[str, Any]) -> str:
 
 def _normalized_file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _core_challenger_decision(authority: eda._Authority) -> dict[str, Any] | None:
+    """Resolve the exact, project-bound scientific deferral decision.
+
+    The decision is deliberately a separate content-addressed authority from
+    the reviewed workbook and the already-fitted Wave 2 prior compiler.  It is
+    active only for the exact project/Gold/review lineage named in the file.
+    """
+
+    try:
+        decision = json.loads(CORE_CHALLENGER_DECISION_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Stage3FeatureTreatmentSpecError(
+            "CORE_CHALLENGER_DECISION_UNAVAILABLE",
+            "The Core Challenger scientific decision authority cannot be authenticated.",
+            status_code=503,
+        ) from exc
+    expected_authority = decision.get("projectAuthority") or {}
+    actual_authority = {
+        "projectId": authority.project_id,
+        "sourceManifestSha": authority.source_manifest_sha,
+        "goldManifestSha": authority.gold_manifest_sha,
+        "contextualManifestSha": authority.contextual_manifest_sha,
+        "reviewDigest": authority.review_digest,
+    }
+    if expected_authority != actual_authority:
+        return None
+    deferred = decision.get("deferredFeatures")
+    derived_deferred = decision.get("deferredDerivedBindings")
+    expected_deferred = {
+        *EXPECTED_ADDITIONAL_FEATURES,
+        *_SEMANTIC_AUTHORITY_DECISIONS,
+    }
+    if (
+        decision.get("schemaVersion")
+        != "MLB_CORE_CHALLENGER_SCIENTIFIC_DECISION_V1"
+        or decision.get("disposition") != CORE_CHALLENGER_DEFERRED_STATUS
+        or not isinstance(deferred, list)
+        or len(deferred) != 16
+        or len(set(deferred)) != 16
+        or set(deferred) != expected_deferred
+        or not isinstance(derived_deferred, list)
+        or set(derived_deferred) != set(EXPECTED_DEFERRED_DERIVED_BINDINGS)
+        or len(derived_deferred) != len(EXPECTED_DEFERRED_DERIVED_BINDINGS)
+        or (decision.get("rules") or {}).get("transitiveReachability") is not False
+        or (decision.get("rules") or {}).get("derivedDoubleheaderBindingsReachable") is not False
+        or (decision.get("rules") or {}).get("derivedHolidayBindingsReachable") is not False
+        or (decision.get("rules") or {}).get("selectInFeatureSet") is not False
+        or (decision.get("finalOotBoundary") or {}).get("status")
+        != "LOCKED_UNOPENED"
+    ):
+        raise Stage3FeatureTreatmentSpecError(
+            "CORE_CHALLENGER_DECISION_INVALID",
+            "The Core Challenger decision does not preserve the exact 16-field deferral and sealed-OOT contract.",
+        )
+    return {
+        **decision,
+        "authorityFile": CORE_CHALLENGER_DECISION_PATH.name,
+        "authorityFileSha256": _normalized_file_sha256(
+            CORE_CHALLENGER_DECISION_PATH
+        ),
+    }
+
+
+def _apply_core_challenger_deferrals(
+    features: Sequence[dict[str, Any]],
+    additional: Sequence[dict[str, Any]],
+    decision: Mapping[str, Any] | None,
+) -> None:
+    if not decision:
+        return
+    deferred = set(str(name) for name in decision["deferredFeatures"])
+    derived_deferred = set(
+        str(name) for name in decision.get("deferredDerivedBindings") or []
+    )
+    all_deferred = deferred | derived_deferred
+    for row in features:
+        name = str(row.get("feature_name") or "")
+        if name not in all_deferred:
+            continue
+        parent = (
+            "holiday_name"
+            if name in EXPECTED_DEFERRED_HOLIDAY_DERIVED_BINDINGS
+            else "doubleheader_game_number"
+            if name in EXPECTED_DEFERRED_DOUBLEHEADER_DERIVED_BINDINGS
+            else None
+        )
+        row.update(
+            {
+                "executable_status": CORE_CHALLENGER_DEFERRED_STATUS,
+                "executable_resolution": "DEFER_TO_LATER_CONTEXT_AUTHORITY_WAVE",
+                "executable_selectable": False,
+                "preprocessing_executable": False,
+                "raw_feature_selectable": False,
+                "blocked_reason": None,
+                "core_challenger_disposition": CORE_CHALLENGER_DEFERRED_STATUS,
+                "core_challenger_transitively_reachable": False,
+                "core_challenger_deferred_parent": parent,
+            }
+        )
+        contract = dict(row.get("execution_contract") or {})
+        contract.update(
+            {
+                "executableStatus": CORE_CHALLENGER_DEFERRED_STATUS,
+                "executable": False,
+                "preprocessingExecutable": False,
+                "selectable": False,
+                "rawFeatureSelectable": False,
+                "resolution": "DEFER_TO_LATER_CONTEXT_AUTHORITY_WAVE",
+                "blockedReason": None,
+                "transitivelyReachable": False,
+                "deferredParentFeature": parent,
+            }
+        )
+        row["execution_contract"] = contract
+        row["model_family_resolution"] = {
+            "tree_native_missing": "EXCLUDED_DEFERRED_CONTEXT_AUTHORITY",
+            "dense_matrix": "EXCLUDED_DEFERRED_CONTEXT_AUTHORITY",
+            "fallback_label": None,
+        }
+    for row in additional:
+        if str(row.get("featureName") or "") not in deferred:
+            continue
+        row.update(
+            {
+                "proposedDisposition": CORE_CHALLENGER_DEFERRED_STATUS,
+                "executableStatus": CORE_CHALLENGER_DEFERRED_STATUS,
+                "executableResolution": "DEFER_TO_LATER_CONTEXT_AUTHORITY_WAVE",
+                "executableSelectable": False,
+                "blockedReason": None,
+                "transitivelyReachable": False,
+            }
+        )
 
 
 def _source_without_identity(source: Mapping[str, Any]) -> dict[str, Any]:
@@ -1014,6 +1174,8 @@ def _exception_rows(
                 "disposition": (
                     "EXCLUDED"
                     if disposition in _EXCLUDED_DISPOSITIONS
+                    else "DEFERRED_CONTEXT_AUTHORITY"
+                    if status == CORE_CHALLENGER_DEFERRED_STATUS
                     else "BLOCKING"
                     if status == "BLOCKED"
                     else "BINDING_READY_REQUIRES_WAVE2_ENGINE"
@@ -1031,10 +1193,15 @@ def _exception_rows(
             "sourceSheet": None,
             "sourceRow": None,
             "priority": "BLOCKER",
-            "scientificRecommendation": "NO_WORKBOOK_RECOMMENDATION",
-            "executableStatus": "BLOCKED",
-            "disposition": "BLOCKING",
-            "detail": row["blockedReason"],
+            "scientificRecommendation": row.get("proposedDisposition")
+            or "NO_WORKBOOK_RECOMMENDATION",
+            "executableStatus": row.get("executableStatus") or "BLOCKED",
+            "disposition": (
+                "DEFERRED_CONTEXT_AUTHORITY"
+                if row.get("executableStatus") == CORE_CHALLENGER_DEFERRED_STATUS
+                else "BLOCKING"
+            ),
+            "detail": row.get("blockedReason") or row.get("executableResolution"),
         }
         for row in additional
     )
@@ -1044,6 +1211,7 @@ def _exception_rows(
 def compile_project_specification(database: Database, project_id: str) -> dict[str, Any]:
     authority = eda._resolve_authority(database, project_id)
     source = load_source_specification()
+    core_challenger_decision = _core_challenger_decision(authority)
     sufficient_statistics_authority = (
         sufficient_stats.registered_sufficient_statistics_authority(
             database,
@@ -1071,7 +1239,11 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             treatment_specification_key=SPECIFICATION_KEY,
             treatment_source_sha256=str(source["source_content_sha256"]),
             compiler_version=str(source["compiler_version"]),
-            compiler_sha256=_normalized_file_sha256(Path(__file__)),
+            compiler_sha256=(
+                str((core_challenger_decision.get("predecessor") or {})["compilerSha256"])
+                if core_challenger_decision
+                else _normalized_file_sha256(Path(__file__))
+            ),
         )
         if exact_wave2_source
         else None
@@ -1097,6 +1269,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
     features = reconciliation.pop("features")
     inventory_identity = reconciliation.pop("inventoryIdentity")
     additional = list(reconciliation["additionalBackendFeatures"])
+    _apply_core_challenger_deferrals(
+        features, additional, core_challenger_decision
+    )
+    reconciliation["additionalBackendFeatures"] = additional
+    if core_challenger_decision:
+        reconciliation["status"] = "RECONCILED_WITH_EXPLICIT_CORE_DEFERRALS"
     interaction_manifest = interaction_authority.project_authority_manifest(
         authority,
         treatment_specification_key=SPECIFICATION_KEY,
@@ -1144,7 +1322,8 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
     exceptions = _exception_rows(features, additional)
     disposition_counts = Counter(str(row["recommended_inclusion"]) for row in features)
     status_counts = Counter(str(row["executable_status"]) for row in features)
-    status_counts["BLOCKED"] += len(additional)
+    for row in additional:
+        status_counts[str(row.get("executableStatus") or "BLOCKED")] += 1
     manifest_content = {
         "schemaVersion": SCHEMA_VERSION,
         "specificationKey": SPECIFICATION_KEY,
@@ -1153,6 +1332,12 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         "sourceContentSha256": source["source_content_sha256"],
         "sourceWorkbook": source["source_workbook"],
         "projectAuthority": treatments._authority_payload(authority),
+        "treatmentName": (
+            str(core_challenger_decision["decisionName"])
+            if core_challenger_decision
+            else "MLB Feature Treatment Specification"
+        ),
+        "coreChallengerDecision": core_challenger_decision,
         "priorAuthority": prior_authority,
         "wave2PriorFitBundle": (
             {
@@ -1169,7 +1354,11 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
         ),
         "interactionAuthority": interaction_manifest,
         "semanticAuthorityAudit": {
-            "status": "HELD_CLOSED",
+            "status": (
+                "DEFERRED_CONTEXT_AUTHORITY"
+                if core_challenger_decision
+                else "HELD_CLOSED"
+            ),
             "cleared": 0,
             "remaining": len(_SEMANTIC_AUTHORITY_DECISIONS),
             "decisions": {
@@ -1178,7 +1367,11 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             },
         },
         "rivalryAuthorityAudit": {
-            "status": "READ_ONLY_HELD_CLOSED",
+            "status": (
+                "DEFERRED_CONTEXT_AUTHORITY"
+                if core_challenger_decision
+                else "READ_ONLY_HELD_CLOSED"
+            ),
             "recommendation": "KEEP_HELD_CLOSED",
             "fieldCount": len(rivalry_rows),
             "activeFieldCount": 0,
@@ -1227,6 +1420,9 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "readyWithExplicitFallback": int(status_counts["READY_WITH_EXPLICIT_FALLBACK"]),
             "blocked": int(status_counts["BLOCKED"]),
             "currentTotalBlockers": int(status_counts["BLOCKED"]),
+            "deferredContextAuthority": int(
+                status_counts[CORE_CHALLENGER_DEFERRED_STATUS]
+            ),
             "automaticRetain": int(disposition_counts["NO_MISSING_TREATMENT"]),
             "automaticExclude": int(
                 disposition_counts["EXCLUDE_UNTIL_SOURCE_REPAIRED"]
@@ -1238,7 +1434,15 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             ),
             "semanticFieldsCleared": 0,
             "semanticFieldsRemaining": len(_SEMANTIC_AUTHORITY_DECISIONS),
+            "semanticFieldsDeferred": (
+                len(_SEMANTIC_AUTHORITY_DECISIONS)
+                if core_challenger_decision
+                else 0
+            ),
             "rivalryFieldsHeldClosed": len(rivalry_rows),
+            "rivalryFieldsDeferred": (
+                len(rivalry_rows) if core_challenger_decision else 0
+            ),
             "interactionBlockersBefore": int(
                 disposition_counts["RECOMPUTE_AFTER_PARENT_TREATMENT"]
             ),
@@ -1294,6 +1498,8 @@ def compile_project_specification(database: Database, project_id: str) -> dict[s
             "gameScoringJobs": 0,
             "historicalArtifactMutations": 0,
             "providerCalls": 0,
+            "deferredFieldsSelected": 0,
+            "deferredFieldsTransitiveReachability": False,
         },
     }
     manifest_checksum = _sha256(manifest_content)
@@ -1628,8 +1834,8 @@ def _state_data(
         "history": binding_state.get("history") or [],
         "priorPolicies": prior_policies,
         "persistenceStatus": binding_state.get("persistenceStatus", "READY"),
-        "draftOnly": True,
-        "adoptionPerformed": False,
+        "draftOnly": binding_state.get("adopted") is None,
+        "adoptionPerformed": binding_state.get("adopted") is not None,
     }
 
 
@@ -1791,9 +1997,24 @@ def adopt_treatment_specification(
             "TREATMENT_SPEC_ADOPTION_BLOCKED",
             "The combined specification has unresolved semantic or executable blockers and cannot be adopted.",
         )
-    raise Stage3FeatureTreatmentSpecError(
-        "TREATMENT_SPEC_ADOPTION_NOT_IMPLEMENTED",
-        "Atomic combined adoption remains held closed until all executable blockers are resolved.",
+    try:
+        Stage3TreatmentRepository(database).adopt_combined_specification(
+            project_id=authority.project_id,
+            authority_review_digest=authority.review_digest,
+            draft_specification_id=specification_draft_id,
+            manifest_checksum=expected_manifest_checksum,
+            actor_user_id=actor_user_id,
+        )
+    except Stage3TreatmentPersistenceError as exc:
+        raise Stage3FeatureTreatmentSpecError(
+            "TREATMENT_SPEC_ADOPTION_PERSISTENCE_FAILED", str(exc)
+        ) from exc
+    return treatments._envelope(
+        authority,
+        filters={},
+        rows=eda.DEVELOPMENT_ROWS,
+        aggregation="CANONICAL_FEATURE_TREATMENT_SPECIFICATION_ADOPTION",
+        data=_state_data(database, authority, compiled),
     )
 
 

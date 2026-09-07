@@ -30,7 +30,7 @@ test("Model Laboratory is an explicit multi-model batch builder with bounded con
   includesAll(lab, [
     "Select all resource-safe models", "Clear all", "Select recommended baseline bundle",
     "Select resource-safe family", "Clear family", "Use this feature universe for all selected models",
-    "Full Eligible", "Core Gold 48 benchmark", "Custom Eligible Subset",
+    "Full Eligible", "MLB Core Challenger", "Custom Eligible Subset",
     "FIXED", "GRID", "RANDOM", "Compact Grid", "Full Grid", "Custom Grid",
     "Review exact batch plan", "Save Draft Batch", "Clear draft selections",
     "Cancel unstarted configurations", "Cancellation recorded · active fits draining",
@@ -40,6 +40,7 @@ test("Model Laboratory is an explicit multi-model batch builder with bounded con
     "One active batch per project", "Resource-safe defaults use one fixed configuration per selected algorithm",
     "High-memory candidates run exclusively", "bounded native CPU budget",
     "Batch failed before completion", "job.error?.code", "job.error?.message",
+    "summary.treatment.includedFeatureCount", "11 derived bindings unreachable",
   ], "multi-model controls");
   assert.ok(lab.includes('tuningMode: "FIXED"'), "new drafts must start with fixed configurations");
   assert.ok(lab.includes("item.available && item.automaticBundleEligible"), "automatic bundles must exclude guarded/manual algorithms");
@@ -165,6 +166,10 @@ test("Evaluation compares project-bound development evidence and selects finalis
     "SHAP and sensitivity require a saved finalist receipt", "Save immutable finalist receipt",
     "Not champion", "Not promoted", "Final OOT locked",
   ], "Candidate Evaluation");
+  includesAll(comparison, [
+    '"ROC-AUC": "macroOvrRocAuc"', "Sort by ${heading}",
+    "number(group.macroOvrRocAuc)", "colSpan={19}",
+  ], "sortable candidate comparison");
   assert.doesNotMatch(evaluation, /selectChampion|promoteModel|auto.?promot/i);
 });
 

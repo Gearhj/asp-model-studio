@@ -149,6 +149,7 @@ export type ModelLabCandidateResult = {
   meanOofLogLoss: number | null;
   summedBrier: number | null;
   ece: number | null;
+  macroOvrRocAuc: number | null;
   macroF1: number | null;
   accuracyDiagnostic: number | null;
   rareClassStability: string | number | null;
@@ -216,6 +217,28 @@ export type ProjectModelLabSummary = {
   };
   target: { name: string; orderedClasses: string[] };
   policies: { outlier: ModelLabPolicyAuthority; missing: ModelLabPolicyAuthority };
+  treatment: {
+    name: string;
+    specificationId: string;
+    version: number;
+    checksum: string;
+    manifestChecksum: string;
+    status: string;
+    predecessor: {
+      specificationId?: string;
+      specificationVersion?: number;
+      manifestChecksum?: string;
+      compilerSha256?: string;
+    };
+    decisionId: string;
+    decisionStatus: string;
+    governedPriorFeatureCount: number;
+    deferredContextFeatureCount: number;
+    deferredContextFeatures: string[];
+    retiredFeatureCount: number;
+    includedFeatureCount: number;
+    finalOotLocked: true;
+  };
   split: {
     splitContractId: string;
     version: number;
@@ -466,9 +489,11 @@ export type CandidateAttempt = {
   errorReason?: string | null;
   folds: Array<Record<string, any>>;
   classCalibration: Array<Record<string, any>>;
+  reliabilityBands?: Array<Record<string, any>>;
   modelComplexity?: Record<string, any> | string | null;
   interpretabilityEvidence?: Record<string, any> | null;
   evaluationEvidence?: Record<string, any> | null;
+  warnings?: Array<{ foldNumber?: number; code?: string; message?: string }>;
   orderedFeatures?: string[];
 };
 
@@ -492,6 +517,7 @@ export type CandidateGroup = {
   foldStandardDeviation: number | null;
   summedBrier: number | null;
   ece: number | null;
+  macroOvrRocAuc: number | null;
   macroF1: number | null;
   accuracy: number | null;
   runtimeMs: number | null;
@@ -502,6 +528,7 @@ export type CandidateGroup = {
   rank: number | null;
   developmentLabel: string;
   finalist: boolean;
+  warnings?: Array<{ foldNumber?: number; code?: string; message?: string }>;
 };
 
 export type FinalistCandidateSelection = {
@@ -1816,6 +1843,7 @@ function normalizedCandidate(raw: any): ModelLabCandidateResult {
     meanOofLogLoss: finiteNumber(raw?.meanOofLogLoss),
     summedBrier: finiteNumber(raw?.summedBrier),
     ece: finiteNumber(raw?.ece),
+    macroOvrRocAuc: finiteNumber(raw?.macroOvrRocAuc),
     macroF1: finiteNumber(raw?.macroF1 ?? raw?.macroF1Diagnostic),
     accuracyDiagnostic: finiteNumber(raw?.accuracyDiagnostic),
     rareClassStability: rare == null ? null : typeof rare !== "object" ? String(rare) : `${rare.class ?? "rare class"} · n=${rareSupport == null ? "—" : rareSupport.toLocaleString("en-US")} · Brier ${rareBrier == null ? "—" : rareBrier.toFixed(4)}`,

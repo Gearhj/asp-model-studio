@@ -67,6 +67,7 @@ _SUPPORTED_TRANSFORMATIONS = frozenset(
         "ROBUST_SCALE",
         "QUANTILE_TRANSFORM",
         "BOUNDED_TRANSFORM",
+        "GOVERNED_PRIOR_POSTERIOR_MEAN",
         "CATEGORICAL_UNKNOWN",
         "ONE_HOT",
         "BINARY_PASSTHROUGH",
@@ -85,7 +86,14 @@ _TRANSFORM_ALIASES = {
     "NO_TRANSFORMATION": "NONE",
 }
 _NUMERIC_ONLY = frozenset(
-    {"LOG1P", "STANDARDIZE", "ROBUST_SCALE", "QUANTILE_TRANSFORM", "BOUNDED_TRANSFORM"}
+    {
+        "LOG1P",
+        "STANDARDIZE",
+        "ROBUST_SCALE",
+        "QUANTILE_TRANSFORM",
+        "BOUNDED_TRANSFORM",
+        "GOVERNED_PRIOR_POSTERIOR_MEAN",
+    }
 )
 _CATEGORICAL_ONLY = frozenset({"CATEGORICAL_UNKNOWN", "ONE_HOT"})
 _INVENTORY_SORT_FIELDS = frozenset(
@@ -406,9 +414,11 @@ def _apply_current_prior_authority_gates(
 ) -> None:
     """Apply fail-closed prior status directly from the current compiler.
 
-    Only an exact executable V1/V2 status plus both executable and raw-feature
-    selectable flags may pass this gate.  The gate is deliberately negative-only: it never
-    reactivates a field held closed by another source authority.
+    V1 raw statistics may pass only when the binding remains raw-selectable.
+    Wave 2 raw statistics are never themselves selectable, but their registered
+    posterior-mean output may pass through the explicit
+    GOVERNED_PRIOR_POSTERIOR_MEAN transformation.  The gate is deliberately
+    negative-only for every other authority state.
     """
 
     authority = prior_authority if isinstance(prior_authority, Mapping) else {}
@@ -425,12 +435,18 @@ def _apply_current_prior_authority_gates(
             continue
         status = str(binding.get("status") or "")
         exact_executable = (
-            status
-            in {"READY_GOVERNED_PRIOR_V1", "READY_GOVERNED_PRIOR_V2"}
+            status == "READY_GOVERNED_PRIOR_V1"
             and binding.get("executable") is True
             and binding.get("selectable") is True
+        ) or (
+            status == "READY_GOVERNED_PRIOR_V2"
+            and binding.get("executable") is True
+            and binding.get("selectable") is False
+            and bool((binding.get("derivedOutputs") or {}).get("posteriorMean"))
         )
         if exact_executable:
+            if status == "READY_GOVERNED_PRIOR_V2":
+                row["requiresGovernedPriorTransformation"] = True
             continue
         reason = _prior_gate_reason(binding)
         row["eligible"] = False
@@ -444,7 +460,17 @@ def _interaction_contracts(selected_features: Sequence[str] = ()) -> list[dict[s
     selected = set(selected_features)
     output: list[dict[str, Any]] = []
     for name in INTERACTION_FEATURES:
-        status = "INACTIVE_PENDING_RIVALRY_APPROVAL" if name == "home_x_rivalry" else "MATERIALIZED"
+        selected_physical = [
+            physical
+            for physical in (f"batting_{name}", f"fielding_{name}")
+            if physical in selected
+        ]
+        if name == "home_x_rivalry":
+            status = "INACTIVE_PENDING_RIVALRY_APPROVAL"
+        elif selected_features and not selected_physical:
+            status = "EXCLUDED_FROM_FEATURE_SET"
+        else:
+            status = "MATERIALIZED"
         output.append(
             {
                 "name": name,
@@ -452,13 +478,11 @@ def _interaction_contracts(selected_features: Sequence[str] = ()) -> list[dict[s
                 "reason": (
                     "Explicit approved-source interaction, retained as a future chronological-ablation candidate."
                     if status == "MATERIALIZED"
+                    else "No physical binding is selected in this immutable feature set."
+                    if status == "EXCLUDED_FROM_FEATURE_SET"
                     else "Rivalry-map authority is proposed and not approved."
                 ),
-                "selectedPhysicalFeatures": [
-                    physical
-                    for physical in (f"batting_{name}", f"fielding_{name}")
-                    if physical in selected
-                ],
+                "selectedPhysicalFeatures": selected_physical,
                 "mayActivate": status == "MATERIALIZED",
             }
         )
@@ -1442,6 +1466,23 @@ def _validate_draft(
     transformations = _normalize_transformations(
         payload.get("transformationContracts"), ordered_features, catalog
     )
+    steps_by_feature = {
+        str(item["feature"]): tuple(item.get("steps") or ())
+        for item in transformations["ordered"]
+    }
+    missing_governed_transform = sorted(
+        name
+        for name in ordered_features
+        if catalog[name].get("requiresGovernedPriorTransformation") is True
+        and steps_by_feature.get(name) != ("GOVERNED_PRIOR_POSTERIOR_MEAN",)
+    )
+    if missing_governed_transform:
+        raise Stage3FeatureEngineeringError(
+            "GOVERNED_PRIOR_TRANSFORMATION_REQUIRED",
+            "Wave 2 raw statistics are nonselectable; their registered posterior-mean transformation is required for: "
+            + ", ".join(missing_governed_transform),
+            status_code=409,
+        )
     family_memberships = [
         family_name
         for family_name, family_features in FUTURE_ABLATION_FAMILIES.items()
@@ -1594,6 +1635,24 @@ def register_feature_set(
             "The stored draft contains features that current governed authority "
             "holds nonselectable: "
             + ", ".join(sorted(ineligible)),
+            status_code=409,
+        )
+    stored_steps = {
+        str(item.get("feature") or ""): tuple(item.get("steps") or ())
+        for item in (draft.get("transformationContracts") or {}).get("ordered") or []
+        if isinstance(item, Mapping)
+    }
+    invalid_wave2 = sorted(
+        name
+        for name in stored_features
+        if catalog[name].get("requiresGovernedPriorTransformation") is True
+        and stored_steps.get(name) != ("GOVERNED_PRIOR_POSTERIOR_MEAN",)
+    )
+    if invalid_wave2:
+        raise Stage3FeatureEngineeringError(
+            "GOVERNED_PRIOR_TRANSFORMATION_REQUIRED",
+            "The immutable draft does not bind the required Wave 2 posterior-mean transformation for: "
+            + ", ".join(invalid_wave2),
             status_code=409,
         )
     current_refs = _treatment_policy_refs(database, authority)

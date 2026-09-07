@@ -74,13 +74,19 @@ def _leakage_contract_rejected(value: str) -> bool:
     )
 
 
-def _classification(row: Mapping[str, Any]) -> dict[str, Any]:
+def _classification(
+    row: Mapping[str, Any],
+    *,
+    treatment_disposition: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     name = str(row.get("name") or "")
     role = str(row.get("role") or "")
     governance = str(row.get("governanceStatus") or "")
     availability = str(row.get("availabilityStatus") or "")
     missing = float(row.get("missingPercentDevelopment") or 0.0)
     leakage = str(row.get("leakageRisk") or "")
+    treatment_status = ""
+    governed_prior = False
 
     base = {
         "name": name,
@@ -94,6 +100,48 @@ def _classification(row: Mapping[str, Any]) -> dict[str, Any]:
         "pointInTimeTreatment": row.get("pointInTimeTreatment"),
         "sourceLineage": row.get("sourceLineage"),
     }
+
+    if treatment_disposition is not None:
+        status = str(
+            treatment_disposition.get("executable_status")
+            or treatment_disposition.get("executableStatus")
+            or ""
+        )
+        treatment_status = status
+        governed_prior = (
+            status in {"READY_GOVERNED_PRIOR_V1", "READY_GOVERNED_PRIOR_V2"}
+            and treatment_disposition.get("preprocessing_executable") is True
+            and bool(
+                (
+                    (treatment_disposition.get("execution_contract") or {})
+                    .get("missing", {})
+                    .get("priorAuthority")
+                )
+            )
+        )
+        if status == "DEFERRED_CONTEXT_AUTHORITY":
+            return {
+                **base,
+                "eligible": False,
+                "classification": "OTHER_GOVERNANCE",
+                "status": status,
+                "reason": "The Core Challenger scientific decision defers this field to a later contextual-authority wave.",
+                "overrideAllowed": False,
+                "transitivelyReachable": False,
+            }
+        if treatment_disposition.get("executable_selectable") is False and not governed_prior:
+            return {
+                **base,
+                "eligible": False,
+                "classification": "OTHER_GOVERNANCE",
+                "status": status or "TREATMENT_NONSELECTABLE",
+                "reason": str(
+                    treatment_disposition.get("executable_resolution")
+                    or treatment_disposition.get("executableResolution")
+                    or "The adopted combined treatment authority holds this field nonselectable."
+                ),
+                "overrideAllowed": False,
+            }
 
     # Explicit inactive governance (currently the unapproved rivalry mapping)
     # takes precedence over the coincident 100% physical-null rate.
@@ -152,6 +200,17 @@ def _classification(row: Mapping[str, Any]) -> dict[str, Any]:
             "status": "POINT_IN_TIME_CONTRACT_REJECTED",
             "reason": "The feature's accepted leakage state is incompatible with pregame development.",
             "overrideAllowed": False,
+        }
+
+    if governed_prior:
+        return {
+            **base,
+            "eligible": True,
+            "classification": "ELIGIBLE",
+            "status": f"ELIGIBLE_{treatment_status}_POSTERIOR_MEAN_ONLY",
+            "reason": "The raw statistic is a non-model evidence input; the registered fold-local governed posterior mean is the executable predictor.",
+            "overrideAllowed": False,
+            "requiresGovernedPriorTransformation": True,
         }
 
     if missing >= 100.0:
@@ -240,7 +299,24 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
     """Derive the exact content-addressed Full Eligible authority."""
 
     rows, _ = feature_engineering._catalog(authority.eda_authority)
-    decisions = [_classification(row) for row in rows]
+    combined = getattr(authority, "treatment_specification", None) or {}
+    manifest = combined.get("manifest") or {}
+    treatment_by_name = {
+        str(item.get("feature_name") or item.get("featureName") or ""): item
+        for item in manifest.get("features") or []
+        if isinstance(item, Mapping)
+    }
+    for item in (manifest.get("reconciliation") or {}).get(
+        "additionalBackendFeatures"
+    ) or []:
+        if isinstance(item, Mapping):
+            treatment_by_name[str(item.get("featureName") or "")] = item
+    decisions = [
+        _classification(
+            row, treatment_disposition=treatment_by_name.get(str(row.get("name") or ""))
+        )
+        for row in rows
+    ]
     eligible = [item for item in decisions if item["eligible"]]
     excluded = [item for item in decisions if not item["eligible"]]
     ordered = [str(item["name"]) for item in eligible]
@@ -295,6 +371,12 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
             "missingPolicyId": authority.missing_policy.get("policyId"),
             "missingPolicyVersion": int(authority.missing_policy.get("policyVersion") or 0),
             "missingPolicyChecksum": authority.missing_policy.get("checksum"),
+            "treatmentSpecificationId": combined.get("specificationId"),
+            "treatmentSpecificationVersion": int(
+                combined.get("specificationVersion") or 0
+            ),
+            "treatmentSpecificationChecksum": combined.get("checksum"),
+            "treatmentManifestChecksum": combined.get("manifestChecksum"),
         },
         "population": {
             "scope": "DEVELOPMENT_ONLY",
@@ -320,11 +402,33 @@ def build_model_eligibility(authority: Any) -> dict[str, Any]:
             "underFiftyPercentMissing": "NORMALLY_ELIGIBLE_FOLD_LOCAL_TREATMENT",
             "coldStart": "RETAIN_GOVERNED_PRIORS_AND_INDICATORS",
             "semanticSparse": "REQUIRE_REGISTERED_SEMANTIC_NULL_AUTHORITY",
+            "deferredContextAuthority": "EXCLUDE_NO_TRANSITIVE_REACHABILITY",
             "simulationState": "ALLOW_ONLY_WHEN_SIMULATOR_SUPPLIED_CONTRACT_IS_EXACT",
         },
-        "transformationContracts": feature_engineering._default_transformations(
-            ordered, {str(row["name"]): row for row in rows}
-        ),
+        "transformationContracts": {
+            **feature_engineering._default_transformations(
+                ordered, {str(row["name"]): row for row in rows}
+            ),
+            "ordered": [
+                {
+                    "feature": name,
+                    "steps": (
+                        ["GOVERNED_PRIOR_POSTERIOR_MEAN"]
+                        if next(
+                            item
+                            for item in eligible
+                            if str(item["name"]) == name
+                        ).get("requiresGovernedPriorTransformation")
+                        else feature_engineering._default_steps(
+                            next(
+                                row for row in rows if str(row["name"]) == name
+                            )
+                        )
+                    ),
+                }
+                for name in ordered
+            ],
+        },
     }
     checksum = _sha(payload)
     return {

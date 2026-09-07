@@ -22,6 +22,7 @@ import platform
 import tempfile
 import time
 import uuid
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,8 @@ from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from sklearn import __version__ as sklearn_version
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
@@ -38,9 +41,10 @@ from sklearn.ensemble import (
     HistGradientBoostingClassifier,
     RandomForestClassifier,
 )
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, SGDClassifier
-from sklearn.metrics import f1_score, log_loss
+from sklearn.metrics import f1_score, log_loss, roc_auc_score
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
@@ -64,9 +68,14 @@ from ..persistence.repositories.stage3_treatment_repository import (
 from ..sports_datasets.consumer import canonical_json_bytes
 from ..sports_gold.contracts import GOLD_CLASS_ORDER
 from . import stage3_eda as eda
+from . import stage3_player_prior_authority as player_prior
+from . import stage3_player_prior_authority_v2 as player_prior_v2
+from . import sufficient_stats
 from .gold import CURRENT_GOLD_DATASET_ID
+from .stage3_player_prior_artifact_store_v2 import load_artifact, load_current_bundle
 from .stage3_model_catalog import catalog_public, model_catalog
 from .stage3_model_eligibility import assess_feature_set, build_model_eligibility
+from .stage3_prior_publication_v2 import runtime_prior_root
 
 
 MODEL_LAB_SCHEMA_VERSION = "SPORTS_STAGE3_PROJECT_MODEL_LAB_V1"
@@ -221,6 +230,8 @@ class ModelLabAuthority:
     missing_policy: Mapping[str, Any]
     feature_sets: tuple[Mapping[str, Any], ...]
     split: Mapping[str, Any]
+    treatment_specification: Mapping[str, Any] | None = None
+    governed_prior_runtime: Mapping[str, Any] | None = None
 
     @property
     def project_id(self) -> str:
@@ -397,6 +408,33 @@ def resolve_model_lab_authority(database: Database, project_id: str) -> ModelLab
     project = ProjectRepository(database).get(project_id)
     if not project:
         raise Stage3ModelLaboratoryError("MODEL_LAB_PROJECT_MISSING", "The canonical project record is unavailable.", status_code=404)
+    treatment_state = Stage3TreatmentRepository(database).combined_spec_state(
+        project_id, authority.review_digest
+    )
+    if treatment_state.get("latestDraft"):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_TREATMENT_DRAFT_PENDING",
+            "Adopt or explicitly resolve the current combined treatment specification before model execution.",
+            status_code=409,
+        )
+    combined = treatment_state.get("adopted")
+    manifest = (combined or {}).get("manifest") or {}
+    if (
+        not combined
+        or combined.get("status") != "ADOPTED"
+        or combined.get("projectId") != project_id
+        or combined.get("goldManifestSha") != authority.gold_manifest_sha
+        or combined.get("authorityReviewDigest") != authority.review_digest
+        or _sha(manifest) != combined.get("manifestChecksum")
+        or (combined.get("finalOot") or {}).get("locked") is not True
+        or (manifest.get("coreChallengerDecision") or {}).get("disposition")
+        != "DEFERRED_CONTEXT_AUTHORITY"
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_TREATMENT_AUTHORITY_MISMATCH",
+            "The adopted Core Challenger treatment authority is absent or stale.",
+            status_code=409,
+        )
     split = _split_by_exact_identity(database, authority)
     features = _feature_sets_by_exact_identity(database, authority, split)
     refs = features[0].get("treatmentPolicies") or {}
@@ -407,8 +445,92 @@ def resolve_model_lab_authority(database: Database, project_id: str) -> ModelLab
         raise Stage3ModelLaboratoryError("MODEL_LAB_TREATMENT_MISSING", "Exact adopted treatment policy references are required.", status_code=409)
     outlier = _policy_by_exact_identity(database, authority, kind="OUTLIER", expected=refs["outlier"])
     missing = _policy_by_exact_identity(database, authority, kind="IMPUTATION", expected=refs["missing"])
+    combined_refs = combined.get("linkedPolicies") or {}
+    if any(
+        (combined_refs.get(kind) or {}).get("policyId") != policy.get("policyId")
+        or (combined_refs.get(kind) or {}).get("checksum") != policy.get("checksum")
+        for kind, policy in (("outlier", outlier), ("missing", missing))
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_COMBINED_TREATMENT_BINDING_MISMATCH",
+            "The feature set policies do not match the adopted combined treatment receipt.",
+            status_code=409,
+        )
+    prior_manifest = manifest.get("priorAuthority") or {}
+    treatment_source = prior_manifest.get("treatmentSpecificationSource") or {}
+    registered_statistics = sufficient_stats.registered_sufficient_statistics_authority(
+        database,
+        expected_gold_manifest_sha256=authority.gold_manifest_sha,
+        output_root=eda._gold_root(),
+    )
+    v1_authority = player_prior.project_authority_manifest(
+        authority,
+        treatment_specification_key=str(treatment_source.get("key") or ""),
+        treatment_source_sha256=str(
+            treatment_source.get("sourceContentSha256") or ""
+        ),
+        sufficient_statistics_authority=registered_statistics,
+    )
+    if (
+        v1_authority.get("authorityId") != prior_manifest.get("wave1AuthorityId")
+        or v1_authority.get("authorityChecksum")
+        != prior_manifest.get("wave1AuthorityChecksum")
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_WAVE1_PRIOR_AUTHORITY_MISMATCH",
+            "The adopted treatment no longer authenticates the executable Wave 1 prior engine.",
+            status_code=409,
+        )
+    v2_root = runtime_prior_root()
+    v2_bundle = load_current_bundle(project_id, root=v2_root)
+    if v2_bundle is None:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_WAVE2_PRIOR_BUNDLE_MISSING",
+            "The adopted treatment requires a current content-addressed Wave 2 prior bundle.",
+            status_code=409,
+        )
+    definition_ref = v2_bundle.get("definition") or {}
+    v2_definition = load_artifact(
+        str(definition_ref.get("artifactSha256") or ""), root=v2_root
+    )
+    v2_bundle = player_prior_v2._validate_bundle(
+        v2_bundle, expected_definition=v2_definition, root=v2_root
+    )
+    if (
+        v2_bundle.get("authorityId") != prior_manifest.get("authorityId")
+        or v2_bundle.get("authorityChecksum") != prior_manifest.get("authorityChecksum")
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_WAVE2_PRIOR_AUTHORITY_MISMATCH",
+            "The adopted treatment and the current Wave 2 prior fit bundle differ.",
+            status_code=409,
+        )
+    companion = player_prior_v2.authenticate_companion(database, authority)
+    fitted_v2: dict[int, Mapping[str, Any]] = {}
+    for fold_number, reference in enumerate(v2_bundle.get("foldAuthorities") or [], 1):
+        fitted_v2[fold_number] = load_artifact(
+            str(reference.get("artifactSha256") or ""), root=v2_root
+        )
+    prior_bindings = {
+        str(item.get("feature") or ""): dict(item)
+        for item in prior_manifest.get("bindings") or []
+        if item.get("feature")
+    }
+    prior_runtime = {
+        "v1Authority": v1_authority,
+        "v1Features": tuple(v1_authority.get("featureSets", {}).get("executable") or ()),
+        "v2Features": tuple(player_prior_v2.WAVE2_FEATURES),
+        "v2Bundle": v2_bundle,
+        "v2FittedByFold": fitted_v2,
+        "v2DevelopmentPaths": tuple(
+            str(path) for path in companion.get("_developmentPaths") or ()
+        ),
+        "bindings": prior_bindings,
+        "companionAuthenticationChecksum": companion.get("authenticationChecksum"),
+    }
     return ModelLabAuthority(eda_authority=authority, project_name=str(project.get("project_name") or project_id),
-        outlier_policy=outlier, missing_policy=missing, feature_sets=features, split=split)
+        outlier_policy=outlier, missing_policy=missing, feature_sets=features, split=split,
+        treatment_specification=combined, governed_prior_runtime=prior_runtime)
 
 
 def _model_families() -> list[dict[str, Any]]:
@@ -789,6 +911,11 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
     resolved = resolve_model_lab_authority(database, project_id)
     authority = resolved.eda_authority
     eligibility = build_model_eligibility(resolved)
+    combined_treatment = resolved.treatment_specification or {}
+    treatment_manifest = combined_treatment.get("manifest") or {}
+    core_decision = treatment_manifest.get("coreChallengerDecision") or {}
+    prior_manifest = treatment_manifest.get("priorAuthority") or {}
+    prior_bindings = list(prior_manifest.get("bindings") or [])
     feature_sets = []
     for item in resolved.feature_sets:
         feature_sets.append(
@@ -838,6 +965,33 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
             "missing": _policy_ref(resolved.missing_policy),
             "draftOutlierPoliciesUsed": False,
         },
+        "treatment": {
+            "name": treatment_manifest.get("treatmentName") or "MLB Core Challenger",
+            "specificationId": combined_treatment.get("specificationId"),
+            "version": int(combined_treatment.get("specificationVersion") or 0),
+            "checksum": combined_treatment.get("checksum"),
+            "manifestChecksum": combined_treatment.get("manifestChecksum"),
+            "status": combined_treatment.get("status") or "UNAVAILABLE",
+            "predecessor": core_decision.get("predecessor") or {},
+            "decisionId": core_decision.get("decisionId"),
+            "decisionStatus": core_decision.get("decisionStatus"),
+            "governedPriorFeatureCount": sum(
+                1
+                for item in prior_bindings
+                if item.get("status")
+                in {"READY_GOVERNED_PRIOR_V1", "READY_GOVERNED_PRIOR_V2"}
+            ),
+            "deferredContextFeatureCount": len(core_decision.get("deferredFeatures") or []),
+            "deferredContextFeatures": list(core_decision.get("deferredFeatures") or []),
+            "retiredFeatureCount": sum(
+                1
+                for item in prior_bindings
+                if item.get("status")
+                == "RETIRED_NONSELECTABLE_BY_SCIENTIFIC_DECISION"
+            ),
+            "includedFeatureCount": int(eligibility["featureCount"]),
+            "finalOotLocked": True,
+        },
         "split": _split_ref(resolved.split),
         "featureSets": feature_sets,
         "featureUniverse": eligibility,
@@ -853,10 +1007,12 @@ def model_laboratory_summary(database: Database, project_id: str) -> dict[str, A
             },
             {
                 "id": resolved.feature_sets[0]["featureSetId"],
-                "key": "CORE_GOLD_48",
-                "label": "Core Gold 48",
+                "key": resolved.feature_sets[0].get("featureSetKey")
+                or "MLB_CORE_CHALLENGER_V1",
+                "label": resolved.feature_sets[0].get("name")
+                or "MLB Core Challenger",
                 "featureCount": len(resolved.feature_sets[0].get("orderedFeatures") or []),
-                "status": "BENCHMARK",
+                "status": "REGISTERED_CORE_CHALLENGER",
                 "default": False,
                 "executable": True,
             },
@@ -1065,9 +1221,17 @@ def _fold_frame(
     *,
     include_oof_identity: bool = False,
 ) -> pd.DataFrame:
+    runtime = resolved.governed_prior_runtime or {}
+    selected_v1 = sorted(set(features) & set(runtime.get("v1Features") or ()))
+    selected_v2 = sorted(set(features) & set(runtime.get("v2Features") or ()))
     requested = [*features, "game_date", "outcome", "canonicalGameId"]
+    if selected_v1:
+        requested.extend(player_prior.required_input_columns(selected_v1))
+    if selected_v2:
+        requested.append("canonicalPaId")
     if include_oof_identity:
         requested.append("canonicalPaId")
+    requested = list(dict.fromkeys(requested))
     frame = eda._scan(
         resolved.eda_authority,
         requested,
@@ -1096,6 +1260,65 @@ def _fold_frame(
         )
     frame = frame.copy()
     frame["game_date"] = dates.dt.date.astype(str)
+    if selected_v2:
+        paths = [Path(value) for value in runtime.get("v2DevelopmentPaths") or ()]
+        if not paths:
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_WAVE2_COMPANION_MISSING",
+                "The authenticated Wave 2 Development companion partitions are unavailable.",
+                status_code=409,
+            )
+        required_v2 = list(player_prior_v2.required_input_columns(selected_v2))
+        companion_columns = set(pq.ParquetFile(paths[0]).schema_arrow.names)
+        companion_requested = [
+            name for name in required_v2 if name in companion_columns
+        ]
+        companion = pa.concat_tables(
+            [pq.read_table(path, columns=companion_requested) for path in paths]
+        ).to_pandas(split_blocks=True)
+        if (
+            len(companion) != len(frame)
+            or bool(companion["canonicalPaId"].duplicated().any())
+            or set(companion["canonicalPaId"].astype(str))
+            != set(frame["canonicalPaId"].astype(str))
+        ):
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_WAVE2_COMPANION_ROW_IDENTITY_MISMATCH",
+                "Wave 2 Development sufficient statistics do not match the registered Development population one-to-one.",
+                status_code=409,
+            )
+        overlap = [
+            name
+            for name in companion_requested
+            if name != "canonicalPaId" and name in frame.columns
+        ]
+        by_key = companion.set_index("canonicalPaId", verify_integrity=True)
+        aligned = by_key.reindex(frame["canonicalPaId"])
+        if bool(aligned.index.isna().any()):
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_WAVE2_COMPANION_ALIGNMENT_FAILED",
+                "Wave 2 Development sufficient statistics could not be aligned by canonical PA identity.",
+                status_code=409,
+            )
+        aligned.index = frame.index
+        for name in overlap:
+            left = frame[name].astype("string").fillna("<NULL>")
+            right = aligned[name].astype("string").fillna("<NULL>")
+            if not left.equals(right):
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_WAVE2_SHARED_COLUMN_MISMATCH",
+                    f"Wave 2 companion column {name} differs from Current Gold.",
+                    status_code=409,
+                )
+        additions = [
+            name
+            for name in companion_requested
+            if name != "canonicalPaId" and name not in frame.columns
+        ]
+        frame = pd.concat([frame, aligned[additions]], axis=1)
+    frame.attrs["governedPriorRuntime"] = runtime
+    frame.attrs["selectedV1PriorFeatures"] = selected_v1
+    frame.attrs["selectedV2PriorFeatures"] = selected_v2
     return frame
 
 
@@ -1148,6 +1371,7 @@ def _transformation_groups(
 
     groups: dict[str, list[str]] = {
         "numeric": [],
+        "governed_prior": [],
         "binary": [],
         "binary_mode": [],
         "categorical": [],
@@ -1156,6 +1380,9 @@ def _transformation_groups(
         steps = entries[name]
         if steps == ("RETAIN_RAW",):
             groups["numeric"].append(name)
+        elif steps == ("GOVERNED_PRIOR_POSTERIOR_MEAN",):
+            groups["numeric"].append(name)
+            groups["governed_prior"].append(name)
         elif steps == ("BINARY_PASSTHROUGH",):
             groups["binary"].append(name)
         elif steps == ("BINARY_MODE_IMPUTE",):
@@ -1169,6 +1396,114 @@ def _transformation_groups(
                 status_code=409,
             )
     return {**groups, "ordered": [{"feature": name, "steps": list(entries[name])} for name in ordered_features]}
+
+
+def _apply_fold_local_governed_priors(
+    frame: pd.DataFrame,
+    *,
+    train_mask: np.ndarray,
+    validation_mask: np.ndarray,
+    fold: Mapping[str, Any],
+    feature_set: Mapping[str, Any],
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    """Replace governed raw statistics with authenticated posterior means.
+
+    Wave 1 population parameters are fit from the exact registered training
+    prefix for this fold. Wave 2 consumes the already content-addressed child
+    fitted for that same prefix. Validation values are transformed only after
+    both authorities are frozen; no target is passed to either engine.
+    """
+
+    features = list(feature_set.get("orderedFeatures") or [])
+    groups = _transformation_groups(feature_set, features)
+    governed = list(groups["governed_prior"])
+    train = frame.loc[train_mask].copy()
+    validation = frame.loc[validation_mask].copy()
+    if not governed:
+        return train, validation, {
+            "status": "NOT_REQUIRED",
+            "features": [],
+            "validationRowsUsedForFit": 0,
+            "finalOotRowsRead": 0,
+        }
+    runtime = frame.attrs.get("governedPriorRuntime") or {}
+    bindings = runtime.get("bindings") or {}
+    v1_features = sorted(set(governed) & set(runtime.get("v1Features") or ()))
+    v2_features = sorted(set(governed) & set(runtime.get("v2Features") or ()))
+    unknown = sorted(set(governed) - set(v1_features) - set(v2_features))
+    if unknown:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_GOVERNED_PRIOR_BINDING_MISSING",
+            "No executable prior binding exists for: " + ", ".join(unknown),
+            status_code=409,
+        )
+    evidence: dict[str, Any] = {
+        "status": "APPLIED",
+        "features": governed,
+        "wave1Features": v1_features,
+        "wave2Features": v2_features,
+        "fitRows": int(train_mask.sum()),
+        "validationRowsUsedForFit": 0,
+        "targetColumnsRead": [],
+        "finalOotRowsRead": 0,
+        "companionAuthenticationChecksum": runtime.get(
+            "companionAuthenticationChecksum"
+        ),
+    }
+    if v1_features:
+        fitted_v1 = player_prior.fit_prior_authority(
+            frame,
+            training_end=str(fold["trainEnd"]),
+            authority_manifest=runtime["v1Authority"],
+            fold_id=f"CORE_CHALLENGER_FOLD_{int(fold['foldNumber'])}",
+            features=v1_features,
+        )
+        for target in (train, validation):
+            transformed = player_prior.transform_prior_features(
+                target, fitted_v1, features=v1_features
+            )
+            for feature in v1_features:
+                output = str((bindings[feature].get("derivedOutputs") or {}).get("posteriorMean") or "")
+                if output not in transformed:
+                    raise Stage3ModelLaboratoryError(
+                        "MODEL_LAB_WAVE1_PRIOR_OUTPUT_MISSING",
+                        f"Wave 1 posterior output is missing for {feature}.",
+                        status_code=409,
+                    )
+                target[feature] = transformed[output].to_numpy(dtype=np.float64)
+        evidence["wave1FittedId"] = fitted_v1["fittedId"]
+        evidence["wave1FittedChecksum"] = fitted_v1["fittedChecksum"]
+        evidence["wave1AuthorityId"] = fitted_v1["authorityId"]
+    if v2_features:
+        fitted_v2 = (runtime.get("v2FittedByFold") or {}).get(
+            int(fold["foldNumber"])
+        )
+        if not fitted_v2 or fitted_v2.get("trainingEnd") != fold.get("trainEnd"):
+            raise Stage3ModelLaboratoryError(
+                "MODEL_LAB_WAVE2_FOLD_AUTHORITY_MISMATCH",
+                "The Wave 2 fitted child does not match this registered chronological fold.",
+                status_code=409,
+            )
+        for target in (train, validation):
+            transformed = player_prior_v2.transform_prior_features(
+                target, fitted_v2, features=v2_features
+            )
+            for feature in v2_features:
+                output = str((bindings[feature].get("derivedOutputs") or {}).get("posteriorMean") or "")
+                if output not in transformed:
+                    raise Stage3ModelLaboratoryError(
+                        "MODEL_LAB_WAVE2_PRIOR_OUTPUT_MISSING",
+                        f"Wave 2 posterior output is missing for {feature}.",
+                        status_code=409,
+                    )
+                target[feature] = transformed[output].to_numpy(dtype=np.float64)
+        evidence["wave2FittedId"] = fitted_v2["fittedId"]
+        evidence["wave2FittedChecksum"] = fitted_v2["fittedChecksum"]
+        evidence["wave2AuthorityId"] = (runtime.get("v2Bundle") or {}).get(
+            "authorityId"
+        )
+    evidence["evidenceChecksum"] = _sha(evidence)
+    return train, validation, evidence
 
 
 def _categorical_strings_with_nan(values: Any) -> Any:
@@ -1720,6 +2055,32 @@ def _metrics(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
             }
         )
     predicted_labels = probabilities.argmax(axis=1)
+    confidence = probabilities.max(axis=1)
+    correct = predicted_labels == labels
+    reliability_bands = []
+    for lower in np.linspace(0.0, 1.0, 10, endpoint=False):
+        upper = lower + 0.1
+        selected = (confidence >= lower) & (
+            confidence <= upper if math.isclose(upper, 1.0) else confidence < upper
+        )
+        reliability_bands.append(
+            {
+                "lowerBound": float(lower),
+                "upperBound": float(upper),
+                "observations": int(selected.sum()),
+                "meanConfidence": (
+                    float(confidence[selected].mean()) if selected.any() else None
+                ),
+                "observedAccuracy": (
+                    float(correct[selected].mean()) if selected.any() else None
+                ),
+                "absoluteCalibrationGap": (
+                    float(abs(confidence[selected].mean() - correct[selected].mean()))
+                    if selected.any()
+                    else None
+                ),
+            }
+        )
     return {
         "multiclassLogLoss": float(
             log_loss(labels, probabilities, labels=list(range(len(GOLD_CLASS_ORDER))))
@@ -1736,20 +2097,127 @@ def _metrics(probabilities: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
                 zero_division=0,
             )
         ),
+        "macroOvrRocAuc": float(
+            roc_auc_score(
+                labels,
+                probabilities,
+                labels=list(range(len(GOLD_CLASS_ORDER))),
+                multi_class="ovr",
+                average="macro",
+            )
+        ),
+        "reliabilityBands": reliability_bands,
         "classCalibration": class_calibration,
         "rareClass": min(class_calibration, key=lambda item: item["support"]),
     }
 
 
+def _persist_oof_predictions(
+    *,
+    canonical_pa_ids: Sequence[str],
+    fold_numbers: np.ndarray,
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    model_family: str,
+    feature_set_id: str | None,
+    seed: int,
+) -> dict[str, Any]:
+    """Persist reloadable row-level Development OOF predictions by content hash."""
+
+    row_count = int(labels.size)
+    if (
+        len(canonical_pa_ids) != row_count
+        or int(fold_numbers.size) != row_count
+        or probabilities.shape != (row_count, len(GOLD_CLASS_ORDER))
+    ):
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_OOF_ARTIFACT_SHAPE_MISMATCH",
+            "The row-level OOF evidence is not aligned one-to-one.",
+            status_code=409,
+        )
+    if len(set(canonical_pa_ids)) != row_count:
+        raise Stage3ModelLaboratoryError(
+            "MODEL_LAB_OOF_ARTIFACT_KEY_DUPLICATE",
+            "The row-level OOF evidence contains duplicate canonical plate-appearance keys.",
+            status_code=409,
+        )
+    metadata = {
+        "schemaVersion": "SPORTS_STAGE3_DEVELOPMENT_OOF_PREDICTIONS_V1",
+        "scope": "FIVE_FOLD_OOF_DEVELOPMENT_ONLY",
+        "modelFamily": model_family,
+        "featureSetId": feature_set_id,
+        "seed": int(seed),
+        "orderedClasses": list(GOLD_CLASS_ORDER),
+        "finalOotTargetAccessed": False,
+        "finalOotScored": False,
+    }
+    columns: dict[str, pa.Array] = {
+        "canonicalPaId": pa.array(canonical_pa_ids, type=pa.string()),
+        "foldNumber": pa.array(fold_numbers, type=pa.int8()),
+        "observedClassIndex": pa.array(labels, type=pa.int8()),
+    }
+    for class_index, class_name in enumerate(GOLD_CLASS_ORDER):
+        columns[f"probability_{class_name}"] = pa.array(
+            probabilities[:, class_index], type=pa.float64()
+        )
+    table = pa.table(columns).replace_schema_metadata(
+        {b"asp_oof_contract": canonical_json_bytes(metadata)}
+    )
+    root = _runtime_root()
+    object_dir = root / "objects" / "oof" / "sha256"
+    object_dir.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        prefix="model-lab-oof-", suffix=".parquet.tmp", dir=object_dir
+    )
+    os.close(handle)
+    temporary_path = Path(temporary_name)
+    try:
+        pq.write_table(
+            table,
+            temporary_path,
+            compression="zstd",
+            use_dictionary=["canonicalPaId"],
+            write_statistics=True,
+        )
+        digest = hashlib.sha256()
+        with temporary_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        artifact_sha = digest.hexdigest()
+        artifact_path = object_dir / f"{artifact_sha}.parquet"
+        if artifact_path.exists():
+            if artifact_path.read_bytes() != temporary_path.read_bytes():
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_OOF_OBJECT_COLLISION",
+                    "An OOF content address contains different bytes.",
+                    status_code=409,
+                )
+            temporary_path.unlink()
+        else:
+            os.replace(temporary_path, artifact_path)
+        return {
+            "reloadableArtifactSha256": artifact_sha,
+            "reloadableArtifactRelativePath": str(
+                artifact_path.relative_to(root)
+            ).replace("\\", "/"),
+            "reloadableArtifactBytes": int(artifact_path.stat().st_size),
+            "reloadableArtifactFormat": "PARQUET_ZSTD",
+            "reloadableArtifactSchemaVersion": metadata["schemaVersion"],
+        }
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def _evaluation_evidence(
-    probabilities: np.ndarray, labels: np.ndarray
+    probabilities: np.ndarray,
+    labels: np.ndarray,
+    *,
+    oof_artifact: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Create bounded development-only diagnostics for later Evaluation.
 
-    New V2 receipts retain aggregate confusion and one-vs-rest lift/gains
-    evidence.  Individual OOF rows remain outside the JSON receipt; their exact
-    labels/probabilities are content hashed so a future persisted artifact can
-    be reconciled without pretending old V1 receipts contain row-level data.
+    V2 receipts retain aggregate confusion and one-vs-rest lift/gains evidence
+    plus the content address of the separately persisted row-level artifact.
     """
 
     class_count = len(GOLD_CLASS_ORDER)
@@ -1803,8 +2271,8 @@ def _evaluation_evidence(
         "normalizedConfusionMatrix": normalized.tolist(),
         "oneVsRestLiftByClass": lift_by_class,
         "oofPredictionEvidenceSha256": digest.hexdigest(),
-        "reloadableArtifactSha256": None,
-        "reloadableArtifactStatus": "NOT_PERSISTED_IN_BOUNDED_JSON_RECEIPT",
+        **dict(oof_artifact),
+        "reloadableArtifactStatus": "PERSISTED_CONTENT_ADDRESSED_DEVELOPMENT_ONLY",
         "finalOotTargetAccessed": False,
     }
 
@@ -2213,6 +2681,8 @@ def _evaluate_candidate(
     fold_results: list[dict[str, Any]] = []
     all_probabilities: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
+    all_oof_keys: list[str] = []
+    all_oof_fold_numbers: list[np.ndarray] = []
     fold_selection_evidence: list[dict[str, Any]] = []
     contract_folds = list((split.get("contract") or {}).get("folds") or [])
     for fold in contract_folds:
@@ -2247,6 +2717,8 @@ def _evaluate_candidate(
         train_labels = y[train_mask]
         validation_labels = y[validation_mask]
         fold_started = time.perf_counter()
+        fold_warnings: list[dict[str, str]] = []
+        governed_prior_evidence: dict[str, Any] | None = None
         if model_family == "class_frequency_null":
             counts = np.bincount(train_labels, minlength=len(GOLD_CLASS_ORDER)).astype(float)
             probabilities = np.tile(counts / counts.sum(), (int(validation_mask.sum()), 1))
@@ -2271,10 +2743,26 @@ def _evaluate_candidate(
                 "selectionConstraint": "REFERENCE_MODEL_NOT_A_FEATURE_SELECTION_AUTHORITY",
             }
         else:
+            train_frame, validation_frame, governed_prior_evidence = (
+                _apply_fold_local_governed_priors(
+                    frame,
+                    train_mask=train_mask,
+                    validation_mask=validation_mask,
+                    fold=fold,
+                    feature_set=feature_set or {},
+                )
+            )
             selector = fold_local_selector or (feature_set or {}).get("foldLocalSelector")
+            selection_evidence: dict[str, Any] | None = None
             if selector:
+                if governed_prior_evidence.get("status") == "APPLIED":
+                    raise Stage3ModelLaboratoryError(
+                        "MODEL_LAB_PRIOR_SELECTOR_NOT_AUTHORIZED",
+                        "Fold-local recursive selection over governed prior outputs requires a separately registered refinement authority.",
+                        status_code=409,
+                    )
                 selected_features, preprocessor, estimator, train_values, transformation_groups, selection_evidence = _fold_local_recursive_selection(
-                    frame.loc[train_mask, features],
+                    train_frame[features],
                     train_labels,
                     feature_set=feature_set or {},
                     model_family=model_family,
@@ -2297,7 +2785,7 @@ def _evaluate_candidate(
                         }
                     )
                 validation_values = preprocessor.transform(
-                    frame.loc[validation_mask, selected_features]
+                    validation_frame[selected_features]
                 )
                 with threadpool_limits(limits=runtime_workers):
                     probabilities = _aligned_probabilities(estimator, validation_values)
@@ -2310,12 +2798,12 @@ def _evaluate_candidate(
                     "catboost",
                 }
                 preprocessor, transformation_groups = _preprocessor(
-                    frame.loc[train_mask, features],
+                    train_frame[features],
                     feature_set or {},
                     dense_categoricals=dense,
                 )
-                train_values = preprocessor.fit_transform(frame.loc[train_mask, features])
-                validation_values = preprocessor.transform(frame.loc[validation_mask, features])
+                train_values = preprocessor.fit_transform(train_frame[features])
+                validation_values = preprocessor.transform(validation_frame[features])
                 estimator = _model(
                     model_family,
                     seed + int(fold["foldNumber"]),
@@ -2324,8 +2812,18 @@ def _evaluate_candidate(
                 )
                 # Keep native numerical libraries bounded and reproducible; HGB
                 # otherwise chooses an environment-sized thread pool internally.
-                with threadpool_limits(limits=runtime_workers):
-                    estimator.fit(train_values, train_labels)
+                with warnings.catch_warnings(record=True) as caught_warnings:
+                    warnings.simplefilter("always", ConvergenceWarning)
+                    with threadpool_limits(limits=runtime_workers):
+                        estimator.fit(train_values, train_labels)
+                fold_warnings = [
+                    {
+                        "code": item.category.__name__,
+                        "message": str(item.message),
+                    }
+                    for item in caught_warnings
+                    if issubclass(item.category, ConvergenceWarning)
+                ]
                 if progress_callback is not None:
                     progress_callback(
                         {
@@ -2388,6 +2886,7 @@ def _evaluate_candidate(
                 "binaryFoldModes": binary_modes,
                 "binaryModeImputed": transformation_groups["binary_mode"],
                 "categoricalLevelsIncludingUnknown": categorical_levels,
+                "governedPrior": governed_prior_evidence,
             }
             preprocessing = {
                 "kind": "FOLD_LOCAL_REGISTERED_TRANSFORMATION_CONTRACT",
@@ -2405,6 +2904,7 @@ def _evaluate_candidate(
                 ),
                 "categoricalMissingTreatment": "CONSTANT_UNKNOWN_THEN_ONE_HOT",
                 "registeredOrderedTransformations": transformation_groups["ordered"],
+                "governedPriorTreatment": governed_prior_evidence,
                 "artifactSha256": hashlib.sha256(
                     canonical_json_bytes(preprocessing_artifact)
                 ).hexdigest(),
@@ -2429,16 +2929,29 @@ def _evaluate_candidate(
                 "preprocessing": preprocessing,
                 "modelComplexity": complexity,
                 "interpretabilityEvidence": interpretability,
+                "warnings": fold_warnings,
                 "runtimeMs": int((time.perf_counter() - fold_started) * 1000),
             }
         )
         all_probabilities.append(probabilities)
         all_labels.append(validation_labels)
+        all_oof_keys.extend(
+            frame.loc[validation_mask, "canonicalPaId"].astype(str).tolist()
+        )
+        all_oof_fold_numbers.append(
+            np.full(int(validation_mask.sum()), int(fold["foldNumber"]), dtype=np.int8)
+        )
         if artifact_callback is not None:
             if model_family == "class_frequency_null":
                 raise Stage3ModelLaboratoryError(
                     "MODEL_LAB_REFERENCE_ARTIFACT_UNSUPPORTED",
                     "The class-frequency reference has no executable fitted pipeline.",
+                    status_code=409,
+                )
+            if governed_prior_evidence and governed_prior_evidence.get("status") == "APPLIED":
+                raise Stage3ModelLaboratoryError(
+                    "MODEL_LAB_PRIOR_ARTIFACT_EXPORT_NOT_AUTHORIZED",
+                    "This Development-only competition does not authorize export of a scoring artifact with governed-prior state.",
                     status_code=409,
                 )
             artifact_callback(
@@ -2514,7 +3027,25 @@ def _evaluate_candidate(
         }
     combined_probabilities = np.vstack(all_probabilities)
     combined_labels = np.concatenate(all_labels)
+    combined_fold_numbers = np.concatenate(all_oof_fold_numbers)
     combined = _metrics(combined_probabilities, combined_labels)
+    oof_artifact = _persist_oof_predictions(
+        canonical_pa_ids=all_oof_keys,
+        fold_numbers=combined_fold_numbers,
+        labels=combined_labels,
+        probabilities=combined_probabilities,
+        model_family=model_family,
+        feature_set_id=(feature_set or {}).get("featureSetId"),
+        seed=seed,
+    )
+    candidate_warnings = [
+        {
+            "foldNumber": fold["foldNumber"],
+            **warning,
+        }
+        for fold in fold_results
+        for warning in fold.get("warnings") or []
+    ]
     return {
         "candidateId": "stage3-candidate-" + uuid.uuid4().hex,
         "modelFamily": model_family,
@@ -2534,6 +3065,8 @@ def _evaluate_candidate(
         "ece": combined["ece"],
         "accuracyDiagnostic": combined["accuracy"],
         "macroF1Diagnostic": combined["macroF1"],
+        "macroOvrRocAuc": combined["macroOvrRocAuc"],
+        "reliabilityBands": combined["reliabilityBands"],
         "classCalibration": combined["classCalibration"],
         "rareClassStability": {
             "class": combined["rareClass"]["class"],
@@ -2565,8 +3098,11 @@ def _evaluate_candidate(
         "modelComplexity": fold_results[-1]["modelComplexity"],
         "interpretabilityEvidence": _interpretability_stability(fold_results),
         "evaluationEvidence": _evaluation_evidence(
-            combined_probabilities, combined_labels
+            combined_probabilities,
+            combined_labels,
+            oof_artifact=oof_artifact,
         ),
+        "warnings": candidate_warnings,
         "folds": fold_results,
         "runtimeMs": int((time.perf_counter() - started) * 1000),
         "errorReason": None,
@@ -2758,7 +3294,7 @@ def run_model_laboratory(
             for feature in feature_by_id[candidate["featureSetId"]].get("orderedFeatures") or []
         )
     )
-    frame = _fold_frame(resolved, required_features)
+    frame = _fold_frame(resolved, required_features, include_oof_identity=True)
     candidates: list[dict[str, Any]] = []
     run_started = time.perf_counter()
     for item in requested:

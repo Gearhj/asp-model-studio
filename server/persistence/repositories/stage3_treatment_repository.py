@@ -570,19 +570,30 @@ class Stage3TreatmentRepository(BaseRepository):
             for row in versions
             if row["status"] == "ADOPTED" and row.get("adoptedFromSpecificationId")
         }
+        adopted = next(
+            (row for row in versions if row["status"] == "ADOPTED"), None
+        )
+        latest_draft = next(
+            (
+                row
+                for row in versions
+                if row["status"] == "DRAFT"
+                and row["specificationId"] not in adopted_draft_ids
+            ),
+            None,
+        )
+        # An adopted append-only successor resolves every older unconsumed
+        # draft. Only a draft newer than the current adoption is pending.
+        if (
+            latest_draft is not None
+            and adopted is not None
+            and int(latest_draft["specificationVersion"])
+            <= int(adopted["specificationVersion"])
+        ):
+            latest_draft = None
         return {
-            "latestDraft": next(
-                (
-                    row
-                    for row in versions
-                    if row["status"] == "DRAFT"
-                    and row["specificationId"] not in adopted_draft_ids
-                ),
-                None,
-            ),
-            "adopted": next(
-                (row for row in versions if row["status"] == "ADOPTED"), None
-            ),
+            "latestDraft": latest_draft,
+            "adopted": adopted,
             "history": versions,
         }
 
@@ -836,6 +847,318 @@ class Stage3TreatmentRepository(BaseRepository):
                     "outlierPolicyChecksum": outlier_policy["checksum"],
                     "missingPolicyId": missing_policy["policyId"],
                     "missingPolicyChecksum": missing_policy["checksum"],
+                },
+            )
+            public = self._public_combined_spec_from_row(connection, inserted)
+            connection.commit()
+            return public
+        except BaseException:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _adopt_child_in_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        source: Mapping[str, Any],
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        project_id = str(source["project_id"])
+        policy_kind = str(source["policy_kind"])
+        authority_review_digest = str(source["authority_review_digest"])
+        existing = connection.execute(
+            """
+            SELECT * FROM stage3_treatment_policy_versions
+            WHERE project_id = ? AND policy_kind = ? AND authority_review_digest = ?
+              AND policy_status = 'ADOPTED' AND adopted_from_policy_id = ?
+            """,
+            (
+                project_id,
+                policy_kind,
+                authority_review_digest,
+                source["treatment_policy_id"],
+            ),
+        ).fetchone()
+        if existing is not None:
+            return decode_row(existing) or {}
+        latest = connection.execute(
+            """
+            SELECT * FROM stage3_treatment_policy_versions
+            WHERE project_id = ? AND policy_kind = ? AND authority_review_digest = ?
+            ORDER BY policy_version DESC LIMIT 1
+            """,
+            (project_id, policy_kind, authority_review_digest),
+        ).fetchone()
+        prior_adopted = connection.execute(
+            """
+            SELECT * FROM stage3_treatment_policy_versions
+            WHERE project_id = ? AND policy_kind = ? AND authority_review_digest = ?
+              AND policy_status = 'ADOPTED'
+            ORDER BY policy_version DESC LIMIT 1
+            """,
+            (project_id, policy_kind, authority_review_digest),
+        ).fetchone()
+        version = int(latest["policy_version"] if latest else 0) + 1
+        policy_id = f"stage3-{policy_kind.lower()}-policy-{uuid.uuid4().hex}"
+        connection.execute(
+            """
+            INSERT INTO stage3_treatment_policy_versions (
+              treatment_policy_id, project_id, policy_kind, policy_version,
+              policy_status, prior_policy_id, adopted_from_policy_id,
+              registration_id, dataset_version_id, activation_revision,
+              source_dataset_id, source_manifest_sha, gold_manifest_sha,
+              contextual_manifest_sha, authority_review_digest,
+              development_start_date, development_end_date, development_rows,
+              final_oot_start_date, final_oot_end_date, final_oot_rows,
+              global_method, policy_json, fitting_rule_json, notes,
+              content_sha256, created_by_user_id, created_at
+            ) VALUES (
+              ?, ?, ?, ?, 'ADOPTED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                policy_id,
+                project_id,
+                policy_kind,
+                version,
+                latest["treatment_policy_id"] if latest else None,
+                source["treatment_policy_id"],
+                source["registration_id"],
+                source["dataset_version_id"],
+                int(source["activation_revision"]),
+                source["source_dataset_id"],
+                source["source_manifest_sha"],
+                source["gold_manifest_sha"],
+                source["contextual_manifest_sha"],
+                authority_review_digest,
+                source["development_start_date"],
+                source["development_end_date"],
+                int(source["development_rows"]),
+                source["final_oot_start_date"],
+                source["final_oot_end_date"],
+                int(source["final_oot_rows"]),
+                source["global_method"],
+                source["policy_json"],
+                source["fitting_rule_json"],
+                source["notes"],
+                source["content_sha256"],
+                actor_user_id,
+                now_iso(),
+            ),
+        )
+        inserted = decode_row(
+            connection.execute(
+                "SELECT * FROM stage3_treatment_policy_versions WHERE treatment_policy_id = ?",
+                (policy_id,),
+            ).fetchone()
+        ) or {}
+        if prior_adopted is not None:
+            self._event(
+                connection,
+                inserted,
+                event_type="POLICY_SUPERSEDED",
+                actor_user_id=actor_user_id,
+                prior_policy_id=prior_adopted["treatment_policy_id"],
+                payload={"supersededPolicyId": prior_adopted["treatment_policy_id"]},
+            )
+        self._event(
+            connection,
+            inserted,
+            event_type="POLICY_ADOPTED",
+            actor_user_id=actor_user_id,
+            prior_policy_id=source["treatment_policy_id"],
+            payload={"adoptedFromPolicyId": source["treatment_policy_id"]},
+        )
+        return inserted
+
+    def adopt_combined_specification(
+        self,
+        *,
+        project_id: str,
+        authority_review_digest: str,
+        draft_specification_id: str,
+        manifest_checksum: str,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        """Atomically adopt an exact combined draft and both child policies."""
+
+        connection = self.database.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            source = connection.execute(
+                """
+                SELECT * FROM stage3_feature_treatment_spec_versions
+                WHERE feature_treatment_spec_id = ? AND project_id = ?
+                  AND authority_review_digest = ?
+                """,
+                (draft_specification_id, project_id, authority_review_digest),
+            ).fetchone()
+            if source is None or source["specification_status"] != "DRAFT":
+                raise Stage3TreatmentPersistenceError(
+                    "Only an exact authority-bound DRAFT combined specification may be adopted."
+                )
+            if source["manifest_sha256"] != manifest_checksum:
+                raise Stage3TreatmentPersistenceError(
+                    "The combined specification manifest checksum differs from the adoption request."
+                )
+            existing = connection.execute(
+                """
+                SELECT * FROM stage3_feature_treatment_spec_versions
+                WHERE adopted_from_specification_id = ?
+                  AND specification_status = 'ADOPTED'
+                """,
+                (draft_specification_id,),
+            ).fetchone()
+            if existing is not None:
+                public = self._public_combined_spec_from_row(connection, existing)
+                connection.commit()
+                return public
+            child_rows: dict[str, Mapping[str, Any]] = {}
+            for kind, column in (
+                ("OUTLIER", "outlier_policy_id"),
+                ("IMPUTATION", "missing_policy_id"),
+            ):
+                child = connection.execute(
+                    """
+                    SELECT * FROM stage3_treatment_policy_versions
+                    WHERE treatment_policy_id = ? AND project_id = ?
+                      AND authority_review_digest = ? AND policy_kind = ?
+                      AND policy_status = 'DRAFT'
+                    """,
+                    (source[column], project_id, authority_review_digest, kind),
+                ).fetchone()
+                if child is None:
+                    raise Stage3TreatmentPersistenceError(
+                        f"The combined specification's {kind.lower()} child draft is unavailable."
+                    )
+                child_rows[kind] = child
+            adopted_outlier = self._adopt_child_in_connection(
+                connection, source=child_rows["OUTLIER"], actor_user_id=actor_user_id
+            )
+            adopted_missing = self._adopt_child_in_connection(
+                connection, source=child_rows["IMPUTATION"], actor_user_id=actor_user_id
+            )
+            latest = connection.execute(
+                """
+                SELECT * FROM stage3_feature_treatment_spec_versions
+                WHERE project_id = ? AND authority_review_digest = ?
+                ORDER BY specification_version DESC LIMIT 1
+                """,
+                (project_id, authority_review_digest),
+            ).fetchone()
+            prior_adopted = connection.execute(
+                """
+                SELECT * FROM stage3_feature_treatment_spec_versions
+                WHERE project_id = ? AND authority_review_digest = ?
+                  AND specification_status = 'ADOPTED'
+                ORDER BY specification_version DESC LIMIT 1
+                """,
+                (project_id, authority_review_digest),
+            ).fetchone()
+            version = int(latest["specification_version"] if latest else 0) + 1
+            specification_id = f"stage3-feature-treatment-spec-{uuid.uuid4().hex}"
+            manifest = json.loads(str(source["manifest_json"]))
+            identity = {
+                "projectId": project_id,
+                "authorityReviewDigest": authority_review_digest,
+                "sourceWorkbookFilename": source["source_workbook_filename"],
+                "sourceWorkbookSha256": source["source_workbook_sha256"],
+                "featureInventorySha256": source["feature_inventory_sha256"],
+                "manifestChecksum": source["manifest_sha256"],
+                "manifest": manifest,
+                "linkedPolicies": {
+                    "outlier": {
+                        "policyId": adopted_outlier["treatment_policy_id"],
+                        "checksum": adopted_outlier["content_sha256"],
+                    },
+                    "missing": {
+                        "policyId": adopted_missing["treatment_policy_id"],
+                        "checksum": adopted_missing["content_sha256"],
+                    },
+                },
+                "notes": source["notes"],
+            }
+            content_sha = _sha256(identity)
+            copied_columns = (
+                "registration_id", "dataset_version_id", "activation_revision",
+                "source_dataset_id", "source_manifest_sha", "gold_manifest_sha",
+                "contextual_manifest_sha", "authority_review_digest",
+                "development_start_date",
+                "development_end_date", "development_rows", "final_oot_start_date",
+                "final_oot_end_date", "final_oot_rows", "final_oot_identity_json",
+                "source_workbook_filename", "source_workbook_sha256",
+                "feature_inventory_sha256", "manifest_id", "manifest_name",
+                "compiler_version", "manifest_sha256", "manifest_json", "notes",
+            )
+            connection.execute(
+                """
+                INSERT INTO stage3_feature_treatment_spec_versions (
+                  feature_treatment_spec_id, project_id, specification_version,
+                  specification_status, prior_specification_id,
+                  adopted_from_specification_id, registration_id, dataset_version_id,
+                  activation_revision, source_dataset_id, source_manifest_sha,
+                  gold_manifest_sha, contextual_manifest_sha, authority_review_digest,
+                  development_start_date, development_end_date, development_rows,
+                  final_oot_start_date, final_oot_end_date, final_oot_rows,
+                  final_oot_identity_json, source_workbook_filename,
+                  source_workbook_sha256, feature_inventory_sha256, manifest_id,
+                  manifest_name, compiler_version, manifest_sha256, manifest_json,
+                  outlier_policy_id, outlier_policy_checksum, missing_policy_id,
+                  missing_policy_checksum, notes, content_sha256,
+                  created_by_user_id, created_at
+                ) VALUES (
+                  ?, ?, ?, 'ADOPTED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    specification_id,
+                    project_id,
+                    version,
+                    latest["feature_treatment_spec_id"] if latest else None,
+                    draft_specification_id,
+                    *(source[column] for column in copied_columns[:-1]),
+                    adopted_outlier["treatment_policy_id"],
+                    adopted_outlier["content_sha256"],
+                    adopted_missing["treatment_policy_id"],
+                    adopted_missing["content_sha256"],
+                    source["notes"],
+                    content_sha,
+                    actor_user_id,
+                    now_iso(),
+                ),
+            )
+            inserted = connection.execute(
+                "SELECT * FROM stage3_feature_treatment_spec_versions WHERE feature_treatment_spec_id = ?",
+                (specification_id,),
+            ).fetchone()
+            decoded = decode_row(inserted) or {}
+            if prior_adopted is not None:
+                self._combined_spec_event(
+                    connection,
+                    decoded,
+                    event_type="SPECIFICATION_SUPERSEDED",
+                    actor_user_id=actor_user_id,
+                    prior_specification_id=prior_adopted["feature_treatment_spec_id"],
+                    payload={
+                        "supersededSpecificationId": prior_adopted["feature_treatment_spec_id"]
+                    },
+                )
+            self._combined_spec_event(
+                connection,
+                decoded,
+                event_type="SPECIFICATION_ADOPTED",
+                actor_user_id=actor_user_id,
+                prior_specification_id=draft_specification_id,
+                payload={
+                    "adoptedFromSpecificationId": draft_specification_id,
+                    "manifestChecksum": manifest_checksum,
+                    "outlierPolicyId": adopted_outlier["treatment_policy_id"],
+                    "missingPolicyId": adopted_missing["treatment_policy_id"],
                 },
             )
             public = self._public_combined_spec_from_row(connection, inserted)
