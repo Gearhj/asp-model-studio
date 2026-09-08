@@ -313,24 +313,25 @@ class V18StateProbabilityProvider:
                             state={**initial_state, "context_top_bottom": 0 if is_top else 1},
                         ))
                         template_owners.append((is_top, slot, is_bullpen))
-        raw_templates = pd.concat(template_frames, ignore_index=True)
-        treated_templates = self.pipeline.preprocessor.transform_frame(raw_templates)
-        for owner, (_, row) in zip(template_owners, treated_templates.iterrows(), strict=True):
+        # The accepted pipeline wrapper scores one prospective PA row at a
+        # time.  Preserve those exact floating-point semantics in the cache:
+        # a vectorized Dirichlet composition can differ by a final binary bit,
+        # and an HGB split may legitimately sit between the two values.
+        treated_template_rows = [
+            self.pipeline.preprocessor.transform_frame(frame).iloc[0].copy()
+            for frame in template_frames
+        ]
+        treated_columns = treated_template_rows[0].index
+        for owner, row in zip(template_owners, treated_template_rows, strict=True):
             self._treated_templates.setdefault(owner, []).append(row)
         # The fast path is authorized only when the five game-state fields are direct
         # treated inputs and reproduces the immutable wrapper on a non-default state.
-        if any(name not in treated_templates.columns for name in STATE_FEATURES):
+        if any(name not in treated_columns for name in STATE_FEATURES):
             raise V18WholeGameError("a dynamic game-state field is not directly executable")
-        fixture_raw = compose_raw_template(
-            source_order=self.pipeline.ordered_features,
-            batter_row=self.away_batters[0],
-            pitcher_row=self.home_starter,
-            state={
-                "context_inning": 7, "context_top_bottom": 0,
-                "context_outs_before": 2, "context_base_mask_before": 5,
-                "context_batting_score_diff_before": -3,
-            },
-        )
+        # Validate against the same one-row wrapper semantics used above.
+        fixture_index = template_owners.index((1, 0, 0))
+        fixture_raw = template_frames[fixture_index].copy()
+        fixture_raw.loc[:, list(STATE_FEATURES)] = [[7, 0, 2, 5, -3]]
         fixture_treated = self.pipeline.preprocessor.transform_frame(fixture_raw)
         fixture_baseline = self._treated_templates[(1, 0, 0)][0]
         fast_fixture = fixture_baseline.to_frame().T
@@ -341,7 +342,7 @@ class V18StateProbabilityProvider:
             changed = []
             baseline = fixture_baseline
             candidate = fixture_treated.iloc[0]
-            for name in treated_templates.columns:
+            for name in treated_columns:
                 left, right = baseline[name], candidate[name]
                 equal = (pd.isna(left) and pd.isna(right)) or left == right
                 if not bool(equal):
@@ -349,6 +350,12 @@ class V18StateProbabilityProvider:
             raise V18WholeGameError(
                 "optimized state scoring differs from the saved V18 pipeline; changed treated fields: "
                 + ", ".join(changed)
+                + "; changed values: "
+                + ", ".join(
+                    f"{name}={fixture_baseline[name]!r}->{fixture_treated.iloc[0][name]!r}"
+                    for name in changed
+                )
+                + f"; probability maximum absolute difference={float(np.max(np.abs(actual - expected))):.17g}"
             )
 
     def _score_treated(self, frame: pd.DataFrame) -> np.ndarray:

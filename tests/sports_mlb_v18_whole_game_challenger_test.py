@@ -14,6 +14,8 @@ from server.sports_datasets.consumer import canonical_json_bytes
 from server.sports_modeling.metrics import PA_CLASS_ORDER
 from server.sports_phase5 import base_out_transition as bt
 from server.sports_current_statcast.mlb_v18_whole_game_challenger import (
+    STATE_FEATURES,
+    V18StateProbabilityProvider,
     apply_temperature,
     simulate_prospective_game,
     starter_removal_probability,
@@ -68,6 +70,60 @@ def test_temperature_and_starter_hook_contracts() -> None:
     )
     assert early[0] == 0.0
     assert worsening[0] < worsening[1] < worsening[2]
+
+
+def test_provider_cache_preserves_exact_one_row_wrapper_semantics() -> None:
+    class Encoder:
+        def transform(self, frame):
+            return frame.to_numpy(dtype=float)
+
+    class Estimator:
+        classes_ = np.arange(8)
+
+        def predict_proba(self, values):
+            score = np.asarray(values)[:, 0]
+            result = np.full((len(score), 8), 0.1)
+            result[:, 0] = 0.2 + score * 0.01
+            return result / result.sum(axis=1, keepdims=True)
+
+    class Preprocessor:
+        def __init__(self, order):
+            self.ordered_features = tuple(order)
+            self.encoder = Encoder()
+            self.batch_calls = 0
+
+        def transform_frame(self, frame):
+            result = frame.loc[:, list(self.ordered_features)].astype(float).copy()
+            if len(result) > 1:
+                self.batch_calls += 1
+                result["batter_avg"] = np.nextafter(result["batter_avg"], -np.inf)
+            return result
+
+    class Pipeline:
+        def __init__(self, order):
+            self.ordered_features = tuple(order)
+            self.preprocessor = Preprocessor(order)
+            self.estimator = Estimator()
+
+        def predict_proba(self, frame):
+            treated = self.preprocessor.transform_frame(frame)
+            return self.estimator.predict_proba(self.preprocessor.encoder.transform(treated))
+
+    order = ["batter_avg", *STATE_FEATURES]
+    order.extend(f"batter_feature_{index}" for index in range(246 - len(order)))
+    row = {name: 0.0 for name in order}
+    row["batter_avg"] = 0.24383965130415958
+    pipeline = Pipeline(order)
+    V18StateProbabilityProvider(
+        pipeline=pipeline,
+        away_batters=[row] * 9,
+        home_batters=[row] * 9,
+        away_starter={},
+        home_starter={},
+        away_bullpen=[{}],
+        home_bullpen=[{}],
+    )
+    assert pipeline.preprocessor.batch_calls == 0
 
 
 def test_sequential_paths_are_legal_terminated_and_deterministic() -> None:
