@@ -16,7 +16,7 @@ import subprocess
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
@@ -307,6 +307,24 @@ def _load_targets(runtime: FoundationRuntime, *, as_of: datetime) -> tuple[list[
     return targets, pq.read_table(runtime.objects["fact_nfl_team_game"]["path"]).to_pandas(), names
 
 
+def _select_slate_targets(
+    targets: Sequence[Mapping[str, Any]],
+    *,
+    slate_date: date | None,
+    next_slate_only: bool,
+) -> list[Mapping[str, Any]]:
+    """Select an exact or next slate without changing target ordering."""
+
+    if slate_date is not None and next_slate_only:
+        raise NflProspectiveShadowError("slate_date and next_slate_only are mutually exclusive")
+    if slate_date is not None:
+        return [target for target in targets if str(target["game_date"]) == slate_date.isoformat()]
+    if next_slate_only and targets:
+        next_date = min(str(target["game_date"]) for target in targets)
+        return [target for target in targets if str(target["game_date"]) == next_date]
+    return list(targets)
+
+
 def _persist_feature_vector(root: Path, record: Mapping[str, Any]) -> tuple[str, Path, bool]:
     payload = canonical_json_bytes(record); digest = hashlib.sha256(payload).hexdigest(); final = root / "feature-vectors" / "sha256" / digest
     final.parent.mkdir(parents=True, exist_ok=True); created = False
@@ -538,13 +556,21 @@ def activate_2026_shadow(
     *, publication_root: Path = DEFAULT_PUBLICATION_ROOT, exchange_root: Path = DEFAULT_EXCHANGE_ROOT,
     artifact_root: Path = ARTIFACT_ROOT, foundation_root: Path = DEFAULT_NFL_STAGING_ROOT / "foundation-v1",
     as_of: datetime | None = None, snapshot_types: Sequence[str] = ("EARLY", "CURRENT"), producer_revision: str | None = None,
+    slate_date: date | None = None, next_slate_only: bool = False,
 ) -> dict[str, Any]:
-    """Create all upcoming 2026 vectors, score once, and publish date bundles."""
+    """Create upcoming 2026 vectors, score once, and publish date bundles.
+
+    ``slate_date`` and ``next_slate_only`` provide a bounded operational path.
+    They filter targets before vector construction and scoring, so a current
+    refresh cannot silently rescore the full future schedule.
+    """
 
     forecast_cutoff = (as_of or _now_utc()).astimezone(UTC); publication_root = Path(publication_root).resolve(); exchange_root = Path(exchange_root).resolve(); publication_root.mkdir(parents=True, exist_ok=True); exchange_root.mkdir(parents=True, exist_ok=True)
     requested = tuple(dict.fromkeys(str(item) for item in snapshot_types))
     invalid = set(requested)-{"EARLY","CURRENT","FINAL_PREGAME"}
     if invalid: raise NflProspectiveShadowError(f"snapshot types differ: {sorted(invalid)}")
+    if slate_date is not None and next_slate_only:
+        raise NflProspectiveShadowError("slate_date and next_slate_only are mutually exclusive")
     if "FINAL_PREGAME" in requested and len(requested) != 1:
         raise NflProspectiveShadowError("FINAL_PREGAME must run as a bounded standalone snapshot job")
     frozen = verify_frozen_m1(artifact_root=artifact_root, foundation_root=foundation_root, publication_root=publication_root); runtime = load_foundation_runtime(foundation_root)
@@ -557,10 +583,15 @@ def activate_2026_shadow(
             target for target in targets
             if 900 <= (target["scheduled_start_utc"] - forecast_cutoff).total_seconds() <= 1_800
         ]
+    targets = list(_select_slate_targets(targets, slate_date=slate_date, next_slate_only=next_slate_only))
     if not targets:
         return {
             "status": "NO_ELIGIBLE_UPCOMING_GAMES", "games": 0, "parity": parity,
-            "reason": "NO_DUE_FINAL_PREGAME_GAMES" if requested == ("FINAL_PREGAME",) else "NO_UPCOMING_GAMES",
+            "reason": (
+                "NO_DUE_FINAL_PREGAME_GAMES" if requested == ("FINAL_PREGAME",)
+                else "NO_GAMES_ON_REQUESTED_SLATE" if slate_date is not None
+                else "NO_UPCOMING_GAMES"
+            ),
         }
     final_publication_deadline = (
         min(target["scheduled_start_utc"] - timedelta(minutes=15) for target in targets)
@@ -708,7 +739,7 @@ def activate_2026_shadow(
     )
     _write_index(publication_root, index)
     locator_path = exchange_root / BUNDLE_OBJECT_FAMILY / "nfl-2026-research-shadow-index.json"
-    return {"status": "ACTIVE", "games": len(targets), "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "forecastCutoffUtc": cutoff_text, "completedAtUtc": run_completed_text, "lateFinalPregameOmissions": late_final_omissions, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
+    return {"status": "ACTIVE", "games": len(targets), "selectedSlateDates": sorted({str(target["game_date"]) for target in targets}), "selectionMode": "EXACT_SLATE" if slate_date is not None else "NEXT_SLATE_ONLY" if next_slate_only else "ALL_UPCOMING", "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "forecastCutoffUtc": cutoff_text, "completedAtUtc": run_completed_text, "lateFinalPregameOmissions": late_final_omissions, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
 
 
 __all__ = ["activate_2026_shadow", "historical_feature_parity", "load_foundation_runtime", "materialize_feature_vector", "verify_activation_reload_fixture", "verify_frozen_m1", "NflProspectiveShadowError"]
