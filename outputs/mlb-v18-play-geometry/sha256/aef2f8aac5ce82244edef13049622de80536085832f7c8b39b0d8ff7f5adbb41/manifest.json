@@ -1,0 +1,23 @@
+{
+  "artifacts": [
+    {
+      "bytes": 2852,
+      "relativePath": "aisp-play-geometry-handoff.json",
+      "sha256": "af91f4d937355f121baef3692575bd88e9a1d72ca308724bdb760fc58eca6f51"
+    },
+    {
+      "bytes": 24284,
+      "relativePath": "play-geometry-supplement.json",
+      "sha256": "4894b87d20ada64053b0672dbd35d16991ba086cb148debe36f31c7105798ce6"
+    },
+    {
+      "bytes": 211269,
+      "relativePath": "representative-paths.json",
+      "sha256": "2b6dc4a72a41e2848f4a5c01287e5c5d4f18620b9939a34e4c08916d360bd9bd"
+    }
+  ],
+  "parentBundleSha256": "a6e7e99122f1b60701a4728b97b32fcc11e03405bfd456ed6cd54f69b69adb27",
+  "supplementId": "mlb-v18-play-geometry-aef2f8aac5ce82244edef130",
+  "supplementSha256": "aef2f8aac5ce82244edef13049622de80536085832f7c8b39b0d8ff7f5adbb41",
+  "verdict": "V18_PLAY_GEOMETRY_TRACE_SUPPLEMENT_READY_FOR_AISP"
+}

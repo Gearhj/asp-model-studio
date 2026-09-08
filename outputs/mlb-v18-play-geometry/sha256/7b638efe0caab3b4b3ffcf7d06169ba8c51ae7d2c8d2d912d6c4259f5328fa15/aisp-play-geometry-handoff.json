@@ -1,0 +1,37 @@
+{
+  "association": "Attach to the shadow forecast whose bundle_sha256 equals parentBundleSha256. The supplement never replaces the persisted path; it adds a geometry layer beside it.",
+  "coordinateSystem": "ASP_NORMALIZED_DIAMOND_V1",
+  "displayAuthority": "RESEARCH_SHADOW_PLAY_GEOMETRY",
+  "executionAllowedInAISP": false,
+  "limitations": [
+    "Exit velocity, launch angle, spray angle in degrees and landing distance in feet are not registered and are emitted as null.",
+    "The emitted point is a Retrosheet location-zone centroid, not a measured landing coordinate.",
+    "Runner identity is anonymous. A reconstructed movement is a state-consistent template, never a named player's real route.",
+    "startFraction and endFraction are presentation sequencing values, not measured timestamps.",
+    "V1 does not claim the sampled geometry caused the already-sampled V18 outcome."
+  ],
+  "parentBundleId": "mlb-v18-whole-game-a6e7e99122f1b60701a4728b",
+  "parentBundleSha256": "a6e7e99122f1b60701a4728b97b32fcc11e03405bfd456ed6cd54f69b69adb27",
+  "pathsFile": "representative-paths.json",
+  "promotionStatus": "NOT_PROMOTED",
+  "rendering": {
+    "ballTrace": "Draw only when contactOccurred is true and ballTrace is present. Use start, control and end in the normalized coordinate system, mapping y to the home-plate-to-centre-field axis.",
+    "failClosed": "If geometry is missing, absent or fails verification, render the existing Broadcast Replay without ball traces. Never synthesise a trajectory in the consumer.",
+    "modelledVersusPersisted": [
+      "Fields under geometry and runnerMovements are MODELLED. outcome, outs, base masks, runs and scores are PERSISTED V18 state and must be rendered exactly as given."
+    ],
+    "preserveExisting": "The existing V18 Broadcast Replay remains the default view. Play Geometry is an additional, separately labelled view.",
+    "runnerTrace": "Draw one path per runnerMovements entry using from/to base states. startFraction/endFraction are presentation sequencing values only.",
+    "timing": "No measured timing authority exists. Never present startFraction/endFraction as elapsed real time."
+  },
+  "schemaVersion": "AISP_MLB_V18_PLAY_GEOMETRY_HANDOFF_V1",
+  "supplementFile": "play-geometry-supplement.json",
+  "supplementId": "mlb-v18-play-geometry-7b638efe0caab3b4b3ffcf7d",
+  "supplementSha256": "7b638efe0caab3b4b3ffcf7d06169ba8c51ae7d2c8d2d912d6c4259f5328fa15",
+  "verification": [
+    "Hash play-geometry-supplement.json canonically and require it to equal supplementSha256.",
+    "Require parentBundleSha256 to equal the registered V18 shadow forecast's bundle checksum before associating the supplement.",
+    "Require wageringAuthority=false, promotionStatus=NOT_PROMOTED and executionAllowedInAISP=false."
+  ],
+  "wageringAuthority": false
+}
