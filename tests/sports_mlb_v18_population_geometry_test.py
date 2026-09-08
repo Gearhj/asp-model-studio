@@ -64,6 +64,7 @@ def test_representative_selectors_are_deterministic_and_genuine() -> None:
     first = representative_indices(result, forecast)
     assert first == representative_indices(result, forecast)
     assert set(first) == {"TYPICAL", "HOME_WIN", "AWAY_WIN", "HIGH_SCORING", "LOW_SCORING", "EXTRA_INNINGS"}
+    assert len({row["simulationIndex"] for row in first.values()}) == 6
     for name, row in first.items():
         index = row["simulationIndex"]
         if name == "HOME_WIN":

@@ -217,6 +217,36 @@ def test_handoff_only_rebuild_does_not_execute_model(tmp_path):
     assert rebuilt["executionAccounting"]["modelLoads"] == rebuilt["executionAccounting"]["modelFits"] == 0
 
 
+def test_three_view_pointer_is_bound_into_successor_handoff(tmp_path, monkeypatch):
+    published = daily.publish_daily_slate(
+        config(tmp_path), FakeSource([snapshot("g1")]), engine=FakeEngine()
+    )
+    object_sha = published["games"][0]["objectSha256"]
+    references = {}
+    for key, family, digit in (
+        ("playGeometry", "play-geometry", "a"),
+        ("populationGeometry", "population-geometry", "b"),
+    ):
+        digest = digit * 64
+        references[key] = {
+            "supplementSha256": digest,
+            "relativePath": f"{family}/sha256/{digest}",
+            "manifestFile": "manifest.json",
+        }
+    from server.sports_current_statcast import mlb_v18_daily_views as views
+    monkeypatch.setattr(
+        views,
+        "view_references",
+        lambda output_root, supplied_sha: references if supplied_sha == object_sha else None,
+    )
+
+    rebuilt = daily.rebuild_slate_handoff(tmp_path, date(2026, 9, 8))
+    handoff = read_handoff(tmp_path, rebuilt)
+    assert handoff["schemaVersion"] == daily.HANDOFF_SCHEMA_V2
+    assert handoff["forecasts"][0]["playGeometry"] == references["playGeometry"]
+    assert handoff["forecasts"][0]["populationGeometry"] == references["populationGeometry"]
+
+
 def test_status_reloads_receipt_handoff_and_all_game_objects(tmp_path):
     daily.publish_daily_slate(config(tmp_path), FakeSource([snapshot("g1"), snapshot("g2")]), engine=FakeEngine())
     status = daily.read_status(tmp_path, date(2026, 9, 8))

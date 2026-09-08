@@ -44,6 +44,7 @@ from server.sports_current_statcast.stage3_model_laboratory import resolve_model
 PUBLISHER_SCHEMA = "MLB_V18_DAILY_SLATE_PUBLISHER_V1"
 GAME_SCHEMA = "MLB_V18_DAILY_GAME_FORECAST_V1"
 HANDOFF_SCHEMA = "AISP_MLB_V18_DAILY_SLATE_HANDOFF_V1"
+HANDOFF_SCHEMA_V2 = "AISP_MLB_V18_DAILY_SLATE_HANDOFF_V2"
 RECEIPT_SCHEMA = "MLB_V18_DAILY_SLATE_RECEIPT_V1"
 PARENT_BUNDLE_ID = "mlb-v18-whole-game-a6e7e99122f1b60701a4728b"
 PARENT_BUNDLE_SHA256 = "a6e7e99122f1b60701a4728b97b32fcc11e03405bfd456ed6cd54f69b69adb27"
@@ -677,6 +678,7 @@ class V18ExecutionEngine:
                 "populationSupplementSha256": POPULATION_SUPPLEMENT_SHA256,
                 "paModelSha256": PA_MODEL_SHA256, "paFold": 5,
                 "transitionModelSha256": TRANSITION_MODEL_SHA256, "transitionFold": 4,
+                "providerCacheSemantics": "ONE_ROW_TRANSFORM_PER_TEMPLATE_V1",
             },
             "evidenceDigest": evidence_logical_digest(snapshot),
             "snapshotContentSha256": snapshot["contentSha256"],
@@ -829,6 +831,12 @@ def collect_slate_forecasts(output_root: Path, slate_date: date) -> list[dict[st
             "forecastFile": "forecast.json", "manifestFile": "manifest.json",
             "capturedAt": forecast["capturedAt"], "scheduledStart": forecast["scheduledStart"],
         }
+        # Daily view supplements are additive children of the immutable
+        # forecast object.  Import lazily to avoid a module cycle.
+        from server.sports_current_statcast.mlb_v18_daily_views import view_references
+        views = view_references(root, manifest["objectSha256"])
+        if views:
+            row.update(views)
         existing = selected.get(row["gameId"])
         if existing is None or (_as_utc(row["capturedAt"]), row["objectSha256"]) > (
             _as_utc(existing["capturedAt"]), existing["objectSha256"]
@@ -838,14 +846,18 @@ def collect_slate_forecasts(output_root: Path, slate_date: date) -> list[dict[st
 
 
 def _write_handoff(output_root: Path, slate_date: date, forecasts: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], str, str]:
+    three_view = bool(forecasts) and all(
+        row.get("playGeometry") and row.get("populationGeometry") for row in forecasts
+    )
+    keys = ["gameId", "objectSha256", "relativePath", "forecastFile", "manifestFile"]
+    if three_view:
+        keys.extend(["playGeometry", "populationGeometry"])
     body = {
-        "schemaVersion": HANDOFF_SCHEMA,
+        "schemaVersion": HANDOFF_SCHEMA_V2 if three_view else HANDOFF_SCHEMA,
         "slateDate": slate_date.isoformat(), "generatedAt": datetime.now(UTC).isoformat(),
         "parentBundleId": PARENT_BUNDLE_ID, "parentBundleSha256": PARENT_BUNDLE_SHA256,
         "acceptanceProtocolV2Sha256": ACCEPTANCE_PROTOCOL_V2_SHA256,
-        "forecasts": [{key: row[key] for key in (
-            "gameId", "objectSha256", "relativePath", "forecastFile", "manifestFile"
-        )} for row in forecasts],
+        "forecasts": [{key: row[key] for key in keys} for row in forecasts],
         "consumerRules": ["verify object manifest and artifact checksums", "associate only exact existing game IDs",
                           "skip unknown games", "preserve Gen 1", "import idempotently by objectSha256",
                           "settle only later from authoritative outcomes"],
@@ -908,7 +920,12 @@ def publish_daily_slate(
             "gamesFailed": 0, "games": rows, "aispRowsModified": aisp_writes,
             "providerCalls": 0, "runtimeSeconds": time.perf_counter() - started,
         }
-    active_engine = engine or V18ExecutionEngine(repo_root or Path(__file__).resolve().parents[2])
+    repository = repo_root or Path(__file__).resolve().parents[2]
+    active_engine = engine or V18ExecutionEngine(repository)
+    active_view_builder = None
+    if engine is None:
+        from server.sports_current_statcast.mlb_v18_daily_views import DailyViewBuilder
+        active_view_builder = DailyViewBuilder(repository, engine=active_engine)
 
     def work(snapshot: Mapping[str, Any]) -> dict[str, Any]:
         game_id = snapshot.get("game", {}).get("game_id")
@@ -919,6 +936,11 @@ def publish_daily_slate(
             if key_path.exists():
                 pointer = json.loads(key_path.read_text(encoding="utf-8"))
                 existing = _verify_existing_object(output_root, pointer)
+                if active_view_builder is not None:
+                    active_view_builder.build(output_root, {
+                        "relativePath": existing.relative_to(output_root).as_posix(),
+                        "objectSha256": pointer["objectSha256"],
+                    })
                 return {"gameId": game_id, "status": "DUPLICATE_ALREADY_PUBLISHED",
                         "category": "DUPLICATE_ALREADY_PUBLISHED", "reason": "same model, evidence, and seed already published",
                         "objectSha256": pointer["objectSha256"], "artifactPath": existing.relative_to(output_root).as_posix(),
@@ -926,6 +948,11 @@ def publish_daily_slate(
             payload = active_engine.forecast(snapshot)
             validate_forecast_payload(snapshot, payload)
             published = _publish_game(output_root, snapshot, payload)
+            if active_view_builder is not None:
+                active_view_builder.build(output_root, {
+                    "relativePath": published["relativePath"],
+                    "objectSha256": published["objectSha256"],
+                })
             return {"gameId": game_id, "status": published["status"], "objectSha256": published["objectSha256"],
                     "artifactPath": published["relativePath"], "capturedAt": snapshot["capturedAt"],
                     "scheduledStart": snapshot["game"]["starts_at"],
@@ -1049,9 +1076,14 @@ def read_status(output_root: Path, slate_date: date) -> dict[str, Any]:
         or sha_json(handoff_body) != handoff.get("handoffSha256")
     ):
         raise DailySlateError("PERSISTENCE_PUBLICATION_FAILURE", "latest AISP handoff identity differs")
-    expected = [{key: row[key] for key in (
-        "gameId", "objectSha256", "relativePath", "forecastFile", "manifestFile"
-    )} for row in collect_slate_forecasts(root, slate_date)]
+    current = collect_slate_forecasts(root, slate_date)
+    three_view = bool(current) and all(
+        row.get("playGeometry") and row.get("populationGeometry") for row in current
+    )
+    keys = ["gameId", "objectSha256", "relativePath", "forecastFile", "manifestFile"]
+    if three_view:
+        keys.extend(["playGeometry", "populationGeometry"])
+    expected = [{key: row[key] for key in keys} for row in current]
     if handoff.get("forecasts") != expected:
         raise DailySlateError("PERSISTENCE_PUBLICATION_FAILURE", "latest handoff does not index the current verified slate objects")
     return {"status": "AVAILABLE", "verification": "PASS", "verifiedForecasts": len(expected),

@@ -139,13 +139,19 @@ def representative_indices(result: Mapping[str, Any], forecast: Mapping[str, Any
     def conditional_medians(pool: np.ndarray) -> tuple[float, float]:
         return float(np.median(total[pool])), float(np.median(diff[pool]))
 
-    def nearest(pool: np.ndarray, target_total: float, target_diff: float) -> tuple[int, float]:
+    used: set[int] = set()
+
+    def nearest(pool: np.ndarray, target_total: float, target_diff: float) -> tuple[int, float, int]:
         if not len(pool):
             raise PopulationGeometryError("a predeclared representative selector has no candidates")
         distance = np.abs(total[pool] - target_total) + np.abs(diff[pool] - target_diff)
         order = np.lexsort((pool, np.abs(diff[pool] - target_diff), distance))
-        selected = int(pool[int(order[0])])
-        return selected, float(distance[int(order[0])])
+        for rank, position in enumerate(order, 1):
+            selected = int(pool[int(position)])
+            if selected not in used:
+                used.add(selected)
+                return selected, float(distance[int(position)]), rank
+        raise PopulationGeometryError("a predeclared representative selector has no distinct candidate")
 
     home_pool = all_indexes[diff > 0]
     away_pool = all_indexes[diff < 0]
@@ -160,7 +166,7 @@ def representative_indices(result: Mapping[str, Any], forecast: Mapping[str, Any
     }
     selected = {}
     for name, (pool, target_total, target_diff, target_kind) in pools.items():
-        index, distance = nearest(np.asarray(pool), target_total, target_diff)
+        index, distance, rank = nearest(np.asarray(pool), target_total, target_diff)
         selected[name] = {
             "selector": name,
             "definition": SELECTORS[name],
@@ -173,7 +179,7 @@ def representative_indices(result: Mapping[str, Any], forecast: Mapping[str, Any
                 "innings": int(innings[index]),
             },
             "distance": distance,
-            "rank": 1,
+            "rank": rank,
             "tieBreak": "LOWEST_SIMULATION_INDEX_AFTER_DISTANCE_AND_DIFFERENTIAL_DISTANCE",
         }
     return selected

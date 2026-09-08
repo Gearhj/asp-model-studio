@@ -20,6 +20,7 @@ from server.sports_current_statcast.mlb_v18_daily_slate import (
     read_status,
     rebuild_slate_handoff,
 )
+from server.sports_current_statcast.mlb_v18_daily_views import backfill_slate_views
 
 
 def parser() -> argparse.ArgumentParser:
@@ -32,6 +33,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--dry-run", action="store_true")
     value.add_argument("--status", action="store_true")
     value.add_argument("--rebuild-handoff", action="store_true")
+    value.add_argument("--backfill-views", action="store_true")
     value.add_argument("--output-root", type=Path, default=ROOT / "outputs/mlb-v18-daily-slate")
     value.add_argument("--workers", type=int, default=1)
     value.add_argument("--aisp-root", type=Path, default=Path(r"C:\Users\james\ai-sports-predictor"))
@@ -43,6 +45,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         print(json.dumps(read_status(args.output_root, args.slate_date), sort_keys=True))
         return 0
+    if args.backfill_views:
+        result = backfill_slate_views(
+            args.output_root,
+            args.slate_date,
+            repo_root=ROOT,
+            workers=args.workers,
+            game_ids=args.game_ids,
+            progress=lambda row: print(json.dumps({"stage": "VIEW_BACKFILL", **row}, sort_keys=True), flush=True),
+        )
+        if result["gamesFailed"] == 0:
+            result["handoff"] = rebuild_slate_handoff(args.output_root, args.slate_date)
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["gamesFailed"] == 0 else 2
     if args.rebuild_handoff:
         print(json.dumps(rebuild_slate_handoff(args.output_root, args.slate_date), sort_keys=True))
         return 0
