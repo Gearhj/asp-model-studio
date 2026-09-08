@@ -225,7 +225,7 @@ def build_current_slate_handoff(
         if (
             forecast["homeTeam"]["teamId"] != event["homeTeamId"]
             or forecast["awayTeam"]["teamId"] != event["awayTeamId"]
-            or forecast["scheduledStartUtc"] != event["scheduledStartUtc"]
+            or _utc(forecast["scheduledStartUtc"]) != _utc(str(event["scheduledStartUtc"]))
         ):
             skips.append({**dict(event), "reason": "EVENT_OR_TEAM_IDENTITY_MISMATCH"})
             continue

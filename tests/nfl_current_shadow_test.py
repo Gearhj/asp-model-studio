@@ -51,7 +51,7 @@ def _isolated_slate_exchange(tmp_path: Path) -> tuple[Path, dict, dict]:
         "eventId": current["eventId"],
         "homeTeamId": current["homeTeam"]["teamId"],
         "awayTeamId": current["awayTeam"]["teamId"],
-        "scheduledStartUtc": current["scheduledStartUtc"],
+        "scheduledStartUtc": current["scheduledStartUtc"].replace(".000000Z", "Z"),
     }
     return exchange, current, expected
 
