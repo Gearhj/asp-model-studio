@@ -421,8 +421,22 @@ def simulate_prospective_game(
     master_seed: int,
     regulation: int = 9,
     trace_count: int = 1,
+    trace_indices: Sequence[int] | None = None,
+    event_observer: Any | None = None,
 ) -> dict[str, Any]:
-    if n_sims <= 0 or trace_count < 0 or trace_count > min(n_sims, 5):
+    if trace_indices is None:
+        selected_trace_indices = tuple(range(trace_count))
+    else:
+        selected_trace_indices = tuple(int(value) for value in trace_indices)
+        if trace_count != 1:
+            raise V18WholeGameError("trace_count must remain at its default when trace_indices is supplied")
+    if (
+        n_sims <= 0
+        or trace_count < 0
+        or len(selected_trace_indices) > 6
+        or len(set(selected_trace_indices)) != len(selected_trace_indices)
+        or any(value < 0 or value >= n_sims for value in selected_trace_indices)
+    ):
         raise V18WholeGameError("invalid simulation or trace count")
     import hashlib
 
@@ -452,7 +466,11 @@ def simulate_prospective_game(
     home_starter_runs = np.zeros(n_sims, dtype=np.int64)
     terminal = np.zeros(n_sims, dtype=bool)
     illegal = 0
-    traces: list[list[dict[str, Any]]] = [[] for _ in range(trace_count)]
+    traces: list[list[dict[str, Any]]] = [[] for _ in selected_trace_indices]
+    trace_positions = {
+        simulation_index: position
+        for position, simulation_index in enumerate(selected_trace_indices)
+    }
 
     for step in range(200):
         if terminal.all():
@@ -487,24 +505,36 @@ def simulate_prospective_game(
             if not bt.is_legal(int(outs[simulation]), int(base[simulation]), item):
                 illegal += 1
         outs_after = outs + outs_added
-        for simulation in range(trace_count):
-            if active[simulation]:
-                traces[simulation].append({
-                    "pa": step + 1,
-                    "inning": int(inning[simulation]),
-                    "half": "TOP" if top[simulation] else "BOTTOM",
-                    "battingOrderPosition": int(batting_pa[simulation] % 9 + 1),
-                    "pitcherState": "TEAM_BULLPEN" if bullpen[simulation] else "STARTER",
-                    "pitchingChange": bool(change[simulation]),
-                    "outcome": PA_CLASS_ORDER[int(outcome_index[simulation])],
-                    "outsBefore": int(outs[simulation]),
-                    "outsAfter": int(outs_after[simulation]),
-                    "baseMaskBefore": int(base[simulation]),
-                    "baseMaskAfter": int(base_after[simulation]),
-                    "runsScored": int(runs[simulation]),
-                    "awayScoreAfter": int(away_score[simulation] + (runs[simulation] if top[simulation] else 0)),
-                    "homeScoreAfter": int(home_score[simulation] + (runs[simulation] if not top[simulation] else 0)),
-                })
+        event_simulations = (
+            np.nonzero(active)[0]
+            if event_observer is not None
+            else selected_trace_indices
+        )
+        for simulation in event_simulations:
+            simulation = int(simulation)
+            if not active[simulation]:
+                continue
+            event = {
+                "pa": step + 1,
+                "inning": int(inning[simulation]),
+                "half": "TOP" if top[simulation] else "BOTTOM",
+                "battingOrderPosition": int(batting_pa[simulation] % 9 + 1),
+                "pitcherState": "TEAM_BULLPEN" if bullpen[simulation] else "STARTER",
+                "pitchingChange": bool(change[simulation]),
+                "outcome": PA_CLASS_ORDER[int(outcome_index[simulation])],
+                "outsBefore": int(outs[simulation]),
+                "outsAfter": int(outs_after[simulation]),
+                "baseMaskBefore": int(base[simulation]),
+                "baseMaskAfter": int(base_after[simulation]),
+                "runsScored": int(runs[simulation]),
+                "awayScoreAfter": int(away_score[simulation] + (runs[simulation] if top[simulation] else 0)),
+                "homeScoreAfter": int(home_score[simulation] + (runs[simulation] if not top[simulation] else 0)),
+            }
+            if event_observer is not None:
+                event_observer(simulation, event)
+            trace_position = trace_positions.get(simulation)
+            if trace_position is not None:
+                traces[trace_position].append(event)
 
         away_score += np.where(active & top, runs, 0)
         home_score += np.where(active & ~top, runs, 0)
@@ -537,7 +567,7 @@ def simulate_prospective_game(
         terminal |= become_terminal
 
     nonterminated = int((~terminal).sum())
-    return {
+    result = {
         "schemaVersion": SIMULATION_SCHEMA,
         "gameId": game_id,
         "simulationCount": n_sims,
@@ -559,6 +589,9 @@ def simulate_prospective_game(
         "paCounts": pa_count,
         "traces": traces,
     }
+    if trace_indices is not None:
+        result["traceIndices"] = list(selected_trace_indices)
+    return result
 
 
 __all__ = [
