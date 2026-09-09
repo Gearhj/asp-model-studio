@@ -243,9 +243,11 @@ def build_current_slate_handoff(
         summaries.append(summary)
 
     evidence_cutoffs = {str(item["evidenceCutoffUtc"]) for item in summaries}
-    if evidence_cutoffs and evidence_cutoffs != {runtime.schedule_as_of_utc}:
-        raise NflCurrentShadowError("effective forecast does not match current local source evidence")
+    if any(_utc(value) > _utc(runtime.schedule_as_of_utc) for value in evidence_cutoffs):
+        raise NflCurrentShadowError("effective forecast claims evidence newer than current local source authority")
     if refresh_evidence is None:
+        if evidence_cutoffs and evidence_cutoffs != {runtime.schedule_as_of_utc}:
+            raise NflCurrentShadowError("effective forecast does not match current local source evidence")
         checked_at = publication_time
         forecasts_created_this_run: int | None = None
         unchanged_reused: int | None = None
@@ -255,7 +257,7 @@ def build_current_slate_handoff(
     else:
         if refresh_evidence.get("status") != "ACTIVE":
             raise NflCurrentShadowError("refresh evidence is not an active publication check")
-        if refresh_evidence.get("selectedSlateDates") != [slate_date.isoformat()]:
+        if slate_date.isoformat() not in (refresh_evidence.get("selectedSlateDates") or []):
             raise NflCurrentShadowError("refresh evidence slate differs")
         if (
             refresh_evidence.get("sourceFoundationManifestSha256")
@@ -322,6 +324,7 @@ def build_current_slate_handoff(
             "evidenceAsOfUtc": runtime.schedule_as_of_utc,
             "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
             "sourceDatasetVersionId": runtime.paths.dataset_version_id,
+            "effectiveForecastEvidenceCutoffsUtc": sorted(evidence_cutoffs),
             "priorSourceFoundationManifestSha256s": prior_source_manifests,
             "sourceFoundationChangedSincePreviousSnapshot": source_changed,
             "newForecastCountThisRun": forecasts_created_this_run,
@@ -384,6 +387,12 @@ def verify_current_slate_handoff(path: Path) -> Mapping[str, Any]:
     if freshness.get("forecastDisposition") == "UNCHANGED_SOURCE_EVIDENCE_FORECAST_REUSED":
         if freshness.get("newForecastCountThisRun") != 0:
             raise NflCurrentShadowError("unchanged evidence created a numerical forecast version")
+    current_evidence = _utc(str(freshness.get("evidenceAsOfUtc")))
+    if any(
+        _utc(str(value)) > current_evidence
+        for value in freshness.get("effectiveForecastEvidenceCutoffsUtc", [])
+    ):
+        raise NflCurrentShadowError("effective forecast evidence exceeds checked source authority")
     files = record.get("files")
     if not isinstance(files, list) or {item.get("name") for item in files} != {
         "bundle.json", "consumer-import-fixture.json", "VALIDATION.md"

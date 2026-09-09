@@ -32,6 +32,7 @@ from server.sports_gold.nfl_shadow_exchange import (
     BUNDLE_OBJECT_FAMILY,
     derive_sports_forecast_bundle_id,
     derive_sports_game_forecast_id,
+    verify_nfl_2026_research_shadow_locator,
     verify_sports_forecast_bundle,
     write_nfl_2026_research_shadow_locator,
     write_sports_forecast_bundle,
@@ -312,17 +313,62 @@ def _select_slate_targets(
     *,
     slate_date: date | None,
     next_slate_only: bool,
+    rolling_window_days: int | None = None,
+    as_of: datetime | None = None,
 ) -> list[Mapping[str, Any]]:
-    """Select an exact or next slate without changing target ordering."""
+    """Select an exact, next, or bounded rolling slate without reordering."""
 
-    if slate_date is not None and next_slate_only:
-        raise NflProspectiveShadowError("slate_date and next_slate_only are mutually exclusive")
+    modes = int(slate_date is not None) + int(next_slate_only) + int(rolling_window_days is not None)
+    if modes > 1:
+        raise NflProspectiveShadowError("slate_date, next_slate_only, and rolling_window_days are mutually exclusive")
+    if rolling_window_days is not None:
+        if rolling_window_days < 1 or as_of is None:
+            raise NflProspectiveShadowError("rolling window requires as_of and at least one day")
+        boundary = as_of.astimezone(UTC) + timedelta(days=rolling_window_days)
+        return [
+            target for target in targets
+            if as_of.astimezone(UTC) < target["scheduled_start_utc"] <= boundary
+        ]
     if slate_date is not None:
         return [target for target in targets if str(target["game_date"]) == slate_date.isoformat()]
     if next_slate_only and targets:
         next_date = min(str(target["game_date"]) for target in targets)
         return [target for target in targets if str(target["game_date"]) == next_date]
     return list(targets)
+
+
+def _started_events_in_current_rolling_week(
+    runtime: FoundationRuntime,
+    upcoming_targets: Sequence[Mapping[str, Any]],
+    *,
+    as_of: datetime,
+) -> list[dict[str, Any]]:
+    """Describe already-started peers without reading scores or republishing."""
+
+    if not upcoming_targets:
+        return []
+    current_week = min(int(target["week"]) for target in upcoming_targets)
+    columns = [
+        "canonical_game_id", "season", "game_type", "week", "game_date", "gametime",
+        "canonical_home_team_id", "canonical_away_team_id",
+    ]
+    rows = pq.read_table(runtime.objects["dim_nfl_game"]["path"], columns=columns).to_pandas()
+    result = []
+    for target in rows.loc[
+        rows["season"].eq(2026)
+        & rows["week"].eq(current_week)
+        & rows["game_type"].isin(["REG", "POST", "WC", "DIV", "CON", "SB"])
+    ].to_dict("records"):
+        kickoff = _scheduled_start(target)
+        if kickoff <= as_of:
+            result.append({
+                "eventId": str(target["canonical_game_id"]),
+                "homeTeamId": str(target["canonical_home_team_id"]),
+                "awayTeamId": str(target["canonical_away_team_id"]),
+                "scheduledStartUtc": _utc_text(kickoff),
+                "status": "EVENT_ALREADY_STARTED_NO_NEW_FORECAST",
+            })
+    return sorted(result, key=lambda item: (item["scheduledStartUtc"], item["eventId"]))
 
 
 def _persist_feature_vector(root: Path, record: Mapping[str, Any]) -> tuple[str, Path, bool]:
@@ -557,10 +603,11 @@ def activate_2026_shadow(
     artifact_root: Path = ARTIFACT_ROOT, foundation_root: Path = DEFAULT_NFL_STAGING_ROOT / "foundation-v1",
     as_of: datetime | None = None, snapshot_types: Sequence[str] = ("EARLY", "CURRENT"), producer_revision: str | None = None,
     slate_date: date | None = None, next_slate_only: bool = False,
+    rolling_window_days: int | None = None, dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create upcoming 2026 vectors and publish only evidence-changing snapshots.
 
-    ``slate_date`` and ``next_slate_only`` provide a bounded operational path.
+    The slate selectors provide bounded operational paths.
     They filter targets before vector construction and scoring, so a current
     refresh cannot silently rescore the full future schedule.
     """
@@ -569,8 +616,8 @@ def activate_2026_shadow(
     requested = tuple(dict.fromkeys(str(item) for item in snapshot_types))
     invalid = set(requested)-{"EARLY","CURRENT","FINAL_PREGAME"}
     if invalid: raise NflProspectiveShadowError(f"snapshot types differ: {sorted(invalid)}")
-    if slate_date is not None and next_slate_only:
-        raise NflProspectiveShadowError("slate_date and next_slate_only are mutually exclusive")
+    if int(slate_date is not None) + int(next_slate_only) + int(rolling_window_days is not None) > 1:
+        raise NflProspectiveShadowError("slate selectors are mutually exclusive")
     if "FINAL_PREGAME" in requested and len(requested) != 1:
         raise NflProspectiveShadowError("FINAL_PREGAME must run as a bounded standalone snapshot job")
     frozen = verify_frozen_m1(artifact_root=artifact_root, foundation_root=foundation_root, publication_root=publication_root); runtime = load_foundation_runtime(foundation_root)
@@ -583,7 +630,17 @@ def activate_2026_shadow(
             target for target in targets
             if 900 <= (target["scheduled_start_utc"] - forecast_cutoff).total_seconds() <= 1_800
         ]
-    targets = list(_select_slate_targets(targets, slate_date=slate_date, next_slate_only=next_slate_only))
+    targets = list(_select_slate_targets(
+        targets,
+        slate_date=slate_date,
+        next_slate_only=next_slate_only,
+        rolling_window_days=rolling_window_days,
+        as_of=forecast_cutoff,
+    ))
+    started_events = (
+        _started_events_in_current_rolling_week(runtime, targets, as_of=forecast_cutoff)
+        if rolling_window_days is not None else []
+    )
     if not targets:
         return {
             "status": "NO_ELIGIBLE_UPCOMING_GAMES", "games": 0, "parity": parity,
@@ -617,9 +674,12 @@ def activate_2026_shadow(
     ) -> bool:
         if snapshot == "EARLY" and event_index["EARLY"]: return False
         if any(entry.get("forecastCutoffUtc") == cutoff_text for entry in event_index[snapshot]): return False
+        # A newly retrieved foundation does not itself justify a new numerical
+        # forecast.  Only a changed eligible 197-input vector does.  The
+        # operational receipt separately records that the newer source was
+        # checked even when the effective forecast is reused byte-for-byte.
         if snapshot in {"CURRENT", "FINAL_PREGAME"} and any(
             entry.get("featureValuesSha256") == values_sha
-            and entry.get("sourceFoundationManifestSha256") == runtime.paths.foundation_manifest_sha256
             for entry in event_index[snapshot]
         ): return False
         if snapshot == "FINAL_PREGAME":
@@ -658,6 +718,41 @@ def activate_2026_shadow(
         )
         for target, values_sha in zip(targets, value_hashes, strict=True)
     ]
+    completed_2026 = sorted({
+        str(value)
+        for value in team_games.loc[
+            team_games["completed"].eq(True) & team_games["season"].eq(2026),
+            "canonical_game_id",
+        ].dropna()
+    })
+    event_plan = [
+        {
+            "eventId": str(target["canonical_game_id"]),
+            "scheduledStartUtc": _utc_text(target["scheduled_start_utc"]),
+            "action": "PUBLISH_CHANGED_ELIGIBLE_INPUTS" if due else "REUSE_UNCHANGED_FORECAST",
+        }
+        for target, due in zip(targets, publication_due, strict=True)
+    ]
+    if dry_run:
+        return {
+            "status": "DRY_RUN",
+            "games": len(targets),
+            "selectedSlateDates": sorted({str(target["game_date"]) for target in targets}),
+            "rollingWindowDays": rolling_window_days,
+            "forecastCutoffUtc": cutoff_text,
+            "sourceEvidenceAsOfUtc": runtime.schedule_as_of_utc,
+            "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
+            "priorSourceFoundationManifestSha256s": prior_source_manifests,
+            "completed2026GameIdsEligibleByFoundationCutoff": completed_2026,
+            "affectedForecastEventIds": [item["eventId"] for item in event_plan if item["action"].startswith("PUBLISH")],
+            "eventPlan": event_plan,
+            "alreadyStartedEvents": started_events,
+            "modelsFit": 0,
+            "modelsScored": 0,
+            "modelsPromoted": 0,
+            "marketFieldsRead": False,
+            "sealedOotAccessed": False,
+        }
     vector_hashes = []
     for target, vector, values_sha in zip(targets, vectors, value_hashes, strict=True):
         event_id = str(target["canonical_game_id"])
@@ -667,7 +762,6 @@ def activate_2026_shadow(
             for snapshot in ("CURRENT", "EARLY", "FINAL_PREGAME")
             for entry in reversed(event_index[snapshot])
             if entry.get("featureValuesSha256") == values_sha
-            and entry.get("sourceFoundationManifestSha256") == runtime.paths.foundation_manifest_sha256
         ), None)
         if matching_existing is not None and not any(
             snapshot_due(event_index, snapshot, target, values_sha) for snapshot in requested
@@ -680,8 +774,11 @@ def activate_2026_shadow(
     prediction = None
     simulation = None
     forecast_inference_rows = 0
-    if any(publication_due):
-        prediction = frozen.model_bundle["scoreModels"]["XGBOOST"].predict(frame)
+    due_positions = [position for position, due in enumerate(publication_due) if due]
+    inference_position = {target_position: inference_position for inference_position, target_position in enumerate(due_positions)}
+    if due_positions:
+        due_frame = frame.iloc[due_positions].reset_index(drop=True)
+        prediction = frozen.model_bundle["scoreModels"]["XGBOOST"].predict(due_frame)
         simulation = simulate_joint_scores(
             predicted_home_mean=prediction.expected_home_points,
             predicted_away_mean=prediction.expected_away_points,
@@ -689,7 +786,7 @@ def activate_2026_shadow(
             draws=SIMULATION_DRAWS,
             seed=SIMULATION_SEED,
         )
-        forecast_inference_rows = len(targets)
+        forecast_inference_rows = len(due_positions)
     completed_at = _now_utc().astimezone(UTC)
     if completed_at < forecast_cutoff:
         raise NflProspectiveShadowError("completion clock precedes forecast evidence cutoff")
@@ -703,6 +800,7 @@ def activate_2026_shadow(
             if not snapshot_due(event_index, snapshot, target, values_sha): continue
             if prediction is None or simulation is None:
                 raise NflProspectiveShadowError("due forecast lacks frozen-estimator inference")
+            scored_position = inference_position[position]
             if completed_at >= target["scheduled_start_utc"]:
                 if snapshot == "FINAL_PREGAME": late_final_omissions += 1
                 continue
@@ -710,7 +808,7 @@ def activate_2026_shadow(
                 late_final_omissions += 1
                 continue
             version = len(event_index[snapshot]) + 1
-            record = _forecast_record(target=target, vector_sha=vector_sha, vector=vector, names=names, simulation_home=simulation.home[position], simulation_away=simulation.away[position], snapshot_type=snapshot, snapshot_version=version, frozen=frozen, schedule_as_of=runtime.schedule_as_of_utc, source_cutoff=source_cutoff, forecast_cutoff=cutoff_text, available_as_of=completed_text, producer_revision=revision)
+            record = _forecast_record(target=target, vector_sha=vector_sha, vector=vector, names=names, simulation_home=simulation.home[scored_position], simulation_away=simulation.away[scored_position], snapshot_type=snapshot, snapshot_version=version, frozen=frozen, schedule_as_of=runtime.schedule_as_of_utc, source_cutoff=source_cutoff, forecast_cutoff=cutoff_text, available_as_of=completed_text, producer_revision=revision)
             if any(entry.get("forecastId") == record["forecastId"] for entry in event_index[snapshot]): continue
             by_date[str(target["game_date"])].append(record)
     publications = []
@@ -765,9 +863,24 @@ def activate_2026_shadow(
         verify_activation_reload_fixture(publication_root, fixture_sha, frozen)
     index["reloadFixtureSha256"] = fixture_sha; index["sourceFoundationManifestSha256"] = runtime.paths.foundation_manifest_sha256; index["sourceDatasetVersionId"] = runtime.paths.dataset_version_id
     authority_deadline = final_publication_deadline if final_forecasts_published else None
-    current_authority_bundles, historical_bundle_shas = _publish_current_authority_bundles(
-        index, exchange_root, publication_deadline=authority_deadline
-    )
+    if publications:
+        current_authority_bundles, historical_bundle_shas = _publish_current_authority_bundles(
+            index, exchange_root, publication_deadline=authority_deadline
+        )
+    else:
+        # A source check that leaves every eligible feature vector unchanged
+        # must not rebuild or restamp the 57 season-wide numerical bundles.
+        # Reuse the already verified locator inventory byte-for-byte.
+        existing_locator = verify_nfl_2026_research_shadow_locator(exchange_root)
+        current_authority_bundles = list(index.get("currentAuthorityBundles") or [])
+        historical_bundle_shas = list(index.get("historicalAuthorityBundleSha256s") or [])
+        if (
+            sorted(item["bundleSha256"] for item in current_authority_bundles)
+            != sorted(existing_locator["currentBundleSha256s"])
+            or sorted(historical_bundle_shas)
+            != sorted(existing_locator["historicalBundleSha256s"])
+        ):
+            raise NflProspectiveShadowError("preserved current-authority locator inventory differs")
     index["currentAuthorityBundles"] = current_authority_bundles
     index["historicalAuthorityBundleSha256s"] = historical_bundle_shas
     locator = write_nfl_2026_research_shadow_locator(
@@ -788,11 +901,16 @@ def activate_2026_shadow(
         "selectionMode": (
             "EXACT_SLATE" if slate_date is not None
             else "NEXT_SLATE_ONLY" if next_slate_only
+            else "ROLLING_WINDOW" if rolling_window_days is not None
             else "ALL_UPCOMING"
         ),
+        "rollingWindowDays": rolling_window_days,
         "forecastsCreated": sum(item["forecastCount"] for item in publications),
         "unchangedEvidenceForecastsReused": sum(not due for due in publication_due),
         "forecastInferenceRows": forecast_inference_rows,
+        "completed2026GameIdsEligibleByFoundationCutoff": completed_2026,
+        "eventPlan": event_plan,
+        "alreadyStartedEvents": started_events,
         "bundleCount": len(publications),
         "bundles": publications,
         "forecastCutoffUtc": cutoff_text,

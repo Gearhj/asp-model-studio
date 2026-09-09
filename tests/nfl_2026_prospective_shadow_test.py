@@ -43,7 +43,9 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
     root = (Path(".runtime") / "nfl-shadow-tests" / uuid.uuid4().hex).resolve()
     publication = root / "publication"
     exchange = root / "exchange"
-    cutoff = datetime(2026, 8, 29, 16, 0, tzinfo=timezone.utc)
+    # Anchor operational timing to the current verified source authority so the
+    # point-in-time guard remains valid as the governed foundation advances.
+    cutoff = P._utc(P.load_foundation_runtime().schedule_as_of_utc) + timedelta(seconds=1)
     clock = {"now": cutoff + timedelta(seconds=1)}
     monkeypatch.setattr(P, "_now_utc", lambda: clock["now"])
     try:
