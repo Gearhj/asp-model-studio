@@ -75,7 +75,9 @@ def _plain_json(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_plain_json(item) for item in value]
     if isinstance(value, np.generic):
-        return value.item()
+        return _plain_json(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if isinstance(value, (pd.Timestamp, datetime)):
         return value.isoformat()
     return value
@@ -839,15 +841,18 @@ def _chronological_calibration(ledger: pd.DataFrame) -> tuple[pd.DataFrame, dict
 
 
 def _paired_block_uncertainty(
-    candidate: pd.DataFrame, reference: pd.DataFrame, *, resamples: int, seed: int
+    candidate: pd.DataFrame, reference: pd.DataFrame, *, resamples: int, seed: int,
+    candidate_prefix: str = "raw", reference_prefix: str = "raw",
 ) -> dict[str, Any]:
     keys = ["canonical_game_id", "season", "week"]
     merged = candidate.merge(reference, on=keys, suffixes=("_candidate", "_reference"), validate="one_to_one")
     candidate_probability = merged[[
-        "raw_away_probability_candidate", "raw_tie_probability_candidate", "raw_home_probability_candidate"
+        f"{candidate_prefix}_away_probability_candidate", f"{candidate_prefix}_tie_probability_candidate",
+        f"{candidate_prefix}_home_probability_candidate"
     ]].to_numpy(float)
     reference_probability = merged[[
-        "raw_away_probability_reference", "raw_tie_probability_reference", "raw_home_probability_reference"
+        f"{reference_prefix}_away_probability_reference", f"{reference_prefix}_tie_probability_reference",
+        f"{reference_prefix}_home_probability_reference"
     ]].to_numpy(float)
     truth = merged["outcome_class_candidate"].to_numpy(int)
     delta = _loss_vector(candidate_probability, truth) - _loss_vector(reference_probability, truth)
@@ -864,6 +869,70 @@ def _paired_block_uncertainty(
         "candidateMinusM1LogLoss": float(delta.mean()),
         "clusterBootstrap95Ci": [float(np.quantile(values, 0.025)), float(np.quantile(values, 0.975))],
         "resamples": int(resamples), "cluster": "SEASON_WEEK",
+        "candidateProbability": candidate_prefix.upper(), "referenceProbability": reference_prefix.upper(),
+    }
+
+
+def _fit_calibrator_artifact(ledger: pd.DataFrame, root: Path, pipeline_id: str) -> dict[str, Any]:
+    columns = ["raw_away_probability", "raw_tie_probability", "raw_home_probability"]
+    model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=2_000, random_state=731001)
+    matrix = np.log(np.clip(ledger[columns].to_numpy(float), 1e-12, 1.0))
+    truth = ledger["outcome_class"].to_numpy(int)
+    model.fit(matrix, truth)
+    artifact = root / "fitted" / f"{pipeline_id.lower()}-multinomial-calibrator.joblib"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    temporary = artifact.with_name(f".{artifact.name}.{uuid.uuid4().hex}.tmp")
+    joblib.dump(model, temporary)
+    os.replace(temporary, artifact)
+    expected = model.predict_proba(matrix[-16:])
+    actual = joblib.load(artifact).predict_proba(matrix[-16:])
+    mismatch = float(np.max(np.abs(expected - actual)))
+    if mismatch != 0.0:
+        raise NflOvernightLabError(f"calibrator reload mismatch: {mismatch}")
+    return {
+        "method": "MULTINOMIAL_LOGIT_ON_LOG_PROBABILITIES", "fitPopulation": "ALL_DEVELOPMENT_OOF",
+        "path": str(artifact.resolve()), "sha256": _sha_file(artifact), "bytes": artifact.stat().st_size,
+        "classOrder": [int(value) for value in model.classes_], "reloadMaximumAbsoluteMismatch": mismatch,
+    }
+
+
+def _interpretability_artifact(
+    fitted_artifact: Mapping[str, Any], development: pd.DataFrame, root: Path, *, seed: int
+) -> dict[str, Any]:
+    fitted: FittedScorePipeline = joblib.load(fitted_artifact["path"])
+    sample = development.loc[development["season"] == int(development["season"].max())].copy()
+    predicted_home, predicted_away, _ = fitted.predict(sample)
+    truth_home = sample["home_points"].to_numpy(float)
+    truth_away = sample["away_points"].to_numpy(float)
+    baseline = float(np.mean((predicted_home - truth_home) ** 2 + (predicted_away - truth_away) ** 2))
+    rng = np.random.default_rng(seed)
+    rows: list[dict[str, Any]] = []
+    for name in fitted.feature_names:
+        if name not in sample.columns:
+            continue
+        shuffled = sample.copy()
+        shuffled[name] = rng.permutation(shuffled[name].to_numpy())
+        home, away, _ = fitted.predict(shuffled)
+        loss = float(np.mean((home - truth_home) ** 2 + (away - truth_away) ** 2))
+        rows.append({"feature": name, "pairedScoreMseIncrease": loss - baseline})
+    frame = pd.DataFrame(rows).sort_values("pairedScoreMseIncrease", ascending=False, kind="stable")
+    path = root / "analysis" / "winner_permutation_importance.csv"
+    frame.to_csv(path, index=False)
+    figure, axis = plt.subplots(figsize=(9, 7))
+    top = frame.head(20).iloc[::-1]
+    axis.barh(top["feature"], top["pairedScoreMseIncrease"], color="#315f72")
+    axis.set_xlabel("Increase in paired home+away score MSE after permutation")
+    axis.set_title("Descriptive finalist importance (2024 refit training sample)")
+    figure.tight_layout()
+    chart = root / "charts" / "winner_permutation_importance.png"
+    figure.savefig(chart, dpi=150)
+    plt.close(figure)
+    return {
+        "method": "SINGLE_FEATURE_PERMUTATION_PAIRED_SCORE_MSE",
+        "scope": "DESCRIPTIVE_2024_REFIT_TRAINING_SAMPLE_NOT_VALIDATION_EVIDENCE",
+        "rows": int(len(frame)), "path": str(path.resolve()), "sha256": _sha_file(path),
+        "chartPath": str(chart.resolve()), "chartSha256": _sha_file(chart),
+        "topFeatures": frame.head(20).to_dict("records"),
     }
 
 
@@ -918,7 +987,90 @@ def _charts(leaderboard: pd.DataFrame, ledgers: Mapping[str, pd.DataFrame], winn
     paths.append(chart_root / "winner_calibration.png")
     figure.savefig(paths[-1], dpi=150)
     plt.close(figure)
+    figure, axis = plt.subplots(figsize=(8, 5))
+    margin_error = (
+        (winner_ledger["predicted_home_points"] - winner_ledger["predicted_away_points"])
+        - (winner_ledger["actual_home_points"] - winner_ledger["actual_away_points"])
+    )
+    axis.hist(margin_error, bins=35, color="#315f72", alpha=0.85)
+    axis.axvline(0.0, color="black", linewidth=1)
+    axis.set(xlabel="Predicted minus actual margin", ylabel="Games", title=f"{winner} margin errors")
+    figure.tight_layout()
+    paths.append(chart_root / "winner_margin_error_distribution.png")
+    figure.savefig(paths[-1], dpi=150)
+    plt.close(figure)
     return [{"path": str(path.resolve()), "sha256": _sha_file(path), "bytes": path.stat().st_size} for path in paths]
+
+
+def _comparison_findings(leaderboard: pd.DataFrame) -> dict[str, Any]:
+    indexed = leaderboard.set_index("pipelineId")
+    effects: list[dict[str, Any]] = []
+    for family in ("RIDGE", "EXTRA_TREES", "HIST_GRADIENT_BOOSTING", "XGBOOST", "MLP"):
+        base = f"{family}_B_T0"
+        if base not in indexed.index:
+            continue
+        base_loss = float(indexed.loc[base, "multiclassLogLoss"])
+        for treatment in ("T1", "T2"):
+            candidate = f"{family}_B_{treatment}"
+            if candidate in indexed.index:
+                loss = float(indexed.loc[candidate, "multiclassLogLoss"])
+                effects.append({"comparison": f"{candidate}_MINUS_{base}", "logLossDelta": loss - base_loss,
+                                "disposition": "HELPED" if loss < base_loss else "HURT"})
+    for family in ("RIDGE", "HIST_GRADIENT_BOOSTING", "XGBOOST"):
+        base = f"{family}_B_T1"
+        if base not in indexed.index:
+            continue
+        base_loss = float(indexed.loc[base, "multiclassLogLoss"])
+        for variant in ("F1", "F2"):
+            candidate = f"{family}_{variant}_T1"
+            if candidate in indexed.index:
+                loss = float(indexed.loc[candidate, "multiclassLogLoss"])
+                effects.append({"comparison": f"{candidate}_MINUS_{base}", "logLossDelta": loss - base_loss,
+                                "disposition": "HELPED" if loss < base_loss else "HURT"})
+    return {"interpretation": "WHOLE_PACKAGE_EFFECTS_NOT_ISOLATED_COMPONENT_CAUSAL_EFFECTS", "effects": effects}
+
+
+def _markdown_report(analysis: Mapping[str, Any]) -> str:
+    leaderboard = analysis["leaderboard"]
+    comparison = analysis["pairedUncertaintyVersusM1"]
+    lines = [
+        "# NFL overnight Development model laboratory",
+        "",
+        f"- Run: `{analysis['runId']}`",
+        f"- Development population: {analysis['developmentRows']:,} games, 1999–2024",
+        "- Validation: five expanding, game-atomic seasonal folds (2020–2024)",
+        "- Final OOT: 2025 SEALED and physically unread",
+        f"- Planned/completed/failed: {analysis['screeningScheduled']}/{analysis['screeningCompleted']}/{sum(1 for item in analysis['pipelines'] if item.get('status') == 'FAILED')}",
+        f"- Development-selected score pipeline: `{analysis['developmentSelectedPipeline']}`",
+        f"- Calibration: `{analysis['calibration']['selected']}`",
+        "- Status: RESEARCH_SHADOW, NOT_PROMOTED, no wagering or AISP execution authority",
+        "",
+        "## Leading pipelines",
+        "",
+        "| Pipeline | Family | Features | Treatment | Log loss | Brier | Margin MAE | Total MAE |",
+        "|---|---|---|---|---:|---:|---:|---:|",
+    ]
+    for item in leaderboard[:10]:
+        lines.append(
+            f"| {item['pipelineId']} | {item['family']} | {item.get('featureVariant')} | {item.get('treatment')} | "
+            f"{item['multiclassLogLoss']:.6f} | {item['multiclassBrier']:.6f} | {item['marginMae']:.4f} | {item['totalMae']:.4f} |"
+        )
+    lines.extend([
+        "", "## Paired conclusion", "",
+        f"The selected candidate minus fold-refitted M1 log-loss difference is {comparison['candidateMinusM1LogLoss']:.6f}. "
+        f"The 95% season-week clustered bootstrap interval is [{comparison['clusterBootstrap95Ci'][0]:.6f}, "
+        f"{comparison['clusterBootstrap95Ci'][1]:.6f}] across {comparison['temporalBlocks']} blocks.",
+        "",
+        "This is Development evidence, not independent confirmation. The interval crosses zero, so M1 remains retained while the fitted candidate is preserved as a research finalist for later prospective comparison.",
+        "",
+        "## Limitations and next decision", "",
+        f"- Market comparison: {analysis['marketBenchmark']['status']} ({analysis['marketBenchmark'].get('reason', 'see manifest')}).",
+        "- Historical quarterback, injury, and weather context was excluded because usable pregame availability was not established in the registered 197-input authority.",
+        "- Tuning was limited to two families and four configurations per fold; no sealed holdout was opened.",
+        "- Recommended next decision: retain M1 and authorize only a fixed, prospective research-shadow comparison of the preserved HGB-T2 calibrated finalist.",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def _market_timing_disposition(authority: Any) -> dict[str, Any]:
@@ -1013,15 +1165,51 @@ def run_overnight_lab(config: LabConfig = LabConfig()) -> dict[str, Any]:
          "featureVariant": item.get("featureVariant"), "treatment": item.get("treatment"),
          **item["metrics"]} for item in completed
     ]).sort_values(["multiclassLogLoss", "pipelineId"], kind="stable").reset_index(drop=True)
-    winner_id = str(leaderboard.iloc[0]["pipelineId"])
-    calibrated, calibration = _chronological_calibration(ledgers[winner_id])
-    calibration_path = run_root / "analysis" / "winner_calibrated_oof.parquet"
-    calibration_sha = _atomic_parquet(calibration_path, calibrated)
     reference_id = "M1_RECIPE_FOLD_REFIT"
-    uncertainty = (
+    finalist_ids = list(dict.fromkeys([
+        *leaderboard.loc[leaderboard["pipelineId"] != reference_id, "pipelineId"].astype(str).head(5).tolist(),
+        *[name for name in ledgers if name.endswith("_TUNED")], reference_id,
+    ]))
+    calibrations: dict[str, Any] = {}
+    calibrated_ledgers: dict[str, pd.DataFrame] = {}
+    for finalist_id in finalist_ids:
+        if finalist_id not in ledgers:
+            continue
+        calibrated, receipt = _chronological_calibration(ledgers[finalist_id])
+        calibration_path = run_root / "analysis" / "calibration" / finalist_id.lower() / "oof_predictions.parquet"
+        calibration_sha = _atomic_parquet(calibration_path, calibrated)
+        receipt.update({"path": str(calibration_path.resolve()), "sha256": calibration_sha})
+        calibrations[finalist_id] = receipt
+        calibrated_ledgers[finalist_id] = calibrated
+    for position, row in leaderboard.iterrows():
+        receipt = calibrations.get(str(row["pipelineId"]))
+        leaderboard.loc[position, "calibratedLogLoss"] = (
+            receipt["calibrated"]["multiclassLogLoss"] if receipt else np.nan
+        )
+        leaderboard.loc[position, "selectedProbability"] = receipt["selected"] if receipt else "RAW"
+        leaderboard.loc[position, "selectedLogLoss"] = (
+            min(receipt["raw"]["multiclassLogLoss"], receipt["calibrated"]["multiclassLogLoss"])
+            if receipt else row["multiclassLogLoss"]
+        )
+    eligible_winners = leaderboard.loc[leaderboard["pipelineId"] != reference_id].sort_values(
+        ["selectedLogLoss", "pipelineId"], kind="stable"
+    )
+    winner_id = str(eligible_winners.iloc[0]["pipelineId"])
+    calibration = calibrations[winner_id]
+    winner_probability = "calibrated" if calibration["selected"] == "REGULARIZED_CALIBRATED" else "raw"
+    reference_probability = (
+        "calibrated" if calibrations.get(reference_id, {}).get("selected") == "REGULARIZED_CALIBRATED" else "raw"
+    )
+    raw_uncertainty = (
         _paired_block_uncertainty(ledgers[winner_id], ledgers[reference_id],
                                   resamples=config.bootstrap_resamples, seed=config.seed + 500_000)
         if reference_id in ledgers else {"status": "UNAVAILABLE_REFERENCE_FAILED"}
+    )
+    uncertainty = (
+        _paired_block_uncertainty(calibrated_ledgers[winner_id], calibrated_ledgers[reference_id],
+                                  resamples=config.bootstrap_resamples, seed=config.seed + 510_000,
+                                  candidate_prefix=winner_probability, reference_prefix=reference_probability)
+        if reference_id in calibrated_ledgers else {"status": "UNAVAILABLE_REFERENCE_FAILED"}
     )
     winner_result = next(item for item in completed if item["pipelineId"] == winner_id)
     source_id = str(winner_result.get("sourcePipelineId", winner_id.removesuffix("_TUNED")))
@@ -1034,11 +1222,35 @@ def run_overnight_lab(config: LabConfig = LabConfig()) -> dict[str, Any]:
     final_artifact = _final_fit_and_reload(
         final_pipeline, final_parameters, development, features, run_root, seed=config.seed + 900_000
     )
+    calibrator_artifact = _fit_calibrator_artifact(ledgers[winner_id], run_root, winner_id)
     charts = _charts(leaderboard, ledgers, winner_id, run_root)
+    interpretability = _interpretability_artifact(
+        final_artifact, development, run_root, seed=config.seed + 920_000
+    )
+    charts.append({
+        "path": interpretability["chartPath"], "sha256": interpretability["chartSha256"],
+        "bytes": Path(interpretability["chartPath"]).stat().st_size,
+    })
     leaderboard_path = run_root / "analysis" / "leaderboard.csv"
     leaderboard_path.parent.mkdir(parents=True, exist_ok=True)
     leaderboard.to_csv(leaderboard_path, index=False)
     market = _market_timing_disposition(authority)
+    treatment_feature_manifest = {
+        "contract": "ASP_NFL_OVERNIGHT_TREATMENT_FEATURE_MANIFEST_V1",
+        "matrixSha256": matrix_sha, "registeredBaselineFeatures": list(features),
+        "treatments": matrix["treatments"], "featureVariants": matrix["featureVariants"],
+        "foldStates": {
+            item["pipelineId"]: [{
+                "foldId": fold["foldId"], "treatmentState": fold.get("treatmentState"),
+                "selectedFeatures": fold.get("selectedFeatures"),
+            } for fold in item.get("folds", [])]
+            for item in completed
+        },
+        "unsupportedHistoricalContextExcluded": ["QUARTERBACK_STATUS", "INJURY_STATUS", "WEATHER"],
+        "marketPredictorsUsed": False, "finalOotAccessed": False,
+    }
+    treatment_manifest_path = run_root / "analysis" / "treatment-feature-manifest.json"
+    treatment_manifest_sha = _atomic_json(treatment_manifest_path, treatment_feature_manifest)
     analysis = {
         "contract": RESULT_CONTRACT, "runId": run_id, "matrixSha256": matrix_sha,
         "foundationBundleSha256": foundation_sha, "developmentRows": int(len(development)),
@@ -1046,14 +1258,22 @@ def run_overnight_lab(config: LabConfig = LabConfig()) -> dict[str, Any]:
         "screeningScheduled": len(matrix["pipelines"]),
         "screeningCompleted": sum(1 for item in results[:len(matrix["pipelines"])] if item.get("status") == "COMPLETED"),
         "tuningSelected": tuning_ids, "pipelines": results, "leaderboard": leaderboard.to_dict("records"),
-        "developmentSelectedPipeline": winner_id, "calibration": calibration,
-        "calibratedOofPath": str(calibration_path.resolve()), "calibratedOofSha256": calibration_sha,
+        "developmentSelectedPipeline": winner_id, "calibration": calibration, "finalistCalibrations": calibrations,
+        "rawPairedUncertaintyVersusM1": raw_uncertainty,
         "pairedUncertaintyVersusM1": uncertainty, "marketBenchmark": market,
-        "fittedDevelopmentArtifact": final_artifact, "charts": charts,
+        "comparisonFindings": _comparison_findings(leaderboard),
+        "treatmentFeatureManifestPath": str(treatment_manifest_path.resolve()),
+        "treatmentFeatureManifestSha256": treatment_manifest_sha,
+        "fittedDevelopmentArtifact": final_artifact, "fittedCalibrationArtifact": calibrator_artifact,
+        "interpretability": interpretability, "charts": charts,
         "status": "RESEARCH_SHADOW", "promotionStatus": "NOT_PROMOTED",
         "wageringAuthority": False, "executionAllowedInAisp": False,
         "completedAt": datetime.now(UTC).isoformat(),
     }
+    report_path = run_root / "analysis" / "REPORT.md"
+    report_path.write_text(_markdown_report(analysis), encoding="utf-8", newline="\n")
+    analysis["reportPath"] = str(report_path.resolve())
+    analysis["reportSha256"] = _sha_file(report_path)
     analysis_sha = _atomic_json(run_root / "analysis" / "result.json", analysis)
     manifest = {
         "contract": "ASP_NFL_OVERNIGHT_MODEL_LAB_MANIFEST_V1", "runId": run_id,
@@ -1072,6 +1292,9 @@ def run_overnight_lab(config: LabConfig = LabConfig()) -> dict[str, Any]:
         "externalManifestPath": str((run_root / "manifest.json").resolve()), "externalManifestSha256": manifest_sha,
         "analysisSha256": analysis_sha, "matrixSha256": matrix_sha,
         "developmentSelectedPipeline": winner_id, "leaderboard": leaderboard.to_dict("records"),
+        "calibration": calibration, "pairedUncertaintyVersusM1": uncertainty,
+        "reportPath": str(report_path.resolve()), "reportSha256": analysis["reportSha256"],
+        "fittedDevelopmentArtifact": final_artifact, "fittedCalibrationArtifact": calibrator_artifact,
         "finalOotAccessed": False, "status": "RESEARCH_SHADOW", "promotionStatus": "NOT_PROMOTED",
         "wageringAuthority": False, "executionAllowedInAisp": False,
     }

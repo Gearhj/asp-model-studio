@@ -58,7 +58,8 @@ def test_chronological_calibration_never_uses_same_season() -> None:
 
 
 def test_canonical_receipt_accepts_numpy_dataframe_scalars() -> None:
-    assert _plain_json({"games": np.int32(269), "loss": np.float64(0.67)}) == {
+    assert _plain_json({"games": np.int32(269), "loss": np.float64(0.67), "optional": np.nan}) == {
         "games": 269,
         "loss": 0.67,
+        "optional": None,
     }
