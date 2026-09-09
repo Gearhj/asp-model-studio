@@ -2,3 +2,12 @@
 docs/corrected-treatment-diagnostics/sha256/*.json -text
 outputs/mlb-corrected-treatment/*.json -text
 outputs/mlb-v18-pa-game-baseline/** -text
+# New immutable research evidence must retain exact addressed bytes on Windows.
+outputs/mlb-v18-cold-start-reconciliation-v1/** -text
+outputs/nfl-labs-simulation-v1/** -text
+outputs/nfl-research-benchmarks-v1/** -text
+outputs/nfl-semantic-lab-v1/** -text
+outputs/nfl-semantic-session-v1/** -text
+# These two executable sources are part of the frozen semantic run identity.
+server/sports_nfl_m1/semantic_features.py text eol=lf
+server/sports_nfl_m1/semantic_lab.py text eol=lf

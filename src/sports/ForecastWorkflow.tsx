@@ -34,6 +34,7 @@ import {
   type SportsWorkflowStep,
 } from "./sportsConfig";
 import { sportsIdentityBridgeIsValidated, sportsPaDecisionStatus, type ActiveSportsDataset, type SportsProjectStage, useActiveSportsDataset } from "./sportsEvidenceApi";
+import NflLaboratory from "./NflLaboratory";
 
 type ForecastWorkflowProps = {
   workflowKey?: SportsWorkflowKey;
@@ -100,7 +101,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
               <ArrowLeft size={16} aria-hidden="true" /> Workflow Library
             </Link>
             <span className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold tracking-[0.09em] ${resolvedKey === "mlb" ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-200" : "border-blue-300/25 bg-blue-300/10 text-blue-200"}`}>
-              {workflow.status}
+              {resolvedKey === "nfl" ? "RESEARCH LABORATORY" : workflow.status}
             </span>
           </div>
 
@@ -111,18 +112,21 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
               </div>
               <div className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{workflow.sport} · {workflow.league}</div>
               <h1 className="mt-2 text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">{workflow.title}</h1>
-              <p className="mt-4 max-w-4xl text-[15px] leading-7 text-slate-300 sm:text-base">{workflow.description}</p>
+              <p className="mt-4 max-w-4xl text-[15px] leading-7 text-slate-300 sm:text-base">{resolvedKey === "nfl" ? "Compare saved NFL model experiments, semantic cold-start treatments, chronological evidence and research simulation artifacts. Official models and decision authority remain unchanged." : workflow.description}</p>
               {resolvedKey === "nfl" && (
                 <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-blue-300/20 bg-blue-300/10 px-3 py-2 text-xs font-medium text-blue-100">
-                  <AlertCircle size={15} aria-hidden="true" /> Workflow foundation only. No NFL models or data are configured.
+                  <FlaskConical size={15} aria-hidden="true" /> NFL research laboratory evidence is available below. Official model authority is unchanged.
                 </div>
               )}
             </div>
-            <WorkflowReadiness workflow={workflow} evidencedSteps={evidencedSteps} blockedSteps={blockedSteps} />
+            {resolvedKey === "nfl" ? <div className="rounded-2xl border border-blue-300/20 bg-blue-300/10 p-5 text-sm leading-6 text-blue-100">Use the laboratory below for completed runs, treatment definitions, matched comparisons and verified artifact downloads. Research evidence is distinct from promotion and wagering authority.</div> : <WorkflowReadiness workflow={workflow} evidencedSteps={evidencedSteps} blockedSteps={blockedSteps} />}
           </div>
         </div>
       </section>
 
+      {resolvedKey === "nfl" && <NflLaboratory />}
+
+      {resolvedKey === "mlb" && <>
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label={`${workflow.league} workflow status`}>
         <SummaryCard label="Workflow stages" value="12" helper="Full governed path" icon={Route} />
         <SummaryCard label="Evidence states" value={String(evidencedSteps)} helper={blockedSteps ? `${blockedSteps} blocked stage shown separately` : "No status inferred"} icon={SlidersHorizontal} />
@@ -213,6 +217,7 @@ export default function ForecastWorkflow({ workflowKey }: ForecastWorkflowProps)
           <LockKeyhole size={15} aria-hidden="true" /> Export {workflow.league} Bundle
         </button>
       </section>
+      </>}
     </main>
   );
 }

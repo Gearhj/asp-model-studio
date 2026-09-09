@@ -18,6 +18,10 @@ from .registry import (
 
 router = APIRouter()
 
+from ..sports_nfl_m1.laboratory_ui import router as nfl_laboratory_router
+
+router.include_router(nfl_laboratory_router)
+
 
 @router.get("/sports/registry")
 def read_sport_registry():

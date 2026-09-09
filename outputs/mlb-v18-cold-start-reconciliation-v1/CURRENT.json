@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "MLB_V18_COLD_START_RECONCILIATION_V1",
+  "status": "COMPLETE",
+  "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-cold-start-reconciliation-v1\\sha256\\86b955bf0d4a2b136ac97436f740da31b042b0e95e612d363cb98d7d05a3dc7b\\reconciliation.json",
+  "sha256": "86b955bf0d4a2b136ac97436f740da31b042b0e95e612d363cb98d7d05a3dc7b",
+  "reportPath": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-cold-start-reconciliation-v1\\sha256\\86b955bf0d4a2b136ac97436f740da31b042b0e95e612d363cb98d7d05a3dc7b\\REPORT.md"
+}

@@ -1,0 +1,553 @@
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2020:residual", "target": "home_points", "time": "2026-09-09T13:33:21.925829+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2020:residual", "target": "home_points", "time": "2026-09-09T13:33:27.163045+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2020:residual", "target": "away_points", "time": "2026-09-09T13:33:27.164045+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2020:residual", "target": "away_points", "time": "2026-09-09T13:33:31.356599+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2020:main", "target": "home_points", "time": "2026-09-09T13:33:32.016993+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2020:main", "target": "home_points", "time": "2026-09-09T13:33:36.411877+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2020:main", "target": "away_points", "time": "2026-09-09T13:33:36.412876+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2020:main", "target": "away_points", "time": "2026-09-09T13:33:40.474593+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C1", "season": 2020, "time": "2026-09-09T13:33:41.475539+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2021:residual", "target": "home_points", "time": "2026-09-09T13:33:41.883529+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2021:residual", "target": "home_points", "time": "2026-09-09T13:33:45.952692+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2021:residual", "target": "away_points", "time": "2026-09-09T13:33:45.952692+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2021:residual", "target": "away_points", "time": "2026-09-09T13:33:49.400679+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2021:main", "target": "home_points", "time": "2026-09-09T13:33:49.751052+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2021:main", "target": "home_points", "time": "2026-09-09T13:33:54.283269+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2021:main", "target": "away_points", "time": "2026-09-09T13:33:54.293775+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2021:main", "target": "away_points", "time": "2026-09-09T13:33:58.747246+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C1", "season": 2021, "time": "2026-09-09T13:33:59.632198+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2022:residual", "target": "home_points", "time": "2026-09-09T13:34:00.013670+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2022:residual", "target": "home_points", "time": "2026-09-09T13:34:03.810754+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2022:residual", "target": "away_points", "time": "2026-09-09T13:34:03.811381+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2022:residual", "target": "away_points", "time": "2026-09-09T13:34:08.094996+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2022:main", "target": "home_points", "time": "2026-09-09T13:34:08.507339+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2022:main", "target": "home_points", "time": "2026-09-09T13:34:12.310680+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2022:main", "target": "away_points", "time": "2026-09-09T13:34:12.310680+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2022:main", "target": "away_points", "time": "2026-09-09T13:34:16.212164+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C1", "season": 2022, "time": "2026-09-09T13:34:17.561303+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2023:residual", "target": "home_points", "time": "2026-09-09T13:34:18.073583+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2023:residual", "target": "home_points", "time": "2026-09-09T13:34:22.600336+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2023:residual", "target": "away_points", "time": "2026-09-09T13:34:22.600336+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2023:residual", "target": "away_points", "time": "2026-09-09T13:34:26.646553+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2023:main", "target": "home_points", "time": "2026-09-09T13:34:27.040559+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2023:main", "target": "home_points", "time": "2026-09-09T13:34:30.941378+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2023:main", "target": "away_points", "time": "2026-09-09T13:34:30.941378+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2023:main", "target": "away_points", "time": "2026-09-09T13:34:34.888685+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C1", "season": 2023, "time": "2026-09-09T13:34:35.772997+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2024:residual", "target": "home_points", "time": "2026-09-09T13:34:36.203997+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2024:residual", "target": "home_points", "time": "2026-09-09T13:34:40.488359+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2024:residual", "target": "away_points", "time": "2026-09-09T13:34:40.488359+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2024:residual", "target": "away_points", "time": "2026-09-09T13:34:45.003633+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2024:main", "target": "home_points", "time": "2026-09-09T13:34:45.472391+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2024:main", "target": "home_points", "time": "2026-09-09T13:34:50.102229+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C1:2024:main", "target": "away_points", "time": "2026-09-09T13:34:50.102229+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C1:2024:main", "target": "away_points", "time": "2026-09-09T13:34:54.234070+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C1", "season": 2024, "time": "2026-09-09T13:34:55.135467+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2020:residual", "target": "home_points", "time": "2026-09-09T13:34:55.602011+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2020:residual", "target": "home_points", "time": "2026-09-09T13:35:01.732426+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2020:residual", "target": "away_points", "time": "2026-09-09T13:35:01.732426+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2020:residual", "target": "away_points", "time": "2026-09-09T13:35:07.494495+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2020:main", "target": "home_points", "time": "2026-09-09T13:35:07.897500+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2020:main", "target": "home_points", "time": "2026-09-09T13:35:14.763889+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2020:main", "target": "away_points", "time": "2026-09-09T13:35:14.763889+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2020:main", "target": "away_points", "time": "2026-09-09T13:35:20.718277+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C1", "season": 2020, "time": "2026-09-09T13:35:21.760548+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2021:residual", "target": "home_points", "time": "2026-09-09T13:35:22.135245+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2021:residual", "target": "home_points", "time": "2026-09-09T13:35:28.726338+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2021:residual", "target": "away_points", "time": "2026-09-09T13:35:28.741962+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2021:residual", "target": "away_points", "time": "2026-09-09T13:35:35.356243+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2021:main", "target": "home_points", "time": "2026-09-09T13:35:35.690935+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2021:main", "target": "home_points", "time": "2026-09-09T13:35:41.789483+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2021:main", "target": "away_points", "time": "2026-09-09T13:35:41.789483+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2021:main", "target": "away_points", "time": "2026-09-09T13:35:47.652647+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C1", "season": 2021, "time": "2026-09-09T13:35:48.859587+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2022:residual", "target": "home_points", "time": "2026-09-09T13:35:49.205799+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2022:residual", "target": "home_points", "time": "2026-09-09T13:35:55.769531+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2022:residual", "target": "away_points", "time": "2026-09-09T13:35:55.769531+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2022:residual", "target": "away_points", "time": "2026-09-09T13:36:02.212624+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2022:main", "target": "home_points", "time": "2026-09-09T13:36:02.651239+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2022:main", "target": "home_points", "time": "2026-09-09T13:36:09.516385+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2022:main", "target": "away_points", "time": "2026-09-09T13:36:09.516385+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2022:main", "target": "away_points", "time": "2026-09-09T13:36:15.932796+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C1", "season": 2022, "time": "2026-09-09T13:36:17.231183+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2023:residual", "target": "home_points", "time": "2026-09-09T13:36:17.731208+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2023:residual", "target": "home_points", "time": "2026-09-09T13:36:24.546041+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2023:residual", "target": "away_points", "time": "2026-09-09T13:36:24.546041+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2023:residual", "target": "away_points", "time": "2026-09-09T13:36:31.647212+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2023:main", "target": "home_points", "time": "2026-09-09T13:36:32.135643+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2023:main", "target": "home_points", "time": "2026-09-09T13:36:38.676062+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2023:main", "target": "away_points", "time": "2026-09-09T13:36:38.676062+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2023:main", "target": "away_points", "time": "2026-09-09T13:36:45.170996+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C1", "season": 2023, "time": "2026-09-09T13:36:46.358941+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2024:residual", "target": "home_points", "time": "2026-09-09T13:36:46.774087+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2024:residual", "target": "home_points", "time": "2026-09-09T13:36:54.122394+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2024:residual", "target": "away_points", "time": "2026-09-09T13:36:54.122394+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2024:residual", "target": "away_points", "time": "2026-09-09T13:37:00.739690+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2024:main", "target": "home_points", "time": "2026-09-09T13:37:01.112613+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2024:main", "target": "home_points", "time": "2026-09-09T13:37:08.265992+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C1:2024:main", "target": "away_points", "time": "2026-09-09T13:37:08.265992+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C1:2024:main", "target": "away_points", "time": "2026-09-09T13:37:14.720150+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C1", "season": 2024, "time": "2026-09-09T13:37:15.920871+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2020:residual", "target": "home_points", "time": "2026-09-09T13:37:17.162997+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2020:residual", "target": "home_points", "time": "2026-09-09T13:37:21.332599+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2020:residual", "target": "away_points", "time": "2026-09-09T13:37:21.332599+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2020:residual", "target": "away_points", "time": "2026-09-09T13:37:25.382673+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2020:main", "target": "home_points", "time": "2026-09-09T13:37:26.437558+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2020:main", "target": "home_points", "time": "2026-09-09T13:37:30.769892+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2020:main", "target": "away_points", "time": "2026-09-09T13:37:30.770872+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2020:main", "target": "away_points", "time": "2026-09-09T13:37:35.008326+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2", "season": 2020, "time": "2026-09-09T13:37:36.246775+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2021:residual", "target": "home_points", "time": "2026-09-09T13:37:37.528764+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2021:residual", "target": "home_points", "time": "2026-09-09T13:37:42.395987+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2021:residual", "target": "away_points", "time": "2026-09-09T13:37:42.395987+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2021:residual", "target": "away_points", "time": "2026-09-09T13:37:46.743238+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2021:main", "target": "home_points", "time": "2026-09-09T13:37:48.069514+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2021:main", "target": "home_points", "time": "2026-09-09T13:37:54.443158+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2021:main", "target": "away_points", "time": "2026-09-09T13:37:54.443158+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2021:main", "target": "away_points", "time": "2026-09-09T13:37:59.550225+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2", "season": 2021, "time": "2026-09-09T13:38:00.874746+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2022:residual", "target": "home_points", "time": "2026-09-09T13:38:02.196338+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2022:residual", "target": "home_points", "time": "2026-09-09T13:38:07.155111+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2022:residual", "target": "away_points", "time": "2026-09-09T13:38:07.155111+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2022:residual", "target": "away_points", "time": "2026-09-09T13:38:11.589106+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2022:main", "target": "home_points", "time": "2026-09-09T13:38:12.820671+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2022:main", "target": "home_points", "time": "2026-09-09T13:38:17.580529+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2022:main", "target": "away_points", "time": "2026-09-09T13:38:17.581261+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2022:main", "target": "away_points", "time": "2026-09-09T13:38:22.536276+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2", "season": 2022, "time": "2026-09-09T13:38:23.784454+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2023:residual", "target": "home_points", "time": "2026-09-09T13:38:25.233618+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2023:residual", "target": "home_points", "time": "2026-09-09T13:38:30.506542+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2023:residual", "target": "away_points", "time": "2026-09-09T13:38:30.507540+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2023:residual", "target": "away_points", "time": "2026-09-09T13:38:34.975998+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2023:main", "target": "home_points", "time": "2026-09-09T13:38:36.342658+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2023:main", "target": "home_points", "time": "2026-09-09T13:38:41.230367+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2023:main", "target": "away_points", "time": "2026-09-09T13:38:41.230367+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2023:main", "target": "away_points", "time": "2026-09-09T13:38:46.080413+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2", "season": 2023, "time": "2026-09-09T13:38:47.463558+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2024:residual", "target": "home_points", "time": "2026-09-09T13:38:48.903157+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2024:residual", "target": "home_points", "time": "2026-09-09T13:38:54.478668+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2024:residual", "target": "away_points", "time": "2026-09-09T13:38:54.478668+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2024:residual", "target": "away_points", "time": "2026-09-09T13:38:59.953573+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2024:main", "target": "home_points", "time": "2026-09-09T13:39:01.461413+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2024:main", "target": "home_points", "time": "2026-09-09T13:39:06.681606+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:2024:main", "target": "away_points", "time": "2026-09-09T13:39:06.682586+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:2024:main", "target": "away_points", "time": "2026-09-09T13:39:11.691510+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2", "season": 2024, "time": "2026-09-09T13:39:12.906152+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2020:residual", "target": "home_points", "time": "2026-09-09T13:39:14.222517+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2020:residual", "target": "home_points", "time": "2026-09-09T13:39:21.605471+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2020:residual", "target": "away_points", "time": "2026-09-09T13:39:21.605471+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2020:residual", "target": "away_points", "time": "2026-09-09T13:39:28.652446+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2020:main", "target": "home_points", "time": "2026-09-09T13:39:29.886709+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2020:main", "target": "home_points", "time": "2026-09-09T13:39:37.392571+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2020:main", "target": "away_points", "time": "2026-09-09T13:39:37.392571+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2020:main", "target": "away_points", "time": "2026-09-09T13:39:44.215482+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C2", "season": 2020, "time": "2026-09-09T13:39:45.574265+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2021:residual", "target": "home_points", "time": "2026-09-09T13:39:46.900018+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2021:residual", "target": "home_points", "time": "2026-09-09T13:39:54.047825+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2021:residual", "target": "away_points", "time": "2026-09-09T13:39:54.063082+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2021:residual", "target": "away_points", "time": "2026-09-09T13:40:00.896028+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2021:main", "target": "home_points", "time": "2026-09-09T13:40:02.246443+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2021:main", "target": "home_points", "time": "2026-09-09T13:40:09.494216+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2021:main", "target": "away_points", "time": "2026-09-09T13:40:09.494216+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2021:main", "target": "away_points", "time": "2026-09-09T13:40:16.422271+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C2", "season": 2021, "time": "2026-09-09T13:40:18.031061+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2022:residual", "target": "home_points", "time": "2026-09-09T13:40:19.575241+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2022:residual", "target": "home_points", "time": "2026-09-09T13:40:26.301732+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2022:residual", "target": "away_points", "time": "2026-09-09T13:40:26.301732+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2022:residual", "target": "away_points", "time": "2026-09-09T13:40:35.627970+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2022:main", "target": "home_points", "time": "2026-09-09T13:40:37.069620+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2022:main", "target": "home_points", "time": "2026-09-09T13:40:45.684378+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2022:main", "target": "away_points", "time": "2026-09-09T13:40:45.684378+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2022:main", "target": "away_points", "time": "2026-09-09T13:40:53.034287+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C2", "season": 2022, "time": "2026-09-09T13:40:54.685861+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2023:residual", "target": "home_points", "time": "2026-09-09T13:40:56.081919+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2023:residual", "target": "home_points", "time": "2026-09-09T13:41:03.954071+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2023:residual", "target": "away_points", "time": "2026-09-09T13:41:03.954071+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2023:residual", "target": "away_points", "time": "2026-09-09T13:41:12.777806+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2023:main", "target": "home_points", "time": "2026-09-09T13:41:14.261509+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2023:main", "target": "home_points", "time": "2026-09-09T13:41:22.092259+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2023:main", "target": "away_points", "time": "2026-09-09T13:41:22.092259+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2023:main", "target": "away_points", "time": "2026-09-09T13:41:29.207264+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C2", "season": 2023, "time": "2026-09-09T13:41:30.650242+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2024:residual", "target": "home_points", "time": "2026-09-09T13:41:32.174446+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2024:residual", "target": "home_points", "time": "2026-09-09T13:41:39.487880+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2024:residual", "target": "away_points", "time": "2026-09-09T13:41:39.489878+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2024:residual", "target": "away_points", "time": "2026-09-09T13:41:46.758714+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2024:main", "target": "home_points", "time": "2026-09-09T13:41:48.105001+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2024:main", "target": "home_points", "time": "2026-09-09T13:41:55.435219+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C2:2024:main", "target": "away_points", "time": "2026-09-09T13:41:55.435873+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C2:2024:main", "target": "away_points", "time": "2026-09-09T13:42:02.824579+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C2", "season": 2024, "time": "2026-09-09T13:42:04.133555+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2020:residual", "target": "home_points", "time": "2026-09-09T13:42:05.641392+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2020:residual", "target": "home_points", "time": "2026-09-09T13:42:10.298394+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2020:residual", "target": "away_points", "time": "2026-09-09T13:42:10.299162+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2020:residual", "target": "away_points", "time": "2026-09-09T13:42:14.561654+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2020:main", "target": "home_points", "time": "2026-09-09T13:42:15.722965+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2020:main", "target": "home_points", "time": "2026-09-09T13:42:20.379774+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2020:main", "target": "away_points", "time": "2026-09-09T13:42:20.379774+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2020:main", "target": "away_points", "time": "2026-09-09T13:42:24.844065+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3", "season": 2020, "time": "2026-09-09T13:42:25.963118+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2021:residual", "target": "home_points", "time": "2026-09-09T13:42:27.126917+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2021:residual", "target": "home_points", "time": "2026-09-09T13:42:31.659118+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2021:residual", "target": "away_points", "time": "2026-09-09T13:42:31.659118+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2021:residual", "target": "away_points", "time": "2026-09-09T13:42:36.008111+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2021:main", "target": "home_points", "time": "2026-09-09T13:42:37.050625+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2021:main", "target": "home_points", "time": "2026-09-09T13:42:42.739854+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2021:main", "target": "away_points", "time": "2026-09-09T13:42:42.739854+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2021:main", "target": "away_points", "time": "2026-09-09T13:42:47.259404+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3", "season": 2021, "time": "2026-09-09T13:42:48.344072+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2022:residual", "target": "home_points", "time": "2026-09-09T13:42:49.688211+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2022:residual", "target": "home_points", "time": "2026-09-09T13:42:54.703728+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2022:residual", "target": "away_points", "time": "2026-09-09T13:42:54.704728+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2022:residual", "target": "away_points", "time": "2026-09-09T13:42:59.215862+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2022:main", "target": "home_points", "time": "2026-09-09T13:43:00.693108+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2022:main", "target": "home_points", "time": "2026-09-09T13:43:06.369143+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2022:main", "target": "away_points", "time": "2026-09-09T13:43:06.369143+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2022:main", "target": "away_points", "time": "2026-09-09T13:43:12.300376+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3", "season": 2022, "time": "2026-09-09T13:43:13.583836+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2023:residual", "target": "home_points", "time": "2026-09-09T13:43:14.735508+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2023:residual", "target": "home_points", "time": "2026-09-09T13:43:21.231603+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2023:residual", "target": "away_points", "time": "2026-09-09T13:43:21.231603+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2023:residual", "target": "away_points", "time": "2026-09-09T13:43:26.438579+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2023:main", "target": "home_points", "time": "2026-09-09T13:43:28.247055+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2023:main", "target": "home_points", "time": "2026-09-09T13:43:33.812489+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2023:main", "target": "away_points", "time": "2026-09-09T13:43:33.812489+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2023:main", "target": "away_points", "time": "2026-09-09T13:43:39.409495+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3", "season": 2023, "time": "2026-09-09T13:43:40.685460+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2024:residual", "target": "home_points", "time": "2026-09-09T13:43:42.059453+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2024:residual", "target": "home_points", "time": "2026-09-09T13:43:47.258543+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2024:residual", "target": "away_points", "time": "2026-09-09T13:43:47.258543+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2024:residual", "target": "away_points", "time": "2026-09-09T13:43:53.133023+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2024:main", "target": "home_points", "time": "2026-09-09T13:43:54.450792+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2024:main", "target": "home_points", "time": "2026-09-09T13:44:00.654742+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:2024:main", "target": "away_points", "time": "2026-09-09T13:44:00.654742+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:2024:main", "target": "away_points", "time": "2026-09-09T13:44:06.903249+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3", "season": 2024, "time": "2026-09-09T13:44:08.233619+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2020:residual", "target": "home_points", "time": "2026-09-09T13:44:09.787752+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2020:residual", "target": "home_points", "time": "2026-09-09T13:44:18.159003+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2020:residual", "target": "away_points", "time": "2026-09-09T13:44:18.159983+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2020:residual", "target": "away_points", "time": "2026-09-09T13:44:27.172597+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2020:main", "target": "home_points", "time": "2026-09-09T13:44:29.249225+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2020:main", "target": "home_points", "time": "2026-09-09T13:44:36.846176+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2020:main", "target": "away_points", "time": "2026-09-09T13:44:36.846176+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2020:main", "target": "away_points", "time": "2026-09-09T13:44:43.332355+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C3", "season": 2020, "time": "2026-09-09T13:44:44.478895+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2021:residual", "target": "home_points", "time": "2026-09-09T13:44:45.478990+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2021:residual", "target": "home_points", "time": "2026-09-09T13:44:51.962888+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2021:residual", "target": "away_points", "time": "2026-09-09T13:44:51.962888+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2021:residual", "target": "away_points", "time": "2026-09-09T13:44:57.984306+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2021:main", "target": "home_points", "time": "2026-09-09T13:44:59.057949+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2021:main", "target": "home_points", "time": "2026-09-09T13:45:05.439372+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2021:main", "target": "away_points", "time": "2026-09-09T13:45:05.439372+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2021:main", "target": "away_points", "time": "2026-09-09T13:45:11.359803+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C3", "season": 2021, "time": "2026-09-09T13:45:12.523239+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2022:residual", "target": "home_points", "time": "2026-09-09T13:45:13.571895+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2022:residual", "target": "home_points", "time": "2026-09-09T13:45:20.369936+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2022:residual", "target": "away_points", "time": "2026-09-09T13:45:20.369936+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2022:residual", "target": "away_points", "time": "2026-09-09T13:45:26.567290+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2022:main", "target": "home_points", "time": "2026-09-09T13:45:27.870608+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2022:main", "target": "home_points", "time": "2026-09-09T13:45:34.849157+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2022:main", "target": "away_points", "time": "2026-09-09T13:45:34.849157+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2022:main", "target": "away_points", "time": "2026-09-09T13:45:41.074692+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C3", "season": 2022, "time": "2026-09-09T13:45:42.581059+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2023:residual", "target": "home_points", "time": "2026-09-09T13:45:43.685195+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2023:residual", "target": "home_points", "time": "2026-09-09T13:45:51.463370+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2023:residual", "target": "away_points", "time": "2026-09-09T13:45:51.463370+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2023:residual", "target": "away_points", "time": "2026-09-09T13:45:57.845819+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2023:main", "target": "home_points", "time": "2026-09-09T13:45:58.939230+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2023:main", "target": "home_points", "time": "2026-09-09T13:46:05.294780+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2023:main", "target": "away_points", "time": "2026-09-09T13:46:05.294780+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2023:main", "target": "away_points", "time": "2026-09-09T13:46:11.477859+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C3", "season": 2023, "time": "2026-09-09T13:46:12.691585+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2024:residual", "target": "home_points", "time": "2026-09-09T13:46:13.856489+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2024:residual", "target": "home_points", "time": "2026-09-09T13:46:20.039972+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2024:residual", "target": "away_points", "time": "2026-09-09T13:46:20.039972+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2024:residual", "target": "away_points", "time": "2026-09-09T13:46:26.309988+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2024:main", "target": "home_points", "time": "2026-09-09T13:46:27.455222+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2024:main", "target": "home_points", "time": "2026-09-09T13:46:33.718595+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "HGB_C3:2024:main", "target": "away_points", "time": "2026-09-09T13:46:33.718595+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "HGB_C3:2024:main", "target": "away_points", "time": "2026-09-09T13:46:40.006122+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "HGB_C3", "season": 2024, "time": "2026-09-09T13:46:41.118694+00:00"}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2020:residual", "time": "2026-09-09T13:46:41.699981+00:00", "trainingRows": 5316}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2020:main", "time": "2026-09-09T13:46:42.263116+00:00", "trainingRows": 5583}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "DYNAMIC_TEAM_SCORE_BLEND", "season": 2020, "time": "2026-09-09T13:46:43.251167+00:00"}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2021:residual", "time": "2026-09-09T13:46:43.725501+00:00", "trainingRows": 5583}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2021:main", "time": "2026-09-09T13:46:44.216117+00:00", "trainingRows": 5852}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "DYNAMIC_TEAM_SCORE_BLEND", "season": 2021, "time": "2026-09-09T13:46:45.308689+00:00"}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2022:residual", "time": "2026-09-09T13:46:45.765712+00:00", "trainingRows": 5852}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2022:main", "time": "2026-09-09T13:46:46.256938+00:00", "trainingRows": 6137}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "DYNAMIC_TEAM_SCORE_BLEND", "season": 2022, "time": "2026-09-09T13:46:47.266018+00:00"}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2023:residual", "time": "2026-09-09T13:46:47.748957+00:00", "trainingRows": 6137}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2023:main", "time": "2026-09-09T13:46:48.313655+00:00", "trainingRows": 6421}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "DYNAMIC_TEAM_SCORE_BLEND", "season": 2023, "time": "2026-09-09T13:46:49.332285+00:00"}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2024:residual", "time": "2026-09-09T13:46:49.838819+00:00", "trainingRows": 6421}
+{"event": "DYNAMIC_PARAMETER_FIT", "tag": "DYNAMIC_TEAM_SCORE_BLEND:2024:main", "time": "2026-09-09T13:46:50.345937+00:00", "trainingRows": 6706}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "DYNAMIC_TEAM_SCORE_BLEND", "season": 2024, "time": "2026-09-09T13:46:51.364902+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner0:residual", "target": "home_points", "time": "2026-09-09T13:46:52.801078+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner0:residual", "target": "home_points", "time": "2026-09-09T13:46:56.714840+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner0:residual", "target": "away_points", "time": "2026-09-09T13:46:56.714840+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner0:residual", "target": "away_points", "time": "2026-09-09T13:47:00.302069+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner0:main", "target": "home_points", "time": "2026-09-09T13:47:01.178699+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner0:main", "target": "home_points", "time": "2026-09-09T13:47:04.918268+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner0:main", "target": "away_points", "time": "2026-09-09T13:47:04.919273+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner0:main", "target": "away_points", "time": "2026-09-09T13:47:08.650316+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner1:residual", "target": "home_points", "time": "2026-09-09T13:47:10.344613+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner1:residual", "target": "home_points", "time": "2026-09-09T13:47:13.225780+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner1:residual", "target": "away_points", "time": "2026-09-09T13:47:13.225780+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner1:residual", "target": "away_points", "time": "2026-09-09T13:47:15.888208+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner1:main", "target": "home_points", "time": "2026-09-09T13:47:16.753536+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner1:main", "target": "home_points", "time": "2026-09-09T13:47:19.507644+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:inner1:main", "target": "away_points", "time": "2026-09-09T13:47:19.507644+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:inner1:main", "target": "away_points", "time": "2026-09-09T13:47:22.460334+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:selected:residual", "target": "home_points", "time": "2026-09-09T13:47:24.240680+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:selected:residual", "target": "home_points", "time": "2026-09-09T13:47:27.043687+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:selected:residual", "target": "away_points", "time": "2026-09-09T13:47:27.044687+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:selected:residual", "target": "away_points", "time": "2026-09-09T13:47:29.889995+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:selected:main", "target": "home_points", "time": "2026-09-09T13:47:30.860651+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:selected:main", "target": "home_points", "time": "2026-09-09T13:47:33.870881+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2020:selected:main", "target": "away_points", "time": "2026-09-09T13:47:33.870881+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2020:selected:main", "target": "away_points", "time": "2026-09-09T13:47:37.003508+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2_TUNED", "season": 2020, "time": "2026-09-09T13:47:37.919909+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner0:residual", "target": "home_points", "time": "2026-09-09T13:47:39.084007+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner0:residual", "target": "home_points", "time": "2026-09-09T13:47:43.106961+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner0:residual", "target": "away_points", "time": "2026-09-09T13:47:43.106961+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner0:residual", "target": "away_points", "time": "2026-09-09T13:47:46.901084+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner0:main", "target": "home_points", "time": "2026-09-09T13:47:47.969997+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner0:main", "target": "home_points", "time": "2026-09-09T13:47:52.234109+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner0:main", "target": "away_points", "time": "2026-09-09T13:47:52.234109+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner0:main", "target": "away_points", "time": "2026-09-09T13:47:57.137502+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner1:residual", "target": "home_points", "time": "2026-09-09T13:47:59.266009+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner1:residual", "target": "home_points", "time": "2026-09-09T13:48:02.553081+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner1:residual", "target": "away_points", "time": "2026-09-09T13:48:02.553081+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner1:residual", "target": "away_points", "time": "2026-09-09T13:48:05.831382+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner1:main", "target": "home_points", "time": "2026-09-09T13:48:06.863183+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner1:main", "target": "home_points", "time": "2026-09-09T13:48:09.955810+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:inner1:main", "target": "away_points", "time": "2026-09-09T13:48:09.956792+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:inner1:main", "target": "away_points", "time": "2026-09-09T13:48:12.711697+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:selected:residual", "target": "home_points", "time": "2026-09-09T13:48:14.495589+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:selected:residual", "target": "home_points", "time": "2026-09-09T13:48:18.478491+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:selected:residual", "target": "away_points", "time": "2026-09-09T13:48:18.478491+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:selected:residual", "target": "away_points", "time": "2026-09-09T13:48:23.493609+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:selected:main", "target": "home_points", "time": "2026-09-09T13:48:25.202809+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:selected:main", "target": "home_points", "time": "2026-09-09T13:48:30.245884+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2021:selected:main", "target": "away_points", "time": "2026-09-09T13:48:30.246884+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2021:selected:main", "target": "away_points", "time": "2026-09-09T13:48:34.989774+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2_TUNED", "season": 2021, "time": "2026-09-09T13:48:36.260232+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner0:residual", "target": "home_points", "time": "2026-09-09T13:48:37.456833+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner0:residual", "target": "home_points", "time": "2026-09-09T13:48:41.707192+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner0:residual", "target": "away_points", "time": "2026-09-09T13:48:41.707521+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner0:residual", "target": "away_points", "time": "2026-09-09T13:48:45.886139+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner0:main", "target": "home_points", "time": "2026-09-09T13:48:46.829695+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner0:main", "target": "home_points", "time": "2026-09-09T13:48:50.969295+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner0:main", "target": "away_points", "time": "2026-09-09T13:48:50.984928+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner0:main", "target": "away_points", "time": "2026-09-09T13:48:55.323570+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner1:residual", "target": "home_points", "time": "2026-09-09T13:48:57.668529+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner1:residual", "target": "home_points", "time": "2026-09-09T13:49:01.034514+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner1:residual", "target": "away_points", "time": "2026-09-09T13:49:01.050139+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner1:residual", "target": "away_points", "time": "2026-09-09T13:49:04.267506+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner1:main", "target": "home_points", "time": "2026-09-09T13:49:05.382415+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner1:main", "target": "home_points", "time": "2026-09-09T13:49:09.231665+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:inner1:main", "target": "away_points", "time": "2026-09-09T13:49:09.231665+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:inner1:main", "target": "away_points", "time": "2026-09-09T13:49:12.565529+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:selected:residual", "target": "home_points", "time": "2026-09-09T13:49:14.846946+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:selected:residual", "target": "home_points", "time": "2026-09-09T13:49:19.046069+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:selected:residual", "target": "away_points", "time": "2026-09-09T13:49:19.046069+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:selected:residual", "target": "away_points", "time": "2026-09-09T13:49:23.328374+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:selected:main", "target": "home_points", "time": "2026-09-09T13:49:24.413794+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:selected:main", "target": "home_points", "time": "2026-09-09T13:49:29.097627+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2022:selected:main", "target": "away_points", "time": "2026-09-09T13:49:29.098627+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2022:selected:main", "target": "away_points", "time": "2026-09-09T13:49:34.009124+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2_TUNED", "season": 2022, "time": "2026-09-09T13:49:35.421022+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner0:residual", "target": "home_points", "time": "2026-09-09T13:49:37.376305+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner0:residual", "target": "home_points", "time": "2026-09-09T13:49:42.823706+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner0:residual", "target": "away_points", "time": "2026-09-09T13:49:42.823706+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner0:residual", "target": "away_points", "time": "2026-09-09T13:49:47.897103+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner0:main", "target": "home_points", "time": "2026-09-09T13:49:48.939001+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner0:main", "target": "home_points", "time": "2026-09-09T13:49:53.111697+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner0:main", "target": "away_points", "time": "2026-09-09T13:49:53.112695+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner0:main", "target": "away_points", "time": "2026-09-09T13:49:57.404062+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner1:residual", "target": "home_points", "time": "2026-09-09T13:50:00.021899+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner1:residual", "target": "home_points", "time": "2026-09-09T13:50:03.303007+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner1:residual", "target": "away_points", "time": "2026-09-09T13:50:03.303007+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner1:residual", "target": "away_points", "time": "2026-09-09T13:50:06.794674+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner1:main", "target": "home_points", "time": "2026-09-09T13:50:07.995155+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner1:main", "target": "home_points", "time": "2026-09-09T13:50:11.496352+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:inner1:main", "target": "away_points", "time": "2026-09-09T13:50:11.496352+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:inner1:main", "target": "away_points", "time": "2026-09-09T13:50:14.790159+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:selected:residual", "target": "home_points", "time": "2026-09-09T13:50:17.841712+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:selected:residual", "target": "home_points", "time": "2026-09-09T13:50:21.214567+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:selected:residual", "target": "away_points", "time": "2026-09-09T13:50:21.214567+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:selected:residual", "target": "away_points", "time": "2026-09-09T13:50:24.498118+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:selected:main", "target": "home_points", "time": "2026-09-09T13:50:25.631719+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:selected:main", "target": "home_points", "time": "2026-09-09T13:50:29.416157+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2023:selected:main", "target": "away_points", "time": "2026-09-09T13:50:29.416157+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2023:selected:main", "target": "away_points", "time": "2026-09-09T13:50:32.830282+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2_TUNED", "season": 2023, "time": "2026-09-09T13:50:33.795873+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner0:residual", "target": "home_points", "time": "2026-09-09T13:50:34.912289+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner0:residual", "target": "home_points", "time": "2026-09-09T13:50:39.193641+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner0:residual", "target": "away_points", "time": "2026-09-09T13:50:39.193641+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner0:residual", "target": "away_points", "time": "2026-09-09T13:50:43.162178+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner0:main", "target": "home_points", "time": "2026-09-09T13:50:44.515963+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner0:main", "target": "home_points", "time": "2026-09-09T13:50:48.842978+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner0:main", "target": "away_points", "time": "2026-09-09T13:50:48.842978+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner0:main", "target": "away_points", "time": "2026-09-09T13:50:53.533249+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner1:residual", "target": "home_points", "time": "2026-09-09T13:50:55.539854+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner1:residual", "target": "home_points", "time": "2026-09-09T13:50:58.505775+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner1:residual", "target": "away_points", "time": "2026-09-09T13:50:58.505775+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner1:residual", "target": "away_points", "time": "2026-09-09T13:51:01.489526+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner1:main", "target": "home_points", "time": "2026-09-09T13:51:02.554791+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner1:main", "target": "home_points", "time": "2026-09-09T13:51:06.545252+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:inner1:main", "target": "away_points", "time": "2026-09-09T13:51:06.546251+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:inner1:main", "target": "away_points", "time": "2026-09-09T13:51:10.370714+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:selected:residual", "target": "home_points", "time": "2026-09-09T13:51:12.892262+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:selected:residual", "target": "home_points", "time": "2026-09-09T13:51:18.130350+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:selected:residual", "target": "away_points", "time": "2026-09-09T13:51:18.130350+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:selected:residual", "target": "away_points", "time": "2026-09-09T13:51:22.783340+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:selected:main", "target": "home_points", "time": "2026-09-09T13:51:24.034171+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:selected:main", "target": "home_points", "time": "2026-09-09T13:51:28.454411+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2_TUNED:2024:selected:main", "target": "away_points", "time": "2026-09-09T13:51:28.454411+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2_TUNED:2024:selected:main", "target": "away_points", "time": "2026-09-09T13:51:32.599916+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C2_TUNED", "season": 2024, "time": "2026-09-09T13:51:33.616705+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner0:residual", "target": "home_points", "time": "2026-09-09T13:51:34.813839+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner0:residual", "target": "home_points", "time": "2026-09-09T13:51:38.614094+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner0:residual", "target": "away_points", "time": "2026-09-09T13:51:38.614094+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner0:residual", "target": "away_points", "time": "2026-09-09T13:51:42.515075+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner0:main", "target": "home_points", "time": "2026-09-09T13:51:43.646277+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner0:main", "target": "home_points", "time": "2026-09-09T13:51:48.623563+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner0:main", "target": "away_points", "time": "2026-09-09T13:51:48.624562+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner0:main", "target": "away_points", "time": "2026-09-09T13:51:53.876000+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner1:residual", "target": "home_points", "time": "2026-09-09T13:51:56.242102+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner1:residual", "target": "home_points", "time": "2026-09-09T13:51:59.618547+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner1:residual", "target": "away_points", "time": "2026-09-09T13:51:59.618547+00:00", "trainingRows": 5049}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner1:residual", "target": "away_points", "time": "2026-09-09T13:52:02.640571+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner1:main", "target": "home_points", "time": "2026-09-09T13:52:03.523729+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner1:main", "target": "home_points", "time": "2026-09-09T13:52:06.806269+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:inner1:main", "target": "away_points", "time": "2026-09-09T13:52:06.806269+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:inner1:main", "target": "away_points", "time": "2026-09-09T13:52:10.096154+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:selected:residual", "target": "home_points", "time": "2026-09-09T13:52:11.838432+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:selected:residual", "target": "home_points", "time": "2026-09-09T13:52:15.439232+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:selected:residual", "target": "away_points", "time": "2026-09-09T13:52:15.439232+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:selected:residual", "target": "away_points", "time": "2026-09-09T13:52:19.320029+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:selected:main", "target": "home_points", "time": "2026-09-09T13:52:20.353780+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:selected:main", "target": "home_points", "time": "2026-09-09T13:52:24.911121+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2020:selected:main", "target": "away_points", "time": "2026-09-09T13:52:24.911121+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2020:selected:main", "target": "away_points", "time": "2026-09-09T13:52:28.701108+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3_TUNED", "season": 2020, "time": "2026-09-09T13:52:29.627000+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner0:residual", "target": "home_points", "time": "2026-09-09T13:52:30.627235+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner0:residual", "target": "home_points", "time": "2026-09-09T13:52:34.766863+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner0:residual", "target": "away_points", "time": "2026-09-09T13:52:34.766863+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner0:residual", "target": "away_points", "time": "2026-09-09T13:52:39.477466+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner0:main", "target": "home_points", "time": "2026-09-09T13:52:40.701917+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner0:main", "target": "home_points", "time": "2026-09-09T13:52:45.081979+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner0:main", "target": "away_points", "time": "2026-09-09T13:52:45.097230+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner0:main", "target": "away_points", "time": "2026-09-09T13:52:49.196208+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner1:residual", "target": "home_points", "time": "2026-09-09T13:52:51.597188+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner1:residual", "target": "home_points", "time": "2026-09-09T13:52:55.228220+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner1:residual", "target": "away_points", "time": "2026-09-09T13:52:55.230665+00:00", "trainingRows": 5316}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner1:residual", "target": "away_points", "time": "2026-09-09T13:52:59.427350+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner1:main", "target": "home_points", "time": "2026-09-09T13:53:00.936901+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner1:main", "target": "home_points", "time": "2026-09-09T13:53:07.863609+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:inner1:main", "target": "away_points", "time": "2026-09-09T13:53:07.864609+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:inner1:main", "target": "away_points", "time": "2026-09-09T13:53:11.307712+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:selected:residual", "target": "home_points", "time": "2026-09-09T13:53:14.542637+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:selected:residual", "target": "home_points", "time": "2026-09-09T13:53:19.381849+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:selected:residual", "target": "away_points", "time": "2026-09-09T13:53:19.382363+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:selected:residual", "target": "away_points", "time": "2026-09-09T13:53:23.978488+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:selected:main", "target": "home_points", "time": "2026-09-09T13:53:25.091440+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:selected:main", "target": "home_points", "time": "2026-09-09T13:53:33.285653+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2021:selected:main", "target": "away_points", "time": "2026-09-09T13:53:33.286665+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2021:selected:main", "target": "away_points", "time": "2026-09-09T13:53:39.066360+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3_TUNED", "season": 2021, "time": "2026-09-09T13:53:40.017508+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner0:residual", "target": "home_points", "time": "2026-09-09T13:53:41.067283+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner0:residual", "target": "home_points", "time": "2026-09-09T13:53:45.911173+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner0:residual", "target": "away_points", "time": "2026-09-09T13:53:45.912172+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner0:residual", "target": "away_points", "time": "2026-09-09T13:53:51.199994+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner0:main", "target": "home_points", "time": "2026-09-09T13:53:52.431816+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner0:main", "target": "home_points", "time": "2026-09-09T13:53:56.397921+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner0:main", "target": "away_points", "time": "2026-09-09T13:53:56.397921+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner0:main", "target": "away_points", "time": "2026-09-09T13:54:00.514936+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner1:residual", "target": "home_points", "time": "2026-09-09T13:54:02.463136+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner1:residual", "target": "home_points", "time": "2026-09-09T13:54:05.582764+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner1:residual", "target": "away_points", "time": "2026-09-09T13:54:05.582764+00:00", "trainingRows": 5583}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner1:residual", "target": "away_points", "time": "2026-09-09T13:54:08.595961+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner1:main", "target": "home_points", "time": "2026-09-09T13:54:09.527221+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner1:main", "target": "home_points", "time": "2026-09-09T13:54:12.544903+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:inner1:main", "target": "away_points", "time": "2026-09-09T13:54:12.544903+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:inner1:main", "target": "away_points", "time": "2026-09-09T13:54:16.385434+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:selected:residual", "target": "home_points", "time": "2026-09-09T13:54:20.043655+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:selected:residual", "target": "home_points", "time": "2026-09-09T13:54:23.790456+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:selected:residual", "target": "away_points", "time": "2026-09-09T13:54:23.790456+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:selected:residual", "target": "away_points", "time": "2026-09-09T13:54:26.873061+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:selected:main", "target": "home_points", "time": "2026-09-09T13:54:27.968197+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:selected:main", "target": "home_points", "time": "2026-09-09T13:54:30.990061+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2022:selected:main", "target": "away_points", "time": "2026-09-09T13:54:30.990061+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2022:selected:main", "target": "away_points", "time": "2026-09-09T13:54:34.444226+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3_TUNED", "season": 2022, "time": "2026-09-09T13:54:35.571019+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner0:residual", "target": "home_points", "time": "2026-09-09T13:54:36.622639+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner0:residual", "target": "home_points", "time": "2026-09-09T13:54:40.487571+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner0:residual", "target": "away_points", "time": "2026-09-09T13:54:40.487571+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner0:residual", "target": "away_points", "time": "2026-09-09T13:54:44.603986+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner0:main", "target": "home_points", "time": "2026-09-09T13:54:45.835392+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner0:main", "target": "home_points", "time": "2026-09-09T13:54:49.935570+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner0:main", "target": "away_points", "time": "2026-09-09T13:54:49.935570+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner0:main", "target": "away_points", "time": "2026-09-09T13:54:54.516785+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner1:residual", "target": "home_points", "time": "2026-09-09T13:54:56.384124+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner1:residual", "target": "home_points", "time": "2026-09-09T13:54:59.781951+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner1:residual", "target": "away_points", "time": "2026-09-09T13:54:59.782904+00:00", "trainingRows": 5852}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner1:residual", "target": "away_points", "time": "2026-09-09T13:55:03.197076+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner1:main", "target": "home_points", "time": "2026-09-09T13:55:04.539871+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner1:main", "target": "home_points", "time": "2026-09-09T13:55:08.832010+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:inner1:main", "target": "away_points", "time": "2026-09-09T13:55:08.832010+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:inner1:main", "target": "away_points", "time": "2026-09-09T13:55:13.400364+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:selected:residual", "target": "home_points", "time": "2026-09-09T13:55:16.588148+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:selected:residual", "target": "home_points", "time": "2026-09-09T13:55:21.103684+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:selected:residual", "target": "away_points", "time": "2026-09-09T13:55:21.103684+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:selected:residual", "target": "away_points", "time": "2026-09-09T13:55:24.711475+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:selected:main", "target": "home_points", "time": "2026-09-09T13:55:25.859607+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:selected:main", "target": "home_points", "time": "2026-09-09T13:55:29.252558+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2023:selected:main", "target": "away_points", "time": "2026-09-09T13:55:29.252558+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2023:selected:main", "target": "away_points", "time": "2026-09-09T13:55:32.509076+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3_TUNED", "season": 2023, "time": "2026-09-09T13:55:33.625750+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner0:residual", "target": "home_points", "time": "2026-09-09T13:55:34.843256+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner0:residual", "target": "home_points", "time": "2026-09-09T13:55:38.889368+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner0:residual", "target": "away_points", "time": "2026-09-09T13:55:38.889368+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner0:residual", "target": "away_points", "time": "2026-09-09T13:55:43.355645+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner0:main", "target": "home_points", "time": "2026-09-09T13:55:44.442553+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner0:main", "target": "home_points", "time": "2026-09-09T13:55:48.679201+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner0:main", "target": "away_points", "time": "2026-09-09T13:55:48.680243+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner0:main", "target": "away_points", "time": "2026-09-09T13:55:52.662473+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner1:residual", "target": "home_points", "time": "2026-09-09T13:55:54.704861+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner1:residual", "target": "home_points", "time": "2026-09-09T13:55:57.772153+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner1:residual", "target": "away_points", "time": "2026-09-09T13:55:57.772153+00:00", "trainingRows": 6137}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner1:residual", "target": "away_points", "time": "2026-09-09T13:56:00.717590+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner1:main", "target": "home_points", "time": "2026-09-09T13:56:01.768831+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner1:main", "target": "home_points", "time": "2026-09-09T13:56:05.345304+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:inner1:main", "target": "away_points", "time": "2026-09-09T13:56:05.345304+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:inner1:main", "target": "away_points", "time": "2026-09-09T13:56:08.666451+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:selected:residual", "target": "home_points", "time": "2026-09-09T13:56:10.648568+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:selected:residual", "target": "home_points", "time": "2026-09-09T13:56:14.862263+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:selected:residual", "target": "away_points", "time": "2026-09-09T13:56:14.862263+00:00", "trainingRows": 6421}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:selected:residual", "target": "away_points", "time": "2026-09-09T13:56:19.078475+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:selected:main", "target": "home_points", "time": "2026-09-09T13:56:20.375895+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:selected:main", "target": "home_points", "time": "2026-09-09T13:56:24.839816+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3_TUNED:2024:selected:main", "target": "away_points", "time": "2026-09-09T13:56:24.839816+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3_TUNED:2024:selected:main", "target": "away_points", "time": "2026-09-09T13:56:29.312609+00:00"}
+{"event": "OUTER_FOLD_COMPLETE", "pipeline": "XGBOOST_C3_TUNED", "season": 2024, "time": "2026-09-09T13:56:30.327306+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:final_development:residual", "target": "home_points", "time": "2026-09-09T13:56:31.728845+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:final_development:residual", "target": "home_points", "time": "2026-09-09T13:56:36.377231+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:final_development:residual", "target": "away_points", "time": "2026-09-09T13:56:36.377231+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:final_development:residual", "target": "away_points", "time": "2026-09-09T13:56:40.724851+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:final_development:main", "target": "home_points", "time": "2026-09-09T13:56:41.931629+00:00", "trainingRows": 6991}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:final_development:main", "target": "home_points", "time": "2026-09-09T13:56:46.457910+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C2:final_development:main", "target": "away_points", "time": "2026-09-09T13:56:46.457910+00:00", "trainingRows": 6991}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C2:final_development:main", "target": "away_points", "time": "2026-09-09T13:56:50.658931+00:00"}
+{"event": "CALIBRATOR_FIT_START", "pipeline": "XGBOOST_C2", "rows": 1408, "time": "2026-09-09T13:56:50.768440+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:final_development:residual", "target": "home_points", "time": "2026-09-09T13:56:52.061741+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:final_development:residual", "target": "home_points", "time": "2026-09-09T13:56:56.410451+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:final_development:residual", "target": "away_points", "time": "2026-09-09T13:56:56.411450+00:00", "trainingRows": 6706}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:final_development:residual", "target": "away_points", "time": "2026-09-09T13:57:00.659641+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:final_development:main", "target": "home_points", "time": "2026-09-09T13:57:01.971945+00:00", "trainingRows": 6991}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:final_development:main", "target": "home_points", "time": "2026-09-09T13:57:06.619359+00:00"}
+{"event": "ESTIMATOR_FIT_START", "tag": "XGBOOST_C3:final_development:main", "target": "away_points", "time": "2026-09-09T13:57:06.620332+00:00", "trainingRows": 6991}
+{"event": "ESTIMATOR_FIT_COMPLETE", "tag": "XGBOOST_C3:final_development:main", "target": "away_points", "time": "2026-09-09T13:57:10.937174+00:00"}
+{"event": "CALIBRATOR_FIT_START", "pipeline": "XGBOOST_C3", "rows": 1408, "time": "2026-09-09T13:57:11.034177+00:00"}
