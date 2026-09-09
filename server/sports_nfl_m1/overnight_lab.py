@@ -68,8 +68,21 @@ def _sha_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _plain_json(value: Any) -> Any:
+    """Convert dataframe/numpy scalars at the canonical persistence boundary."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.isoformat()
+    return value
+
+
 def _atomic_json(path: Path, value: Mapping[str, Any]) -> str:
-    payload = canonical_json_bytes(dict(value))
+    payload = canonical_json_bytes(_plain_json(dict(value)))
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:

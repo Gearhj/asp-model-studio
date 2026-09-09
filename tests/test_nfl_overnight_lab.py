@@ -7,6 +7,7 @@ from server.sports_nfl_m1.overnight_lab import (
     _chronological_calibration,
     _folds,
     _loss_vector,
+    _plain_json,
     _select_tuning_candidates,
 )
 
@@ -54,3 +55,10 @@ def test_chronological_calibration_never_uses_same_season() -> None:
     assert receipt["folds"][2]["trainingSeasons"] == [2020, 2021]
     assert np.isfinite(calibrated.filter(like="calibrated_").to_numpy()).all()
     assert np.isfinite(_loss_vector(np.array([[0.2, 0.1, 0.7]]), np.array([2]))).all()
+
+
+def test_canonical_receipt_accepts_numpy_dataframe_scalars() -> None:
+    assert _plain_json({"games": np.int32(269), "loss": np.float64(0.67)}) == {
+        "games": 269,
+        "loss": 0.67,
+    }
