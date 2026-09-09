@@ -73,17 +73,31 @@ def test_current_slate_handoff_is_content_addressed_complete_and_idempotent() ->
     try:
         exchange, current, expected = _isolated_slate_exchange(root)
         output = root / "handoff"
+        runtime = P.load_foundation_runtime()
+        refresh = {
+            "status": "ACTIVE",
+            "selectedSlateDates": [SLATE.isoformat()],
+            "completedAtUtc": current["availableAsOfUtc"],
+            "sourceEvidenceAsOfUtc": runtime.schedule_as_of_utc,
+            "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
+            "priorSourceFoundationManifestSha256s": [runtime.paths.foundation_manifest_sha256],
+            "sourceFoundationChangedSincePreviousSnapshot": False,
+            "forecastsCreated": 0,
+            "unchangedEvidenceForecastsReused": 1,
+        }
         first = C.publish_current_slate_handoff(
             SLATE,
             output_root=output,
             exchange_root=exchange,
             expected_events=[expected],
+            refresh_evidence=refresh,
         )
         second = C.publish_current_slate_handoff(
             SLATE,
             output_root=output,
             exchange_root=exchange,
             expected_events=[expected],
+            refresh_evidence=refresh,
         )
         assert first["created"] is True
         assert second["created"] is False
@@ -95,6 +109,10 @@ def test_current_slate_handoff_is_content_addressed_complete_and_idempotent() ->
         assert first["promotionStatus"] == "NOT_PROMOTED"
         assert first["wageringAuthority"] is False
         assert first["executionAllowedInAISP"] is False
+        assert first["schemaVersion"] == "ASP_NFL_M1_CURRENT_SLATE_HANDOFF_V2"
+        assert first["sourceFreshness"]["forecastDisposition"] == "UNCHANGED_SOURCE_EVIDENCE_FORECAST_REUSED"
+        assert first["sourceFreshness"]["newForecastCountThisRun"] == 0
+        assert first["sourceFreshness"]["publicationTimestampRepresentsSourceRefresh"] is False
         assert {item["name"] for item in first["files"]} == {
             "bundle.json", "consumer-import-fixture.json", "VALIDATION.md"
         }

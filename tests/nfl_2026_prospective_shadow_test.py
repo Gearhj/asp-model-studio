@@ -94,16 +94,21 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
             as_of=cutoff.replace(hour=18),
             producer_revision="1111111111111111111111111111111111111111",
         )
-        assert revised["forecastsCreated"] == 2
+        assert revised["forecastsCreated"] == 0
+        assert revised["unchangedEvidenceForecastsReused"] == 2
+        assert revised["forecastInferenceRows"] == 0
+        assert revised["reloadVerificationInferenceRows"] == 1
+        assert revised["sourceEvidenceAsOfUtc"] == P.load_foundation_runtime().schedule_as_of_utc
+        assert revised["sourceFoundationChangedSincePreviousSnapshot"] is False
         index = json.loads((publication / "prospective-index.json").read_text(encoding="utf-8"))
-        assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 2 for value in index["events"].values())
+        assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 1 for value in index["events"].values())
         assert all(
-            value["CURRENT"][-1]["producerRevision"] == "1111111111111111111111111111111111111111"
+            value["CURRENT"][-1]["producerRevision"] == "e60f5b1500e1c574e17a526a6c2e8bef047f92e2"
             for value in index["events"].values()
         )
         revised_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
         assert revised_locator["currentBundleCount"] == first["bundleCount"]
-        assert revised_locator["historicalBundleCount"] == first["bundleCount"]
+        assert revised_locator["historicalBundleCount"] == 0
         assert not set(revised_locator["currentBundleSha256s"]) & set(revised_locator["historicalBundleSha256s"])
         current_records = [
             child
@@ -113,7 +118,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert len(current_records) == 4
         assert len({(child["eventId"], child["snapshotType"]) for child in current_records}) == 4
         assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "EARLY"} == {1}
-        assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "CURRENT"} == {2}
+        assert {child["snapshotVersion"] for child in current_records if child["snapshotType"] == "CURRENT"} == {1}
         first_target = bounded_targets(P.load_foundation_runtime(), as_of=cutoff)[0][0]
         final_cutoff = first_target["scheduled_start_utc"] - timedelta(minutes=25)
         before_late_locator = X.verify_nfl_2026_research_shadow_locator(exchange)
@@ -174,7 +179,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert late_locator["historicalBundleListSha256"] == final_locator["historicalBundleListSha256"]
         index = json.loads((publication / "prospective-index.json").read_text(encoding="utf-8"))
         assert len(index["events"]) == 2
-        assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 2 for value in index["events"].values())
+        assert all(len(value["EARLY"]) == 1 and len(value["CURRENT"]) == 1 for value in index["events"].values())
         final_counts = sorted(len(value["FINAL_PREGAME"]) for value in index["events"].values())
         assert final_counts == [0, 1]
         def first_only(*args, **kwargs):
@@ -193,7 +198,7 @@ def test_activation_emits_immutable_early_current_bundles_and_is_idempotent(
         assert late_current["forecastsCreated"] == 0
         assert late_current["bundleCount"] == 0
         final_index = json.loads((publication / "prospective-index.json").read_text(encoding="utf-8"))
-        assert len(final_index["events"][first_target["canonical_game_id"]]["CURRENT"]) == 2
+        assert len(final_index["events"][first_target["canonical_game_id"]]["CURRENT"]) == 1
     finally:
         if root.exists():
             shutil.rmtree(root)

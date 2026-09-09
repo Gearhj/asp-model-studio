@@ -558,7 +558,7 @@ def activate_2026_shadow(
     as_of: datetime | None = None, snapshot_types: Sequence[str] = ("EARLY", "CURRENT"), producer_revision: str | None = None,
     slate_date: date | None = None, next_slate_only: bool = False,
 ) -> dict[str, Any]:
-    """Create upcoming 2026 vectors, score once, and publish date bundles.
+    """Create upcoming 2026 vectors and publish only evidence-changing snapshots.
 
     ``slate_date`` and ``next_slate_only`` provide a bounded operational path.
     They filter targets before vector construction and scoring, so a current
@@ -620,7 +620,6 @@ def activate_2026_shadow(
         if snapshot in {"CURRENT", "FINAL_PREGAME"} and any(
             entry.get("featureValuesSha256") == values_sha
             and entry.get("sourceFoundationManifestSha256") == runtime.paths.foundation_manifest_sha256
-            and entry.get("producerRevision") == revision
             for entry in event_index[snapshot]
         ): return False
         if snapshot == "FINAL_PREGAME":
@@ -630,6 +629,35 @@ def activate_2026_shadow(
             if seconds < 900 or seconds > 1_800: return False
         return True
 
+    prior_source_manifests = sorted({
+        str(entry["sourceFoundationManifestSha256"])
+        for target in targets
+        for snapshot in requested
+        for entry in index["events"].get(
+            str(target["canonical_game_id"]),
+            {"EARLY": [], "CURRENT": [], "FINAL_PREGAME": []},
+        )[snapshot]
+        if entry.get("sourceFoundationManifestSha256")
+    })
+    source_foundation_changed = (
+        None if not prior_source_manifests
+        else prior_source_manifests != [runtime.paths.foundation_manifest_sha256]
+    )
+    publication_due = [
+        any(
+            snapshot_due(
+                index["events"].setdefault(
+                    str(target["canonical_game_id"]),
+                    {"EARLY": [], "CURRENT": [], "FINAL_PREGAME": []},
+                ),
+                snapshot,
+                target,
+                values_sha,
+            )
+            for snapshot in requested
+        )
+        for target, values_sha in zip(targets, value_hashes, strict=True)
+    ]
     vector_hashes = []
     for target, vector, values_sha in zip(targets, vectors, value_hashes, strict=True):
         event_id = str(target["canonical_game_id"])
@@ -648,8 +676,20 @@ def activate_2026_shadow(
             continue
         vector_record = {"contract": FEATURE_VECTOR_CONTRACT, "eventId": event_id, "season": 2026, "forecastCutoffUtc": cutoff_text, "sourceCutoffUtc": runtime.schedule_as_of_utc, "trainingFoundationManifestSha256": FOUNDATION_MANIFEST_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "sourceDatasetVersionId": runtime.paths.dataset_version_id, "modelManifestSha256": MODEL_MANIFEST_SHA256, "featureContractSha256": frozen.feature_contract_sha256, "featureValuesSha256": values_sha, "featureNames": list(frozen.feature_names), "values": [vector[name] for name in frozen.feature_names], "missingFeatures": [name for name in frozen.feature_names if vector[name] is None], "targetOutcomeFieldsRead": False, "marketFieldsRead": False}
         digest, _, _ = _persist_feature_vector(publication_root, vector_record); vector_hashes.append(digest)
-    frame = pd.DataFrame(vectors, columns=list(frozen.feature_names)); prediction = frozen.model_bundle["scoreModels"]["XGBOOST"].predict(frame)
-    simulation = simulate_joint_scores(predicted_home_mean=prediction.expected_home_points, predicted_away_mean=prediction.expected_away_points, residual_authority=frozen.model_bundle["pairedResidualAuthority"], draws=SIMULATION_DRAWS, seed=SIMULATION_SEED)
+    frame = pd.DataFrame(vectors, columns=list(frozen.feature_names))
+    prediction = None
+    simulation = None
+    forecast_inference_rows = 0
+    if any(publication_due):
+        prediction = frozen.model_bundle["scoreModels"]["XGBOOST"].predict(frame)
+        simulation = simulate_joint_scores(
+            predicted_home_mean=prediction.expected_home_points,
+            predicted_away_mean=prediction.expected_away_points,
+            residual_authority=frozen.model_bundle["pairedResidualAuthority"],
+            draws=SIMULATION_DRAWS,
+            seed=SIMULATION_SEED,
+        )
+        forecast_inference_rows = len(targets)
     completed_at = _now_utc().astimezone(UTC)
     if completed_at < forecast_cutoff:
         raise NflProspectiveShadowError("completion clock precedes forecast evidence cutoff")
@@ -661,6 +701,8 @@ def activate_2026_shadow(
         event_id = str(target["canonical_game_id"]); event_index = index["events"].setdefault(event_id, {"EARLY": [], "CURRENT": [], "FINAL_PREGAME": []})
         for snapshot in requested:
             if not snapshot_due(event_index, snapshot, target, values_sha): continue
+            if prediction is None or simulation is None:
+                raise NflProspectiveShadowError("due forecast lacks frozen-estimator inference")
             if completed_at >= target["scheduled_start_utc"]:
                 if snapshot == "FINAL_PREGAME": late_final_omissions += 1
                 continue
@@ -739,7 +781,51 @@ def activate_2026_shadow(
     )
     _write_index(publication_root, index)
     locator_path = exchange_root / BUNDLE_OBJECT_FAMILY / "nfl-2026-research-shadow-index.json"
-    return {"status": "ACTIVE", "games": len(targets), "selectedSlateDates": sorted({str(target["game_date"]) for target in targets}), "selectionMode": "EXACT_SLATE" if slate_date is not None else "NEXT_SLATE_ONLY" if next_slate_only else "ALL_UPCOMING", "forecastsCreated": sum(item["forecastCount"] for item in publications), "bundleCount": len(publications), "bundles": publications, "forecastCutoffUtc": cutoff_text, "completedAtUtc": run_completed_text, "lateFinalPregameOmissions": late_final_omissions, "modelManifestSha256": MODEL_MANIFEST_SHA256, "modelBinarySha256": MODEL_BINARY_SHA256, "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256, "featureContractSha256": frozen.feature_contract_sha256, "residualAuthoritySha256": frozen.residual_authority_sha256, "featureVectorCount": len(vector_hashes), "reloadFixtureSha256": fixture_sha, "reloadFixturePath": str(fixture_path), "reloadFixtureReproduced": True, "historicalParity": parity, "modelsFit": 0, "modelsPromoted": 0, "marketFieldsRead": False, "indexPath": str(publication_root / "prospective-index.json"), "exchangeLocatorPath": str(locator_path), "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"], "exchangeLocatorCurrentForecastCount": sum(item["forecastCount"] for item in current_authority_bundles), "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"], "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"], "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"], "producerRevision": revision}
+    return {
+        "status": "ACTIVE",
+        "games": len(targets),
+        "selectedSlateDates": sorted({str(target["game_date"]) for target in targets}),
+        "selectionMode": (
+            "EXACT_SLATE" if slate_date is not None
+            else "NEXT_SLATE_ONLY" if next_slate_only
+            else "ALL_UPCOMING"
+        ),
+        "forecastsCreated": sum(item["forecastCount"] for item in publications),
+        "unchangedEvidenceForecastsReused": sum(not due for due in publication_due),
+        "forecastInferenceRows": forecast_inference_rows,
+        "bundleCount": len(publications),
+        "bundles": publications,
+        "forecastCutoffUtc": cutoff_text,
+        "completedAtUtc": run_completed_text,
+        "sourceEvidenceAsOfUtc": runtime.schedule_as_of_utc,
+        "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
+        "priorSourceFoundationManifestSha256s": prior_source_manifests,
+        "sourceFoundationChangedSincePreviousSnapshot": source_foundation_changed,
+        "lateFinalPregameOmissions": late_final_omissions,
+        "modelManifestSha256": MODEL_MANIFEST_SHA256,
+        "modelBinarySha256": MODEL_BINARY_SHA256,
+        "featureContractSha256": frozen.feature_contract_sha256,
+        "residualAuthoritySha256": frozen.residual_authority_sha256,
+        "featureVectorCount": len(vector_hashes),
+        "reloadFixtureSha256": fixture_sha,
+        "reloadFixturePath": str(fixture_path),
+        "reloadFixtureReproduced": True,
+        "reloadVerificationInferenceRows": 1,
+        "historicalParity": parity,
+        "modelsFit": 0,
+        "modelsPromoted": 0,
+        "marketFieldsRead": False,
+        "indexPath": str(publication_root / "prospective-index.json"),
+        "exchangeLocatorPath": str(locator_path),
+        "exchangeLocatorCurrentBundleCount": locator["currentBundleCount"],
+        "exchangeLocatorCurrentForecastCount": sum(
+            item["forecastCount"] for item in current_authority_bundles
+        ),
+        "exchangeLocatorCurrentBundleListSha256": locator["currentBundleListSha256"],
+        "exchangeLocatorHistoricalBundleCount": locator["historicalBundleCount"],
+        "exchangeLocatorHistoricalBundleListSha256": locator["historicalBundleListSha256"],
+        "producerRevision": revision,
+    }
 
 
 __all__ = ["activate_2026_shadow", "historical_feature_parity", "load_foundation_runtime", "materialize_feature_vector", "verify_activation_reload_fixture", "verify_frozen_m1", "NflProspectiveShadowError"]

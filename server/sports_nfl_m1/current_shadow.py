@@ -41,7 +41,7 @@ from .prospective_shadow import (
 )
 
 
-HANDOFF_SCHEMA_VERSION = "ASP_NFL_M1_CURRENT_SLATE_HANDOFF_V1"
+HANDOFF_SCHEMA_VERSION = "ASP_NFL_M1_CURRENT_SLATE_HANDOFF_V2"
 DEFAULT_HANDOFF_ROOT = Path("outputs") / "nfl-existing-track-current-shadow-v1"
 UTC = timezone.utc
 
@@ -176,6 +176,7 @@ def build_current_slate_handoff(
     artifact_root: Path = ARTIFACT_ROOT,
     publication_root: Path = DEFAULT_PUBLICATION_ROOT,
     expected_events: Sequence[Mapping[str, Any]] | None = None,
+    refresh_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one deterministic next-slate handoff from verified authority."""
 
@@ -185,6 +186,7 @@ def build_current_slate_handoff(
         foundation_root=foundation_root,
         publication_root=publication_root,
     )
+    runtime = load_foundation_runtime(foundation_root)
     index_path = Path(publication_root) / "prospective-index.json"
     if not index_path.is_file():
         raise NflCurrentShadowError("prospective activation index is absent")
@@ -240,6 +242,46 @@ def build_current_slate_handoff(
             continue
         summaries.append(summary)
 
+    evidence_cutoffs = {str(item["evidenceCutoffUtc"]) for item in summaries}
+    if evidence_cutoffs and evidence_cutoffs != {runtime.schedule_as_of_utc}:
+        raise NflCurrentShadowError("effective forecast does not match current local source evidence")
+    if refresh_evidence is None:
+        checked_at = publication_time
+        forecasts_created_this_run: int | None = None
+        unchanged_reused: int | None = None
+        source_changed: bool | None = None
+        prior_source_manifests: list[str] = []
+        disposition = "SOURCE_STATE_AT_FORECAST_PUBLICATION"
+    else:
+        if refresh_evidence.get("status") != "ACTIVE":
+            raise NflCurrentShadowError("refresh evidence is not an active publication check")
+        if refresh_evidence.get("selectedSlateDates") != [slate_date.isoformat()]:
+            raise NflCurrentShadowError("refresh evidence slate differs")
+        if (
+            refresh_evidence.get("sourceFoundationManifestSha256")
+            != runtime.paths.foundation_manifest_sha256
+            or refresh_evidence.get("sourceEvidenceAsOfUtc") != runtime.schedule_as_of_utc
+        ):
+            raise NflCurrentShadowError("refresh evidence source authority differs")
+        checked_at = _utc(str(refresh_evidence["completedAtUtc"]))
+        forecasts_created_this_run = int(refresh_evidence.get("forecastsCreated", 0))
+        unchanged_reused = int(refresh_evidence.get("unchangedEvidenceForecastsReused", 0))
+        source_changed = refresh_evidence.get("sourceFoundationChangedSincePreviousSnapshot")
+        if source_changed not in {True, False, None}:
+            raise NflCurrentShadowError("refresh evidence source-change state differs")
+        prior_source_manifests = sorted(
+            str(value) for value in refresh_evidence.get("priorSourceFoundationManifestSha256s", [])
+        )
+        disposition = (
+            "NEW_FORECAST_VERSION_PUBLISHED"
+            if forecasts_created_this_run
+            else "UNCHANGED_SOURCE_EVIDENCE_FORECAST_REUSED"
+        )
+    if checked_at < _utc(runtime.schedule_as_of_utc):
+        raise NflCurrentShadowError("freshness check predates current local source evidence")
+    if summaries and checked_at >= min(_utc(item["kickoffUtc"]) for item in summaries):
+        raise NflCurrentShadowError("current-slate handoff freshness check occurred after kickoff")
+
     object_dir = published.bundle_path.parent
     files = [_sha_file(object_dir / name) for name in ("bundle.json", "consumer-import-fixture.json", "VALIDATION.md")]
     import_allowed = not skips and len(summaries) == len(expected)
@@ -272,6 +314,20 @@ def build_current_slate_handoff(
             "sourceBundleLogicalUri": f"asp-model-exchange://{BUNDLE_OBJECT_FAMILY}/sha256/{published.bundle_sha256}/bundle.json",
             "sourceBundleDirectory": str(object_dir.resolve()),
             "sourceBundleForecastCount": len(bundle["forecasts"]),
+            "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
+            "sourceEvidenceAsOfUtc": runtime.schedule_as_of_utc,
+        },
+        "sourceFreshness": {
+            "checkedAtUtc": checked_at.isoformat().replace("+00:00", "Z"),
+            "evidenceAsOfUtc": runtime.schedule_as_of_utc,
+            "sourceFoundationManifestSha256": runtime.paths.foundation_manifest_sha256,
+            "sourceDatasetVersionId": runtime.paths.dataset_version_id,
+            "priorSourceFoundationManifestSha256s": prior_source_manifests,
+            "sourceFoundationChangedSincePreviousSnapshot": source_changed,
+            "newForecastCountThisRun": forecasts_created_this_run,
+            "unchangedEvidenceForecastsReused": unchanged_reused,
+            "forecastDisposition": disposition,
+            "publicationTimestampRepresentsSourceRefresh": False,
         },
         "eventCount": len(expected),
         "forecastCount": len(summaries),
@@ -316,6 +372,18 @@ def verify_current_slate_handoff(path: Path) -> Mapping[str, Any]:
         raise NflCurrentShadowError("handoff event accounting differs")
     if record.get("importAllowed") != (record.get("skipCount") == 0):
         raise NflCurrentShadowError("handoff import authority differs")
+    freshness = record.get("sourceFreshness") or {}
+    if (
+        freshness.get("publicationTimestampRepresentsSourceRefresh") is not False
+        or freshness.get("sourceFoundationManifestSha256")
+        != record.get("source", {}).get("sourceFoundationManifestSha256")
+        or freshness.get("evidenceAsOfUtc")
+        != record.get("source", {}).get("sourceEvidenceAsOfUtc")
+    ):
+        raise NflCurrentShadowError("handoff source-freshness declaration differs")
+    if freshness.get("forecastDisposition") == "UNCHANGED_SOURCE_EVIDENCE_FORECAST_REUSED":
+        if freshness.get("newForecastCountThisRun") != 0:
+            raise NflCurrentShadowError("unchanged evidence created a numerical forecast version")
     files = record.get("files")
     if not isinstance(files, list) or {item.get("name") for item in files} != {
         "bundle.json", "consumer-import-fixture.json", "VALIDATION.md"
@@ -354,6 +422,7 @@ def publish_current_slate_handoff(
     artifact_root: Path = ARTIFACT_ROOT,
     publication_root: Path = DEFAULT_PUBLICATION_ROOT,
     expected_events: Sequence[Mapping[str, Any]] | None = None,
+    refresh_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write and reload one immutable content-addressed handoff."""
 
@@ -364,6 +433,7 @@ def publish_current_slate_handoff(
         artifact_root=artifact_root,
         publication_root=publication_root,
         expected_events=expected_events,
+        refresh_evidence=refresh_evidence,
     )
     payload = canonical_json_bytes(record)
     digest = hashlib.sha256(payload).hexdigest()

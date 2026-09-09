@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         foundation_root=args.foundation_root,
         artifact_root=args.artifact_root,
         publication_root=args.publication_root,
+        refresh_evidence=activation,
     )
     print(json.dumps({"activation": activation, "handoff": handoff}, indent=2, sort_keys=True))
     return 0
