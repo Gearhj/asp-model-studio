@@ -1,0 +1,1 @@
+{"_fixture":"SYNTHETIC_NON_PROVIDER","event":{"id":"synthetic-card-1","scheduled":"2026-10-01T23:00:00Z"},"fights":[{"id":"synthetic-bout-1","red":{"id":"synthetic-fighter-a","name":"Alpha Fixture"},"blue":{"id":"synthetic-fighter-b","name":"Beta Fixture"},"weightClass":"Syntheticweight","scheduledRounds":3}]}
