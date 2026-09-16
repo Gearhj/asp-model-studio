@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "MLB_V18_PLAYER_PROP_SIDECAR_ARTIFACT_INDEX_V1",
+  "localObjectRelativePath": "outputs/mlb-v18-player-prop-sidecar-v1/objects/sha256/3259706deca700ac6d0ea1b8779eaae9fdbcc359612b69ad3168dd920924d3d4",
+  "sidecarSchemaVersion": "ASP_MLB_V18_PLAYER_PROP_POPULATION_V1",
+  "sidecarSha256": "3259706deca700ac6d0ea1b8779eaae9fdbcc359612b69ad3168dd920924d3d4",
+  "sidecarBytes": 267423,
+  "manifestSha256": "57486ab76bf02c9b9f50a06c1b0c70c90e5bf28c35d1a3849fcc01619afcd7a0",
+  "manifestBytes": 463,
+  "replayReceiptSha256": "eb4badc5856fffcce0a85855e42317f71c9ca16fe4c183b3643a42776da46f31",
+  "replayReceiptBytes": 4374,
+  "originalForecastPublicationReceiptLogicalSha256": "4c5bd1c3d3068e05eef03a1854e9aa0ab5f1e77c779f98850efd7473f8623038",
+  "originalForecastPublicationReceiptPhysicalSha256": "7a8671f98f24b15405a0ae932adc469fc35a0fd04176cff88719f0e5f2cb8067",
+  "exchangePublished": false,
+  "sourceCommitted": false,
+  "note": "The generated population is local and git-ignored; code, schema and compact receipts are committed."
+}

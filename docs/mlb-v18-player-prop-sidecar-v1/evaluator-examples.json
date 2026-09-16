@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "MLB_V18_PLAYER_PROP_EVALUATOR_EXAMPLES_V1",
+  "sidecarSha256": "3259706deca700ac6d0ea1b8779eaae9fdbcc359612b69ad3168dd920924d3d4",
+  "forecastId": "mlb-v18-daily-game-2f07648c51e830736d65ff37",
+  "examples": [
+    {
+      "label": "Kyle Stowers 1+ hit",
+      "player": {
+        "side": "AWAY",
+        "playerId": "1c8db5fd-e49a-44d7-aefc-1432db7552f3",
+        "mlbamId": "669065",
+        "displayName": "Kyle Stowers"
+      },
+      "market": {
+        "propType": "BATTER_TO_RECORD_1_PLUS_HIT",
+        "selection": "YES",
+        "line": 0.5
+      },
+      "counts": {
+        "win": 3218,
+        "loss": 1782,
+        "push": 0,
+        "void": null
+      },
+      "probabilities": {
+        "pWin": 0.6436,
+        "pLoss": 0.3564,
+        "pPush": 0.0,
+        "pVoid": null
+      },
+      "drawCount": 5000,
+      "winProbabilityMonteCarloStandardError": 0.006773168239457809,
+      "qualification": "MECHANICAL_RESEARCH_EXAMPLE_NOT_CALIBRATED_NOT_CONSUMER_AUTHORIZED"
+    },
+    {
+      "label": "Kyle Stowers over 1.5 total bases",
+      "player": {
+        "side": "AWAY",
+        "playerId": "1c8db5fd-e49a-44d7-aefc-1432db7552f3",
+        "mlbamId": "669065",
+        "displayName": "Kyle Stowers"
+      },
+      "market": {
+        "propType": "BATTER_TOTAL_BASES",
+        "selection": "OVER",
+        "line": 1.5
+      },
+      "counts": {
+        "win": 2152,
+        "loss": 2848,
+        "push": 0,
+        "void": null
+      },
+      "probabilities": {
+        "pWin": 0.4304,
+        "pLoss": 0.5696,
+        "pPush": 0.0,
+        "pVoid": null
+      },
+      "drawCount": 5000,
+      "winProbabilityMonteCarloStandardError": 0.007002225931801972,
+      "qualification": "MECHANICAL_RESEARCH_EXAMPLE_NOT_CALIBRATED_NOT_CONSUMER_AUTHORIZED"
+    },
+    {
+      "label": "Kyle Stowers home run yes",
+      "player": {
+        "side": "AWAY",
+        "playerId": "1c8db5fd-e49a-44d7-aefc-1432db7552f3",
+        "mlbamId": "669065",
+        "displayName": "Kyle Stowers"
+      },
+      "market": {
+        "propType": "BATTER_HOME_RUN",
+        "selection": "YES",
+        "line": 0.5
+      },
+      "counts": {
+        "win": 823,
+        "loss": 4177,
+        "push": 0,
+        "void": null
+      },
+      "probabilities": {
+        "pWin": 0.1646,
+        "pLoss": 0.8354,
+        "pPush": 0.0,
+        "pVoid": null
+      },
+      "drawCount": 5000,
+      "winProbabilityMonteCarloStandardError": 0.005244174672910886,
+      "qualification": "MECHANICAL_RESEARCH_EXAMPLE_NOT_CALIBRATED_NOT_CONSUMER_AUTHORIZED"
+    },
+    {
+      "label": "Michael Soroka over 4.5 strikeouts",
+      "player": {
+        "side": "HOME",
+        "role": "STARTING_PITCHER",
+        "playerId": "5997bad8-99bf-4015-b27c-9585bfbcd90a",
+        "mlbamId": "647336",
+        "displayName": "Michael Soroka"
+      },
+      "market": {
+        "propType": "STARTING_PITCHER_STRIKEOUTS",
+        "selection": "OVER",
+        "line": 4.5
+      },
+      "counts": {
+        "win": 2235,
+        "loss": 2765,
+        "push": 0,
+        "void": null
+      },
+      "probabilities": {
+        "pWin": 0.447,
+        "pLoss": 0.553,
+        "pPush": 0.0,
+        "pVoid": null
+      },
+      "drawCount": 5000,
+      "winProbabilityMonteCarloStandardError": 0.0070312303333058285,
+      "qualification": "MECHANICAL_RESEARCH_EXAMPLE_NOT_CALIBRATED_NOT_CONSUMER_AUTHORIZED"
+    }
+  ],
+  "authority": {
+    "researchOnly": true,
+    "consumerDisplay": false,
+    "fairPrice": false,
+    "edge": false,
+    "decision": false,
+    "position": false
+  }
+}

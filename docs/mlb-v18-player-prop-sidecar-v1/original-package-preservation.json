@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "MLB_V18_PLAYER_PROP_ORIGINAL_PACKAGE_PRESERVATION_V1",
+  "objectSha256": "2f07648c51e830736d65ff37689c563bb2195ec767090d14ecc8e905968cbdac",
+  "beforeAndAfterIdentical": true,
+  "members": [
+    {
+      "relativePath": "execution-inputs.json",
+      "expectedBytes": 792490,
+      "actualBytes": 792490,
+      "expectedSha256": "73a5c6a456e52be5facc014a2a03a033b3a04f43314c6da2dfd8a437895d306f",
+      "actualSha256": "73a5c6a456e52be5facc014a2a03a033b3a04f43314c6da2dfd8a437895d306f",
+      "unchanged": true
+    },
+    {
+      "relativePath": "forecast.json",
+      "expectedBytes": 8224,
+      "actualBytes": 8224,
+      "expectedSha256": "13b51f3822cf5d9581d59105fc182b7490e0ff6bb3bfcf0a5576d84e03370d85",
+      "actualSha256": "13b51f3822cf5d9581d59105fc182b7490e0ff6bb3bfcf0a5576d84e03370d85",
+      "unchanged": true
+    },
+    {
+      "relativePath": "pregame-evidence.json",
+      "expectedBytes": 86600,
+      "actualBytes": 86600,
+      "expectedSha256": "17527b4a01531bdd31fd868f42306788c95ddc3be5a15cbb60b641e7a66d34a4",
+      "actualSha256": "17527b4a01531bdd31fd868f42306788c95ddc3be5a15cbb60b641e7a66d34a4",
+      "unchanged": true
+    },
+    {
+      "relativePath": "representative-path.json",
+      "expectedBytes": 18396,
+      "actualBytes": 18396,
+      "expectedSha256": "706d99905263cd64934c654dd0467285b8c773ac29b4cbc0e5a7c4dcf5ca6d15",
+      "actualSha256": "706d99905263cd64934c654dd0467285b8c773ac29b4cbc0e5a7c4dcf5ca6d15",
+      "unchanged": true
+    }
+  ],
+  "manifest": {
+    "bytes": 1065,
+    "sha256": "5f29c4341d1b862fbbffbe840c535612bb6c5815bf7ddb01deb70782fd6081d6"
+  }
+}
