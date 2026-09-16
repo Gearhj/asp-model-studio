@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "ASP_CROSS_GAME_INDEPENDENCE_STUDY_DESIGN_V1",
+  "frozenAtUtc": "2026-09-16T17:24:00Z",
+  "sourceCommit": "e0d1638626ad33a7a794d4f94882acf363c78652",
+  "researchQuestion": "When is multiplication of independently produced game-level probabilities sufficiently accurate for an explicitly labeled AISP research display?",
+  "authority": {
+    "researchDisplayRecommendationOnly": true,
+    "modelPromotion": false,
+    "decisionAuthority": false,
+    "positionAuthority": false,
+    "stakeAuthority": false,
+    "profitOptimization": false,
+    "sealedOrFinalOotAccess": false,
+    "providerOrSportsbookCalls": false,
+    "aispOrExchangeWrites": false
+  },
+  "admittedPopulations": [
+    {
+      "sport": "NFL",
+      "configuration": "M1_RECIPE_RAW_CHRONOLOGICAL_OOF",
+      "role": "AUTHORIZED_DEVELOPMENT_RECONSTRUCTED_CHRONOLOGICAL",
+      "seasons": [2020, 2021, 2022, 2023, 2024],
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\overnight-model-laboratory-v1\\runs\\matrix-fcc3cd9a5446-foundation-ebb6912919a5\\pipelines\\m1_recipe_fold_refit\\oof_predictions.parquet",
+      "physicalSha256": "b721e7259403304fea7ac69e391c22cebe27b07b3687f007e5d3420f35b84b99",
+      "expectedRows": 1408,
+      "chronologyQualification": "Season-forward fold prediction; physical per-game forecast publication time is not established."
+    },
+    {
+      "sport": "NBA",
+      "configuration": "NBA_GEN1_ELO_WIN_RIDGE_A100_ORDINARY_REST_V1_DEVELOPMENT_ROWS",
+      "role": "AUTHORIZED_DEVELOPMENT_RECONSTRUCTED_CHRONOLOGICAL",
+      "selectedModelRows": "model_id == ridge_a100_rest",
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-long-gap-v1\\development\\predictions.parquet",
+      "physicalSha256": "1d05622a0f77d504460a89f9b12e715c90b9c1039ef7d7a7ec444ef781b94715",
+      "expectedDistinctGames": 3538,
+      "chronologyQualification": "Season-forward Development prediction; historical source publication vintages are uncertified."
+    },
+    {
+      "sport": "CFB",
+      "configuration": "CFB_GEN1_RIDGE_A100_DEVELOPMENT",
+      "role": "A_RECONSTRUCTED_HISTORICAL_DEVELOPMENT",
+      "seasons": [2016, 2017, 2018, 2019, 2020, 2021, 2022],
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\cfb-gen1-v1\\data\\season-forward-predictions.parquet",
+      "physicalSha256": "b73757c74df42052f766813c35ff46278d42e5f94a658c3051382c068ba6872d",
+      "rowFilter": "role == development and season in 2016..2022 and context_eligible and is_final",
+      "chronologyQualification": "Features and fits use earlier games; historical source publication vintages are uncertified."
+    }
+  ],
+  "excludedPopulations": [
+    "All MLB Final OOT, sealed August 14-27 2026 data, and permanently quarantined games",
+    "NFL Final OOT 2025 and current 2026 outcomes",
+    "NBA reused Validation, inspected holdouts, 2024-25 and 2025-26 assessment outcomes",
+    "CFB Validation 2023-24, historical holdout 2025, and prospective 2026 outcomes",
+    "Any target lacking a chronological out-of-fold or season-forward forecast",
+    "Any same-game leg pair"
+  ],
+  "pairConstruction": {
+    "slateDefinition": "sport plus recorded game calendar date for same-sport; calendar date for cross-sport",
+    "withinSlatePairing": "all unique unordered game pairs; canonical game identity sort; no reverse duplicates",
+    "crossSportPairing": "all game combinations between two sports on a shared calendar date",
+    "primaryEligibility": "distinct games, no shared team, regular season, unique exact forecast row",
+    "sharedTeamAndPostseason": "count and report separately; excluded from permissible category",
+    "sameStartWindow": "absolute scheduled-start difference <= 60 minutes where both exact times exist",
+    "separatedStart": "absolute scheduled-start difference > 180 minutes where both exact times exist",
+    "unclassifiedTiming": "at least one source supplies date only",
+    "jointEvent": "HOME_WIN in each game using the pre-outcome home-win probability",
+    "favoriteClass": "HOME leg is FAVORITE when pHome >= 0.5, otherwise UNDERDOG",
+    "modelFavoriteSupplement": "predeclared supplemental pair using max(pHome,pAway); not selected after outcomes",
+    "totalsJointCalibration": "unsupported unless a retained per-game pre-outcome total probability exists; point expectations alone are insufficient"
+  },
+  "residuals": [
+    "winner = observedHomeWin - pHomeWin",
+    "margin = observedHomeMargin - predictedHomeMargin",
+    "total = observedTotal - predictedTotal",
+    "homeScore = observedHomeScore - predictedHomeScore",
+    "awayScore = observedAwayScore - predictedAwayScore"
+  ],
+  "estimands": {
+    "dependence": ["exchangeable pair covariance", "Pearson correlation", "Spearman correlation"],
+    "jointCalibration": ["mean(pA*pB)", "observed joint frequency", "observed-minus-independence", "Brier", "safe-clipped log loss"],
+    "uncertainty": "2000 deterministic percentile resamples of whole date/slate clusters; seed 20260916",
+    "effectiveSampleSize": "number of distinct date/slate clusters, reported with games and pairs",
+    "multipleComparisons": "Holm adjustment within the family of residual-correlation tests; exploratory segments never override primary disposition"
+  },
+  "probabilityBands": [[0.0, 0.1], [0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5], [0.5, 0.6], [0.6, 0.7], [0.7, 0.8], [0.8, 0.9], [0.9, 1.0000001]],
+  "practicalAcceptanceCriteria": {
+    "minimumGames": 500,
+    "minimumSlates": 50,
+    "minimumPairs": 1000,
+    "maximumAbsoluteJointCalibrationError": 0.02,
+    "maximumRelativeJointCalibrationErrorWhenMeanProbabilityAtLeast0_10": 0.10,
+    "maximumJointCalibrationCiWidth": 0.05,
+    "maximumAbsoluteResidualPearson": 0.05,
+    "maximumAbsoluteResidualSpearman": 0.05,
+    "correlationCiMustRemainWithin": [-0.10, 0.10],
+    "minimumReliabilityBinPairs": 200,
+    "minimumReliabilityBinSlates": 20,
+    "maximumReliabilityBinAbsoluteError": 0.03,
+    "precision": "Report probabilities to no more than three decimal places in consumer guidance."
+  },
+  "decisionRule": "Potentially permissible only for the primary unrelated regular-season stratum when every sample-size, dependence, calibration and interval-width criterion passes. Unsupported timing, shared-team, postseason/tournament, sequential-incentive, common-failure and ambiguous-identity cases remain excluded regardless of aggregate results."
+}

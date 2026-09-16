@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "ASP_CROSS_GAME_INDEPENDENCE_VERIFICATION_V1",
+  "verifiedAtUtc": "2026-09-16T17:58:00Z",
+  "result": {
+    "path": "docs/cross-game-independence-validation-v1/RESULTS.json",
+    "bytes": 183737,
+    "sha256": "fafc0b9bd9997e65fa6db209bceb6dacb91943528e136ed23603daf922ffef24"
+  },
+  "deterministicReplay": {
+    "byteIdentical": true,
+    "replaySha256": "fafc0b9bd9997e65fa6db209bceb6dacb91943528e136ed23603daf922ffef24",
+    "temporaryReplayRemoved": true
+  },
+  "implementation": {
+    "path": "scripts/cross_game_independence_study.py",
+    "sha256": "c031a835b75d369773b237ce03342b534ed9d8c2393a210594b93d0e3f2e8283"
+  },
+  "focusedTests": {
+    "command": "python -m pytest -q tests/test_cross_game_independence_study.py tests/test_market_probabilities.py tests/test_scotty_demo_release.py",
+    "passed": 23,
+    "failed": 0,
+    "durationSeconds": 1.91
+  },
+  "checks": {
+    "pythonAstParse": true,
+    "gitDiffCheck": true,
+    "secretScan": "CLEAN",
+    "sameGamePairs": 0,
+    "reverseOrDuplicatePairs": 0,
+    "providerCalls": 0,
+    "sportsbookCalls": 0,
+    "sealedReads": 0,
+    "finalOotReads": 0,
+    "modelRuns": 0,
+    "aispWrites": 0,
+    "exchangeWrites": 0
+  }
+}

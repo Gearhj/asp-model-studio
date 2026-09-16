@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "ASP_CROSS_GAME_INDEPENDENCE_FREEZE_RECEIPT_V1",
+  "frozenBeforeOutcomeRowsLoaded": true,
+  "frozenAtUtc": "2026-09-16T17:24:00Z",
+  "designPath": "docs/cross-game-independence-validation-v1/STUDY_DESIGN.json",
+  "designBytes": 6417,
+  "designPhysicalSha256": "5749b2457b52589a612b3a2597341185a5baf9b814d300715ec115a4c8dda87f",
+  "schemaOnlyInspectionCompleted": true,
+  "outcomeRowsLoadedBeforeFreeze": false,
+  "sealedOrFinalOotRead": false
+}

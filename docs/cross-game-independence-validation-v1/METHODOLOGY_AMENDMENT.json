@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "ASP_CROSS_GAME_INDEPENDENCE_METHODOLOGY_AMENDMENT_V1",
+  "recordedBeforeMetricCalculation": true,
+  "recordedAtUtc": "2026-09-16T17:31:00Z",
+  "reason": "Source-code inspection established that CFB Development calibrated probabilities are fitted from the complete 2016-2022 Development outcomes. Using those same rows as probability targets would be in-sample calibration leakage.",
+  "change": {
+    "remove": "CFB role=development calibrated-probability target rows",
+    "admit": "CFB role=validation, seasons 2023-2024, context_eligible and final",
+    "configuration": "CFB_GEN1_RIDGE_A100_PAIRED_RESIDUAL_V1 winner channel with Development-fixed calibrator",
+    "qualification": "Reused already-inspected historical Validation evidence; not a fresh holdout and not prospective certification."
+  },
+  "unchanged": [
+    "All practical tolerances",
+    "Pair construction",
+    "Bootstrap seed and cluster method",
+    "NFL and NBA populations",
+    "All sealed, Final OOT and current-season exclusions",
+    "Fail-closed consumer posture"
+  ],
+  "metadataEnrichment": {
+    "nflSchedulePath": "C:\\Users\\james\\asp-data-staging\\nfl\\bronze-v1\\objects\\schedules\\all-seasons\\schedules\\asset=567593295\\updated=95587c2bf9eb89e8\\sha256=18d03fef3b91eb38472ed9f678bb11a9bfbec7b9a664dfce4c60ab247cbee9d3\\games.parquet",
+    "physicalSha256": "18d03fef3b91eb38472ed9f678bb11a9bfbec7b9a664dfce4c60ab247cbee9d3",
+    "permittedColumns": ["game_id", "game_type", "gameday", "gametime", "away_team", "home_team"],
+    "purpose": "Timing, team-overlap and regular/postseason classification only; schedule outcome, odds, weather and player columns remain unread."
+  },
+  "outcomeMetricsInspectedBeforeAmendment": false,
+  "sealedOrFinalOotRead": false
+}
