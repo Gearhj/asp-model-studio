@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "MLB_V18_PLAYER_PROP_FEASIBILITY_V1",
+  "disposition": "PLAYER_PROP_PROBABILITIES_UNSUPPORTED_BY_EXISTING_IMMUTABLE_POPULATION",
+  "baseCommit": "e0d1638626ad33a7a794d4f94882acf363c78652",
+  "probabilityUnits": "FRACTION_0_TO_1",
+  "existingPopulation": {
+    "forecastId": "mlb-v18-daily-game-2f07648c51e830736d65ff37",
+    "drawCount": 5000,
+    "populationSha256": "a302b39e17922a208ac90b14310d82fefa60451734704a45e26d4f34f7282faa",
+    "namedPlayerEventsAcrossAllDraws": false,
+    "representativePathCount": 1
+  },
+  "props": [
+    {"propType": "BATTER_HITS", "status": "DERIVABLE_AFTER_IDENTITY_COUNTER", "currentProbabilityAvailable": false, "classes": ["SINGLE", "DOUBLE", "TRIPLE", "HOME_RUN"]},
+    {"propType": "BATTER_TOTAL_BASES", "status": "DERIVABLE_AFTER_IDENTITY_COUNTER", "currentProbabilityAvailable": false, "weights": {"SINGLE": 1, "DOUBLE": 2, "TRIPLE": 3, "HOME_RUN": 4}},
+    {"propType": "BATTER_HOME_RUNS", "status": "DERIVABLE_AFTER_IDENTITY_COUNTER", "currentProbabilityAvailable": false, "classes": ["HOME_RUN"]},
+    {"propType": "STARTING_PITCHER_STRIKEOUTS", "status": "DERIVABLE_AFTER_IDENTITY_COUNTER", "currentProbabilityAvailable": false, "classes": ["STRIKEOUT"], "pitcherState": "STARTER"},
+    {"propType": "RELIEVER_STRIKEOUTS", "status": "UNSUPPORTED", "currentProbabilityAvailable": false, "reason": "ANONYMOUS_TEAM_BULLPEN"}
+  ],
+  "voidProbability": {"status": "UNSUPPORTED", "value": null},
+  "consumerRule": "SPORTSBOOK_MARKET_NO_AISP_ASSESSMENT",
+  "accounting": {"authenticatedProviderCalls": 0, "providerBytes": 0, "providerCredits": 0, "providerCostUsd": 0, "aispWrites": 0, "exchangeWrites": 0, "modelRuns": 0, "outcomeReads": 0, "sealedReads": 0}
+}

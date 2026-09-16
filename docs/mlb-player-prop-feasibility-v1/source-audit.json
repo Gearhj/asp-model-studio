@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "MLB_V18_PLAYER_PROP_SOURCE_AUDIT_V1",
+  "auditedBaseCommit": "e0d1638626ad33a7a794d4f94882acf363c78652",
+  "files": [
+    {"path": "server/sports_current_statcast/mlb_v18_whole_game_challenger.py", "sha256": "dc423012278709e7da2c85aeec6b81974db721c6d01c0c802ab83630499dd288", "bytes": 28866},
+    {"path": "server/sports_current_statcast/mlb_v18_current_publication.py", "sha256": "ea655fd9f02b25eb3b26f95385730be0d89d0d497d3705b2612b164ef117794d", "bytes": 50363},
+    {"path": "server/sports_current_statcast/mlb_v18_daily_slate.py", "sha256": "9c35a2e4949ccf466020b8e47f2c36119134edb0b3c78a00641ceb817a4db11d", "bytes": 64449},
+    {"path": "server/sports_current_statcast/mlb_v18_population_diagnostics.py", "sha256": "fa821020c1812fd9ea0336dc039cb69339c467c8502eeec01372d52ebaf0823f", "bytes": 22851},
+    {"path": "server/sports_current_statcast/mlb_v18_play_geometry_trace.py", "sha256": "f071ec9e516aa938416d46d47f6778bf5dd799126bed0014e1aac70d11a64c6c", "bytes": 20668},
+    {"path": "docs/contracts/MLB_WHOLE_GAME_MONTE_CARLO_V1.md", "sha256": "c207a278c1d7bb9badc77da3c217e300059a20be719191eaa67429dbcbeda7d1", "bytes": 5574},
+    {"path": "docs/contracts/D3_PROBABILISTIC_PA_PROVIDER_V1.md", "sha256": "2cc3c1004a0eb67730222287bfb165802c9759163c654511a248645b1b7680d2", "bytes": 5183},
+    {"path": "docs/aisp-market-probability-contract-v1/source-validation.json", "sha256": "1c0437ede20181372be64e5ffadf7025889242bd54942d0bfdb991fba0c8791c", "bytes": 2661}
+  ],
+  "retainedForecastEvidence": {
+    "forecastId": "mlb-v18-daily-game-2f07648c51e830736d65ff37",
+    "drawCount": 5000,
+    "populationSha256": "a302b39e17922a208ac90b14310d82fefa60451734704a45e26d4f34f7282faa",
+    "inspection": "METADATA_AND_SOURCE_CONTRACTS_ONLY"
+  },
+  "excludedReads": ["FINAL_OOT_OUTCOMES", "SEALED_PAYLOADS", "AISP_ENV", "AUTHENTICATED_PROVIDER_RESPONSES"],
+  "accounting": {"providerCalls": 0, "providerBytes": 0, "providerCredits": 0, "costUsd": 0, "outcomeReads": 0, "sealedReads": 0}
+}
