@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "MMA_GEN1_FIELD_COVERAGE_MATRIX_V1",
+  "cutoffRule": "each feature value must have observedAt <= forecastCutoff and must be derived only from bouts ending before forecastCutoff",
+  "statuses": ["SUPPORTED_CANDIDATE", "CONDITIONAL", "UNAVAILABLE_FREE", "POSTFIGHT_ONLY", "UNKNOWN"],
+  "fields": [
+    {"field":"fighter_age","primary":"CC0 dataset birth date","fallback":"API-Sports or Sportradar profile","status":"CONDITIONAL","leakageRisk":"recompute as of bout date; never use current age"},
+    {"field":"height_reach_stance","primary":"CC0 historical profile snapshot","fallback":"API-Sports/Sportradar profile","status":"CONDITIONAL","leakageRisk":"profile corrections need observedAt; stance may change"},
+    {"field":"weight_class","primary":"historical bout row","fallback":"operational schedule feed","status":"SUPPORTED_CANDIDATE","leakageRisk":"version bout when catchweight/class changes"},
+    {"field":"career_and_ufc_experience","primary":"chronological aggregation from prior bout rows","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"never use current career totals"},
+    {"field":"rolling_striking_offense_defense","primary":"prior round/fight stats from CC0 seed","fallback":"licensed Sportradar history","status":"CONDITIONAL","leakageRisk":"exclude target and later bouts; preserve denominators"},
+    {"field":"rolling_takedown_offense_defense","primary":"prior round/fight stats from CC0 seed","fallback":"licensed Sportradar history","status":"CONDITIONAL","leakageRisk":"exclude target and later bouts"},
+    {"field":"submission_attempts_control","primary":"prior round/fight stats from CC0 seed","fallback":"licensed Sportradar history","status":"CONDITIONAL","leakageRisk":"control availability changes by era"},
+    {"field":"finish_rates_by_method","primary":"chronological prior results","fallback":"API-Sports records","status":"SUPPORTED_CANDIDATE","leakageRisk":"normalize method taxonomy without future bouts"},
+    {"field":"opponent_strength","primary":"chronological ratings recomputed from prior bouts","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"no final all-history ratings"},
+    {"field":"recent_form","primary":"chronological prior results","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"same cutoff"},
+    {"field":"days_since_prior_fight","primary":"prior scheduled/completed bout dates","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"cancellations are not completed fights"},
+    {"field":"prior_rounds_and_duration","primary":"chronological prior results","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"target duration is label"},
+    {"field":"weight_class_change","primary":"chronological bout classes","fallback":null,"status":"SUPPORTED_CANDIDATE","leakageRisk":"use announced class at cutoff"},
+    {"field":"scheduled_rounds","primary":"operational bout schedule","fallback":"historical bout metadata","status":"CONDITIONAL","leakageRisk":"version when main-event/title status changes"},
+    {"field":"title_fight","primary":"operational bout schedule","fallback":"historical bout metadata","status":"CONDITIONAL","leakageRisk":"ranking/title corrections after event"},
+    {"field":"short_notice_replacement","primary":"card-version lineage","fallback":null,"status":"UNAVAILABLE_FREE","leakageRisk":"cannot infer reliably from final card"},
+    {"field":"weigh_in_and_missed_weight","primary":"licensed feed or governed manual official capture","fallback":null,"status":"UNAVAILABLE_FREE","leakageRisk":"only forecasts after weigh-in may use it"},
+    {"field":"venue_travel_altitude","primary":"schedule venue plus governed geographic lookup","fallback":"Sportradar venue","status":"CONDITIONAL","leakageRisk":"venue revisions need observedAt; travel origin assumptions unsupported"},
+    {"field":"rankings_at_cutoff","primary":"timestamped licensed ranking archive","fallback":null,"status":"UNAVAILABLE_FREE","leakageRisk":"current rankings are future information for old bouts"},
+    {"field":"prefight_market_probability","primary":"The Odds API timestamped h2h snapshot","fallback":"SportsGameOdds only after rights clearance","status":"CONDITIONAL","leakageRisk":"use snapshot at or before declared cutoff; closing lines are later evidence"},
+    {"field":"target_winner_method_round_time","primary":"licensed operational result feed","fallback":"manual official reconciliation","status":"POSTFIGHT_ONLY","leakageRisk":"labels stored separately from feature table"}
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "MMA_CANONICAL_BOUT_EVIDENCE_V1_PROPOSED",
+  "entities": {
+    "fighter": {"key":"canonicalFighterId","required":["displayName"],"aliases":["source","sourceFighterId","name","validFrom","validTo","confidence","reviewState"]},
+    "event": {"key":"canonicalEventId","required":["promotion","scheduledStart","venue","timezone"],"versions":["version","observedAt","sourcePublishedAt","sourceEventId","status"]},
+    "bout": {"key":"canonicalBoutId","required":["canonicalEventId","redFighterId","blueFighterId","weightClass","scheduledRounds"],"versions":["version","observedAt","sourceBoutId","cardOrder","status","predecessorBoutId","changeReason"]},
+    "capture": {"key":"captureSha256","required":["source","retrievedAt","requestIdentity","httpStatus","byteCount","licenseReceipt"],"timestamps":["sourcePublishedAt","sourceUpdatedAt","retrievedAt"]},
+    "featureRow": {"key":"canonicalBoutId+forecastCutoff","required":["featureContract","sourceCaptureHashes","values","missingness"],"rule":"all evidence observedAt <= forecastCutoff"},
+    "result": {"key":"canonicalBoutId+revision","required":["status","winner","method","round","finishTime","observedAt","sourceCaptureHash"],"separation":"never load before feature freeze"},
+    "oddsSnapshot": {"key":"canonicalBoutId+bookmaker+market+observedAt","required":["sourceEventId","bookmaker","market","outcomes","sourceLastUpdate","retrievedAt"]}
+  },
+  "changeRules": {
+    "opponentReplacement":"close prior bout version as REPLACED; create successor bout identity; link predecessor; do not mutate fighter pair",
+    "weightClassChange":"new bout version under same canonical bout only if participants unchanged; preserve both values and observed times",
+    "scheduledRoundsChange":"new bout version; recompute only forecasts whose cutoff follows the change",
+    "eventMove":"new event version; keep canonical event when promotion identity is clearly same; otherwise create successor event",
+    "cancellation":"terminal bout version CANCELLED; never treat as loss/no-contest",
+    "correction":"append revision, quarantine conflicts, retain superseded bytes"
+  },
+  "conflictPriority": ["licensed official-grade operational feed", "official human-reviewed evidence", "secondary structured API", "crowd-sourced cross-check"],
+  "quarantineTriggers": ["identity collision", "opponents reversed without source explanation", "start-time disagreement over 15 minutes", "result disagreement", "source timestamp after forecast cutoff", "schema drift"]
+}
