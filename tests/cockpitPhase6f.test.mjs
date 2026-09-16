@@ -12,7 +12,7 @@ const [steps1, panel, router, shell] = await Promise.all([
   read("server/sports_cockpit/router.py"),
   read("src/sports/cockpit/PaModelingCockpit.tsx"),
 ]);
-const temporal = steps1.slice(steps1.indexOf("08 Temporal Split"), steps1.indexOf("09 Model Laboratory"));
+const temporal = steps1.slice(steps1.indexOf("08 Temporal Split"));
 const seg = steps1.slice(steps1.indexOf("const SEG_METHODS"), steps1.indexOf("08 Temporal Split"));
 
 // ------------------------------------------------------------- Temporal Split (was non-interactive)

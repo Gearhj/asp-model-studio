@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
+from contextlib import contextmanager
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -93,8 +94,31 @@ def _notify(
 
 
 class SharingService:
-    def __init__(self, persistence: PersistenceService | None = None) -> None:
+    def __init__(self, persistence: PersistenceService | None = None, *, _transaction_bound: bool = False) -> None:
         self.persistence = persistence or get_persistence_service()
+        self._transaction_bound = _transaction_bound
+
+    @contextmanager
+    def _project_acl_transaction(self):
+        # ACL, collaborator, notification, and attributable audit writes share
+        # one SQLite transaction. Failures cannot commit an unaudited grant.
+        with self.persistence.database.transaction() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            path = self.persistence.database.path
+
+            class BoundDatabase:
+                def __init__(self):
+                    self.path = path
+
+                @contextmanager
+                def connection(self):
+                    yield connection
+
+                @contextmanager
+                def transaction(self):
+                    yield connection
+
+            yield SharingService(PersistenceService(BoundDatabase()), _transaction_bound=True)
 
     def _owner_user_id(self, resource_type: str, resource_id: str) -> str | None:
         service = self.persistence
@@ -147,13 +171,42 @@ class SharingService:
         return {"allowed": allowed, "permission": effective, "reason": "Explicit permission." if allowed else "No active permission."}
 
     def assert_can_manage(self, user: Dict[str, Any], resource_type: str, resource_id: str) -> None:
+        if resource_type == "project":
+            # Project ACL administration is reserved to the canonical owner or
+            # a workspace administrator. An explicit member role never grants
+            # the ability to promote that member or transfer project ownership.
+            project = self.persistence.projects.get(resource_id)
+            owner_id = (project or {}).get("owner_user_id") or (project or {}).get("created_by")
+            if not project or not _user_id(user) or not (
+                user.get("role") == "admin" or owner_id == _user_id(user)
+            ):
+                raise HTTPException(status_code=403, detail="Project access administration is not available.")
+            return
         check = self.check_permission(user, resource_type, resource_id, "admin")
         if not check["allowed"] and user.get("role") != "admin":
             owner_id = self._owner_user_id(resource_type, resource_id)
             if owner_id != _user_id(user):
                 raise HTTPException(status_code=403, detail="Only the owner or admin can manage access for this resource.")
 
+    def _bootstrap_project_owner(self, user: Dict[str, Any], project_id: str) -> None:
+        """Internal creation hook after the authenticated owner's row exists.
+
+        No HTTP route or grant flag exposes this hook. The canonical persisted
+        owner is rechecked, so it cannot be used to claim an arbitrary ID.
+        """
+        owner = self.persistence.projects.get(project_id)
+        actor_id = _user_id(user)
+        if not actor_id or not owner or owner.get("owner_user_id") != actor_id:
+            raise HTTPException(status_code=403, detail="Project access administration is not available.")
+        self.share_resource(user, "project", project_id, {
+            "principalType": "user", "principalId": actor_id,
+            "permissionLevel": "admin", "metadata": {"source": "server_project_creation"},
+        })
+
     def share_resource(self, user: Dict[str, Any], resource_type: str, resource_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if resource_type == "project" and not self._transaction_bound:
+            with self._project_acl_transaction() as transaction:
+                return transaction.share_resource(user, resource_type, resource_id, payload)
         if resource_type not in RESOURCE_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported shareable resource type: {resource_type}")
         self.assert_can_manage(user, resource_type, resource_id)
@@ -161,6 +214,24 @@ class SharingService:
         principal_type = payload["principalType"]
         principal_id = payload["principalId"]
         permission_level = payload["permissionLevel"]
+        if principal_type not in {"user", "group"} or not principal_id or permission_level not in PERMISSION_LEVELS:
+            raise HTTPException(status_code=400, detail="Unsupported sharing principal or permission.")
+        if resource_type == "project" and principal_type == "user":
+            owner_id = self._owner_user_id(resource_type, resource_id)
+            if principal_id == owner_id and permission_level != "admin":
+                raise HTTPException(status_code=403, detail="The project owner's access cannot be downgraded.")
+        for existing in self.persistence.access.list_permissions_for_resource(resource_type, resource_id):
+            if (existing.get("principal_type") == principal_type
+                and existing.get("principal_id") == principal_id
+                and existing.get("permission_level") == permission_level
+                and existing.get("expires_at") == payload.get("expiresAt")):
+                return {"permission": existing, "event": None, "changed": False}
+        if resource_type == "project" and principal_type == "user":
+            from ..security.security_store import get_user, public_user
+
+            target = get_user(principal_id)
+            if target:
+                self.persistence.sync_user(public_user(target))
         record = self.persistence.access.grant_permission(
             {
                 "permission_id": f"perm_{uuid.uuid4().hex}",
@@ -221,10 +292,15 @@ class SharingService:
                     resource_id,
                     metadata={"principal_type": principal_type, "principal_id": principal_id, "permission_level": permission_level},
                 )
-        return {"permission": record, "event": event}
+        return {"permission": record, "event": event, "changed": True}
 
     def revoke_share(self, user: Dict[str, Any], resource_type: str, resource_id: str, principal_type: str, principal_id: str) -> Dict[str, Any]:
+        if resource_type == "project" and not self._transaction_bound:
+            with self._project_acl_transaction() as transaction:
+                return transaction.revoke_share(user, resource_type, resource_id, principal_type, principal_id)
         self.assert_can_manage(user, resource_type, resource_id)
+        if resource_type == "project" and principal_type == "user" and principal_id == self._owner_user_id(resource_type, resource_id):
+            raise HTTPException(status_code=403, detail="The project owner's access cannot be revoked.")
         removed = self.persistence.access.revoke_permission(resource_type, resource_id, principal_type, principal_id)
         if resource_type == "project" and principal_type == "user":
             self.persistence.access.remove_project_collaborator(resource_id, principal_id)
@@ -243,6 +319,14 @@ class SharingService:
         permission = self.check_permission(user, resource_type, resource_id)
         if not permission["allowed"] and user.get("role") != "admin":
             self.assert_can_manage(user, resource_type, resource_id)
+        if resource_type == "project" and user.get("role") != "admin" and self._owner_user_id(resource_type, resource_id) != _user_id(user):
+            # Members need their own effective access, not a tenant directory,
+            # invitations, grant history, or owner/admin-only share links.
+            return {
+                "resourceType": resource_type, "resourceId": resource_id,
+                "currentUserPermission": permission, "ownerUserId": None,
+                "permissions": [], "events": [], "shareLinks": [],
+            }
         permissions = self.persistence.access.list_permissions_for_resource(resource_type, resource_id)
         return {
             "resourceType": resource_type,

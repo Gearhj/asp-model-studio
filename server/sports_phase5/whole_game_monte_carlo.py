@@ -27,8 +27,8 @@ evaluation layer, never a market comparison.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Protocol, Sequence
 
 import numpy as np
 
@@ -52,6 +52,34 @@ MAX_TEAM_PA = 130  # padded participant sequence length (covers ~ 25 innings)
 
 class MonteCarloError(RuntimeError):
     """Structural fault in the whole-game driver (never used to hide a legality defect)."""
+
+
+@dataclass(frozen=True)
+class SimulatedPAStateBatch:
+    """Read-only simulated pre-PA state supplied to an arbitrary probability provider.
+
+    Every array has shape ``(n_sims,)`` and is aligned by simulation index.  Terminal rows
+    remain present (with ``active=False``) so the engine keeps its historical fixed-size RNG
+    draw pattern.  ``batting_team_pa_ordinal`` is zero-based and selects the batting team's
+    participant/context row for the pending plate appearance.
+    """
+
+    inning: np.ndarray
+    is_top: np.ndarray
+    outs_before: np.ndarray
+    base_mask_before: np.ndarray
+    away_score_before: np.ndarray
+    home_score_before: np.ndarray
+    batting_score_diff_before: np.ndarray
+    batting_team_pa_ordinal: np.ndarray
+    active: np.ndarray
+
+
+class PAProbabilityProvider(Protocol):
+    """Callable returning ``(n_sims, 8)`` probabilities in ``PA_CLASS_ORDER``."""
+
+    def __call__(self, state: SimulatedPAStateBatch, /) -> np.ndarray:
+        """Score one vectorized simulated plate-appearance state batch."""
 
 
 # --------------------------------------------------------------------------------------
@@ -125,6 +153,40 @@ def _softmax_rows(z: np.ndarray) -> np.ndarray:
     z = z - z.max(axis=1, keepdims=True)
     e = np.exp(z)
     return e / e.sum(axis=1, keepdims=True)
+
+
+def _readonly_view(values: np.ndarray) -> np.ndarray:
+    """Return an aligned read-only view without copying the simulator's state arrays."""
+
+    view = values.view()
+    view.setflags(write=False)
+    return view
+
+
+def _provider_probabilities(
+    provider: PAProbabilityProvider,
+    state: SimulatedPAStateBatch,
+    n_sims: int,
+) -> np.ndarray:
+    """Invoke and fail-closed validate one governed-order provider matrix."""
+
+    try:
+        probabilities = np.asarray(provider(state), dtype=np.float64)
+    except Exception as exc:
+        raise MonteCarloError("PA probability provider failed") from exc
+    expected = (n_sims, len(PA_CLASS_ORDER))
+    if probabilities.shape != expected:
+        raise MonteCarloError(
+            f"PA probability provider returned shape {probabilities.shape}; expected {expected}"
+        )
+    if not np.isfinite(probabilities).all():
+        raise MonteCarloError("PA probability provider returned non-finite values")
+    if np.any(probabilities < 0.0):
+        raise MonteCarloError("PA probability provider returned negative values")
+    row_sums = probabilities.sum(axis=1)
+    if not np.allclose(row_sums, 1.0, rtol=0.0, atol=1e-12):
+        raise MonteCarloError("PA probability provider rows must sum to one")
+    return probabilities
 
 
 # --------------------------------------------------------------------------------------
@@ -230,15 +292,73 @@ class GameSimResult:
     home_win: np.ndarray      # bool (n_sims,)  ties impossible under MLB rules
     nonterminated: int
     illegal_states: int
+    first_five_away_runs: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64)
+    )
+    first_five_home_runs: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64)
+    )
+
+    @property
+    def first_five_complete(self) -> np.ndarray:
+        """Mask of simulations with a captured score after the bottom of the fifth."""
+
+        if (
+            self.first_five_away_runs.shape != (self.n_sims,)
+            or self.first_five_home_runs.shape != (self.n_sims,)
+        ):
+            return np.zeros(self.n_sims, dtype=bool)
+        return (self.first_five_away_runs >= 0) & (self.first_five_home_runs >= 0)
 
     def summary(self) -> dict[str, Any]:
         away = self.away_runs.astype(np.float64)
         home = self.home_runs.astype(np.float64)
         total = away + home
         diff = home - away
+        first_five_complete = self.first_five_complete
+        if (
+            self.first_five_away_runs.shape == (self.n_sims,)
+            and self.first_five_home_runs.shape == (self.n_sims,)
+        ):
+            first_five_away = self.first_five_away_runs[first_five_complete].astype(np.float64)
+            first_five_home = self.first_five_home_runs[first_five_complete].astype(np.float64)
+        else:
+            first_five_away = np.empty(0, dtype=np.float64)
+            first_five_home = np.empty(0, dtype=np.float64)
+        first_five_total = first_five_away + first_five_home
+        first_five_diff = first_five_home - first_five_away
         qs = [5, 10, 25, 50, 75, 90, 95]
+
         def q(a: np.ndarray) -> dict[str, float]:
             return {f"p{p}": float(np.percentile(a, p)) for p in qs}
+
+        first_five_count = int(first_five_complete.sum())
+        if first_five_count:
+            first_five_summary: dict[str, Any] = {
+                "firstFiveMeanAwayRuns": float(first_five_away.mean()),
+                "firstFiveMeanHomeRuns": float(first_five_home.mean()),
+                "firstFiveMeanTotalRuns": float(first_five_total.mean()),
+                "firstFiveMeanRunDiff": float(first_five_diff.mean()),
+                "firstFiveHomeWinProb": float((first_five_diff > 0).mean()),
+                "firstFiveAwayWinProb": float((first_five_diff < 0).mean()),
+                "firstFiveTieProb": float((first_five_diff == 0).mean()),
+                "firstFiveAwayQuantiles": q(first_five_away),
+                "firstFiveHomeQuantiles": q(first_five_home),
+                "firstFiveTotalQuantiles": q(first_five_total),
+            }
+        else:
+            first_five_summary = {
+                "firstFiveMeanAwayRuns": None,
+                "firstFiveMeanHomeRuns": None,
+                "firstFiveMeanTotalRuns": None,
+                "firstFiveMeanRunDiff": None,
+                "firstFiveHomeWinProb": None,
+                "firstFiveAwayWinProb": None,
+                "firstFiveTieProb": None,
+                "firstFiveAwayQuantiles": {},
+                "firstFiveHomeQuantiles": {},
+                "firstFiveTotalQuantiles": {},
+            }
         return {
             "gameId": self.game_id,
             "nSims": self.n_sims,
@@ -255,6 +375,9 @@ class GameSimResult:
             "awayQuantiles": q(away),
             "homeQuantiles": q(home),
             "totalQuantiles": q(total),
+            "firstFiveCompletedSimulations": first_five_count,
+            "firstFiveCompletionRate": float(first_five_count / self.n_sims),
+            **first_five_summary,
             "nonterminated": self.nonterminated,
             "illegalStates": self.illegal_states,
         }
@@ -273,16 +396,24 @@ def simulate_game(
     n_sims: int,
     check_legality: bool = False,
     fixed_probs: np.ndarray | None = None,
+    probability_provider: PAProbabilityProvider | None = None,
 ) -> GameSimResult:
     """Simulate ``n_sims`` whole games in lockstep and return score distributions.
 
-    If ``fixed_probs`` (an 8-vector) is supplied the D3 fold is bypassed and every plate
-    appearance draws from that fixed league-average PA distribution — the G0 generic-baseball
-    baseline that isolates D3's game-level value against the same kernel/transitions/participants.
+    Exactly one probability mode is required.  ``fold`` preserves the governed decomposed-D3
+    path.  ``fixed_probs`` (an 8-vector) preserves the G0 league-average baseline.
+    ``probability_provider`` receives the current vectorized simulated state and supplies one
+    governed-order probability row per simulation.  All modes use the same fixed-size PA and
+    transition RNG draws.
     """
 
-    if fixed_probs is None and fold is None:
-        raise MonteCarloError("simulate_game requires either a D3 fold or fixed_probs")
+    mode_count = sum(
+        mode is not None for mode in (fold, fixed_probs, probability_provider)
+    )
+    if mode_count != 1:
+        raise MonteCarloError(
+            "simulate_game requires exactly one of fold, fixed_probs, or probability_provider"
+        )
     fixed_cum = None if fixed_probs is None else np.cumsum(np.asarray(fixed_probs, dtype=np.float64))
     reg = contribs.regulation
     pa_rng = rng_lineage.pa_rng()
@@ -298,6 +429,8 @@ def simulate_game(
     home_pa = np.zeros(n_sims, dtype=np.int64)
     n_pa = np.zeros(n_sims, dtype=np.int64)
     terminal = np.zeros(n_sims, dtype=bool)
+    first_five_away = np.full(n_sims, -1, dtype=np.int64)
+    first_five_home = np.full(n_sims, -1, dtype=np.int64)
     illegal = 0
 
     step = 0
@@ -310,6 +443,27 @@ def simulate_game(
         u_cls = pa_rng.random(n_sims)
         if fixed_cum is not None:
             cls_idx = np.searchsorted(fixed_cum, u_cls, side="right")
+        elif probability_provider is not None:
+            batting_score_diff = np.where(
+                top, away_score - home_score, home_score - away_score
+            )
+            batting_team_pa = np.where(top, away_pa, home_pa)
+            state = SimulatedPAStateBatch(
+                inning=_readonly_view(inning),
+                is_top=_readonly_view(top),
+                outs_before=_readonly_view(outs),
+                base_mask_before=_readonly_view(base),
+                away_score_before=_readonly_view(away_score),
+                home_score_before=_readonly_view(home_score),
+                batting_score_diff_before=_readonly_view(batting_score_diff),
+                batting_team_pa_ordinal=_readonly_view(batting_team_pa),
+                active=_readonly_view(active),
+            )
+            probabilities = _provider_probabilities(
+                probability_provider, state, n_sims
+            )
+            cumulative = np.cumsum(probabilities, axis=1)
+            cls_idx = (cumulative < u_cls[:, None]).sum(axis=1)
         else:
             # Participant contributions keyed to batting-team PA ordinal (capped index).
             a_idx = np.clip(away_pa, 0, MAX_TEAM_PA - 1)
@@ -353,6 +507,20 @@ def simulate_game(
         base = np.where(cont, base_after, base)
         outs = np.where(cont, outs_after, outs)
 
+        # Snapshot the score when each simulation finishes the bottom of the fifth.  The
+        # walk-off arm only matters for nonstandard five-inning regulation; normal MLB games
+        # capture on the third out.  -1 remains an explicit incomplete/watchdog sentinel.
+        bottom_five_finished = (
+            active & (~top) & (inning == 5) & (walk_off | ends)
+        )
+        capture_first_five = bottom_five_finished & (first_five_away < 0)
+        first_five_away = np.where(
+            capture_first_five, away_score, first_five_away
+        )
+        first_five_home = np.where(
+            capture_first_five, home_score, first_five_home
+        )
+
         # Terminal after a completed half-inning.
         end_bottom_decided = ends & (~top) & (inning >= reg) & (away_score != home_score)
         end_top_home_leads = ends & top & (inning >= reg) & (home_score > away_score)
@@ -383,6 +551,8 @@ def simulate_game(
         away_runs=away_score.copy(), home_runs=home_score.copy(),
         innings=inning.copy(), pa_counts=n_pa.copy(), home_win=home_win,
         nonterminated=nonterminated, illegal_states=illegal,
+        first_five_away_runs=first_five_away.copy(),
+        first_five_home_runs=first_five_home.copy(),
     )
 
 
@@ -392,6 +562,8 @@ __all__ = [
     "PARTICIPANT_MODE",
     "DEFAULT_REGULATION",
     "MonteCarloError",
+    "SimulatedPAStateBatch",
+    "PAProbabilityProvider",
     "FastD3Fold",
     "FastTransitionSampler",
     "GameContribs",

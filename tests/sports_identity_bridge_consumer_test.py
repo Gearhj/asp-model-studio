@@ -28,7 +28,7 @@ from server.sports_identity_bridges.consumer import (
     semantic_bridge_manifest_sha,
 )
 from server.sports_datasets.consumer import ManifestValidationError, load_strict_json
-from tests.sports_dataset_test_fixture import golden_package
+from tests.sports_dataset_test_fixture import golden_corpus_available, golden_package
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -103,7 +103,7 @@ class IdentityBridgeStrictUnitTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.getenv("ASP_MODEL_EXCHANGE_ROOT"),
+    golden_corpus_available(),
     "ASP_MODEL_EXCHANGE_ROOT is required for golden identity-bridge tests",
 )
 class GoldenIdentityBridgeTests(unittest.TestCase):

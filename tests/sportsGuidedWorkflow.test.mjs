@@ -30,7 +30,14 @@ const wf = await import(pathToFileURL(path.join(TMP, "src/sports/workflow/workfl
 let pidSeq = 0;
 const pid = () => `p${++pidSeq}`;
 const contract = () => ({ projectId: "x", version: 1, target: "Plate-Appearance Outcome", lifecycle: "Pregame — Final", developmentSeasons: [2021, 2022, 2023], validationSeason: 2024, frozenSeason: 2025, prospectiveSeason: 2026, evidenceMode: "STRICT", intendedOutputs: [], researchPurpose: "x", notes: "", savedAt: "now" });
-const binding = () => ({ projectId: "x", registrationId: "r", datasetId: "asp.mlb.open-data.fd1", manifestSha: "abc123def456", seasons: [2021, 2022, 2023, 2024, 2025], boundAt: "now" });
+const binding = (projectId = "x") => ({ projectId, registrationId: "r", datasetId: "asp.mlb.statcast.current-pa.v1", datasetVersionId: "current-pa-v1", manifestSha: "a".repeat(64), seasons: [2023, 2024, 2025, 2026], boundAt: "now" });
+const acceptDataReview = (projectId, bound) => wf.acceptStage2DataReview(projectId, bound, {
+  projectId,
+  reviewDigest: "b".repeat(64),
+  sourceAuthority: { registrationId: bound.registrationId, datasetVersionId: bound.datasetVersionId, manifestSha: bound.manifestSha },
+  goldAuthority: { manifestSha: "c".repeat(64) },
+  acceptance: { allowed: true },
+});
 const fullDataset = () => ({
   datasetId: "asp.mlb.open-data.fd1", validationStatus: "VALID", manifestSha: "abc123def456",
   identityBridge: { registrationId: "b", manifestSha: "s", noNamesOrFuzzyMatching: true, joinAudit: { status: "PASS", mappingRate: 1.0, unresolvedReferences: 0, ambiguousReferences: 0 }, rights: { status: "OK" } },
@@ -66,8 +73,21 @@ test("Stage 2 requires accepting the data (bind alone is not complete)", () => {
   assert.ok(r.slice(2).every((s) => s.status === "BLOCKED"));
 });
 
+test("Stage 2 acceptance is invalidated when the project-linked authority changes", () => {
+  const p = pid();
+  const acceptedBinding = binding(p);
+  acceptDataReview(p, acceptedBinding);
+  const changedBinding = { ...acceptedBinding, manifestSha: "d".repeat(64) };
+  const r = wf.resolveStages(p, fullDataset(), contract(), changedBinding, [2]);
+  assert.equal(r[1].status, "CURRENT");
+  assert.equal(r[2].status, "BLOCKED");
+});
+
 test("PA Model Development is Stage 3, reachable immediately after data — no player-state/participation before it", () => {
-  const r = wf.resolveStages(pid(), fullDataset(), contract(), binding(), [2]); // data accepted
+  const p = pid();
+  const bound = binding(p);
+  acceptDataReview(p, bound);
+  const r = wf.resolveStages(p, fullDataset(), contract(), bound, [2]); // exact data review accepted
   assert.equal(r[0].status, "COMPLETE");
   assert.equal(r[1].status, "COMPLETE");
   assert.equal(r[2].id, "pa-model");
@@ -107,7 +127,10 @@ test("legacy ?step -> new ?stage mapping", () => {
 });
 
 test("no stage routes to Studio Home; module routes are real", () => {
-  const r = wf.resolveStages(pid(), fullDataset(), contract(), binding(), [2]);
+  const p = pid();
+  const bound = binding(p);
+  acceptDataReview(p, bound);
+  const r = wf.resolveStages(p, fullDataset(), contract(), bound, [2]);
   for (const s of r) if (s.action.route) assert.notEqual(s.action.route, "/dashboard");
   assert.equal(r[2].action.route, "/pa-modeling-cockpit");
   assert.equal(r[3].action.route, "/participation-usage");
@@ -118,7 +141,10 @@ test("no stage routes to Studio Home; module routes are real", () => {
 });
 
 test("completionSummary is against 9 stages", () => {
-  const r = wf.resolveStages(pid(), fullDataset(), contract(), binding(), [2, 3, 4, 5, 6, 7, 8]);
+  const p = pid();
+  const bound = binding(p);
+  acceptDataReview(p, bound);
+  const r = wf.resolveStages(p, fullDataset(), contract(), bound, [2, 3, 4, 5, 6, 7, 8]);
   const s = wf.completionSummary(r);
   assert.equal(s.total, 9);
   assert.equal(s.complete, 8); // 1-8 complete, export gated
@@ -126,7 +152,7 @@ test("completionSummary is against 9 stages", () => {
 });
 
 // ---- static wiring assertions ----
-const [modelingApp, newProject, overview, guided, returnBar, sidebar, stageContent, steps1, steps2, wfState] = await Promise.all([
+const [modelingApp, newProject, overview, guided, returnBar, sidebar, stageContent, steps1, steps2, phase4Surfaces, wfState] = await Promise.all([
   readFile(new URL("src/apps/ModelingApp.tsx", ROOT), "utf8"),
   readFile(new URL("src/sports/NewSportsProject.tsx", ROOT), "utf8"),
   readFile(new URL("src/sports/SportsProjectOverview.tsx", ROOT), "utf8"),
@@ -136,21 +162,22 @@ const [modelingApp, newProject, overview, guided, returnBar, sidebar, stageConte
   readFile(new URL("src/sports/workflow/GuidedStageContent.tsx", ROOT), "utf8"),
   readFile(new URL("src/sports/cockpit/cockpitSteps1.tsx", ROOT), "utf8"),
   readFile(new URL("src/sports/cockpit/cockpitSteps2.tsx", ROOT), "utf8"),
+  readFile(new URL("src/sports/Phase4Surfaces.tsx", ROOT), "utf8"),
   readFile(new URL("src/sports/workflow/workflowState.ts", ROOT), "utf8"),
 ]);
 
 test("workflow uses ?stage routing with legacy ?step compatibility", () => {
   assert.ok(guided.includes('params.get("stage")'));
   assert.ok(guided.includes("LEGACY_STEP_TO_STAGE"));
-  assert.ok(newProject.includes("/workflows/mlb?stage=1"));
-  assert.ok(returnBar.includes("stage") && returnBar.includes("Return to MLB Workflow"));
+  assert.ok(newProject.includes("mlbWorkflowRoute(state.projectId, 1)"));
+  assert.ok(guided.includes("SPORTS_PROJECT_ID_PARAM") && guided.includes("useCanonicalSportsProject"));
+  assert.ok(returnBar.includes("mlbWorkflowRoute") && returnBar.includes("Return to MLB Workflow"));
 });
 
-test("Stage 2 merges data preview + data-quality; Stage 3 embeds the cockpit", () => {
-  assert.ok(stageContent.includes("DataQualitySummary") && stageContent.includes("DataPreviewPanel"));
+test("Stage 2 uses the project-scoped current-Gold quality review; Stage 3 embeds the cockpit", () => {
+  assert.ok(stageContent.includes("CurrentGoldDataReviewPanel") && !stageContent.includes("DataPreviewPanel"));
   assert.ok(stageContent.includes("<PaModelingCockpit embedded projectId="));
-  // identity/leakage lives in the data-quality summary, not a separate program stage
-  assert.ok(stageContent.includes("Identity mapping") && stageContent.includes("Leakage gate"));
+  assert.ok(guided.includes("stage2ReviewMatchesBinding") && guided.includes("acceptStage2DataReview"));
 });
 
 test("player-state research relocated into cockpit Feature Engineering", () => {
@@ -161,15 +188,15 @@ test("player-state research relocated into cockpit Feature Engineering", () => {
 });
 
 test("severe-miss forensics relocated into cockpit Evaluation", () => {
-  assert.ok(steps2.includes("SevereMissForensicsSection"));
-  assert.ok(steps2.includes("severeMissForensics"));
+  assert.ok(phase4Surfaces.includes("SevereMissForensicsSection"));
+  assert.ok(phase4Surfaces.includes("severeMissForensics"));
 });
 
 test("no functional regression: standalone modules and routes preserved", () => {
   for (const mod of ["/data-warehouse", "/pa-modeling-cockpit", "/simulation-studio", "/model-laboratory", "/model-graph", "/registry-deployment", "/participation-usage", "/player-team-state"]) {
     assert.ok(sidebar.includes(mod), `sidebar missing ${mod}`);
   }
-  assert.match(modelingApp, /path="\/workflows\/mlb"\s+element=\{<GuidedWorkflow/);
+  assert.match(modelingApp, /path="\/workflows\/mlb"\s+element=\{<SportAwareWorkflowRoute requestedLeagueCode="MLB"><GuidedWorkflow \/><\/SportAwareWorkflowRoute>\}/);
   // migration preserves the legacy adoption key
   assert.ok(wfState.includes("LEGACY_ADOPTION_PREFIX") && wfState.includes("never destroys the"));
 });

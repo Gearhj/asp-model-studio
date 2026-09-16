@@ -1,0 +1,91 @@
+{
+  "contract": "ASP_NFL_OVERNIGHT_EXPERIMENT_MATRIX_V1",
+  "declaredBeforeCandidateOutcomeInspection": true,
+  "developmentPopulation": {
+    "minimumSeason": 1999,
+    "maximumSeason": 2024,
+    "sealedSeasonExcluded": 2025,
+    "validationSeasons": [2020, 2021, 2022, 2023, 2024],
+    "split": "FIVE_EXPANDING_SEASON_FOLDS_DATE_ATOMIC"
+  },
+  "primaryMetric": "HOME_AWAY_TIE_MULTICLASS_LOG_LOSS",
+  "secondaryMetrics": [
+    "MULTICLASS_BRIER",
+    "HOME_WIN_ECE",
+    "HOME_SCORE_MAE",
+    "AWAY_SCORE_MAE",
+    "MARGIN_MAE",
+    "TOTAL_MAE"
+  ],
+  "probabilityAdapter": "TRAINING_ONLY_PAIRED_EMPIRICAL_RESIDUAL_SCORE_SIMULATION",
+  "seed": 731001,
+  "simulationDrawsPerValidationGame": 2000,
+  "parallelModelJobs": 1,
+  "maximumEstimatorThreads": 2,
+  "treatments": {
+    "T0": "Fold-local median imputation with missing indicators and model-required standard scaling only.",
+    "T1": "T0 plus fold-local 1st/99th percentile clipping of nonbinary numeric predictors and robust scaling for Ridge/MLP.",
+    "T2": "T1 plus fold-local log1p transformation for nonnegative numeric predictors with training absolute skew above 1.0."
+  },
+  "featureVariants": {
+    "B": "Registered 197-input LONG_HISTORY_CORE baseline.",
+    "F1": "Training-only reliability selection using missingness, redundancy, bounded target association and forced cold-start/context retention.",
+    "F2": "Baseline plus supported point-in-time home-away, short-long, rest and reliability-weighted recent-state contrasts."
+  },
+  "screeningModels": {
+    "RIDGE": {"alpha": 10.0},
+    "EXTRA_TREES": {"n_estimators": 160, "max_features": 0.7, "min_samples_leaf": 5},
+    "HIST_GRADIENT_BOOSTING": {"learning_rate": 0.05, "max_iter": 120, "max_leaf_nodes": 15, "min_samples_leaf": 20, "l2_regularization": 1.0},
+    "XGBOOST": {"n_estimators": 200, "max_depth": 3, "learning_rate": 0.03, "min_child_weight": 5.0, "subsample": 0.9, "colsample_bytree": 0.8, "reg_lambda": 5.0},
+    "MLP": {"hidden_layer_sizes": [32], "alpha": 0.001, "learning_rate_init": 0.001, "max_iter": 250}
+  },
+  "pipelines": [
+    {"id": "RIDGE_B_T0", "family": "RIDGE", "features": "B", "treatment": "T0"},
+    {"id": "RIDGE_B_T1", "family": "RIDGE", "features": "B", "treatment": "T1"},
+    {"id": "RIDGE_B_T2", "family": "RIDGE", "features": "B", "treatment": "T2"},
+    {"id": "EXTRA_TREES_B_T0", "family": "EXTRA_TREES", "features": "B", "treatment": "T0"},
+    {"id": "EXTRA_TREES_B_T1", "family": "EXTRA_TREES", "features": "B", "treatment": "T1"},
+    {"id": "EXTRA_TREES_B_T2", "family": "EXTRA_TREES", "features": "B", "treatment": "T2"},
+    {"id": "HIST_GRADIENT_BOOSTING_B_T0", "family": "HIST_GRADIENT_BOOSTING", "features": "B", "treatment": "T0"},
+    {"id": "HIST_GRADIENT_BOOSTING_B_T1", "family": "HIST_GRADIENT_BOOSTING", "features": "B", "treatment": "T1"},
+    {"id": "HIST_GRADIENT_BOOSTING_B_T2", "family": "HIST_GRADIENT_BOOSTING", "features": "B", "treatment": "T2"},
+    {"id": "XGBOOST_B_T0", "family": "XGBOOST", "features": "B", "treatment": "T0"},
+    {"id": "XGBOOST_B_T1", "family": "XGBOOST", "features": "B", "treatment": "T1"},
+    {"id": "XGBOOST_B_T2", "family": "XGBOOST", "features": "B", "treatment": "T2"},
+    {"id": "MLP_B_T0", "family": "MLP", "features": "B", "treatment": "T0"},
+    {"id": "MLP_B_T1", "family": "MLP", "features": "B", "treatment": "T1"},
+    {"id": "MLP_B_T2", "family": "MLP", "features": "B", "treatment": "T2"},
+    {"id": "RIDGE_F1_T1", "family": "RIDGE", "features": "F1", "treatment": "T1"},
+    {"id": "HIST_GRADIENT_BOOSTING_F1_T1", "family": "HIST_GRADIENT_BOOSTING", "features": "F1", "treatment": "T1"},
+    {"id": "XGBOOST_F1_T1", "family": "XGBOOST", "features": "F1", "treatment": "T1"},
+    {"id": "RIDGE_F2_T1", "family": "RIDGE", "features": "F2", "treatment": "T1"},
+    {"id": "HIST_GRADIENT_BOOSTING_F2_T1", "family": "HIST_GRADIENT_BOOSTING", "features": "F2", "treatment": "T1"},
+    {"id": "XGBOOST_F2_T1", "family": "XGBOOST", "features": "F2", "treatment": "T1"},
+    {"id": "M1_RECIPE_FOLD_REFIT", "family": "XGBOOST", "features": "B", "treatment": "T0", "reference": true}
+  ],
+  "tuning": {
+    "selectionRule": "Two best full-coverage nonreference pipelines from distinct families by primary OOF metric.",
+    "innerValidation": "Latest complete training season inside each outer training partition.",
+    "maximumPipelines": 2,
+    "maximumConfigurationsPerPipeline": 4,
+    "grids": {
+      "RIDGE": [{"alpha": 1.0}, {"alpha": 10.0}, {"alpha": 100.0}, {"alpha": 300.0}],
+      "EXTRA_TREES": [{"n_estimators": 200, "max_features": 0.5, "min_samples_leaf": 3}, {"n_estimators": 200, "max_features": 0.7, "min_samples_leaf": 5}, {"n_estimators": 240, "max_features": 0.7, "min_samples_leaf": 8}, {"n_estimators": 240, "max_features": 1.0, "min_samples_leaf": 5}],
+      "HIST_GRADIENT_BOOSTING": [{"learning_rate": 0.03, "max_iter": 160, "max_leaf_nodes": 15, "min_samples_leaf": 20, "l2_regularization": 1.0}, {"learning_rate": 0.05, "max_iter": 120, "max_leaf_nodes": 15, "min_samples_leaf": 20, "l2_regularization": 1.0}, {"learning_rate": 0.05, "max_iter": 160, "max_leaf_nodes": 31, "min_samples_leaf": 30, "l2_regularization": 2.0}, {"learning_rate": 0.08, "max_iter": 100, "max_leaf_nodes": 15, "min_samples_leaf": 30, "l2_regularization": 5.0}],
+      "XGBOOST": [{"n_estimators": 160, "max_depth": 2, "learning_rate": 0.04, "min_child_weight": 5.0, "subsample": 0.9, "colsample_bytree": 0.8, "reg_lambda": 5.0}, {"n_estimators": 200, "max_depth": 3, "learning_rate": 0.03, "min_child_weight": 5.0, "subsample": 0.9, "colsample_bytree": 0.8, "reg_lambda": 5.0}, {"n_estimators": 240, "max_depth": 3, "learning_rate": 0.025, "min_child_weight": 8.0, "subsample": 0.9, "colsample_bytree": 0.7, "reg_lambda": 8.0}, {"n_estimators": 180, "max_depth": 4, "learning_rate": 0.03, "min_child_weight": 10.0, "subsample": 0.85, "colsample_bytree": 0.7, "reg_lambda": 10.0}],
+      "MLP": [{"hidden_layer_sizes": [24], "alpha": 0.001, "learning_rate_init": 0.001, "max_iter": 250}, {"hidden_layer_sizes": [32], "alpha": 0.001, "learning_rate_init": 0.001, "max_iter": 250}, {"hidden_layer_sizes": [48, 16], "alpha": 0.003, "learning_rate_init": 0.0007, "max_iter": 300}, {"hidden_layer_sizes": [32, 16], "alpha": 0.01, "learning_rate_init": 0.0007, "max_iter": 300}]
+    }
+  },
+  "calibration": {
+    "method": "CHRONOLOGICAL_MULTINOMIAL_LOGIT_ON_LOG_PROBABILITIES",
+    "comparison": ["RAW", "REGULARIZED_CALIBRATED"],
+    "fitRule": "Only predictions from outer validation seasons strictly earlier than the season being calibrated."
+  },
+  "boundaries": {
+    "marketPredictors": false,
+    "finalOotAccess": false,
+    "automaticPromotion": false,
+    "AispImport": false,
+    "paidProviderCalls": false
+  }
+}

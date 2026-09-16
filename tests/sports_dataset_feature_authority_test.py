@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 
 from server.sports_datasets.consumer import ValidatedPackage
 from server.sports_datasets.feature_audit import build_mlb_pa_feature_audit
+from tests.sports_dataset_test_fixture import golden_corpus_available
 
 
 PACKAGE_RELATIVE_ROOT = (
@@ -366,7 +367,7 @@ def _audit_feature_authority(package_root: Path) -> dict[str, Any]:
 
 
 @unittest.skipUnless(
-    os.getenv("ASP_MODEL_EXCHANGE_ROOT"),
+    golden_corpus_available(),
     "ASP_MODEL_EXCHANGE_ROOT is required for package authority tests",
 )
 class SportsDatasetFeatureAuthorityTests(unittest.TestCase):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
+
 from typing import Any, Dict, List
 
-from ..db import decode_row, json_dumps, now_iso
+from ..db import decode_row, json_dumps, json_loads, now_iso
 from .base_repository import BaseRepository
 
 
@@ -18,6 +20,61 @@ class ProjectRepository(BaseRepository):
         with self.database.transaction() as connection:
             cursor = connection.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
             return cursor.rowcount > 0
+
+    def create(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Create without upsert: a racing request cannot replace an owner.
+
+        Identity conflicts fail atomically before any existing project changes.
+        """
+        from fastapi import HTTPException
+        import sqlite3
+
+        timestamp = record.get("updated_at") or now_iso()
+        try:
+            self._write(
+                """INSERT INTO projects (
+                    project_id, project_name, project_type, workflow_type, template_id,
+                    status, owner_user_id, created_at, updated_at, metadata_json, created_by, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record["project_id"], record.get("project_name") or "Untitled ATLAS Project",
+                 record.get("project_type") or "predictive-modeling",
+                 record.get("workflow_type") or record.get("project_type") or "predictive-modeling",
+                 record.get("template_id"), record.get("status") or "active", record["owner_user_id"],
+                 record.get("created_at") or timestamp, timestamp, json_dumps(record.get("metadata_json"), {}),
+                 record["created_by"], record["updated_by"]),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail="Project creation requires a new project identity.") from exc
+        return self.get(record["project_id"]) or {}
+
+    def update_locked(self, record: Dict[str, Any], *, connection: sqlite3.Connection) -> Dict[str, Any]:
+        """Update only a row authorized under the caller's BEGIN IMMEDIATE lock.
+
+        This method neither starts nor commits a transaction. It cannot create
+        a missing row or transfer owner/creator identity, and a lost identity
+        guard fails before the surrounding transaction can commit its audit.
+        """
+        from fastapi import HTTPException
+
+        if not connection.in_transaction:
+            raise RuntimeError("Project update requires the authorization write transaction.")
+        cursor = connection.execute(
+            """UPDATE projects SET
+                project_name = ?, project_type = ?, workflow_type = ?, template_id = ?,
+                status = ?, updated_at = ?, metadata_json = ?, updated_by = ?
+               WHERE project_id = ? AND owner_user_id IS ? AND created_by IS ?""",
+            (record.get("project_name") or "Untitled ATLAS Project",
+             record.get("project_type") or "predictive-modeling",
+             record.get("workflow_type") or record.get("project_type") or "predictive-modeling",
+             record.get("template_id"), record.get("status") or "active",
+             record.get("updated_at") or now_iso(), json_dumps(record.get("metadata_json"), {}),
+             record["updated_by"], record["project_id"], record.get("owner_user_id"), record.get("created_by")),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=403, detail="You do not have permission to perform this action on this project.")
+        return decode_row(connection.execute(
+            "SELECT * FROM projects WHERE project_id = ?", (record["project_id"],),
+        ).fetchone()) or {}
 
     def upsert(self, record: Dict[str, Any]) -> Dict[str, Any]:
         timestamp = record.get("updated_at") or now_iso()
@@ -56,6 +113,99 @@ class ProjectRepository(BaseRepository):
             ),
         )
         return self.get(record["project_id"]) or {}
+
+    def upsert_preserving_metadata_keys(
+        self,
+        record: Dict[str, Any],
+        *,
+        reserved_metadata_keys: set[str],
+    ) -> Dict[str, Any]:
+        """Upsert a project without racing server-owned metadata authority.
+
+        Generic project PUTs are assembled from a previously read project
+        snapshot.  A dedicated authority writer can commit after that read but
+        before the generic upsert.  Acquire the write lock first, reread the
+        current metadata inside the transaction, and preserve each reserved
+        key from that locked row so the stale snapshot cannot erase it.
+        """
+
+        timestamp = record.get("updated_at") or now_iso()
+        created_at = record.get("created_at") or timestamp
+        connection = self.database.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            current_row = connection.execute(
+                "SELECT metadata_json FROM projects WHERE project_id = ?",
+                (record["project_id"],),
+            ).fetchone()
+            current_metadata = (
+                json_loads(current_row["metadata_json"], {})
+                if current_row is not None
+                else {}
+            )
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            incoming_metadata = record.get("metadata_json")
+            incoming_metadata = (
+                dict(incoming_metadata)
+                if isinstance(incoming_metadata, dict)
+                else {}
+            )
+            for key in reserved_metadata_keys:
+                incoming_metadata.pop(key, None)
+                if key in current_metadata:
+                    incoming_metadata[key] = current_metadata[key]
+
+            connection.execute(
+                """
+                INSERT INTO projects (
+                  project_id, project_name, project_type, workflow_type,
+                  template_id, status, owner_user_id, created_at, updated_at,
+                  metadata_json, created_by, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                  project_name = excluded.project_name,
+                  project_type = excluded.project_type,
+                  workflow_type = excluded.workflow_type,
+                  template_id = excluded.template_id,
+                  status = excluded.status,
+                  owner_user_id = COALESCE(excluded.owner_user_id, projects.owner_user_id),
+                  updated_at = excluded.updated_at,
+                  metadata_json = excluded.metadata_json,
+                  created_by = COALESCE(projects.created_by, excluded.created_by),
+                  updated_by = excluded.updated_by
+                """,
+                (
+                    record["project_id"],
+                    record.get("project_name") or "Untitled ATLAS Project",
+                    record.get("project_type") or "predictive-modeling",
+                    record.get("workflow_type")
+                    or record.get("project_type")
+                    or "predictive-modeling",
+                    record.get("template_id"),
+                    record.get("status") or "active",
+                    record.get("owner_user_id"),
+                    created_at,
+                    timestamp,
+                    json_dumps(incoming_metadata, {}),
+                    record.get("created_by") or record.get("owner_user_id"),
+                    record.get("updated_by") or record.get("owner_user_id"),
+                ),
+            )
+            saved = decode_row(
+                connection.execute(
+                    "SELECT * FROM projects WHERE project_id = ?",
+                    (record["project_id"],),
+                ).fetchone()
+            ) or {}
+            connection.commit()
+            return saved
+        except BaseException:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def ensure(self, project_id: str, defaults: Dict[str, Any] | None = None) -> Dict[str, Any]:
         existing = self.get(project_id)

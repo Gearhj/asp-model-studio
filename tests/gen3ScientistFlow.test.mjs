@@ -5,19 +5,28 @@ import test from "node:test";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (p) => readFile(new URL(p, ROOT), "utf8");
-const [catalog, warehouse, dataPop, labPanel, modelLab] = await Promise.all([
+const [catalog, warehouse, dataPop, labPanel, modelLab, modelingApp, guidedWorkflow] = await Promise.all([
   read("src/sports/cockpit/Gen3CatalogSection.tsx"),
   read("src/sports/SportsEvidenceSurfaces.tsx"),
   read("src/sports/cockpit/cockpitSteps1.tsx"),
   read("src/sports/cockpit/Gen3AuthorityPanel.tsx"),
   read("src/sports/cockpit/cockpitSteps2.tsx"),
+  read("src/apps/ModelingApp.tsx"),
+  read("src/sports/workflow/GuidedWorkflow.tsx"),
 ]);
 
-test("Data Warehouse renders the server catalog (Gate 2), not a hard-coded card", () => {
+test("Data Warehouse catalog requires a selected project; authorized consumers read the server catalog (Gate 2)", () => {
   assert.ok(warehouse.includes('import Gen3CatalogSection from "./cockpit/Gen3CatalogSection"'));
   assert.ok(warehouse.includes('<Gen3CatalogSection mode="warehouse"'));
-  // catalog is fetched from the server, never hard-coded
-  assert.ok(catalog.includes('getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog")'));
+  assert.ok(warehouse.includes('projectId={projectId}'));
+  assert.ok(warehouse.includes('params.get("projectId") || selectedProjectId'));
+  // Dataset metadata still comes from the server after explicit user/project selection.
+  assert.ok(catalog.includes('export function useGen3Catalog(projectId: string)'));
+  assert.ok(catalog.includes('getJSON<{ datasets: CatalogEntry[] }>(`/cockpit/gen3/catalog?projectId=${encodeURIComponent(projectId)}`)'));
+  assert.ok(catalog.includes('if (!projectId.trim() || !userId)'));
+  assert.ok(catalog.includes('Select a project and sign in to inspect its governed datasets.'));
+  assert.ok(catalog.includes('postJSON<Binding>("/cockpit/gen3/bind", { projectId, datasetVersionId: versionId })'));
+  assert.ok(!catalog.includes('projectId || "mlb-gen2"'));
 });
 
 test("catalog shows Gen-2/Gen-3 with server fields and marks the sealed object restricted (Gate 2/12)", () => {
@@ -55,14 +64,23 @@ test("Data & Population renders the binding-derived population authority (Gate 1
 
 test("Model Laboratory consumes the active project binding on mount (Gate 4/9)", () => {
   assert.ok(labPanel.includes("/cockpit/gen3/binding/${encodeURIComponent(projectId)}"));
-  assert.ok(labPanel.includes("consume the project's active server binding"));
+  assert.ok(labPanel.includes("consumes the active project binding"));
   // the panel still shows the run plan + result-authority echo, and is rendered inside Model Lab
   assert.ok(labPanel.includes("Run plan") && labPanel.includes("Authority verified"));
   assert.ok(modelLab.includes("<Gen3AuthorityPanel projectId={projectId} />"));
+  assert.ok(modelingApp.includes('path="/model-laboratory" element={<ProjectAwareModelLaboratoryRoute />}'));
+  assert.ok(modelingApp.includes('new URLSearchParams({ projectId, stage3Step: "modellab" })'));
+  assert.ok(modelingApp.includes('return <Navigate to={`/pa-modeling-cockpit?${target.toString()}`} replace />'));
 });
 
 test("sealed 2025 is not selectable anywhere in the flow (Gate 12)", () => {
   // catalog card disables selection for non-selectable entries; execution/bind reject sealed (backend)
   assert.ok(catalog.includes("selectable={e.selectable}") || catalog.includes("selectable: boolean"));
   assert.ok(catalog.includes('e.selectable ? () => select(e.datasetVersionId) : undefined'));
+});
+
+test("the guided workflow reserves its internal navigation column for wide desktop layouts", () => {
+  assert.ok(guidedWorkflow.includes('xl:grid-cols-[300px_minmax(0,1fr)]'));
+  assert.ok(guidedWorkflow.includes('xl:grid-cols-[64px_minmax(0,1fr)]'));
+  assert.ok(!guidedWorkflow.includes('lg:grid-cols-[300px_minmax(0,1fr)]'));
 });

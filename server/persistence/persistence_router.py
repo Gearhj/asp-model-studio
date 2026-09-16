@@ -6,7 +6,7 @@ import sqlite3
 import uuid
 from typing import Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from ..security.security_store import (
     AUDIT_ROLES,
@@ -14,6 +14,7 @@ from ..security.security_store import (
     require_role,
     require_user,
 )
+from ..core.modeling_scope import require_project_view, require_project_edit
 from ..core.session_checkpoint import discard_modeling_scopes, flush_checkpoint
 from ..datasets.dataset_registry import (
     load_registry,
@@ -31,6 +32,100 @@ from ..model_registry.model_registry_service import archive_registry_for_project
 from ..sharing.sharing_service import SharingService
 from .db import PersistenceUnavailableError, now_iso
 from .service import PersistenceService, get_persistence_service
+from .sports_forecast_contract import (
+    FORECAST_CONTRACT_METADATA_KEY,
+    SportsForecastContractError,
+    SportsForecastContractStore,
+)
+from ..sports_current_statcast.stage2_review import (
+    CurrentGoldStage2ReviewError,
+    current_gold_stage2_review,
+)
+from ..sports_current_statcast.stage3_eda import (
+    Stage3EdaError,
+    stage3_eda_metadata,
+    stage3_eda_query,
+)
+from ..sports_current_statcast.stage3_treatments import (
+    Stage3TreatmentError,
+    adopt_treatment_policy,
+    missing_detail,
+    missing_preview,
+    missing_summary,
+    missing_table,
+    outlier_detail,
+    outlier_preview,
+    outlier_summary,
+    outlier_table,
+    predicted_imputation_preview,
+    save_treatment_policy_draft,
+    treatment_policy,
+)
+from ..sports_current_statcast.stage3_feature_treatment_spec import (
+    Stage3FeatureTreatmentSpecError,
+    adopt_treatment_specification,
+    save_treatment_specification_draft,
+    treatment_specification,
+)
+from ..sports_current_statcast.stage3_feature_engineering import (
+    Stage3FeatureEngineeringError,
+    feature_detail,
+    feature_inventory,
+    feature_set_state,
+    feature_studio_summary,
+    register_feature_set,
+    retire_feature_set,
+    save_feature_set_draft,
+)
+from ..sports_current_statcast.stage3_split_balance import (
+    Stage3SplitBalanceError,
+    generate_automatic_split,
+    register_split_contract,
+    save_split_draft,
+    split_balance_summary,
+    split_contract_state,
+    validate_manual_split,
+)
+from ..sports_current_statcast.stage3_model_laboratory import (
+    Stage3ModelLaboratoryError,
+    list_model_laboratory_runs,
+    model_laboratory_summary,
+    run_model_laboratory,
+)
+from ..sports_current_statcast.stage3_model_jobs import (
+    cancel_unstarted_model_development_work,
+    enqueue_model_development_job,
+    get_model_development_job,
+    list_model_development_jobs,
+    plan_model_development_queue,
+)
+from ..sports_current_statcast.stage3_candidate_evaluation import (
+    execute_model_refinement,
+    plan_model_refinement,
+    project_candidate_evaluation,
+    project_stage3_downstream,
+    register_project_research_handoff,
+    request_candidate_analysis,
+    save_finalist_selection,
+    save_project_calibration_decision,
+    save_project_challenger_decision,
+    save_project_game_evaluation_decision,
+)
+from ..sports_current_statcast.stage3_executable_artifact import (
+    cancel_unstarted_executable_artifact_work,
+    enqueue_executable_artifact_job,
+    executable_artifact_summary,
+    get_executable_artifact_job,
+    list_executable_artifact_jobs,
+    plan_executable_artifact,
+    recover_failed_executable_artifact_publication,
+)
+from ..sports_current_statcast.stage3_game_scoring import (
+    Stage3GameScoringError,
+    enqueue_game_scoring_job,
+    game_scoring_summary,
+    get_game_scoring_job,
+)
 
 
 router = APIRouter()
@@ -71,6 +166,42 @@ def _execute(operation: Callable[[], Any]) -> Any:
 
 def _service() -> PersistenceService:
     return get_persistence_service()
+
+
+def _forecast_contracts() -> SportsForecastContractStore:
+    return SportsForecastContractStore(_service().database)
+
+
+def _raise_forecast_contract_error(exc: SportsForecastContractError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+
+
+def _raise_sports_backend_unavailable(exc: BaseException) -> None:
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "BACKEND_UNAVAILABLE",
+            "message": "The ASP Model Studio persistence backend is temporarily unavailable.",
+        },
+    ) from exc
+
+
+def _run_sports_operation(operation: Callable[[], Any]) -> Any:
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+def _forecast_contract_response(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "contract": state.get("current"),
+        "history": state.get("history") or [],
+        "coverage": state.get("sourceCoverage"),
+    }
 
 
 def _accessible_dataset_ids(user: Dict[str, Any]) -> set[str]:
@@ -255,6 +386,39 @@ def _authorize_project(
     return existing
 
 
+def _authorize_sports_project(
+    project_id: str,
+    user: Dict[str, Any],
+    permission: str,
+) -> Dict[str, Any]:
+    """Project authorization with sports-domain error classification.
+
+    A reachable backend returning a missing project is not an availability
+    failure, and sports surfaces must never expose the legacy ATLAS label.
+    """
+
+    try:
+        existing = _authorize_project(project_id, user, permission)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "PROJECT_NOT_REGISTERED",
+                "message": (
+                    "The ASP Model Studio sports project is not registered in "
+                    "the local persistence database. Reopen or reconcile the project."
+                ),
+                "projectId": project_id,
+            },
+        ) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+    assert existing is not None
+    return existing
+
+
 def _id(prefix: str, payload: Dict[str, Any], *keys: str) -> str:
     return str(_pick(payload, *keys, default=f"{prefix}_{uuid.uuid4().hex}"))
 
@@ -271,11 +435,11 @@ def _project_record(project_id: str, payload: Dict[str, Any], user: Dict[str, An
         "workflow_type": _pick(payload, "workflowType", "workflow_type", "workflowId", "workflow_id", default="predictive-modeling"),
         "template_id": _pick(payload, "templateId", "template_id"),
         "status": _pick(payload, "status", default="active"),
-        "owner_user_id": _pick(payload, "ownerUserId", "owner_user_id", default=user.get("userId")),
+        "owner_user_id": user.get("userId"),
         "created_at": _pick(payload, "createdAt", "created_at"),
         "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
-        "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
-        "updated_by": _pick(payload, "updatedBy", "updated_by", default=user.get("userId")),
+        "created_by": user.get("userId"),
+        "updated_by": user.get("userId"),
         "metadata_json": metadata,
     }
 
@@ -300,36 +464,65 @@ def list_projects(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any
     return {"ok": True, "projects": projects, "count": len(visible)}
 
 
+def _audit_project_write(
+    service: PersistenceService,
+    user: Dict[str, Any],
+    record: Dict[str, Any],
+    action: str,
+    summary: str,
+    **metadata: Any,
+) -> None:
+    # Project mutation events have one durable authority: the same transaction
+    # as the project row. The security audit APIs project these canonical rows,
+    # so a separate best-effort security-database write cannot leave a false
+    # success event or split the commit across two WAL databases.
+    service.audit.create({
+        "audit_id": f"audit_{uuid.uuid4().hex}",
+        "project_id": record["project_id"],
+        "user_id": user.get("userId"),
+        "action_type": action,
+        "entity_type": "project",
+        "entity_id": record["project_id"],
+        "title": action.replace(".", " ").title(),
+        "summary": summary,
+        "created_at": now_iso(),
+        "metadata_json": {
+            **metadata, "projectId": record["project_id"],
+            "summary": summary, "outcome": "success",
+        },
+    })
+
+
 @router.post("/projects")
 def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     project_id = _id("project", payload, "projectId", "project_id")
 
     def operation() -> Dict[str, Any]:
-        service = _service()
-        service.sync_user(user)
-        return service.projects.upsert(_project_record(project_id, payload, user))
+        # Reuse the transaction-bound project/ACL service. BEGIN IMMEDIATE
+        # precedes every existence/permission read, and nested repository and
+        # creator membership writes all use this one connection.
+        with _sharing_service()._project_acl_transaction() as sharing:
+            service = sharing.persistence
+            if service.projects.get(project_id) is not None:
+                if not sharing.check_permission(user, "project", project_id, "edit").get("allowed"):
+                    raise HTTPException(status_code=403, detail="Project creation requires a new project identity.")
+                # Preserve the existing retry contract: conflict, no mutation,
+                # no second creator membership or success audit event.
+                raise HTTPException(status_code=409, detail="Project creation requires a new project identity.")
+            service.sync_user(user)
+            record = service.projects.create(_project_record(project_id, payload, user))
+            sharing._bootstrap_project_owner(user, project_id)
+            _audit_project_write(service, user, record, "project.created", f"Created project {record.get('project_name')}.")
+            if record.get("template_id"):
+                _audit_project_write(service, user, record, "template.selected", f"Selected template {record.get('template_id')}.", templateId=record["template_id"])
+            return record
 
     record = _execute(operation)
-    audit_event(
-        "project.created",
-        "project",
-        project_id,
-        "success",
-        metadata={"projectId": project_id, "summary": f"Created project {record.get('project_name')}."},
-    )
-    if record.get("template_id"):
-        audit_event(
-            "template.selected",
-            "project",
-            project_id,
-            "success",
-            metadata={"projectId": project_id, "templateId": record.get("template_id"), "summary": f"Selected template {record.get('template_id')}."},
-        )
     project = _execute(lambda: _project_with_durable_dataset_state(record, user))
     return {"ok": True, "project": project}
 
 
-@router.get("/projects/{project_id}")
+@router.get("/projects/{project_id}", dependencies=[Depends(require_project_view)])
 def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     record = _authorize_project(project_id, user, "view")
     audit_event(
@@ -346,44 +539,1127 @@ def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -
 
 @router.put("/projects/{project_id}")
 def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    # A PUT to a project_id that doesn't exist yet implicitly creates it, owned
-    # by the caller (existing behavior, relied on by sqlite_persistence_backend_test.py).
-    # A PUT to an existing project the caller doesn't have edit access to is denied.
-    _authorize_project(project_id, user, "edit", allow_missing=True)
-
     def operation() -> Dict[str, Any]:
-        service = _service()
-        service.sync_user(user)
-        existing = service.projects.get(project_id) or {}
-        existing_metadata = existing.get("metadata_json") or {}
-        incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
-        merged = {
-            "projectName": existing.get("project_name"),
-            "projectType": existing.get("project_type"),
-            "workflowType": existing.get("workflow_type"),
-            "templateId": existing.get("template_id"),
-            "status": existing.get("status"),
-            "ownerUserId": existing.get("owner_user_id"),
-            "createdAt": existing.get("created_at"),
-            "metadata": {**existing_metadata, **incoming_metadata},
-            **payload,
-        }
-        merged["metadata"] = {**existing_metadata, **incoming_metadata}
-        return service.projects.upsert(_project_record(project_id, merged, user))
+        # Missing-ID PUT retains its creation contract, but it never becomes
+        # an upsert. Authorization is evaluated against the actual locked row
+        # and live permissions, not a snapshot taken before this transaction.
+        with _sharing_service()._project_acl_transaction() as sharing:
+            service = sharing.persistence
+            existing = service.projects.get(project_id)
+            if existing:
+                if not sharing.check_permission(user, "project", project_id, "edit").get("allowed"):
+                    raise HTTPException(status_code=403, detail="You do not have permission to perform this action on this project.")
+                for key in ("ownerUserId", "owner_user_id"):
+                    if key in payload and payload[key] != existing.get("owner_user_id"):
+                        raise HTTPException(status_code=403, detail="Project ownership cannot be changed through project saves.")
+                for key in ("createdBy", "created_by"):
+                    if key in payload and payload[key] != existing.get("created_by"):
+                        raise HTTPException(status_code=403, detail="Project provenance cannot be changed through project saves.")
+            # Denials and duplicate requests reach no domain write or audit.
+            service.sync_user(user)
+            current = existing or {}
+            existing_metadata = current.get("metadata_json") or {}
+            incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
+            incoming_metadata = dict(incoming_metadata) if isinstance(incoming_metadata, dict) else {}
+            # The forecast contract is server authority. Its current value was
+            # read under this write lock and cannot change before our UPDATE.
+            incoming_metadata.pop(FORECAST_CONTRACT_METADATA_KEY, None)
+            merged = {
+                "projectName": current.get("project_name"),
+                "projectType": current.get("project_type"),
+                "workflowType": current.get("workflow_type"),
+                "templateId": current.get("template_id"),
+                "status": current.get("status"),
+                "createdAt": current.get("created_at"),
+                **payload,
+            }
+            merged["metadata"] = {**existing_metadata, **incoming_metadata}
+            record = _project_record(project_id, merged, user)
+            if existing:
+                record["owner_user_id"] = existing.get("owner_user_id")
+                record["created_by"] = existing.get("created_by")
+                with service.database.connection() as connection:
+                    record = service.projects.update_locked(record, connection=connection)
+            else:
+                record = service.projects.create(record)
+                sharing._bootstrap_project_owner(user, project_id)
+            _audit_project_write(service, user, record, "project.saved", f"Saved project {record.get('project_name')}.")
+            return record
 
     record = _execute(operation)
-    audit_event(
-        "project.saved",
-        "project",
-        project_id,
-        "success",
-        metadata={"projectId": project_id, "summary": f"Saved project {record.get('project_name')}."},
-    )
     project = _execute(lambda: _project_with_durable_dataset_state(record, user))
     return {"ok": True, "project": project}
 
 
-@router.delete("/projects/{project_id}")
+@router.get("/projects/{project_id}/sports/forecast-contract", dependencies=[Depends(require_project_view)])
+def get_sports_forecast_contract(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    contract = _run_sports_operation(lambda: _forecast_contracts().get(project_id))
+    return _forecast_contract_response(contract)
+
+
+@router.get("/projects/{project_id}/sports/evidence-dataset", dependencies=[Depends(require_project_view)])
+def get_sports_evidence_dataset(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    linkage = _run_sports_operation(
+        lambda: _forecast_contracts().get_evidence_dataset(project_id)
+    )
+    return {"ok": True, "linkage": linkage}
+
+
+@router.get("/projects/{project_id}/sports/stage2-data-review", dependencies=[Depends(require_project_view)])
+def get_sports_stage2_data_review(
+    project_id: str,
+    season: int | None = None,
+    limit: int = Query(default=25, ge=1, le=50),
+    sample: str = Query(default="head", pattern="^(head|random)$"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read the exact current-Gold matrix authorized by this project's link."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        review = current_gold_stage2_review(
+            _service().database,
+            project_id,
+            season=season,
+            limit=limit,
+            sample=sample,
+        )
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except CurrentGoldStage2ReviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+    return {"ok": True, "review": review}
+
+
+@router.get("/projects/{project_id}/sports/stage3-eda/metadata", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_eda_metadata(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return the redacted, development-only Stage 3 analytical authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        return stage3_eda_metadata(_service().database, project_id)
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.post("/projects/{project_id}/sports/stage3-eda/query", dependencies=[Depends(require_project_view)])
+def post_sports_stage3_eda_query(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one bounded aggregate query over project-bound development rows."""
+
+    _authorize_sports_project(project_id, user, "view")
+    try:
+        return stage3_eda_query(_service().database, project_id, payload)
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+def _run_stage3_treatment(operation: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except Stage3TreatmentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3FeatureTreatmentSpecError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/summary", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_treatment_summary(
+    project_id: str,
+    kind: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return evaluated project-bound development-only treatment counts."""
+
+    _authorize_sports_project(project_id, user, "view")
+    normalized = kind.lower()
+    if normalized not in {"outliers", "missing"}:
+        raise HTTPException(status_code=404, detail="Unknown Stage 3 treatment studio.")
+    operation = outlier_summary if normalized == "outliers" else missing_summary
+    return _run_stage3_treatment(
+        lambda: operation(
+            _service().database,
+            project_id,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/{kind}/policy", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_treatment_policy(
+    project_id: str,
+    kind: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Return immutable draft/adopted versions for the exact current authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_treatment(
+        lambda: treatment_policy(
+            _service().database,
+            project_id,
+            kind,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/missing/predicted-preview", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_predicted_imputation_preview(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one explicit bounded cross-fitted preprocessing preview."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: predicted_imputation_preview(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/draft", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_treatment_policy_draft(
+    project_id: str,
+    kind: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Append one immutable preprocessing-policy draft version."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: save_treatment_policy_draft(
+            _service().database,
+            project_id,
+            kind,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/policy/adopt", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_treatment_policy_adopt(
+    project_id: str,
+    kind: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Append an adopted version copied from one exact immutable draft."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: adopt_treatment_policy(
+            _service().database,
+            project_id,
+            kind,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-treatment/specification", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_treatment_specification(
+    project_id: str,
+    authority_key: str = Header(default="", alias="X-Stage3-Authority-Key"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Resolve the canonical workbook authority against the live feature catalog."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_treatment(
+        lambda: treatment_specification(
+            _service().database,
+            project_id,
+            authority_key=authority_key,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/draft", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_treatment_specification_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Atomically append linked Outlier/Missing drafts and one binding receipt."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: save_treatment_specification_draft(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/specification/adopt", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_treatment_specification_adopt(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Fail closed until every combined-spec semantic/executable blocker is resolved."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return _run_stage3_treatment(
+        lambda: adopt_treatment_specification(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-treatment/{kind}/{action}", dependencies=[Depends(require_project_view)])
+def post_sports_stage3_treatment_query(
+    project_id: str,
+    kind: str,
+    action: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Run one bounded aggregate table, detail, or treatment preview."""
+
+    _authorize_sports_project(project_id, user, "view")
+    handlers: Dict[tuple[str, str], Callable[[Any, str, Any], Dict[str, Any]]] = {
+        ("outliers", "table"): outlier_table,
+        ("outliers", "detail"): outlier_detail,
+        ("outliers", "preview"): outlier_preview,
+        ("missing", "table"): missing_table,
+        ("missing", "detail"): missing_detail,
+        ("missing", "preview"): missing_preview,
+    }
+    handler = handlers.get((kind.lower(), action.lower()))
+    if handler is None:
+        raise HTTPException(status_code=404, detail="Unknown Stage 3 treatment operation.")
+    return _run_stage3_treatment(
+        lambda: handler(_service().database, project_id, payload)
+    )
+
+
+def _run_stage3_prepare(operation: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    """Translate bounded Feature/Split authority errors without hiding blockers."""
+
+    try:
+        return operation()
+    except SportsForecastContractError as exc:
+        _raise_forecast_contract_error(exc)
+    except (
+        Stage3FeatureEngineeringError,
+        Stage3SplitBalanceError,
+        Stage3ModelLaboratoryError,
+        Stage3GameScoringError,
+    ) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3TreatmentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except Stage3EdaError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.public_detail()) from exc
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        _raise_sports_backend_unavailable(exc)
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/summary", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_feature_engineering_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_studio_summary(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/inventory", dependencies=[Depends(require_project_view)])
+def post_sports_stage3_feature_inventory(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_inventory(project_id, _service().database, payload)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature/{feature_name}", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_feature_detail(
+    project_id: str,
+    feature_name: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_detail(project_id, _service().database, feature_name)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_feature_sets(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: feature_set_state(project_id, _service().database)
+    )
+
+
+def _stage3_actor(user: Dict[str, Any]) -> str:
+    actor = str(user.get("userId") or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authenticated user identity is required.")
+    return actor
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/draft", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_feature_set_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_feature_set_draft(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/register", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_feature_set_register(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_feature_set(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-feature-engineering/feature-sets/retire", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_feature_set_retire(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: retire_feature_set(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-split-balance/summary", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_split_balance_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: split_balance_summary(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/automatic", dependencies=[Depends(require_project_view)])
+def post_sports_stage3_automatic_split(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: generate_automatic_split(project_id, _service().database, payload)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/manual/validate", dependencies=[Depends(require_project_view)])
+def post_sports_stage3_manual_split_validation(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: validate_manual_split(project_id, _service().database, payload)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-split-balance/contracts", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_split_contracts(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: split_contract_state(project_id, _service().database)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/draft", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_split_contract_draft(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_split_draft(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-split-balance/contracts/register", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_split_contract_register(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_split_contract(
+            project_id, _service().database, payload, actor_user_id=actor
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/summary", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_model_laboratory_summary(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Resolve the exact project/Gold/feature/split/treatment run authority."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: model_laboratory_summary(_service().database, project_id)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/runs", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_model_laboratory_runs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List verified immutable development-only comparison receipts."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_model_laboratory_runs(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/plan", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_laboratory_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Validate and count a development queue without fitting anything."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: {
+            "ok": True,
+            "plan": plan_model_development_queue(
+                _service().database, project_id, payload, actor_user_id=actor
+            ),
+        }
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_model_laboratory_jobs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List project-scoped model-development jobs and persisted progress."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_model_development_jobs(_service().database, project_id)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_model_laboratory_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read one persisted job without touching providers or scientific data."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_model_development_job(
+            _service().database, project_id, job_id
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-model-laboratory/jobs",
+    status_code=202,
+ dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_laboratory_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly enqueue one safely bounded multi-candidate batch plan."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_model_development_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-model-laboratory/jobs/{job_id}/cancel-unstarted"
+, dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_laboratory_cancel_unstarted(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Cancel only queued/unstarted configurations; preserve active evidence."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: cancel_unstarted_model_development_work(
+            _service().database,
+            project_id,
+            job_id,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_executable_artifact(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read exact challenger/artifact readiness without fitting or opening OOT."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: executable_artifact_summary(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-executable-artifact/plan", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_executable_artifact_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Review one immutable six-fit artifact plan before any work is queued."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: plan_executable_artifact(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-executable-artifact/jobs", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_executable_artifact_jobs(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """List persisted artifact jobs without touching scientific data."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: list_executable_artifact_jobs(_service().database, project_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs",
+    status_code=202,
+ dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_executable_artifact_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Queue the exact reviewed OOF-reproduction and final-fit plan."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_executable_artifact_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}"
+, dependencies=[Depends(require_project_view)])
+def get_sports_stage3_executable_artifact_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read genuine persisted artifact progress and terminal verification."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_executable_artifact_job(
+            _service().database,
+            project_id,
+            job_id,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/cancel-unstarted"
+, dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_executable_artifact_cancel_unstarted(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Cancel only unstarted work while retaining verified fold checkpoints."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: cancel_unstarted_executable_artifact_work(
+            _service().database,
+            project_id,
+            job_id,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-executable-artifact/jobs/{job_id}/recover-publication"
+, dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_executable_artifact_recover_publication(
+    project_id: str,
+    job_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Recover a fully verified private bundle without repeating any fit."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: recover_failed_executable_artifact_publication(
+            _service().database,
+            project_id,
+            job_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-game-scoring", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_game_scoring(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read provider-free governed-game readiness and verified results."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: game_scoring_summary(_service().database, project_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/sports/stage3-game-scoring/jobs",
+    status_code=202,
+ dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_game_scoring_job(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Queue only games with complete governed point-in-time evidence."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: enqueue_game_scoring_job(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-game-scoring/jobs/{job_id}", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_game_scoring_job(
+    project_id: str,
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read one persisted governed-game scoring job."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: get_game_scoring_job(_service().database, project_id, job_id)
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-candidate-evaluation", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_candidate_evaluation(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read verified project-bound candidate evidence without fitting."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: project_candidate_evaluation(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/finalists", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_candidate_finalists(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_finalist_selection(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-candidate-evaluation/analysis", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_candidate_analysis(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: request_candidate_analysis(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/plan", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_refinement_plan(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: plan_model_refinement(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-refinement/execute", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_refinement_execute(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly queue a supported reduced challenger from one finalist."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: execute_model_refinement(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.get("/projects/{project_id}/sports/stage3-downstream", dependencies=[Depends(require_project_view)])
+def get_sports_stage3_downstream(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Read the project-bound Steps 12-15 development decision state."""
+
+    _authorize_sports_project(project_id, user, "view")
+    return _run_stage3_prepare(
+        lambda: project_stage3_downstream(_service().database, project_id)
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/calibration", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_downstream_calibration(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Persist an explicit raw/deferred calibration decision without fitting."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_calibration_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/game-evaluation", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_downstream_game_evaluation(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Record the exact game-evaluation limitation for a current finalist."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_game_evaluation_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/selection", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_downstream_selection(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Select a research challenger without declaring a champion or promotion."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: save_project_challenger_decision(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-downstream/registry", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_downstream_registry(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Record a metadata-only research handoff; never export or deploy it."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: register_project_research_handoff(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.post("/projects/{project_id}/sports/stage3-model-laboratory/run", dependencies=[Depends(require_project_edit)])
+def post_sports_stage3_model_laboratory_run(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Explicitly run only requested first-pass candidates over five folds."""
+
+    _authorize_sports_project(project_id, user, "edit")
+    actor = _stage3_actor(user)
+    return _run_stage3_prepare(
+        lambda: run_model_laboratory(
+            _service().database,
+            project_id,
+            payload,
+            actor_user_id=actor,
+        )
+    )
+
+
+@router.put("/projects/{project_id}/sports/evidence-dataset", dependencies=[Depends(require_project_edit)])
+def select_sports_evidence_dataset(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    linkage = _run_sports_operation(
+        lambda: _forecast_contracts().link_evidence_dataset(
+            project_id,
+            str(_pick(payload, "registrationId", "registration_id", default="") or ""),
+            user_id=str(user.get("userId") or ""),
+        )
+    )
+    audit_event(
+        "sports.evidence_dataset.selected",
+        "sports_dataset_registration",
+        str(linkage.get("registrationId") or ""),
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "projectId": project_id,
+            "datasetId": linkage.get("datasetId"),
+            "datasetVersionId": linkage.get("datasetVersionId"),
+            "activationRevision": linkage.get("activationRevision"),
+            "summary": "Selected the project's exact sports evidence dataset.",
+        },
+    )
+    return {"ok": True, "linkage": linkage}
+
+
+@router.put("/projects/{project_id}/sports/forecast-contract", dependencies=[Depends(require_project_edit)])
+def save_sports_forecast_contract(
+    project_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    _authorize_sports_project(project_id, user, "edit")
+    contract = _run_sports_operation(
+        lambda: _forecast_contracts().save(
+            project_id,
+            payload,
+            user_id=str(user.get("userId") or ""),
+        )
+    )
+    current = contract.get("current") or {}
+    audit_event(
+        "sports.forecast_contract.registered",
+        "sports_forecast_contract",
+        str(current.get("contractId") or project_id),
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "projectId": project_id,
+            "version": contract.get("currentVersion"),
+            "temporalDesignMode": current.get("temporalDesignMode"),
+            "saveDisposition": contract.get("saveDisposition"),
+            "summary": "Registered the MLB Stage 1 forecast contract.",
+        },
+    )
+    return _forecast_contract_response(contract)
+
+
+@router.delete("/projects/{project_id}", dependencies=[Depends(require_project_edit)])
 def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "admin")
     actor_user_id = str(user.get("userId") or "").strip()
@@ -463,7 +1739,7 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
     return {"ok": True, "projectId": project_id, "deleted": True}
 
 
-@router.get("/projects/{project_id}/workflow-state")
+@router.get("/projects/{project_id}/workflow-state", dependencies=[Depends(require_project_view)])
 def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     record = _execute(lambda: _service().projects.get_workflow_state(project_id))
@@ -473,7 +1749,7 @@ def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_u
     return {"ok": True, "workflowState": _api_record(visible_record)}
 
 
-@router.put("/projects/{project_id}/workflow-state")
+@router.put("/projects/{project_id}/workflow-state", dependencies=[Depends(require_project_edit)])
 def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     previous_completed = set()
@@ -525,7 +1801,7 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
     return {"ok": True, "workflowState": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/evidence")
+@router.get("/projects/{project_id}/evidence", dependencies=[Depends(require_project_view)])
 def list_evidence(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     items = _execute(lambda: _service().evidence.list_for_project(project_id))
@@ -572,7 +1848,7 @@ def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any],
     }
 
 
-@router.post("/projects/{project_id}/evidence")
+@router.post("/projects/{project_id}/evidence", dependencies=[Depends(require_project_edit)])
 def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     normalized = authorize_and_normalize_evidence(
         payload,
@@ -613,7 +1889,7 @@ def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, An
     return {"ok": True, "evidence": _api_record(record)}
 
 
-@router.put("/projects/{project_id}/evidence/{evidence_id}")
+@router.put("/projects/{project_id}/evidence/{evidence_id}", dependencies=[Depends(require_project_edit)])
 def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     def operation() -> Dict[str, Any]:
         service = _service()
@@ -649,7 +1925,7 @@ def _child_list(project_id: str, repository_name: str) -> Dict[str, Any]:
     return {"ok": True, "items": [_api_record(item) for item in items], "count": len(items)}
 
 
-@router.get("/projects/{project_id}/runs")
+@router.get("/projects/{project_id}/runs", dependencies=[Depends(require_project_view)])
 def list_runs(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "runs")
@@ -657,7 +1933,7 @@ def list_runs(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> 
     return {**payload, "runs": items}
 
 
-@router.post("/projects/{project_id}/runs")
+@router.post("/projects/{project_id}/runs", dependencies=[Depends(require_project_edit)])
 def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     run_id = _id("run", payload, "runId", "run_id")
@@ -700,7 +1976,7 @@ def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = 
     return {"ok": True, "run": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/decisions")
+@router.get("/projects/{project_id}/decisions", dependencies=[Depends(require_project_view)])
 def list_decisions(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "decisions")
@@ -708,7 +1984,7 @@ def list_decisions(project_id: str, user: Dict[str, Any] = Depends(require_user)
     return {**payload, "decisions": items}
 
 
-@router.post("/projects/{project_id}/decisions")
+@router.post("/projects/{project_id}/decisions", dependencies=[Depends(require_project_edit)])
 def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     decision_id = _id("decision", payload, "decisionId", "decision_id")
@@ -740,7 +2016,7 @@ def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, An
     return {"ok": True, "decision": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/documentation")
+@router.get("/projects/{project_id}/documentation", dependencies=[Depends(require_project_view)])
 def list_documentation(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "documentation")
@@ -748,7 +2024,7 @@ def list_documentation(project_id: str, user: Dict[str, Any] = Depends(require_u
     return {**payload, "documentation": items}
 
 
-@router.post("/projects/{project_id}/documentation")
+@router.post("/projects/{project_id}/documentation", dependencies=[Depends(require_project_edit)])
 def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     package_id = _id("package", payload, "packageId", "package_id", "documentId")
@@ -778,7 +2054,7 @@ def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[st
     return {"ok": True, "documentationPackage": _api_record(record)}
 
 
-@router.get("/projects/{project_id}/exports")
+@router.get("/projects/{project_id}/exports", dependencies=[Depends(require_project_view)])
 def list_exports(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "exports")
@@ -786,7 +2062,7 @@ def list_exports(project_id: str, user: Dict[str, Any] = Depends(require_user)) 
     return {**payload, "exports": items}
 
 
-@router.post("/projects/{project_id}/exports")
+@router.post("/projects/{project_id}/exports", dependencies=[Depends(require_project_edit)])
 def create_export(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "edit", allow_missing=True)
     export_id = _id("export", payload, "exportId", "export_id")

@@ -39,9 +39,10 @@ from server.sports_phase5.game_initialization import (
 )
 
 REPO = Path(__file__).resolve().parents[1]
-DYNAMIC_NS = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-dynamic-player-state-v1"
-PA_NS = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-v1"
-SIM_RECORD = REPO / ".runtime/asp-model-studio/sports-phase5/simulation-input/latest.simulation.json"
+from server.sports_cockpit.engine import RUNTIME_ROOT  # seam-aware runtime root
+DYNAMIC_NS = RUNTIME_ROOT / "sports-modeling/mlb-dynamic-player-state-v1"
+PA_NS = RUNTIME_ROOT / "sports-modeling/mlb-pa-v1"
+SIM_RECORD = RUNTIME_ROOT / "sports-phase5/simulation-input/latest.simulation.json"
 
 
 # --------------------------------------------------------------------------------------

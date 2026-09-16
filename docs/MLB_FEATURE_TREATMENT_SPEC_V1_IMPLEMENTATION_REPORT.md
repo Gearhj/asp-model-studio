@@ -1,0 +1,448 @@
+# MLB Feature Treatment Specification v1 — Implementation Report
+
+Status: `MLB_FEATURE_TREATMENT_DRAFT_READY_FOR_REVIEW`
+
+This report records the implementation and verification of the workbook-governed Stage 3 feature-treatment draft for project `asp-mtlozhdx`, **MLB 2026 Current-Data Challenger v2 — Deliberate Development**. The workbook was treated as immutable scientific evidence. It was not treated as executable instruction, was not edited, and was not committed.
+
+## 1. Outcome
+
+The 240 workbook feature rows reconcile exactly, by case-sensitive natural key, to the project-bound 254-feature backend inventory. The remaining 14 backend-only fields are individually named and held closed; no treatment was inferred for them. A deterministic compiler produces a content-addressed source artifact and a second project-bound compiled identity that incorporates the exact live authority.
+
+The authenticated application now loads the same combined specification in Outliers and Missing Values, persists linked append-only drafts, and passes the treatment authority into Feature Engineering. There are 48 unresolved user-review rows, so adoption and executable progression remain disabled. No policy was adopted, no feature set was registered, no model was fit or scored, the final OOT set was not opened, and Current Gold was not mutated.
+
+## 2. Scope and non-mutation constraints
+
+- Target project: `asp-mtlozhdx`
+- Project name: `MLB 2026 Current-Data Challenger v2 — Deliberate Development`
+- Duplicate/orphan project explicitly excluded: `asp-mtloybe6`
+- Working branch: `codex/mlb-feature-treatment-spec-v1`
+- Starting branch HEAD: `5e3a2c657799ebe09d91e2c277d66abd8cfd4566`
+- Main HEAD before and after implementation: `924db29511f93909f9d785855bfa056775443690`
+- No push performed
+- No reset, clean, stash, history rewrite, unknown-file deletion, or main-branch modification performed
+- No changes made to `C:\Users\james\ai-sports-predictor`
+- No final-OOT target materialization, model fit, score, calibration, promotion, or export performed
+
+Preflight found no staged or tracked modifications. The following two user/pre-existing files were untracked and were deliberately not staged:
+
+- `ASP_MLB_Feature_Treatment_Specification.xlsx`
+- `docs/PHASE_7D3_CODEX_FINAL_SILVER_READINESS_REPORT.md`
+
+## 3. Workbook evidence
+
+| Evidence | Value |
+|---|---|
+| Path | `C:\Users\james\asp-model-studio\ASP_MLB_Feature_Treatment_Specification.xlsx` |
+| Filename | `ASP_MLB_Feature_Treatment_Specification.xlsx` |
+| Size | 99,432 bytes |
+| SHA-256 | `0e2d5f2b0d495c941ae97fb84c216f0b5ccdfe904519db0acb616d1543a66679` |
+| Matrix range | `Feature Treatment Matrix!A1:Z243` |
+| Required matrix columns | 26/26 present |
+| Data rows parsed | 240 |
+| Duplicate feature keys | 0 |
+| Blank feature keys | 0 |
+| Missing required columns | 0 |
+| Invalid dispositions | 0 |
+| Formula errors | 0 |
+| Reviewer Decision / Reviewer Notes | Blank; retained as human-review fields, never treated as authority |
+
+Workbook sheets and dimensions:
+
+| Sheet | Dimension |
+|---|---|
+| Executive Summary | `A1:I32` |
+| Feature Treatment Matrix | `A1:Z243` |
+| Priority Exceptions | `A1:H13` |
+| Treatment Archetypes | `A1:H17` |
+| Raw Missing Export | `A1:AK241` |
+
+Supporting sheets were used only to reconcile and explain the feature rows. They never overrode a matrix row. Blank outlier-count cells remain unknown; they are never converted to zero.
+
+## 4. Live project authority
+
+| Authority | Verified value |
+|---|---|
+| Development population | 683,662 rows, 2023-03-30 through 2026-08-13 |
+| Final OOT population | 14,067 rows, 2026-08-14 through 2026-08-27; locked and unopened |
+| Current Gold ID | `gold-table:gold_mlb_current_pa_v1` |
+| Current Gold SHA-256 | `67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758` |
+| Contextual authority SHA-256 | `4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e` |
+| Source manifest SHA-256 | `03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c` |
+| Feature inventory SHA-256 | `1499242d0a4ef7423d821cac2924facb20ec99eb2af1ea4505cacf1bce2d38d1` |
+| Backend inventory | 254 features |
+| PIT status | PASS |
+| Live persistence path | `.runtime\asp-model-studio\persistence\asp_model_studio.db` |
+
+Physical Gold verification returned `verified=true`, 697,729 total rows, 48 physical features, and coverage from 2023-03-30 through 2026-08-27. The physical manifest file hash matched the registered Gold checksum, and `current.json` pointed to that exact manifest. Its modification time predated this work.
+
+Registry hygiene note: the source registration row is `VALID` but has `active=0`; the exact project dataset link and `active_modeling_dataset_versions` record are active and point to it. This did not break project resolution, but James should decide whether to normalize that pre-existing registry flag.
+
+## 5. Deterministic compiler and identities
+
+The canonical source artifact is generated by `scripts/compile_mlb_feature_treatment_spec.py` and stored as `server/sports_current_statcast/mlb_feature_treatment_spec_v1.json`.
+
+| Identity | Value |
+|---|---|
+| Compiler contract | `MLB_FEATURE_TREATMENT_SPEC_V1` |
+| Compiler version | `MLB_FEATURE_TREATMENT_COMPILER_V1` |
+| Source schema version | `MLB_FEATURE_TREATMENT_SOURCE_V1` |
+| Source artifact ID | `MLB_FEATURE_TREATMENT_SPEC_V1:sha256:cec8bbe0483ad9bff897ecc97e0af11d9785ad25d481bacac73247858e68699f` |
+| Physical source JSON SHA-256 | `379341bf5696a66d37348f3babc8da6684a89ad820aad32c86e640acf66a154` |
+| Current project-bound identity | `MLB_FEATURE_TREATMENT_SPEC_V1:sha256:2e0d40f6337a20d9e4cccf98c08d3460a32545b7d29035b50a69d4c49e8703df` |
+| Current project-bound checksum | `2e0d40f6337a20d9e4cccf98c08d3460a32545b7d29035b50a69d4c49e8703df` |
+| Reconciliation status | `RECONCILED_WITH_EXPLICIT_HOLDS` |
+
+A clean rebuild produced byte-identical source JSON. The source identity is workbook-content-addressed; the project-bound identity additionally binds project ID, Gold identity/checksum, development boundary, locked final-OOT identity, and feature-inventory checksum. Changing workbook content or the bound inventory produces a new identity rather than mutating an existing one.
+
+The previous project-bound checksum, `41faa...`, remains preserved in the v1 draft history. It is not the current authority.
+
+## 6. Exact reconciliation
+
+- Exact workbook-to-backend matches: 240/240
+- Unmatched workbook features: 0
+- Backend-only features: 14
+- Fuzzy, normalized, family, type, core-field, or missingness-based matches: 0
+- Reconciliation result: exact matches plus explicitly closed backend-only fields
+
+The 14 backend-only fields are:
+
+1. `batting_rivalry_pair`
+2. `batting_rivalry_game`
+3. `batting_home_rivalry_game`
+4. `batting_friday_night_home_rivalry`
+5. `batting_weekend_home_rivalry`
+6. `batting_home_x_rivalry`
+7. `batting_rivalry_mapping_missing`
+8. `fielding_rivalry_pair`
+9. `fielding_rivalry_game`
+10. `fielding_home_rivalry_game`
+11. `fielding_friday_night_home_rivalry`
+12. `fielding_weekend_home_rivalry`
+13. `fielding_home_x_rivalry`
+14. `fielding_rivalry_mapping_missing`
+
+Twelve were already inactive. The two `*_rivalry_mapping_missing` fields were otherwise backend-eligible, so the canonical negative gate now makes them nonselectable too. No workbook treatment was inferred for any of the 14.
+
+## 7. Workbook-derived disposition counts
+
+| Disposition | Count |
+|---|---:|
+| `EXCLUDE_UNTIL_SOURCE_REPAIRED` | 4 |
+| `EXCLUDE_UNTIL_COVERAGE_REPAIRED` | 2 |
+| `RECODE_AFTER_SEMANTIC_VALIDATION` | 1 |
+| `RECODE_AFTER_CALENDAR_VALIDATION` | 1 |
+| `HIERARCHICAL_PRIOR_PLUS_INDICATOR` | 23 |
+| `COLD_START_EXPOSURE_ENCODING` | 2 |
+| `ROLE_OR_LEAGUE_PRIOR_PLUS_INDICATOR` | 1 |
+| `NO_PRIOR_GAME_STATE_PLUS_FOLD_LOCAL_FILL` | 22 |
+| `RECOMPUTE_AFTER_PARENT_TREATMENT` | 8 |
+| `STRUCTURAL_ZERO_PLUS_INDICATOR` | 8 |
+| `INCLUDE_DERIVED_INDICATOR` | 42 |
+| `SIMULATOR_REQUIRED` | 5 |
+| `NO_MISSING_TREATMENT` | 121 |
+| **Total** | **240** |
+
+Compiled review summary:
+
+- Ready: 184
+- Ready with explicit fallback: 22
+- Blocked: 48
+- Automatic retain: 121
+- Automatic exclude: 6
+- Semantic review: 2
+- Hierarchical prior required: 24
+- Native-missing eligible: 22
+- Dense-model fold-local fallback: 22
+- User-review rows: 48
+
+## 8. Exact executable resolutions
+
+### 8.1 Automatic exclusions
+
+Source repair required:
+
+- `batting_hours_since_previous_game_end`
+- `fielding_hours_since_previous_game_end`
+- `batting_altitude_change_feet`
+- `fielding_altitude_change_feet`
+
+Coverage repair required:
+
+- `batting_previous_game_duration_minutes`
+- `fielding_previous_game_duration_minutes`
+
+All six are nonselectable and cannot silently become zero-filled, imputed, or corrected.
+
+### 8.2 Semantic and calendar review
+
+- `doubleheader_game_number` is held for semantic validation/recode.
+- `holiday_name` is held for calendar validation/recode.
+
+Neither field can progress under an invented encoding.
+
+### 8.3 Governed priors and cold start
+
+The 23 hierarchical-prior rows and `pitcher_last250_avg_fastball_velocity` role/league-prior row are blocked with the explicit execution state `GOVERNED_PRIOR_REQUIRED_NOT_IMPLEMENTED`. They are not described as medians and are not selectable until a registered prior authority exists.
+
+Cold-start exposure fields:
+
+- `pitcher_log1p_bfp`
+- `batter_log1p_pa`
+
+Their exposure encodings remain distinct from general missing-value imputation. The 22 no-prior-game-state rows have two explicit model-family paths: native missing routing for eligible tree models, or a dense-model fold-local fallback fitted only on each training fold. Native missing routing is not called imputation.
+
+### 8.4 Structural-zero and interaction semantics
+
+Structural zero plus indicator:
+
+- `fielding_previous_game_extra_innings`
+- `fielding_crossed_two_or_more_time_zones`
+- `fielding_crossed_time_zone`
+- `fielding_cross_country_travel`
+- `batting_previous_game_extra_innings`
+- `batting_crossed_two_or_more_time_zones`
+- `batting_crossed_time_zone`
+- `batting_cross_country_travel`
+
+Parent-first recomputation:
+
+- `fielding_road_trip_length_x_travel`
+- `fielding_prior_extra_innings_x_travel`
+- `fielding_long_travel_x_short_rest`
+- `fielding_eastward_travel_x_early_start`
+- `batting_road_trip_length_x_travel`
+- `batting_prior_extra_innings_x_travel`
+- `batting_long_travel_x_short_rest`
+- `batting_eastward_travel_x_early_start`
+
+The interaction rows cannot be treated independently; the executable contract requires parent treatment followed by deterministic recomputation.
+
+### 8.5 Simulator-required fields
+
+- `context_top_bottom`
+- `context_outs_before`
+- `context_inning`
+- `context_batting_score_diff_before`
+- `context_base_mask_before`
+
+These remain simulator-required and are not converted to generic missing-data treatments.
+
+### 8.6 Derived missingness indicators
+
+All 42 `INCLUDE_DERIVED_INDICATOR` rows compile to deterministic Boolean recomputation. Their physical source columns are complete; no statistical imputation is run. Each carries a source-era/leakage/drift monitoring requirement.
+
+Lineage audit classified 20 as prior-state/cold-start candidates and 22 as source/extraction/pipeline candidates. `batting_previous_game_missing` and `fielding_previous_game_missing` can represent a genuine first-game/no-prior-game state. This is a causal classification hypothesis, not evidence of predictive benefit. Chronological ablation and domain review remain required before claiming value.
+
+### 8.7 Outlier semantics
+
+`NO_STATISTICAL_DETECTION` is now represented as `NOT_EVALUATED`, with null outlier/entity counts, no threshold, and no fitted detector. The only eligible treatment is retain. Caps, transforms, and custom thresholds are rejected. The UI therefore cannot fabricate a “0 outliers” result from unevaluated evidence, and there is no blanket-IQR policy.
+
+## 9. Unsupported recommendations and blocker classes
+
+There are four unresolved blocker classes:
+
+1. Semantic/calendar authority is absent for `doubleheader_game_number` and `holiday_name`.
+2. Hierarchical/role/league prior authority is absent for 24 rows.
+3. Parent-first interaction recomputation is not yet registered as executable authority for 8 rows.
+4. The workbook contains no treatment for the 14 rivalry-authority backend extras.
+
+The compiler reports `canCreateDraft=true` and `canAdopt=false`. Unsupported scientific recommendations remain visible as blocked; they are not silently simplified into median, zero-fill, deletion, or generic correction.
+
+## 10. Persisted draft lineage
+
+Current v2 draft IDs:
+
+| Draft | ID | Version | Status | Checksum |
+|---|---|---:|---|---|
+| Combined feature-treatment specification | `stage3-feature-treatment-spec-c2829651e7314a818d8cde1230cdaaf4` | 2 | DRAFT | `2e0d40f6337a20d9e4cccf98c08d3460a32545b7d29035b50a69d4c49e8703df` |
+| Outlier child policy | `stage3-outlier-policy-90d97fb778d44dcfba1af335d6773ee6` | 2 | DRAFT | `18de27b1d13b394c6f7969fff769ace9ca82338ff9ad06536c7b1808317399bd` |
+| Missing child policy | `stage3-imputation-policy-611d3dd30c454a8f93dd6378c11ec6b7` | 2 | DRAFT | `649fae8461fa8bdec1b7aadcdc6d0c5e798ccf46c485c4becc351bf0861c0660` |
+
+The outlier global method is `NO_STATISTICAL_DETECTION`; the missing global method is `RETAIN_WITH_INDICATOR`.
+
+Preserved v1 history:
+
+- Combined: `stage3-feature-treatment-spec-afaf3f28188e4bd09e0ecf0976554da2`
+- Outlier: `stage3-outlier-policy-d3a5675e11e74522a9eb8dd5d1f0f36f`
+- Missing: `stage3-imputation-policy-57b31eabe8b34915999e4ded898424d8`
+
+The live database contains two combined DRAFT receipts, two append-only combined events (`DRAFT_CREATED`, `DRAFT_REVISED`), four child DRAFTs, and zero adopted combined or child policies. Reapplying v2 through the UI returned the exact same three v2 IDs and did not increase those counts.
+
+Migration `0038_stage3_feature_treatment_spec_bindings.sql` adds immutable combined receipts/events and exact binding triggers. It was applied to the live database at `2026-09-03T21:31:28.837458+00:00`. Combined creation atomically binds project, authority, both child IDs, both child checksums, status, and the project-bound manifest checksum. Existing adopted policies are immutable, and any individual adoption is blocked while an unadopted combined specification binds that authority.
+
+Operational note: an earlier service launch using the repository-default environment also applied the additive migration to ignored `server/data/atlas_local.db`. That created schema objects only; it did not create target-project drafts or affect the live `.runtime` database. No destructive rollback was attempted.
+
+## 11. Authenticated browser acceptance
+
+Acceptance was executed in the signed-in in-app browser against:
+
+`http://127.0.0.1:5274/pa-modeling-cockpit?projectId=asp-mtlozhdx`
+
+Both 1920×1080 and 1024×768 viewports were checked. The viewport was restored after the checks.
+
+| Page | Verified behavior |
+|---|---|
+| Data & Population | Exact project; development 683,662; final OOT 14,067 locked; Current Gold; PIT PASS; zero models; 254-feature library. |
+| Data Profile | Development-only EDA; targets excluded; final OOT locked. |
+| Outliers | Exact workbook/hash/compiled checksum; 240 rows inspectable; semantic rules and priority exceptions visible; v2 persisted; `NO_STATISTICAL_DETECTION` renders `NOT_EVALUATED` with no false-zero summary. |
+| Missing Values | Same combined v2 specification; advanced priors visibly blocked and never called median; native-missing versus dense fold-local paths shown for 22 rows; doubleheader/holiday held; interactions require recomputation. |
+| Feature Engineering | Exact 254-feature inventory; all 20 closed fields (six workbook exclusions plus 14 backend extras) individually searched and found nonselectable; transformations disabled; candidate registration disabled. |
+
+Additional acceptance evidence:
+
+- Draft IDs and checksums survived reload.
+- Reapplying the current draft was idempotent.
+- Prior-policy comparison showed the current proposal and saved v2 draft without inventing an adopted target policy.
+- The adoption control remained disabled and was never clicked.
+- Missing → Feature Engineering progression is disabled while blockers remain; the gate explains that Feature Engineering is independently inspectable read-only, but no candidate set can be registered without adopted treatment authority.
+- Focus Mode reported `aria-pressed=true` and remained functional.
+- No page-level horizontal overflow was present at either viewport.
+- Authenticated session remained active after the final service restart.
+
+## 12. Persistence and non-mutation audit
+
+| Audit counter | Result |
+|---|---:|
+| Current Gold rows mutated | 0 |
+| Final-OOT rows opened | 0 |
+| Final-OOT targets accessed | false |
+| Preprocessing fits | 0 |
+| Model fits | 0 |
+| Scores | 0 |
+| Calibrations | 0 |
+| Promotions | 0 |
+| Provider calls | 0 |
+| Feature-set versions registered | 0 |
+| Exact final-OOT dataset-query registrations | 0 |
+
+Independent live-table counts were zero for models, model versions, scoring runs, candidate-selection decisions, evaluation packages, holdout exposures, PA research runs, Phase 4 studies, and Stage 3 feature-set versions.
+
+## 13. Verification results
+
+Backend suite:
+
+```text
+66 passed, 15 warnings in 96.50s
+```
+
+The warnings are existing scikit-learn/SciPy deprecation notices.
+
+Focused frontend contracts:
+
+```text
+35 passed in 217.3087 ms
+```
+
+Production build:
+
+```text
+npm run build: PASS
+2336 modules transformed
+Vite portion: 27.52s
+```
+
+Only existing browser-data, dynamic-import, and chunk-size warnings were emitted. `git diff --check` passed; its only output was Windows LF→CRLF conversion notices.
+
+### 13.1 Backend requirement-to-test map
+
+| # | Required invariant | Verification |
+|---:|---|---|
+| 1 | Parse exactly 240 rows and all 26 columns | `test_compiler_parses_exact_unique_240_row_contract_and_persists_workbook_hash` |
+| 2 | Reject blank/duplicate natural keys | Compiler row-contract test; `test_compiler_rejects_duplicate_keys_and_changed_workbook_gets_new_identity` |
+| 3 | Persist workbook hash; changed workbook yields new identity | `test_compiler_rejects_duplicate_keys_and_changed_workbook_gets_new_identity` |
+| 4 | Exact reconciliation only; no fuzzy path | `test_exact_reconciliation_has_no_fuzzy_path_and_holds_all_extras_closed` |
+| 5 | Name and fail-close all backend-only extras | `test_exact_reconciliation_has_no_fuzzy_path_and_holds_all_extras_closed` |
+| 6 | Deterministic compilation; inventory change yields new identity | `test_project_compilation_is_deterministic_and_inventory_changes_identity` |
+| 7 | Source-repair rows stay excluded, never zero-filled | `test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr`; `test_source_unavailable_column_fails_instead_of_becoming_zero` |
+| 8 | Coverage-repair rows stay excluded | `test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr` |
+| 9 | No blanket IQR; explicit method/treatment compatibility | Semantic mapping test; `test_outlier_detection_thresholds_are_exact_and_domain_bounds_are_registered` |
+| 10 | Blank/unevaluated outlier counts remain unknown, not zero | `test_no_statistical_detection_preserves_not_evaluated_null_semantics`; `test_include_advanced_returns_read_only_excluded_metadata_without_false_zeroes` |
+| 11 | Semantic and calendar recodes remain held | `test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr` |
+| 12 | Hierarchical and role/league priors require registered authority | `test_governed_prior_requires_registered_authority_and_safe_default`; semantic mapping test |
+| 13 | Cold-start exposures remain distinct from generic imputation | `test_missing_preview_values_eligibility_and_cold_start_remain_separate` |
+| 14 | Native-missing tree path differs from dense fallback | `test_fold_local_model_family_and_indicator_contracts_are_explicit` |
+| 15 | Dense fallback and preprocessing fit only on training folds | Fold-local contract test; `test_null_logistic_and_hgb_run_all_five_folds_with_fold_local_preprocessing`; `test_registered_binary_mode_imputation_fits_only_on_training_rows` |
+| 16 | Treat parents first and recompute interactions | `test_fold_local_model_family_and_indicator_contracts_are_explicit`; FE reconciliation test |
+| 17 | Structural-zero plus indicator is explicit | `test_fold_local_model_family_and_indicator_contracts_are_explicit` |
+| 18 | Derived indicators reconcile and expose lineage monitoring | `test_fold_local_model_family_and_indicator_contracts_are_explicit` |
+| 19 | Simulator-required fields never receive generic fills | `test_semantic_execution_mapping_is_fail_closed_and_never_uses_blanket_iqr` |
+| 20 | Bind exact Gold/development/OOT/inventory authority | `test_combined_draft_is_append_only_idempotent_and_does_not_touch_gold_or_oot`; `test_stale_gold_authority_cannot_apply_prior_compilation` |
+| 21 | Combined and child drafts are append-only and idempotent | Compiler integration test; `test_combined_spec_draft_atomically_binds_children_and_is_idempotent` |
+| 22 | Atomic rollback if either child write fails | `test_combined_spec_rolls_back_both_children_when_second_child_fails` |
+| 23 | Reject noncanonical checksum before any write | `test_combined_spec_rejects_noncanonical_manifest_checksum_before_writes` |
+| 24 | Preserve adopted policies exactly | `test_existing_adopted_policies_remain_exactly_immutable`; policy append-only test |
+| 25 | Block all individual adoption under an unadopted combined spec | `test_combined_draft_blocks_every_individual_policy_adoption` |
+| 26 | Reject stale project/Gold/OOT authority | `test_stale_authority_and_final_oot_filters_fail_closed`; stale-Gold test |
+| 27 | Feature inventory, exclusions, incompatible transforms, and OOT detail access fail closed | `test_inventory_is_paginated_searchable_and_rejects_oot_target_access`; `test_inactive_rivalry_and_incompatible_transformations_fail_closed`; `test_feature_detail_scans_development_predictor_only` |
+| 28 | Policy/preview code cannot mutate Gold or trigger fits, scores, promotions, or OOT access | `test_source_and_gold_paths_are_never_written_by_policy_or_preview_code`; `test_summary_uses_exact_stage3_authorities_and_does_not_fit_or_open_oot`; `test_run_receipt_echoes_exact_identity_and_never_promotes_or_opens_oot` |
+
+Additional repository tests cover immutable receipts after inventory changes, append-only events, no preview-threshold persistence, cross-fitted target-free predicted previews, dependency-cycle rejection, and exact disposition-derived adoption gates.
+
+### 13.2 Frontend/contract requirement-to-test map
+
+| # | Required contract | Verification |
+|---:|---|---|
+| 1 | Authenticated, exact project-bound hydration | `the standalone cockpit hydrates the exact backend project and redacted Stage 3 authority`; live browser acceptance |
+| 2 | Outliers and Missing share one exact canonical spec | `both treatment studios share one exact, refresh-persistent canonical specification workflow` |
+| 3 | Workbook identity, checksum, 240/240 reconciliation, and disposition counts visible | Shared canonical workflow test; live browser acceptance |
+| 4 | All feature rows remain inspectable with governed table/detail controls | `reviewed table, full-scope actions, detail controls, and mutation failures are explicit` |
+| 5 | Priority exceptions and semantic validators stay visible | Treatment-studio contract tests; live Outliers acceptance |
+| 6 | Source-unavailable and backend-only fields are noninteractive | `advanced metadata rows remain visibly unevaluated and noninteractive`; FE browser search of all 20 fields |
+| 7 | No blanket IQR and no false zero for unevaluated detection | Outlier studio contract; advanced-metadata test; live `NOT_EVALUATED` acceptance |
+| 8 | Advanced priors are blocked and never mislabeled median | Missing studio contract; `scientific eligibility, handoffs, and active summaries fail closed` |
+| 9 | Doubleheader/holiday held; interactions recompute after parents | Shared workflow and handoff tests; live Missing Values acceptance |
+| 10 | Save/reload/reapply is persistent and idempotent; prior comparison is honest | Shared workflow test; authenticated reload/reapply acceptance |
+| 11 | Adoption requires exact current receipt and unchanged controls | `adoption is disabled whenever visible policy controls differ from the saved draft`; `specification mutations reject stale projects and only adopt the exact current receipt` |
+| 12 | Feature Engineering receives exclusions and remains closed until blockers resolve | `unresolved canonical blockers hold Feature Engineering progression closed`; `Feature Engineering labels absent adopted treatment authority honestly` |
+| 13 | Client calls fail closed on OOT, model/provider activity, and stale identities | `treatment client is project-bound, cancellable, cache-keyed, and fails closed on OOT or model activity`; FE client-route contract |
+| 14 | Focus Mode, keyboard behavior, responsive layout, and horizontal overflow are safe | Focus Mode suite; `both studios constrain horizontal overflow to analytical tables and use responsive grids`; live checks at both viewports |
+
+## 14. Files changed
+
+Production and generated artifacts:
+
+- `scripts/compile_mlb_feature_treatment_spec.py`
+- `server/sports_current_statcast/mlb_feature_treatment_spec_v1.json`
+- `server/sports_current_statcast/stage3_feature_treatment_spec.py`
+- `server/sports_current_statcast/stage3_treatments.py`
+- `server/sports_current_statcast/stage3_feature_engineering.py`
+- `server/persistence/persistence_router.py`
+- `server/persistence/repositories/stage3_treatment_repository.py`
+- `server/persistence/migrations/0038_stage3_feature_treatment_spec_bindings.sql`
+- `src/apps/ModelingApp.tsx`
+- `src/sports/cockpit/projectTreatmentApi.ts`
+- `src/sports/cockpit/TreatmentStudioShell.tsx`
+- `src/sports/cockpit/ProjectBoundOutlierStudio.tsx`
+- `src/sports/cockpit/ProjectBoundMissingStudio.tsx`
+- `src/sports/cockpit/ProjectBoundFeatureEngineering.tsx`
+
+Tests:
+
+- `tests/sports_stage3_combined_treatment_repository_test.py`
+- `tests/sports_stage3_feature_treatment_spec_test.py`
+- `tests/sports_stage3_treatments_test.py`
+- `tests/sportsStage3FeatureSplitFrontend.test.mjs`
+- `tests/sportsStage3TreatmentStudiosFrontend.test.mjs`
+
+Documentation:
+
+- `docs/MLB_FEATURE_TREATMENT_SPEC_V1_IMPLEMENTATION_REPORT.md`
+
+## 15. Local commits
+
+1. `a1d45b6673183262279f41711600b32c8ed86f0b` — `feat(stage3): compile semantic feature treatment specification`
+2. `b570ca7b966f6458a9b9a78403e3eb76ddf7165b` — `feat(stage3): apply project-bound treatment policy drafts`
+3. `2c962006320ccca194de21e58f4b6f5b00b9657f` — `test(stage3): verify semantic preprocessing and OOT isolation`
+4. Documentation commit — the final branch HEAD is reported in the delivery response because a commit cannot embed its own hash without changing that hash.
+
+## 16. Decisions remaining for James
+
+1. Approve authoritative semantic/calendar recodes for `doubleheader_game_number` and `holiday_name`.
+2. Register or reject the required hierarchical and role/league prior authority for 24 rows.
+3. Register the parent-first interaction-recomputation implementation for 8 rows.
+4. Supply explicit treatment authority for the 14 backend-only rivalry fields, or confirm their continued exclusion.
+5. Review the 42 derived-indicator lineage classifications and require chronological ablation before any benefit claim.
+6. Decide whether to normalize the pre-existing inactive source-registration flag.
+7. Only after all blockers are resolved, review the exact current draft receipt and explicitly authorize adoption in a separate action.
+
+No adoption or push is part of this implementation.

@@ -27,6 +27,8 @@ Thumbs.db
 # Scratch / temp
 .tmp/
 .runtime/
+.deployments/
+test-results/
 server/artifacts/security/*.db
 server/data/*.db
 server/data/*.db-*
@@ -43,3 +45,16 @@ tools/bronze_acquisition/**/checkpoints/
 tools/bronze_acquisition/**/logs/
 bronze-manifest.json
 *.partial
+
+# Current MLB source payloads stay local/private; receipts retain exact hashes.
+/outputs/mlb-v18-current-state-pipeline-v1/sources/objects/sha256/*.csv
+/outputs/mlb-v18-current-state-pipeline-v1/sources/objects/sha256/*.normalized-source-bundle.joblib
+# NBA mechanical unit fixtures are never a real modeling population or evidence.
+/outputs/nba-gen1-v1/*test-tmp*/
+/outputs/nba-gen1-v1/focused-unit-checks-*/
+# Licensed CFBD raw responses remain in the private local source store.
+outputs/cfb-gen1-current-v1/private-sources/
+
+# Preview unit fixtures and local integration copies are not published forecasts.
+/outputs/show-preview-focused-tests/
+/outputs/multisport-show-preview-producer-v1/verification-exchange/

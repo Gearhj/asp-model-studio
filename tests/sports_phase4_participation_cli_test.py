@@ -27,15 +27,12 @@ from server.sports_phase4.supervision import (
 
 
 class ParticipationCliTest(unittest.TestCase):
-    def test_estimate_only_does_not_require_or_start_live_authorities(self) -> None:
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            status = main(["--estimate-only"])
-        self.assertEqual(status, 0)
-        estimate = json.loads(output.getvalue())
-        self.assertTrue(estimate["estimateOnly"])
-        self.assertFalse(estimate["liveRunStarted"])
-        self.assertLess(estimate["estimatedSecondsLower"], estimate["estimatedSecondsUpper"])
+    def test_main_is_hard_retired_before_any_estimate_or_live_work(self) -> None:
+        # Gate 12 (Phase 7D.4): run_mlb_participation_usage.main is hard-retired (its live path scored the sealed
+        # 2025 season), so it exits with code 2 before any estimate / live / data work.
+        with self.assertRaises(SystemExit) as cm:
+            main(["--estimate-only"])
+        self.assertEqual(cm.exception.code, 2)
 
     def test_progress_surface_has_every_required_operational_field(self) -> None:
         output = io.StringIO()
@@ -122,20 +119,13 @@ class ParticipationCliTest(unittest.TestCase):
             "scripts.run_mlb_participation_usage.run_supervised_worker",
             return_value=result,
         ) as supervised:
-            status = main(["--exchange-root", "fixture", "--database", "fixture.db"])
-        self.assertEqual(status, 0)
-        command = supervised.call_args.args[0]
-        options = supervised.call_args.kwargs
-        self.assertEqual(command[0], sys.executable)
-        self.assertEqual(command[-1], SUPERVISED_WORKER_ARGUMENT)
-        self.assertEqual(options["stage_limits"], PARTICIPATION_STAGE_LIMITS)
-        self.assertEqual(options["limits"], PARTICIPATION_SUPERVISION_LIMITS)
-        self.assertEqual(options["limits"].overall_seconds, 8 * 60 * 60)
-        self.assertEqual(options["limits"].silence_seconds, 90)
-        self.assertEqual(options["limits"].rss_bytes, 8 * 1024**3)
-        self.assertEqual(options["env"][WORKER_ENVIRONMENT_FLAG], "1")
+            with self.assertRaises(SystemExit) as cm:
+                main(["--exchange-root", "fixture", "--database", "fixture.db"])
+        self.assertEqual(cm.exception.code, 2)
+        supervised.assert_not_called()   # Gate 12: retired BEFORE any supervised worker / data work
 
-    def test_hidden_worker_mode_requires_the_supervisor_environment(self) -> None:
+    def test_hidden_worker_mode_is_also_hard_retired(self) -> None:
+        # The hidden worker entry runs the actual 2025-touching pipeline; it is retired (exit 2) too.
         arguments = [
             "--exchange-root",
             "fixture",
@@ -145,7 +135,9 @@ class ParticipationCliTest(unittest.TestCase):
         ]
         with mock.patch.dict(os.environ, {WORKER_ENVIRONMENT_FLAG: "0"}):
             with contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(main(arguments), 2)
+                with self.assertRaises(SystemExit) as cm:
+                    main(arguments)
+        self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == "__main__":

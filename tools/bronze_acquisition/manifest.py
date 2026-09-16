@@ -107,7 +107,15 @@ class BronzeManifest:
         fp = contained_path(self.root, *Path(rel).parts)
         if not fp.is_file():
             return False
-        if expected_sha and rec.get("fileSha256") != expected_sha:
+        recorded_sha = rec.get("fileSha256")
+        authoritative_sha = expected_sha or recorded_sha
+        if not authoritative_sha or recorded_sha != authoritative_sha:
+            return False
+        digest = hashlib.sha256()
+        with fp.open("rb") as source:
+            for block in iter(lambda: source.read(1 << 20), b""):
+                digest.update(block)
+        if digest.hexdigest() != authoritative_sha:
             return False
         return True
 

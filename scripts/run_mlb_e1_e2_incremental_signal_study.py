@@ -41,6 +41,7 @@ from server.sports_modeling.metrics import PA_CLASS_ORDER, encode_labels  # noqa
 from server.sports_modeling.training import TrainingArrays  # noqa: E402
 from server.sports_phase4.dynamic_contract import STATE_VALUE_COLUMNS  # noqa: E402
 from server.sports_phase4 import incremental_signal_study as study  # noqa: E402
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 RUNTIME_ROOT = REPOSITORY_ROOT / ".runtime" / "asp-model-studio"
 OUTPUT_ROOT = RUNTIME_ROOT / "sports-phase4" / "e1-e2-incremental-signal-study"
@@ -356,6 +357,7 @@ def _emit(study_payload: Mapping[str, Any], *, reused: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     parser = argparse.ArgumentParser(description="Phase 4E controlled E1/E2 incremental-signal feature-ablation study.")
     parser.add_argument("--exchange-root", default=os.getenv("ASP_MODEL_EXCHANGE_ROOT", ""))
     parser.add_argument("--resamples", type=int, default=study.BOOTSTRAP_RESAMPLES)

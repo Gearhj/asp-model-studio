@@ -6,13 +6,13 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";
 import type { EChartsOption } from "echarts";
-import { LineChart, BarChart, ScatterChart, CustomChart, HeatmapChart } from "echarts/charts";
+import { LineChart, BarChart, ScatterChart, CustomChart, HeatmapChart, BoxplotChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent, DataZoomComponent, MarkLineComponent, MarkAreaComponent, BrushComponent, ToolboxComponent } from "echarts/components";
 import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
 import { ATLAS_ECHARTS_THEME } from "./theme";
 
 echarts.use([
-  LineChart, BarChart, ScatterChart, CustomChart, HeatmapChart,
+  LineChart, BarChart, ScatterChart, CustomChart, HeatmapChart, BoxplotChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent, DataZoomComponent, MarkLineComponent, MarkAreaComponent, BrushComponent, ToolboxComponent,
   CanvasRenderer, SVGRenderer,
 ]);

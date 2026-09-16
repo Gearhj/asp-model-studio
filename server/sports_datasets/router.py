@@ -72,6 +72,31 @@ def active_dataset(_user: dict[str, Any] = Depends(require_user)) -> dict[str, A
     return {"ok": True, "dataset": registry.public_dataset(registration) if registration else None}
 
 
+@router.get("/sports/datasets/catalog")
+def dataset_catalog(_user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    registry = _registry()
+    return {
+        "ok": True,
+        "datasets": [registry.public_dataset(item) for item in registry.list_valid()],
+    }
+
+
+@router.post("/sports/datasets/{registration_id}/activate")
+def activate_dataset(
+    registration_id: str,
+    user: dict[str, Any] = Depends(require_user),
+) -> dict[str, Any]:
+    require_role(user, {"admin"})
+    registry = _registry()
+    registration = registry.activate(registration_id)
+    if registration is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SPORTS_DATASET_NOT_AVAILABLE", "message": "The requested validated dataset registration is not available."},
+        )
+    return {"ok": True, "dataset": registry.public_dataset(registration)}
+
+
 @router.post("/sports/datasets/register-approved")
 def register_approved_dataset(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
     require_role(user, {"admin"})

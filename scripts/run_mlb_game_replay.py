@@ -233,6 +233,8 @@ def _readiness(metrics: Mapping[str, Any], sample_sound: bool) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # locates+opens sealed-2025 play rows on ordinary run -> exit before any data open
     parser = argparse.ArgumentParser(description="Phase 5 deterministic MLB game-replay engine.")
     parser.add_argument("--exchange-root", default=os.getenv("ASP_MODEL_EXCHANGE_ROOT", ""))
     parser.add_argument("--full", action="store_true", help="expand to full 2023-2025 replay if the sample is sound")

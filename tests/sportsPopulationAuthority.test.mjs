@@ -83,13 +83,13 @@ test("contract panel: earlier seasons are honestly selectable but never overwrit
   assert.ok(panel.includes("DEV_START_CANDIDATES = [2021, 2022, 2023]"));
   assert.ok(panel.includes("isEligibleDevelopmentStart") && panel.includes("not eligible"));
   // the governed save clamps to governedDevelopmentSeasons and is blocked for a revised (earlier) start
-  assert.ok(panel.includes("governedDevelopmentSeasons(devSeasons)") && panel.includes("if (!valid || isRevised) return"));
+  assert.ok(panel.includes("governedDevelopmentSeasons(devSeasons)") && panel.includes("if (!seasonValid || isRevised || !backendReady) return"));
   assert.ok(panel.includes("saveTemporalDraft")); // earlier start -> separate draft, not the contract
   assert.ok(panel.includes("Source evidence")); // honest source-vs-development distinction present
 });
 
 test("overview + stage-3 intro display the governed (reconciled) development window", () => {
-  assert.ok(overview.includes("developmentWindowLabel(contract)"));
+  assert.ok(overview.includes("temporalPolicyLabel(contract)"));
   assert.ok(stageContent.includes("developmentWindowLabel(contract)"));
   // the old hard-coded 2021-2023 fallback is gone from the cockpit intro
   assert.ok(!stageContent.includes('"2021–2023"'));

@@ -19,7 +19,7 @@ test("all 15 cockpit steps are present in canonical order", () => {
   assert.equal(STEPS.length, 15);
   assert.deepEqual(STEPS.map((s) => s.id), [
     "objective", "population", "profile", "outliers", "missing", "features", "segmentation",
-    "split", "modellab", "tuning", "evaluation", "calibration", "simulation", "champion", "registry",
+    "split", "modellab", "evaluation", "refinement", "calibration", "simulation", "champion", "registry",
   ]);
   assert.deepEqual(STEPS.map((s) => s.n), Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(2, "0")));
 });
@@ -34,6 +34,7 @@ test("adjacent Previous/Next destinations are correct (index ± 1)", () => {
   assert.equal(nextOf("outliers").id, "missing");       // 04 Outliers → 05 Missing Values
   assert.equal(STEPS[idx("outliers")].label, "Outliers");
   assert.equal(STEPS[idx("missing")].label, "Missing Values");
+  assert.equal(nextOf("evaluation").id, "refinement"); // 10 → 11
   assert.equal(nextOf("champion").id, "registry");      // 14 → 15
   assert.equal(prevOf("registry").id, "champion");      // 15 ← 14
 });
@@ -49,8 +50,8 @@ test("Step 1 has no Previous; Step 15 has no Next", () => {
 test("a Previous/Next footer renders on every step, after the step content", () => {
   assert.ok(shell.includes("function StepFooter"));
   // rendered immediately after the active step body
-  assert.ok(/\{step\.render\(\{ projectId, go \}\)\}\s*<StepFooter active=\{active\} go=\{go\} \/>/.test(shell));
-  // shows position "Step X of 15"
+  assert.ok(/\{step\.render\(\{ projectId, go, currentGoldReview \}\)\}\s*<StepFooter active=\{active\} go=\{go\} \/>/.test(shell));
+  // shows the position from the canonical 15-step array
   assert.ok(shell.includes("Step {idx + 1} of {STEPS.length}"));
 });
 
@@ -60,8 +61,9 @@ test("navigation preserves state — internal step swap, no app reload / externa
   assert.ok(shell.includes("scrollIntoView"));
   assert.ok(!/go = \(id[^}]*window\.location/.test(shell));
   assert.ok(!shell.includes("window.location.reload"));
-  // the left navigator remains for direct expert navigation
-  assert.ok(shell.includes("onClick={() => setActive(s.id)}"));
+  // the merged drawer navigator remains available for direct expert navigation
+  assert.ok(shell.includes("goStep={(id) => { go(id); setWorkflowNavigatorOpen(false); }}"));
+  assert.ok(shell.includes("onClick={() => goStep(candidate.id)}"));
 });
 
 // ---------------------------------------------------------------- population clarity

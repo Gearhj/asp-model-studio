@@ -24,14 +24,14 @@ from server.sports_datasets.consumer import (
     sha256_file,
 )
 from server.sports_datasets.registry import SportsDatasetRegistry
-from tests.sports_dataset_test_fixture import golden_package
+from tests.sports_dataset_test_fixture import golden_corpus_available, golden_package
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCRATCH_ROOT = REPOSITORY_ROOT / ".tmp"
 
 
-@unittest.skipUnless(os.getenv("ASP_MODEL_EXCHANGE_ROOT"), "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests")
+@unittest.skipUnless(golden_corpus_available(), "ASP_MODEL_EXCHANGE_ROOT is required for registered data-access tests")
 class SportsDatasetRegistryAccessTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

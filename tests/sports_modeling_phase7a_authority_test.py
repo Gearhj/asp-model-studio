@@ -21,8 +21,7 @@ from server.sports_cockpit import modeling as M
 from server.sports_cockpit.engine import CockpitError
 
 REPO = Path(__file__).resolve().parents[1]
-AUTHORITY = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v2"
-_HAS_V2 = (AUTHORITY / "registration.json").is_file()
+from tests._runtime_probe import GEN3_V2_ROOT as AUTHORITY, HAS_REAL_GEN3_V2 as _HAS_V2  # real published authority content
 skip_v2 = pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
 
 HEX64 = lambda s: isinstance(s, str) and len(s) == 64 and all(ch in "0123456789abcdef" for ch in s)

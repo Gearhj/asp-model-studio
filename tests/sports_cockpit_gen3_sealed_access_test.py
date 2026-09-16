@@ -17,6 +17,7 @@ import pytest
 
 from server.sports_cockpit import gen3_authority as A
 from server.sports_cockpit import engine as E
+from tests._runtime_probe import IS_SYNTHETIC_SEED
 
 
 def _sealed_object_paths() -> set[str]:
@@ -93,6 +94,7 @@ def test_binding_a_sealed_object_is_refused_and_never_opens_it(isolated_state):
     assert not (set(A.object_open_log()) & isolated_state["sealed"])
 
 
+@pytest.mark.skipif(IS_SYNTHETIC_SEED, reason="asserts REAL registered per-season row structure (unequal counts); a synthetic seed has equal-sized seasons")
 def test_binding_population_derives_without_opening_any_object(isolated_state):
     proj = "hermetic-7c-pop"
     A.create_binding(actor="t@asp", project_id=proj, dataset_version_id=_research_entry("GEN3")["datasetVersionId"])

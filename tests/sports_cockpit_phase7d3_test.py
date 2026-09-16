@@ -18,7 +18,7 @@ from server.sports_cockpit import gen3_authority as A
 from server.sports_cockpit.gen3_authority import AuthorityError, StaleAuthorityError
 
 REPO = Path(__file__).resolve().parents[1]
-_HAS_V2 = (REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-gen3-v2/registration.json").is_file()
+from tests._runtime_probe import HAS_GEN3_V2 as _HAS_V2  # seam-aware: runs on the seeded isolated authority
 pytestmark = pytest.mark.skipif(not _HAS_V2, reason="Gen-3 v2 authority not published")
 ACTOR = "pytest-7d3@asp"
 

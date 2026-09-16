@@ -1,0 +1,253 @@
+{
+  "authorityDeclaration": {
+    "authorityContract": "CODEX_CANONICAL_SYNTHETIC_SOURCE_ISSUER_AUTHORITY_V1",
+    "authorityVersion": 1,
+    "environmentVariable": "CODEX_PHASE7D5A7_ISSUER_REGISTRY",
+    "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+    "issuerKind": "SERVER_OWNED_ACCEPTANCE_AUTHORITY",
+    "mutable": false,
+    "scope": "PHASE_7D5A7_ACCEPTANCE_ONLY"
+  },
+  "builderRestrictions": {
+    "mayBeUsedByProductionTests": true,
+    "maySupplyAcceptanceIssuerAuthority": true,
+    "mayPatchOrMonkeypatchProduction": false,
+    "requiresExplicitRunnerSeed": true,
+    "testOnly": true
+  },
+  "lookupPolicy": {
+    "requiredStartingRelationship": "PERSISTED_ISSUER_RECORD_SHA256",
+    "permittedLookupFields": [
+      "issuerRecordSha256",
+      "sourceLogicalSha256",
+      "sourcePhysicalSha256",
+      "sourceSchemaSha256",
+      "canonicalUpstreamRegistrationSha256",
+      "temporalContractSha256",
+      "populationContractSha256",
+      "knowledgeTimeContractSha256"
+    ],
+    "forbiddenLookupFields": [
+      "datasetVersionId",
+      "displayId",
+      "displayAlias",
+      "path",
+      "runtimeRoot",
+      "helper",
+      "callStack",
+      "pytest"
+    ],
+    "displayTextMayGrantOrRevokeAuthority": false,
+    "traceMetadataLookupPermitted": false
+  },
+  "contracts": {
+    "knowledgeTime": {
+      "contractId": "CODEX_SYNTHETIC_KNOWLEDGE_TIME_AUTHORITY_V1",
+      "rule": "PRE_TERMINAL_PA_ONLY",
+      "sha256": "e6def69bbe62ac599a67dac169f237c196374130e07033e77ced1a60d389b5e4",
+      "targetColumnsForbidden": true
+    },
+    "population": {
+      "contractId": "CODEX_SYNTHETIC_PA_POPULATION_AUTHORITY_V1",
+      "keyColumns": [
+        "plate_appearance_id"
+      ],
+      "rowIdentityRequired": true,
+      "sha256": "64d63767f7fa42e7161d62c94933b742cf07976f7643569051d40b687d72085c",
+      "unit": "PLATE_APPEARANCE"
+    },
+    "temporal": {
+      "authorizedSeasons": [
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "contractId": "CODEX_SYNTHETIC_TEMPORAL_AUTHORITY_V1",
+      "sealedSeasons": [
+        2025,
+        2026
+      ],
+      "seasonDerivation": "GAME_DATE_YEAR",
+      "sha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372"
+    }
+  },
+  "canonicalUpstreamRegistrations": [
+    {
+      "logicalSha256": "0b64bf921580f5f4962ecc58b42b0caa98e3c532b534190102a000c35887a14c",
+      "physicalSha256": "65e165c8bdc126461ca32acbfd581ec0a9ba8b016edac26d2742f26b03217c86",
+      "rowCount": 2,
+      "schemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "seasons": [
+        2023
+      ],
+      "upstreamRegistrationSha256": "f98895eb0b00b078abda723da039c8617ee1b4323abaf4b8350785f2a3f38063"
+    },
+    {
+      "logicalSha256": "6eab2a6890f3ffd32d1c337f378d0c1eb974d9e2d618f0c60e7cf624c6c12201",
+      "physicalSha256": "2f59add506f851f88b091d6b5d84622350a66f8a36e1587f0c1657b868b33ac6",
+      "rowCount": 2,
+      "schemaSha256": "9056f834e20549725f734fd6678b32223da93a3f20b80dd9447764b7732d6dd0",
+      "seasons": [
+        2023
+      ],
+      "upstreamRegistrationSha256": "38b5ac14fa6cb74bfaa627b65d8d614edbe3224a3eb2a8086685dcd6ca19284f"
+    },
+    {
+      "logicalSha256": "6bb6713a6a6fc93e18cc63255529f6a684e018068a9270ea545927cf4d80c5de",
+      "physicalSha256": "afb48418dc76a5e926be1b6fc575e702adf6342c17dc3e8995b9a9433d092089",
+      "rowCount": 12,
+      "schemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "seasons": [
+        2023,
+        2024
+      ],
+      "upstreamRegistrationSha256": "3180c42e3f9bedf640630d9fa96e6ba56b4c18ec7ea21bb6cf4ebac46d83e8a5"
+    },
+    {
+      "logicalSha256": "d3051b5d5e3c8dd55d88e2e3ba80cd67aca0604783d65ab369e2eebfe54b696a",
+      "physicalSha256": "f16525b16c99420acdbf5c0a2fe53de31e81470e9df9dc3922528fb1f759b05b",
+      "rowCount": 2,
+      "schemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "seasons": [
+        2019
+      ],
+      "upstreamRegistrationSha256": "77af5a953c597bc1cedeaaad42293ad129e3d907be85d9e0788d7b08e284486e"
+    }
+  ],
+  "issuerRecords": [
+    {
+      "canonicalUpstreamRegistrationSha256": "f98895eb0b00b078abda723da039c8617ee1b4323abaf4b8350785f2a3f38063",
+      "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+      "issuerRecordContract": "CODEX_CANONICAL_SYNTHETIC_SOURCE_ISSUER_RECORD_V2",
+      "issuerRecordVersion": 2,
+      "knowledgeTimeContractSha256": "e6def69bbe62ac599a67dac169f237c196374130e07033e77ced1a60d389b5e4",
+      "populationContractSha256": "64d63767f7fa42e7161d62c94933b742cf07976f7643569051d40b687d72085c",
+      "rowCount": 2,
+      "seasons": [
+        2023
+      ],
+      "sourceLogicalSha256": "0b64bf921580f5f4962ecc58b42b0caa98e3c532b534190102a000c35887a14c",
+      "sourcePhysicalSha256": "65e165c8bdc126461ca32acbfd581ec0a9ba8b016edac26d2742f26b03217c86",
+      "sourceSchemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "temporalContractSha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372",
+      "issuerRecordSha256": "fe93fa0b3ab30b99aa5e01751830c7a58f43c97ce7997b1e4252fdc56e832bf3"
+    },
+    {
+      "canonicalUpstreamRegistrationSha256": "38b5ac14fa6cb74bfaa627b65d8d614edbe3224a3eb2a8086685dcd6ca19284f",
+      "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+      "issuerRecordContract": "CODEX_CANONICAL_SYNTHETIC_SOURCE_ISSUER_RECORD_V2",
+      "issuerRecordVersion": 2,
+      "knowledgeTimeContractSha256": "e6def69bbe62ac599a67dac169f237c196374130e07033e77ced1a60d389b5e4",
+      "populationContractSha256": "64d63767f7fa42e7161d62c94933b742cf07976f7643569051d40b687d72085c",
+      "rowCount": 2,
+      "seasons": [
+        2023
+      ],
+      "sourceLogicalSha256": "6eab2a6890f3ffd32d1c337f378d0c1eb974d9e2d618f0c60e7cf624c6c12201",
+      "sourcePhysicalSha256": "2f59add506f851f88b091d6b5d84622350a66f8a36e1587f0c1657b868b33ac6",
+      "sourceSchemaSha256": "9056f834e20549725f734fd6678b32223da93a3f20b80dd9447764b7732d6dd0",
+      "temporalContractSha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372",
+      "issuerRecordSha256": "378b32c2f2451d161439b733bdcfff2768f16ddb3ac433d77c0a8dc373a97157"
+    },
+    {
+      "canonicalUpstreamRegistrationSha256": "3180c42e3f9bedf640630d9fa96e6ba56b4c18ec7ea21bb6cf4ebac46d83e8a5",
+      "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+      "issuerRecordContract": "CODEX_CANONICAL_SYNTHETIC_SOURCE_ISSUER_RECORD_V2",
+      "issuerRecordVersion": 2,
+      "knowledgeTimeContractSha256": "e6def69bbe62ac599a67dac169f237c196374130e07033e77ced1a60d389b5e4",
+      "populationContractSha256": "64d63767f7fa42e7161d62c94933b742cf07976f7643569051d40b687d72085c",
+      "rowCount": 12,
+      "seasons": [
+        2023,
+        2024
+      ],
+      "sourceLogicalSha256": "6bb6713a6a6fc93e18cc63255529f6a684e018068a9270ea545927cf4d80c5de",
+      "sourcePhysicalSha256": "afb48418dc76a5e926be1b6fc575e702adf6342c17dc3e8995b9a9433d092089",
+      "sourceSchemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "temporalContractSha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372",
+      "issuerRecordSha256": "0da8d514e68db4b078b9a843492cff5cbeacce16f0084f3247c5bca5c188c572"
+    },
+    {
+      "canonicalUpstreamRegistrationSha256": "77af5a953c597bc1cedeaaad42293ad129e3d907be85d9e0788d7b08e284486e",
+      "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+      "issuerRecordContract": "CODEX_CANONICAL_SYNTHETIC_SOURCE_ISSUER_RECORD_V2",
+      "issuerRecordVersion": 2,
+      "knowledgeTimeContractSha256": "e6def69bbe62ac599a67dac169f237c196374130e07033e77ced1a60d389b5e4",
+      "populationContractSha256": "64d63767f7fa42e7161d62c94933b742cf07976f7643569051d40b687d72085c",
+      "rowCount": 2,
+      "seasons": [
+        2019
+      ],
+      "sourceLogicalSha256": "d3051b5d5e3c8dd55d88e2e3ba80cd67aca0604783d65ab369e2eebfe54b696a",
+      "sourcePhysicalSha256": "f16525b16c99420acdbf5c0a2fe53de31e81470e9df9dc3922528fb1f759b05b",
+      "sourceSchemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "temporalContractSha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372",
+      "issuerRecordSha256": "df8dca0a00b0465258c11cff2a443a1e2c57b421fd98f1f71bad59ec2e92e6ef"
+    }
+  ],
+  "unauthorizedIssuanceControls": [
+    {
+      "canonicalSourceKey": "original-base-2019-v1",
+      "controlId": "original-base-2019-under-2021-2024-v1",
+      "datasetAliases": [
+        "codex-r1-r2-synthetic-source-v1"
+      ],
+      "expectedStageB": "REJECT_UNAUTHORIZED_SEASON",
+      "issuerAuthorityRootSha256": "0d1eab407a19f92b150b6b0122502ec8b5d0539b1d5a06a34384cbe846f18ef4",
+      "issuerRecordSha256": "df8dca0a00b0465258c11cff2a443a1e2c57b421fd98f1f71bad59ec2e92e6ef",
+      "lookupPermitted": false,
+      "rowCount": 2,
+      "seasons": [
+        2019
+      ],
+      "sourceLogicalSha256": "d3051b5d5e3c8dd55d88e2e3ba80cd67aca0604783d65ab369e2eebfe54b696a",
+      "sourceManifestSha256": "525664be69c87c2d13a9348aa1704798716f3a4e1fea9065aea13673735ad4b2",
+      "sourcePhysicalSha256": "f16525b16c99420acdbf5c0a2fe53de31e81470e9df9dc3922528fb1f759b05b",
+      "sourceReceiptSha256": "2eafafa0a1f83397f42372115dd8d8cc0b09f22c879b33a3be6261470c0c535a",
+      "sourceSchemaSha256": "1191c41cfbdc3a3c52b34f631ccc1aee20a2926799761aa97d47262d8c8ccba4",
+      "temporalContractSha256": "46ac63b02b34675c472f0de02312095fee70ad519393f5931384df9bba8c8372"
+    }
+  ],
+  "nonAuthoritativeTraceMetadata": [
+    {
+      "canonicalSourceKey": "original-base-v1",
+      "displayAliases": [
+        "codex-r1-r2-synthetic-source-v1",
+        "renamed-valid-source-a",
+        "renamed-valid-source-b"
+      ],
+      "issuerRecordSha256": "fe93fa0b3ab30b99aa5e01751830c7a58f43c97ce7997b1e4252fdc56e832bf3",
+      "lookupPermitted": false,
+      "sourceLogicalSha256": "0b64bf921580f5f4962ecc58b42b0caa98e3c532b534190102a000c35887a14c"
+    },
+    {
+      "canonicalSourceKey": "original-game-sequence-v1",
+      "displayAliases": [],
+      "issuerRecordSha256": "378b32c2f2451d161439b733bdcfff2768f16ddb3ac433d77c0a8dc373a97157",
+      "lookupPermitted": false,
+      "sourceLogicalSha256": "6eab2a6890f3ffd32d1c337f378d0c1eb974d9e2d618f0c60e7cf624c6c12201"
+    },
+    {
+      "canonicalSourceKey": "delta-d3-v1",
+      "displayAliases": [
+        "mlb-silver-source-hermetic-v1"
+      ],
+      "issuerRecordSha256": "0da8d514e68db4b078b9a843492cff5cbeacce16f0084f3247c5bca5c188c572",
+      "lookupPermitted": false,
+      "sourceLogicalSha256": "6bb6713a6a6fc93e18cc63255529f6a684e018068a9270ea545927cf4d80c5de"
+    },
+    {
+      "canonicalSourceKey": "original-base-2019-v1",
+      "displayAliases": [
+        "codex-r1-r2-synthetic-source-v1"
+      ],
+      "issuerRecordSha256": "df8dca0a00b0465258c11cff2a443a1e2c57b421fd98f1f71bad59ec2e92e6ef",
+      "lookupPermitted": false,
+      "sourceLogicalSha256": "d3051b5d5e3c8dd55d88e2e3ba80cd67aca0604783d65ab369e2eebfe54b696a"
+    }
+  ],
+  "registrySha256": "54dd1b479c58742fe32e8074fbcc28415b23420ff57d6d73ee708898d34d31c1",
+  "registryVersion": 2,
+  "schemaVersion": "CODEX_PHASE7D5A7_CANONICAL_SYNTHETIC_ISSUER_REGISTRY_V2"
+}

@@ -1,7 +1,20 @@
 // Cockpit API client + shared experiment-configuration store.
 // All calls hit the real /api/cockpit backend; there is no mock path.
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useState } from "react";
 import { create } from "zustand";
+import { getCachedUserId, subscribeCachedUserId } from "../../lib/authSession";
+export const CockpitProjectContext = createContext<string>("");
+
+function scopedCockpitPath(path: string, projectId: string): string {
+  if (!path.startsWith("/cockpit/")) return path;
+  if (!projectId.trim()) throw new Error("An explicit selected project is required.");
+  const [base, query = ""] = path.split("?");
+  const params = new URLSearchParams(query);
+  if (params.has("projectId") && params.get("projectId") !== projectId) throw new Error("The request project differs from the selected project.");
+  params.set("projectId", projectId);
+  return `${base}?${params}`;
+}
+
 import { getJSON, postJSON } from "../../lib/api";
 
 // ---------------------------------------------------------------------------- types
@@ -152,6 +165,8 @@ export type FeatureCatalog = {
   available: { family: string; features: string[]; status: string }[];
   roadmap: { family: string; status: string }[];
 };
+
+subscribeCachedUserId(() => useCockpitStore.getState().resetProjectScopedState());
 
 // ---------------------------------------------------------------------------- config store
 export type OutlierPolicy = { globalMethod: string; params?: Record<string, number>; overrides?: Record<string, any> };
@@ -361,37 +376,41 @@ export const useCockpitStore = create<CockpitStore>((set) => ({
 export type Loadable<T> = { status: "idle" | "loading" | "ready" | "error"; data?: T; error?: string };
 
 export function useEndpoint<T>(path: string | null, deps: any[] = []): Loadable<T> {
+  const projectId = useContext(CockpitProjectContext);
+  const userId = getCachedUserId();
   const [state, setState] = useState<Loadable<T>>({ status: "idle" });
   useEffect(() => {
     if (!path) return;
     let alive = true;
     setState({ status: "loading" });
-    getJSON<T>(path)
+    Promise.resolve().then(() => getJSON<T>(scopedCockpitPath(path, projectId)))
       .then((data) => alive && setState({ status: "ready", data }))
       .catch((e) => alive && setState({ status: "error", error: String(e) }));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [path, projectId, userId, ...deps]);
   return state;
 }
 
 export function usePost<T>() {
+  const projectId = useContext(CockpitProjectContext);
+  const userId = getCachedUserId();
   const [state, setState] = useState<Loadable<T>>({ status: "idle" });
   const run = useCallback(async (path: string, body: any) => {
     setState({ status: "loading" });
     try {
-      const data = await postJSON<T>(path, body);
+      const data = await postJSON<T>(scopedCockpitPath(path, projectId), body);
       setState({ status: "ready", data });
       return data;
     } catch (e) {
       setState({ status: "error", error: String(e) });
       throw e;
     }
-  }, []);
+  }, [projectId, userId]);
   return { ...state, run, reset: () => setState({ status: "idle" }) };
 }
 
 export const cockpitGet = getJSON;
-export const cockpitPost = postJSON;
+export const cockpitPost = <T>(path: string, body: any) => postJSON<T>(scopedCockpitPath(path, String(body?.projectId ?? "")), body);

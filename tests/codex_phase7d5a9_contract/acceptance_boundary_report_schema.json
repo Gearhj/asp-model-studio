@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asp-model-studio:phase7d5a9:acceptance-boundary-report:v2",
+  "title": "Phase 7D.5A.9 acceptance boundary satisfiability report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportVersion",
+    "contractSha256",
+    "historicalScientificReportSha256",
+    "requirements",
+    "fileClassifications",
+    "scientificConflictGroups",
+    "mutabilityConflictGroups",
+    "coverage"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "CODEX_PHASE7D5A9_ACCEPTANCE_BOUNDARY_REPORT_V2"
+    },
+    "reportVersion": {
+      "const": 2
+    },
+    "contractSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "historicalScientificReportSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/requirement"
+      }
+    },
+    "fileClassifications": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/fileClassification"
+      }
+    },
+    "scientificConflictGroups": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {
+        "$ref": "#/$defs/conflictGroup"
+      }
+    },
+    "mutabilityConflictGroups": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {
+        "$ref": "#/$defs/conflictGroup"
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protectedFindingCount",
+        "protectedNodeCount",
+        "requirementCount",
+        "editableTargetCount",
+        "immutableInputCount",
+        "protectedTestDigestCount",
+        "protectedRunnerCount",
+        "nodeCoverageExact",
+        "targetCoverageExact",
+        "classificationDisjoint"
+      ],
+      "properties": {
+        "protectedFindingCount": { "type": "integer", "minimum": 1 },
+        "protectedNodeCount": { "type": "integer", "minimum": 1 },
+        "requirementCount": { "type": "integer", "minimum": 1 },
+        "editableTargetCount": { "type": "integer", "minimum": 1 },
+        "immutableInputCount": { "type": "integer", "minimum": 1 },
+        "protectedTestDigestCount": { "type": "integer", "minimum": 1 },
+        "protectedRunnerCount": { "type": "integer", "minimum": 1 },
+        "nodeCoverageExact": { "const": true },
+        "targetCoverageExact": { "const": true },
+        "classificationDisjoint": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(tests|scripts|server)/[^\\\\]*.*$"
+    },
+    "findingId": {
+      "enum": [
+        "R3_RELATIONAL_SILVER_VERIFICATION",
+        "R4_CANONICAL_QUARANTINE_BOUNDARY",
+        "R6_COMPLETE_REPARSE_CONTAINMENT",
+        "R7_DATA_HERMETIC_GATE",
+        "R8_COLLECTION_AND_SKIP_GOVERNANCE",
+        "D3_OUTER_RELATIONAL_RECONSTRUCTION",
+        "D6_PRE_IO_CONTAINMENT_ORDER",
+        "D7_SESSION_BOUND_TEMP_AUTHORITY",
+        "D8_INJECTIVE_COLLECTION_RESULT_PARITY"
+      ]
+    },
+    "targetId": {
+      "enum": [
+        "D7_ISOLATED_DATA_GUARD",
+        "D7_PYTEST_CAPABILITY_INSTALLER",
+        "D8_COLLECTION_JUNIT_ANALYZER"
+      ]
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirementId",
+        "findingId",
+        "scientificStage",
+        "operation",
+        "authoritativePreconditions",
+        "expectedResult",
+        "immutableTestOwner",
+        "implementationTarget",
+        "implementationTargetIds",
+        "mutabilityClassification"
+      ],
+      "properties": {
+        "requirementId": {
+          "type": "string",
+          "pattern": "^PHASE7D5A9-[A-Z0-9]+-[0-9]{2}$"
+        },
+        "findingId": { "$ref": "#/$defs/findingId" },
+        "scientificStage": {
+          "enum": [
+            "STAGE_C_SILVER_PUBLICATION",
+            "CROSS_CUTTING_DATA_ISOLATION",
+            "CROSS_CUTTING_GATE_GOVERNANCE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "VERIFY_SILVER_RELATIONSHIPS",
+            "VERIFY_CANONICAL_QUARANTINE",
+            "VERIFY_REPARSE_CONTAINMENT",
+            "PUBLISH_SILVER_PRE_IO_CONTAINMENT",
+            "CHECK_OPEN_AUTHORITY",
+            "ANALYZE_COLLECTION_JUNIT_PARITY"
+          ]
+        },
+        "authoritativePreconditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "immutableFindingSha256",
+            "immutableNodeListSha256",
+            "immutableTestFileSha256",
+            "scenarioAuthority"
+          ],
+          "properties": {
+            "immutableFindingSha256": { "$ref": "#/$defs/sha256" },
+            "immutableNodeListSha256": { "$ref": "#/$defs/sha256" },
+            "immutableTestFileSha256": { "$ref": "#/$defs/sha256" },
+            "scenarioAuthority": { "const": "IMMUTABLE_TEST_BODY_AND_MANIFEST" }
+          }
+        },
+        "expectedResult": {
+          "const": "SATISFY_IMMUTABLE_TEST_ASSERTIONS"
+        },
+        "immutableTestOwner": {
+          "type": "string",
+          "minLength": 3,
+          "pattern": "^tests/.+::.+$"
+        },
+        "implementationTarget": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementationTargetIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/targetId" }
+        },
+        "mutabilityClassification": {
+          "const": "IMMUTABLE_ACCEPTANCE_REQUIREMENT"
+        }
+      }
+    },
+    "fileClassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "classification",
+        "findingIds",
+        "governingNodeIds",
+        "byteIdentityEnforced",
+        "targetId"
+      ],
+      "properties": {
+        "path": { "$ref": "#/$defs/repoPath" },
+        "classification": {
+          "enum": [
+            "IMMUTABLE_ACCEPTANCE_INPUT",
+            "IMMUTABLE_ACCEPTANCE_TEST",
+            "IMMUTABLE_ACCEPTANCE_RUNNER",
+            "EDITABLE_IMPLEMENTATION_TARGET"
+          ]
+        },
+        "findingIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/findingId" }
+        },
+        "governingNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 3 }
+        },
+        "byteIdentityEnforced": { "type": "boolean" },
+        "targetId": {
+          "oneOf": [
+            { "$ref": "#/$defs/targetId" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "conflictGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conflictId", "members", "reason"],
+      "properties": {
+        "conflictId": { "type": "string", "minLength": 1 },
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

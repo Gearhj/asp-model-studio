@@ -1,0 +1,241 @@
+# Preserve content-addressed evidence bytes across Windows checkouts.
+docs/corrected-treatment-diagnostics/sha256/*.json -text
+outputs/mlb-corrected-treatment/*.json -text
+outputs/mlb-v18-pa-game-baseline/** -text
+# New immutable research evidence must retain exact addressed bytes on Windows.
+outputs/mlb-v18-cold-start-reconciliation-v1/** -text
+outputs/nfl-labs-simulation-v1/** -text
+outputs/nfl-research-benchmarks-v1/** -text
+outputs/nfl-semantic-lab-v1/** -text
+outputs/nfl-semantic-session-v1/** -text
+# These two executable sources are part of the frozen semantic run identity.
+server/sports_nfl_m1/semantic_features.py text eol=lf
+server/sports_nfl_m1/semantic_lab.py text eol=lf
+# Frozen play-level identities include exact executable and evidence bytes.
+outputs/nfl-play-level-engine-v1/** -text
+server/sports_nfl_m1/play_evidence.py -text
+server/sports_nfl_m1/play_model.py -text
+server/sports_nfl_m1/play_engine.py -text
+server/sports_nfl_m1/play_geometry.py -text
+server/sports_nfl_m1/play_validation.py -text
+scripts/publish_nfl_play_level.py -text
+shared/contracts/NFL_LABS_PLAY_LEVEL_CONTRACT_V1.json -text
+# Frozen NFL V2 reconstruction, inference and source-vintage identities.
+server/sports_nfl_m1/current_state_*.py -text
+server/sports_nfl_m1/forward_vintages.py -text
+scripts/run_nfl_current_state_v2.py -text
+scripts/finalize_nfl_current_state_v2.py -text
+scripts/archive_nfl_forward_vintages.py -text
+scripts/report_nfl_current_state_v2.py -text
+scripts/run_nfl_uncertainty_repair.py -text
+scripts/report_nfl_uncertainty_repair.py -text
+scripts/finalize_nfl_uncertainty_repair.py -text
+scripts/diagnose_nfl_uncertainty_repair.py -text
+# Frozen MLB regime-study artifacts and executable hashes survive Windows checkout.
+outputs/mlb-regime-hybrid-ensemble-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_regime_*.py -text
+scripts/*mlb_regime*.py -text
+scripts/mlb-regime-workbook/build.mjs -text
+docs/MLB_REGIME_*.md -text
+src/sports/MlbRegimeStudy.tsx -text
+server/sports_shared/router.py -text
+outputs/mlb-v18-rf-operationalization-v1/** -text
+server/sports_current_statcast/mlb_rf_*.py -text
+scripts/check_mlb_rf_prior_recovery.py -text
+scripts/verify_mlb_v18_rf_operationalization.py -text
+outputs/mlb-v18-current-slate-v1/** -text
+server/sports_current_statcast/mlb_v18_current_*.py -text
+scripts/inventory_mlb_current_slate.py -text
+scripts/run_mlb_v18_current_slate.py -text
+outputs/market-intelligence-rff-v1/** -text
+server/market_intelligence/*.py -text
+scripts/run_market_intelligence_rff.py -text
+scripts/finalize_market_intelligence_rff.py -text
+scripts/complete_market_research_control.py -text
+scripts/package_market_research.py -text
+scripts/export_mlb_market_research_read_only.py -text
+docs/rff_component_contract_v1.json -text
+# Current-state source/code identities and immutable receipts retain exact bytes.
+outputs/mlb-v18-current-state-pipeline-v1/** -text
+server/sports_current_statcast/mlb_v18_prospective_transform.py -text
+scripts/acquire_mlb_v18_current_sources.py -text
+scripts/run_mlb_v18_current_state.py -text
+outputs/mlb-v18-unattended-v1/** -text
+server/sports_current_statcast/mlb_v18_unattended.py -text
+server/sports_current_statcast/mlb_v18_exchange.py -text
+scripts/*mlb_v18_unattended* -text
+scripts/build_mlb_v18_deployment.py -text
+scripts/reconcile_mlb_v18_operational_evidence.py -text
+# V19 research receipts and hash-bound sources preserve their exact Windows bytes.
+outputs/mlb-v19-current-state-specialists-v1/** -text whitespace=cr-at-eol
+docs/MLB_V19_*.md -text
+server/sports_current_statcast/mlb_v19_*.py -text
+scripts/*mlb_v19* -text
+# Conditional V18 reference manifests, immutable diagnostics and hash-bound code.
+outputs/mlb-v18-conditional-champion-v1/** -text whitespace=cr-at-eol
+scripts/*mlb_v18_conditional_champion.py -text
+scripts/package_mlb_v18_conditional_champion.py -text
+scripts/build_mlb_v18_development_integrity.py -text
+scripts/verify_mlb_v18_champion_operational_readiness.py -text
+server/sports_current_statcast/mlb_v18_development_timing.py -text
+server/model_registry/mlb_v18_conditional.py -text
+# Starter-duration research artifacts and declared executable identities.
+outputs/mlb-starter-survival-hierarchical-pa-v1/** -text whitespace=cr-at-eol
+docs/MLB_STARTER_SURVIVAL_HIERARCHY_DECLARATION_V1.json -text
+server/sports_current_statcast/mlb_starter_survival_*.py -text
+server/sports_current_statcast/mlb_pa_hierarchy_research.py -text
+server/sports_current_statcast/mlb_duration_research_adapter.py -text
+scripts/*mlb_starter_survival*.py -text
+scripts/inventory_mlb_pa_hierarchy_eligibility.py -text
+scripts/inventory_mlb_duration_game_comparison.py -text
+# Isolated paired starter-hook evidence and hash-bound implementation bytes.
+outputs/mlb-starter-duration-paired-research-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_starter_duration_*.py -text
+scripts/run_mlb_starter_duration_paired*.py -text
+scripts/verify_mlb_starter_duration_actual_hgb_mechanics.py -text
+scripts/acquire_mlb_starter_duration_history.py -text
+server/artifacts/governance/mlb-final-oot-quarantine-v1.json -text
+scripts/record_mlb_starter_quarantine_key_accounting.py -text
+scripts/manage_mlb_pair_monitor.py -text
+server/sports_silver/canonical_ids.py -text
+# Three-arm pregame comparison receipts and their executable dependencies.
+outputs/mlb-v18-three-arm-pregame-comparison-v1/** -text whitespace=cr-at-eol
+scripts/*mlb_v18_three_arm*.py -text
+scripts/score_mlb_frozen_component_pairs_v1.py -text
+scripts/run_mlb_v18_transition_shrinkage_v1.py -text whitespace=cr-at-eol
+server/sports_phase5/hierarchical_transition.py -text
+outputs/mlb-v18-transition-shrinkage-v1/components/sha256/8c91d687c95ff81ad11efa7a5e718aa5bbfeb0aa97cc05795bd26e3954939640/transition.json -text
+outputs/mlb-v18-transition-shrinkage-v1/protocol.json -text
+
+# Bounded starter coverage keeps source receipts and hash-bound code byte-exact.
+outputs/mlb-v18-survival-starter-coverage-v1/** -text whitespace=cr-at-eol
+scripts/*mlb_survival* -text whitespace=cr-at-eol
+outputs/mlb-v18-survival-results-and-permission-v1/** -text whitespace=cr-at-eol
+# Position attribution and the append-only six-source authority retain exact bytes.
+outputs/mlb-v18-position-and-survival-verification-v1/** -text whitespace=cr-at-eol
+server/artifacts/governance/mlb-final-oot-quarantine-history/** -text whitespace=cr-at-eol
+scripts/assess_mlb_v18_frozen_slate_20260912_v1.py -text whitespace=cr-at-eol
+# Focused September 12 diagnostics retain exact source and receipt bytes.
+outputs/mlb-v18-september12-miss-analysis-v1/** -text whitespace=cr-at-eol
+scripts/analyze_mlb_september12_misses_v1.py -text whitespace=cr-at-eol
+scripts/analyze_mlb_v18_september12_exposure_v1.py -text whitespace=cr-at-eol
+scripts/read_mlb_v18_september12_starter_evidence_v1.py -text whitespace=cr-at-eol
+scripts/summarize_mlb_v18_september12_postgame_v1.py -text whitespace=cr-at-eol
+scripts/reconcile_mlb_v18_september12_postgame_export_v1.py -text whitespace=cr-at-eol
+# Passive population diagnostics and their independently bound source bytes.
+outputs/mlb-v18-population-diagnostics-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_v18_population_diagnostics.py -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_v18_population_boundaries.py -text whitespace=cr-at-eol
+scripts/*mlb_v18_population*.py -text whitespace=cr-at-eol
+# Score-limited research retains exact rule, populations, code and receipt bytes.
+outputs/mlb-v18-score-limited-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_v18_score_limited.py -text whitespace=cr-at-eol
+scripts/*mlb_v18_score_limit*.py -text whitespace=cr-at-eol
+# Original-baseline totals contract and exports keep physical bytes stable.
+outputs/mlb-v18-totals-distribution-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_v18_totals_probabilities.py -text whitespace=cr-at-eol
+scripts/*mlb_v18_totals_v1.py -text whitespace=cr-at-eol
+# NFL input-update receipts retain their exact physical checksum bytes.
+outputs/nfl-m1-current-season-update-v1/** -text whitespace=cr-at-eol
+scripts/report_nfl_m1_input_update.py -text whitespace=cr-at-eol
+scripts/recover_nfl_m1_input_update_handoff.py -text whitespace=cr-at-eol
+# Pitcher-style research binds physical source, model, and evidence bytes.
+outputs/mlb-pitcher-archetype-survival-v1/** -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_pitcher_style_profiles.py -text whitespace=cr-at-eol
+server/sports_current_statcast/mlb_pitcher_archetype_survival.py -text whitespace=cr-at-eol
+scripts/run_mlb_pitcher_archetype_survival.py -text whitespace=cr-at-eol
+tests/test_mlb_pitcher_style_profiles.py -text whitespace=cr-at-eol
+tests/test_mlb_pitcher_archetype_survival.py -text whitespace=cr-at-eol
+tests/test_mlb_pitcher_archetype_runner.py -text whitespace=cr-at-eol
+# Closeout evidence and pinned metadata reader preserve physical bytes on Windows.
+outputs/mlb-prospective-closeout-and-explanations-v1/** -text whitespace=cr-at-eol
+scripts/close_mlb_existing_prospective_comparisons_v1.py -text whitespace=cr-at-eol
+scripts/inspect_mlb_archetype_metadata.py -text whitespace=cr-at-eol
+tests/mlb_archetype_metadata_inspection_test.py -text whitespace=cr-at-eol
+# Frozen NFL QB-context residual configuration, evidence and executable identities.
+outputs/nfl-m1-qb-context-residual-v1/** -text whitespace=cr-at-eol
+server/sports_nfl_m1/qb_usage_context.py -text whitespace=cr-at-eol
+server/sports_nfl_m1/qb_context_residual_sampler.py -text whitespace=cr-at-eol
+scripts/build_nfl_m1_chronological_residuals.py -text whitespace=cr-at-eol
+scripts/run_nfl_m1_qb_context_residuals.py -text whitespace=cr-at-eol
+scripts/report_nfl_m1_qb_context_residuals.py -text whitespace=cr-at-eol
+tests/nfl_qb_usage_context_test.py -text whitespace=cr-at-eol
+tests/nfl_qb_context_residual_sampler_test.py -text whitespace=cr-at-eol
+scripts/assess_mlb_existing_prospective_finals_v1.py -text whitespace=cr-at-eol
+scripts/publish_mlb_formal_closeout_v1.py -text whitespace=cr-at-eol
+# NBA Gen 1 source-independent code and verified evidence preserve physical bytes.
+server/sports_nba_gen1/** -text whitespace=cr-at-eol
+scripts/run_nba_gen1.py -text whitespace=cr-at-eol
+scripts/forecast_nba_gen1.py -text whitespace=cr-at-eol
+tests/nba_gen1* -text whitespace=cr-at-eol
+docs/nba-gen1-v1/** -text whitespace=cr-at-eol
+outputs/nba-gen1-v1/** -text whitespace=cr-at-eol
+# Licensed NBA historical source, fitted pilot and exact receipt bytes.
+outputs/nba-gen1-historical-pilot-v1/** -text whitespace=cr-at-eol
+scripts/*nba_gen1_historical*.py -text whitespace=cr-at-eol
+# Recent NBA source, stage gates, fitted models and executable bindings.
+outputs/nba-gen1-recent-v1/** -text whitespace=cr-at-eol
+scripts/*nba_gen1_recent.py -text whitespace=cr-at-eol
+# NBA ordinary-rest correction and current-history receipts preserve exact bytes.
+outputs/nba-gen1-long-gap-v1/** -text whitespace=cr-at-eol
+docs/nba-gen1-long-gap-v1/** -text whitespace=cr-at-eol
+scripts/*nba_gen1_rest*.py -text whitespace=cr-at-eol
+scripts/*nba_gen1_2026*.py -text whitespace=cr-at-eol
+scripts/*nba_gen1_2027*.py -text whitespace=cr-at-eol
+scripts/*nba_gen1_point*.py -text whitespace=cr-at-eol
+scripts/publish_nba_gen1_point_exchange.py -text whitespace=cr-at-eol
+outputs/nba-gen1-exchange-delivery-v1/** -text whitespace=cr-at-eol
+# NBA paired OOF joint-distribution research preserves physical evidence bytes.
+outputs/nba-gen1-joint-residual-v1/** -text whitespace=cr-at-eol
+scripts/*nba_gen1_joint*.py -text whitespace=cr-at-eol
+tests/test_nba_gen1_joint*.py -text whitespace=cr-at-eol
+# Bounded MLB/NFL operational evidence preserves physical exchange bytes.
+outputs/producer-readiness-20260914-v1/** -text whitespace=cr-at-eol
+scripts/verify_producer_readiness_20260914.py -text whitespace=cr-at-eol
+# Exact NFL virtual authorization, eligibility and diagnostic evidence.
+outputs/nfl-paper-research-eligibility-20260914-v1/** -text whitespace=cr-at-eol
+server/sports_nfl_m1/paper_research_eligibility.py -text whitespace=cr-at-eol
+scripts/publish_nfl_paper_research_eligibility.py -text whitespace=cr-at-eol
+tests/test_nfl_paper_research_eligibility.py -text whitespace=cr-at-eol
+outputs/nfl-paper-eligibility-utf8-successor-v1/** -text whitespace=cr-at-eol
+scripts/republish_nfl_paper_eligibility_utf8.py -text whitespace=cr-at-eol
+# NBA close-score research correction retains physical evidence and code hashes.
+outputs/nba-gen1-close-score-v1/** -text whitespace=cr-at-eol
+scripts/*nba_gen1_close_score.py -text whitespace=cr-at-eol
+tests/test_nba_gen1_close_score.py -text whitespace=cr-at-eol
+# Prospective NBA joint comparison and physical publication evidence.
+outputs/nba-gen1-joint-prospective-v1/** -text whitespace=cr-at-eol
+scripts/publish_nba_gen1_joint_prospective.py -text whitespace=cr-at-eol
+tests/test_nba_gen1_joint_prospective.py -text whitespace=cr-at-eol
+# College Football Gen 1 source bytes, artifacts, and reproducible implementation.
+outputs/cfb-gen1-v1/** -text whitespace=cr-at-eol
+scripts/acquire_cfb_gen1_v1.py -text whitespace=cr-at-eol
+scripts/run_cfb_gen1_v1.py -text whitespace=cr-at-eol
+server/sports_cfb_gen1/** -text whitespace=cr-at-eol
+tests/test_cfb_gen1_pipeline.py -text whitespace=cr-at-eol
+# Current CFBD intake, frozen forecast, challenger and exchange receipts are hash-bound.
+outputs/cfb-gen1-current-v1/** -text whitespace=cr-at-eol
+scripts/*cfb_gen1_current_v1.py -text whitespace=cr-at-eol
+tests/test_cfb_gen1_current.py -text whitespace=cr-at-eol
+
+# NFL drive competing-risk research retains exact executable and evidence bytes.
+outputs/nfl-drive-competing-risks-v1/** -text whitespace=cr-at-eol
+server/sports_nfl_m1/drive_survival.py -text whitespace=cr-at-eol
+scripts/run_nfl_drive_survival_v1.py -text whitespace=cr-at-eol
+tests/test_nfl_drive_survival.py -text whitespace=cr-at-eol
+
+# Multisport audit: preserve physical source bindings and retained research bytes.
+outputs/multisport-feature-engineering-audit-v1/** -text whitespace=cr-at-eol
+scripts/run_multisport_feature_audit_v1.py -text whitespace=cr-at-eol
+scripts/multisport_audit_*.py -text whitespace=cr-at-eol
+
+# Editorial previews preserve physical artifact and consumer-contract bytes.
+server/sports_shared/show_preview*.py -text whitespace=cr-at-eol
+scripts/*show_preview*.py -text whitespace=cr-at-eol
+tests/test_show_preview_producer.py -text whitespace=cr-at-eol
+outputs/multisport-show-preview-producer-v1/** -text whitespace=cr-at-eol
+
+# Bounded MLB preview study: preserve model and evidence byte identities.
+server/sports_shared/mlb_show_preview_team.py -text whitespace=cr-at-eol
+tests/test_mlb_show_preview_team.py -text whitespace=cr-at-eol
+outputs/mlb-show-preview-feasibility-v1/** -text whitespace=cr-at-eol

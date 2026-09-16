@@ -6,9 +6,17 @@
 // signed in right now" without prop-drilling userId through every step page.
 // Kept in sync by src/lib/auth.ts's login/register/me/logout calls.
 let cachedUserId: string | null = null;
+const userIdListeners = new Set<() => void>();
+export function subscribeCachedUserId(listener: () => void): () => void {
+  userIdListeners.add(listener);
+  return () => { userIdListeners.delete(listener); };
+}
 
 export function setCachedUserId(userId: string | null) {
-  cachedUserId = userId || null;
+  const next = userId || null;
+  if (cachedUserId === next) return;
+  cachedUserId = next;
+  userIdListeners.forEach((listener) => listener());
 }
 
 export function getCachedUserId(): string | null {

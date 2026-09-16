@@ -1,0 +1,13 @@
+# Existing September 12 explanation evidence
+
+Import `explanation-joins.json` as an additive evidence catalogue; it does not replace a forecast, final, economics row or candidate contract. Root closeout publication supplies the immutable package location.
+
+1. Verify this file and each referenced artifact against physical SHA-256 and byte count, without newline normalization. Resolve RFC 6901 JSON pointers after verification. Require exact forecast ID and canonical/MLBAM game identity; do not attach old evidence to a newer forecast.
+2. All 15 games support frozen score/total-PA distributions and observed event, starter/relief and inning evidence. Only NYM–NYY 823496, PHI–ATL 824870 and PIT–CHC 824630 support the population-counter comparisons. They are retrospective reproductions after outcomes, selected for explanation. The 5,000 draws are not 5,000 observed games.
+3. For each of the seven funded positions, use the unchanged economics pointer for original probability, adjustment, offered price, stake and policy. Use `currentFinal` for the governed final snapshot. Preserve the economics row's earlier final labels as history. All seven now have a bound final, including the CWS win. Keep model-implied offered-price advantage separate from no-vig disagreement.
+4. V2 has 1,176 play records: 1,173 completed PAs plus three inning-ending baserunning outs. Keep the non-PA records separate and retain within-PA runner activity. Raw-source revision and governed-final revision are different identities. The corrected V2 physical index is SHA `1d4a2c0db380794425d719228f4354461865d9ae0dc566492cba7afbe94803b3`, 19,665 bytes; retain the historical V1 newline qualification.
+5. Use descriptive wording: NYM hit six homers, an event count reached in 12/5,000 unrestricted draws; Philadelphia's starter faced nine batters and Atlanta's largest inning contained eight runs. These observations do not prove the PA estimator or transition model caused the miss. Sampled exposures and probability sums are conditional on simulated paths. Anonymous bullpen templates are not named-reliever availability.
+
+Do not infer actual-PA calibration, exact runner paths, GIDP from the multiple-out proxy, exit velocity or launch angle. The existing corrected-package `basesBefore` fields are empty in the three inspected cases; use only the validated aggregate derivation already in the population comparison. Observed events support “What happened?”; “Why this wager?” comes from the original decision and pricing evidence.
+
+Join file physical SHA-256: `f0198d8427e16525c1699c0fad12c7f370fc793137b22adb68275c29791fdfe5`; bytes: 26073.

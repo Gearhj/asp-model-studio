@@ -174,6 +174,20 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _atomic_replace_dir(staging: Path, final: Path, *, attempts: int = 10, delay: float = 0.05) -> None:
+    """os.replace(staging, final) with bounded retries on a transient Windows PermissionError/OSError (an
+    anti-virus scanner or file indexer briefly holding a just-written child during the directory rename). Fails
+    closed after the retry budget — this is not a drift/authority relaxation, only I/O robustness."""
+    for i in range(attempts):
+        try:
+            os.replace(staging, final)
+            return
+        except (PermissionError, OSError):
+            if i == attempts - 1:
+                raise
+            time.sleep(delay * (i + 1))
+
+
 def _write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.parent / f".tmp-{uuid.uuid4().hex}"
@@ -414,18 +428,129 @@ def catalog() -> list[dict[str, Any]]:
     """The canonical modeling-dataset catalog — the NON-ARCHIVED entries of the sole canonical registry.
     Opens no modeling or sealed object and reads no target rows (Gate 1/4/7)."""
     reg = _canonical_registry()
+    _assert_registry_consistency(reg["datasets"])          # Repair 4: a contradictory registry fails closed here
     return [_with_object_path(d) for d in reg["datasets"] if not d.get("archived")]
+
+
+# Quarantined-Silver dataset-id prefixes barred from EVERY ordinary model path (selection/binding/run-authority/
+# execution/activation). "silver:" is the accepted-authority Silver prefix; "silver-table:" is the Phase 7B1 immutable
+# Silver-table publication prefix minted by server.sports_silver.silver_publication (whose own
+# assert_not_model_eligible enforces the same barrier at publish/consumer time). Both are QUARANTINED / NOT
+# model-eligible; this is the single-source prefix decision so the two authorities cannot drift.
+_QUARANTINED_SILVER_PREFIXES = ("silver:", "silver-table:")
+
+
+def _is_quarantined_silver_id(dataset_version_id: Any) -> bool:
+    return isinstance(dataset_version_id, str) and dataset_version_id.startswith(_QUARANTINED_SILVER_PREFIXES)
 
 
 def _resolve_version(dataset_version_id: str) -> dict[str, Any]:
     if not isinstance(dataset_version_id, str) or not _ID_RE.match(dataset_version_id):
         raise AuthorityError("invalid dataset version id")
+    if _is_quarantined_silver_id(dataset_version_id):
+        raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
     for entry in catalog():
         if entry["datasetVersionId"] == dataset_version_id:
             if entry.get("archived"):
                 raise AuthorityError("dataset version is archived and not resolvable")
             return entry
     raise AuthorityError(f"dataset version not found in the canonical registry: {dataset_version_id}")
+
+
+# --------------------------------------------------------------------------- Repair 4 (7D.5A.2): ONE eligibility decision
+_QUARANTINE_STATUSES = {"QUARANTINED", "SILVER_NORMALIZED", "SEALED_OOT_RESTRICTED"}
+
+
+def _entry_flags(entry: Mapping[str, Any]) -> dict[str, bool]:
+    dsid = str(entry.get("datasetVersionId", ""))
+    status = str(entry.get("status", "")).upper()
+    return {
+        "silver": _is_quarantined_silver_id(dsid),
+        "selectable": bool(entry.get("selectable")),
+        "quarantined": (entry.get("quarantine") in (True, "QUARANTINED")) or status in _QUARANTINE_STATUSES,
+        "sealed": str(entry.get("generation", "")).endswith("_SEALED") or status == "SEALED_OOT_RESTRICTED",
+        "archived": bool(entry.get("archived")),
+        "modelIneligible": entry.get("modelEligible", True) is False,
+        "notApproved": entry.get("approvedForTraining", True) is False,
+    }
+
+
+def assert_registry_entry_consistent(entry: Mapping[str, Any]) -> None:
+    """A registry entry whose fields CONTRADICT each other is structurally invalid and fails closed — a stale or
+    forged 'quarantined + selectable' (etc.) entry can never be honored."""
+    f = _entry_flags(entry)
+    dsid = entry.get("datasetVersionId")
+    if f["quarantined"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (quarantined AND selectable): {dsid}")
+    if f["modelIneligible"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (not model-eligible AND selectable): {dsid}")
+    if f["sealed"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (sealed AND selectable): {dsid}")
+    if f["archived"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (archived AND selectable): {dsid}")
+    if f["silver"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (silver AND selectable): {dsid}")
+    if f["notApproved"] and f["selectable"]:
+        raise AuthorityError(f"canonical registry contradiction (not approved for training AND selectable — not eligible): {dsid}")
+
+
+def assert_canonical_eligibility(entry_or_id: Any) -> None:
+    """The ONE modeling-eligibility decision, re-checked at every ordinary-model boundary (selection, binding,
+    run-authority, execution, activation). Fails closed on a 'silver:' id, a contradictory entry, or a
+    quarantined / sealed / archived / non-selectable / not-model-eligible / not-approved dataset. A caller-supplied
+    ``selectable``/``modelEligible`` cannot override status, because status→quarantine is evaluated independently."""
+    if isinstance(entry_or_id, str):
+        if _is_quarantined_silver_id(entry_or_id):
+            raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: a quarantined Silver dataset may never enter an ordinary model path")
+        return
+    entry = entry_or_id
+    assert_registry_entry_consistent(entry)
+    f = _entry_flags(entry)
+    if f["silver"]:
+        raise AuthorityError("DATASET_NOT_MODEL_ELIGIBLE: quarantined Silver dataset")
+    if not f["selectable"]:
+        raise AuthorityError("dataset version is not selectable for ordinary development")
+    if f["quarantined"] or f["sealed"] or f["archived"]:
+        raise AuthorityError("dataset is quarantined/sealed/archived and is not model-eligible")
+    if f["modelIneligible"]:
+        raise AuthorityError("dataset is not model-eligible")
+    if f["notApproved"]:
+        raise AuthorityError("dataset is not approved for training and is therefore not model-eligible")
+
+
+def _assert_registry_consistency(datasets) -> None:
+    for e in datasets:
+        assert_registry_entry_consistent(e)
+
+
+def _run_datasets_eligible(project_id: str, run_id: str) -> None:
+    """Repair 4 — reconstruct a run's dataset PARENT from its immutable receipt and apply the CURRENT canonical
+    eligibility. Any model-reload / recompute / verify / evidence path calls this first so a dataset quarantined
+    AFTER a run was produced blocks every later read of that run — a direct run id or artifact reference can never
+    bypass current quarantine. Fail-closed if the run's receipt cannot be resolved."""
+    if not _OPAQUE_RE.match(run_id or ""):
+        raise AuthorityError("invalid run id")
+    receipt_sha = _evidence_registry_get(project_id, run_id)
+    rdir = _v2_receipt_dir(project_id, receipt_sha)
+    _reject_reparse_authority(rdir, STATE_ROOT)                 # reparse guard BEFORE any read (R6)
+    rpath = rdir / "receipt.json"
+    _reject_reparse_authority(rpath, STATE_ROOT)
+    if not rpath.is_file() or rpath.is_symlink():
+        raise AuthorityError("run receipt missing")
+    # verify the receipt's content-address BEFORE trusting its fields: a tampered receipt is a fail-closed
+    # AuthorityError, never a raw JSON/parse error leaking out of this pre-check.
+    try:
+        receipt = json.loads(rpath.read_bytes().decode("utf-8"))
+    except Exception as exc:
+        raise AuthorityError(f"run receipt is corrupt (fail-closed): {exc}")
+    if not isinstance(receipt, dict):
+        raise AuthorityError("run receipt is malformed (fail-closed)")
+    body = {k: v for k, v in receipt.items() if k != "receiptSha256"}
+    if sha256_bytes(canonical_json_bytes(body)) != receipt_sha or receipt.get("receiptSha256") != receipt_sha:
+        raise AuthorityError("run receipt SHA does not verify (tampered)")
+    dsid = receipt.get("datasetVersionId")
+    if dsid:
+        assert_canonical_eligibility(_resolve_version(dsid))   # resolves the current catalog entry + checks it
 
 
 VERIFIED_RESEARCH_OBJECT_SCHEMA = "VERIFIED_RESEARCH_OBJECT_V1"
@@ -494,22 +619,32 @@ def _reject_sealed_target_read(entry: Mapping[str, Any], capability: str) -> Non
 
 
 def _contain_object_path(raw: str) -> Path:
-    """Resolve `raw` and require it to live under a fixed immutable object root, rejecting reparse/symlink
-    ancestors, BEFORE any byte is opened (Gate 6). A malicious registry/sidecar path cannot cause even one
-    outside-root open."""
-    resolved = Path(raw).resolve()
+    """Require `raw` to live under a fixed immutable object root and reject a REPARSE POINT (Windows junction —
+    which is_symlink() misses — or a symlink) in EVERY component from the root down, BEFORE resolve()/open
+    (Gate 6 / Phase 7D.5A G). A malicious registry/sidecar path — including one that traverses a junction — cannot
+    cause even one outside-root open."""
+    from .path_containment import ContainmentError, contained_no_reparse
     roots = _immutable_object_roots()
+    try:
+        contained_no_reparse(raw, roots)                       # lexical containment + reparse rejection (no resolve)
+    except ContainmentError as exc:
+        raise AuthorityError(f"object path escapes the immutable object root or traverses a reparse point: {exc}")
+    resolved = Path(raw).resolve()                             # defence in depth: resolve-based escape check
     if not any(r == resolved or r in resolved.parents for r in roots):
         raise AuthorityError("object path escapes the immutable object root")
-    root_set = {str(r) for r in roots}
-    cur = resolved
-    while True:
-        if cur.is_symlink():
-            raise AuthorityError("symlink/reparse point rejected in the object path")
-        if str(cur) in root_set or cur.parent == cur:
-            break
-        cur = cur.parent
     return resolved
+
+
+def _reject_reparse_authority(path: Path | str, root: Path | str) -> Path:
+    """Repair 6 — reject a Windows junction / reparse point on ANY existing component from ``root`` down to
+    ``path`` BEFORE the caller does exists()/iterate()/resolve()/read()/write()/replace(). Raises AuthorityError
+    whose message contains 'reparse'/'junction' so a sensitive evidence/receipt/quarantine boundary fails closed
+    at the correct, pre-I/O location."""
+    from .path_containment import ContainmentError, contained_no_reparse
+    try:
+        return contained_no_reparse(path, [Path(root)])
+    except ContainmentError as exc:
+        raise AuthorityError(f"reparse point (junction) rejected before access: {exc}")
 
 
 # --------------------------------------------------------------------------- object integrity (Gate 6/7: complete, contained receipt verification)
@@ -580,14 +715,16 @@ def _verify_object(entry: Mapping[str, Any], *, capability: str = RESEARCH_OBJEC
         raise AuthorityError("embedded featureSchemaId is not the generation-correct identity")
     if _m("targetContractId") != contract_ids["target"]:
         raise AuthorityError("embedded targetContractId is not the generation-correct identity")
-    # authenticate the publication manifest (Gate 7) — its recorded identities must agree with object+registry
+    # Gate 4 (B5) — the publication manifest is MANDATORY (no "if exists" fail-open): its recorded identities
+    # must agree with the object + registry, or the verified handle is refused.
     man_path = path.parent / "manifest.json"
-    if man_path.is_file():
-        man = json.loads(man_path.read_text(encoding="utf-8"))
-        if man.get("logicalContentSha256") != logical or man.get("physicalParquetSha256") != physical \
-                or man.get("contractBundleSha256") != bundle or man.get("schemaSha256") != schema_sha \
-                or man.get("objectKind") != _m("objectKind"):
-            raise AuthorityError("publication manifest disagrees with the verified object")
+    if not man_path.is_file() or man_path.is_symlink():
+        raise AuthorityError("registered object is missing its mandatory publication manifest (fail-closed)")
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    if man.get("logicalContentSha256") != logical or man.get("physicalParquetSha256") != physical \
+            or man.get("contractBundleSha256") != bundle or man.get("schemaSha256") != schema_sha \
+            or man.get("objectKind") != _m("objectKind"):
+        raise AuthorityError("publication manifest disagrees with the verified object")
     # generation-correct contract identities in the external registry
     if entry.get("contracts"):
         for name, cid in contract_ids.items():
@@ -614,6 +751,13 @@ def _verify_object(entry: Mapping[str, Any], *, capability: str = RESEARCH_OBJEC
     missing = [f for f in FEATURE_NAMES if f not in names]
     if missing:
         raise AuthorityError(f"registered object missing governed feature columns: {missing[:5]}")
+    # Gate 4 (B5) — prove the exact target class domain + order from the target contract + object (not hard-coded)
+    target_classes = list(contracts["target"]["payload"]["classOrder"])
+    if target_classes != list(PA_CLASS_ORDER):
+        raise AuthorityError("target contract class order is not the governed eight-class order")
+    outcome_values = set(str(x) for x in table.column("outcome").to_pylist())
+    if not outcome_values.issubset(set(target_classes)):
+        raise AuthorityError("registered object contains target classes outside the target contract")
     # generation + object kind participate in the canonical object identity
     canonical_object_id = sha256_bytes(canonical_json_bytes(
         {"logicalContentSha256": logical, "generation": entry["generation"], "objectKind": entry.get("objectKind"),
@@ -621,6 +765,7 @@ def _verify_object(entry: Mapping[str, Any], *, capability: str = RESEARCH_OBJEC
     receipt = {"physicalParquetSha256": physical, "logicalContentSha256": logical, "schemaSha256": schema_sha,
                "contractBundleSha256": bundle, "objectKind": entry.get("objectKind"), "rows": rows,
                "seasons": seasons, "generation": entry["generation"], "featureCount": len(FEATURE_NAMES),
+               "targetClassOrder": target_classes, "orderedFeatures": list(FEATURE_NAMES),
                "canonicalObjectId": canonical_object_id, "verifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     return path, receipt
 
@@ -634,9 +779,9 @@ def _active_pointer(project_id: str) -> dict[str, Any] | None:
 def create_binding(*, actor: str, project_id: str, dataset_version_id: str,
                    expected_content_sha: str | None = None, expected_revision: int | None = None,
                    revision_reason: str | None = None) -> dict[str, Any]:
+    assert_canonical_eligibility(dataset_version_id)       # Repair 4: reject a silver: id before resolution
     entry = _resolve_version(dataset_version_id)
-    if not entry.get("selectable", False):
-        raise AuthorityError("dataset version is not selectable for ordinary development")
+    assert_canonical_eligibility(entry)                    # the ONE eligibility decision (selectable + non-contradictory)
     if expected_content_sha and expected_content_sha != entry["logicalContentSha256"]:
         raise AuthorityError("client-asserted content sha does not match the registered object")
     _verify_object(entry)
@@ -688,7 +833,10 @@ def get_binding(*, project_id: str, binding_id: str) -> dict[str, Any]:
     path = _state(project_id, "bindings", f"{binding_id}.json")
     if not path.is_file():
         raise AuthorityError("binding not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def active_binding(*, project_id: str) -> dict[str, Any] | None:
@@ -840,9 +988,31 @@ def _resolve_feature_set(entry: Mapping[str, Any], name: str) -> dict[str, Any]:
     registered = entry.get("featureSets") or {}
     if name not in registered:
         raise AuthorityError(f"feature set '{name}' is not registered for this dataset version")
-    order = list(registered[name])
-    if not order or any(not isinstance(c, str) for c in order):
-        raise AuthorityError("registered feature set is malformed")
+    spec = registered[name]
+    # Gate 1 (B1) — a non-base feature set MUST carry complete V2 semantic authority (a MLB_FEATURE_SET_CONTRACT_V2
+    # registration whose advanced features each have a validated per-feature semantic contract + family). A bare
+    # ordered name-list cannot establish derivation / knowledge-time / leakage / family / order identity, so it is
+    # REFUSED — it can never be bound, requested, executed, compared, published, or activated.
+    if not isinstance(spec, Mapping) or spec.get("contractVersion") != FS.FEATURE_SET_CONTRACT_VERSION \
+            or not isinstance(spec.get("exactFinalOrderedFeatureIds"), list) \
+            or not isinstance(spec.get("semanticContracts"), list):
+        raise AuthorityError(f"feature set '{name}' lacks complete V2 semantic authority (Gate 1 / B1): a non-base "
+                             "set requires MLB_FEATURE_SET_CONTRACT_V2 with per-feature semantic + family contracts")
+    sem_by_id = {}
+    for c in spec["semanticContracts"]:
+        try:
+            FS.validate_feature_semantic_contract(c)    # strict leakage validator on every declared semantic feature
+        except FS.LeakageError as exc:
+            raise AuthorityError(f"advanced feature rejected by the leakage validator (Gate 1/2): {exc}")
+        sem_by_id[c["payload"]["featureId"]] = c
+    order = list(spec["exactFinalOrderedFeatureIds"])
+    if not order or any(not isinstance(c, str) for c in order) or len(order) != len(set(order)):
+        raise AuthorityError("registered advanced feature set is malformed")
+    if list(order[:len(FEATURE_NAMES)]) != list(FEATURE_NAMES):
+        raise AuthorityError("advanced feature set must begin with the exact governed base prefix (Gate 1)")
+    for fid in order[len(FEATURE_NAMES):]:
+        if fid not in sem_by_id:
+            raise AuthorityError(f"advanced feature '{fid}' has no validated semantic contract (Gate 1)")
     return GC.feature_set_contract(generation, name=name, feature_order=order)
 
 
@@ -918,6 +1088,7 @@ def issue_run_authority(*, actor: str, project_id: str, binding_id: str, model_f
         raise AuthorityError(f"unsupported model family: {model_family}")
     binding = _require_active_binding(project_id, binding_id)  # only the current active binding may authorize
     entry = _resolve_version(binding["datasetVersionId"])
+    assert_canonical_eligibility(entry)                       # Repair 4: re-check eligibility at the run-authority boundary
     if entry["logicalContentSha256"] != binding["datasetContentSha256"]:
         raise StaleAuthorityError("binding is stale: registered content sha changed")
     fsc = _resolve_feature_set(entry, feature_set)  # generation-specific ordered feature-set contract
@@ -952,7 +1123,10 @@ def get_run_authority(*, project_id: str, run_authority_id: str) -> dict[str, An
     path = _state(project_id, "authorities", f"{run_authority_id}.json")
     if not path.is_file():
         raise AuthorityError("run authority not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[dict[str, Any], Path, dict[str, Any]]:
@@ -1020,14 +1194,37 @@ def _validate_authority(authority: Mapping[str, Any], project_id: str) -> tuple[
                                        code, _env_sha(), authority.get("featureSetName", "base"))
     if sha256_bytes(canonical_json_bytes(recomputed_cfg)) != authority["canonicalEffectiveConfigSha256"]:
         raise AuthorityError("FORGED authority: reconstructed canonical effective-config sha does not verify")
-    # Gate 5 — the immutable model-request receipt must reconstruct from the current binding/contracts/feature
-    # set/semantic identity/validated request/code+environment (a forged family/hyper/seed/feature set fails)
-    recomputed_receipt = _model_request_receipt(binding, authority["modelFamily"], eff_hyper, int(authority["seed"]),
-                                                authority.get("featureSetName", "base"), fsc, sem, code, _env_sha())
-    if authority.get("modelRequestReceiptSha256") != recomputed_receipt["requestReceiptSha256"]:
-        raise AuthorityError("FORGED authority: model-request receipt does not reconstruct")
+    # Gate 5 (B3) — the immutable MODEL_REQUEST_RECEIPT_V1 is the SOLE request authority. Load its EXACT
+    # persisted bytes by the authority's claimed sha (NO reconstruction-substitute / NO fallback), verify the
+    # content address, and require an exact reconstruction from the CURRENT binding/registry/contracts/feature
+    # set/semantic identity/strict request/code+environment. A coordinated authority rewrite whose receipt file
+    # was not also forged fails at load; a self-attested rewrite fails the field comparison.
+    _load_and_verify_request_receipt(project_id, authority, binding, fsc, sem, eff_hyper, code)
     path, receipt = _verify_object(entry, capability=RESEARCH_OBJECT_READ)  # integrity before load
     return entry, path, receipt
+
+
+def _load_and_verify_request_receipt(project_id: str, authority: Mapping[str, Any], binding: Mapping[str, Any],
+                                     fsc: Mapping[str, Any], sem: Mapping[str, Any], eff_hyper: Mapping[str, Any],
+                                     code: Mapping[str, Any]) -> dict[str, Any]:
+    """Gate 5 (B3) — load the persisted immutable request receipt, verify its content address, and require it to
+    reconstruct exactly from the CURRENT canonical authority. Fail closed on missing/tampered/mismatched."""
+    rr_sha = authority.get("modelRequestReceiptSha256")
+    if not rr_sha or not _HEX64.match(str(rr_sha)):
+        raise AuthorityError("FORGED authority: missing/invalid model-request receipt sha")
+    rr_path = _state(project_id, "requests", f"{rr_sha}.json")
+    if not rr_path.is_file() or rr_path.is_symlink():
+        raise AuthorityError("FORGED authority: immutable model-request receipt is missing (fail-closed)")
+    persisted = json.loads(rr_path.read_bytes().decode("utf-8"))
+    body = {k: v for k, v in persisted.items() if k != "requestReceiptSha256"}
+    if sha256_bytes(canonical_json_bytes(body)) != rr_sha or persisted.get("requestReceiptSha256") != rr_sha:
+        raise AuthorityError("FORGED authority: model-request receipt content does not match its sha (tampered)")
+    expected = _model_request_receipt(binding, authority["modelFamily"], eff_hyper, int(authority["seed"]),
+                                      authority.get("featureSetName", "base"), fsc, sem, code, _env_sha())
+    if expected["requestReceiptSha256"] != rr_sha \
+            or {k: v for k, v in expected.items() if k != "requestReceiptSha256"} != body:
+        raise AuthorityError("FORGED authority: model-request receipt does not reconstruct from current authority")
+    return persisted
 
 
 def _load_authorized_frame(path: Path, feature_order: list[str]):
@@ -1100,7 +1297,7 @@ def _write_evidence_bundle(*, project_id: str, run_id: str, proba, val_labels, v
         (staging / "evidence-manifest.json").write_bytes(man_bytes)
         if final.exists():
             raise AuthorityError("evidence bundle already exists for run id (no overwrite)")
-        os.replace(staging, final)  # atomic publish
+        _atomic_replace_dir(staging, final)  # atomic publish (retry transient Windows FS locks)
     finally:
         if staging.exists():
             import shutil
@@ -1204,6 +1401,7 @@ def verify_estimator_reload(*, project_id: str, run_id: str) -> dict[str, Any]:
 def recompute_validation_logloss(*, project_id: str, run_id: str) -> dict[str, Any]:
     """Independently recompute the 2024 validation log loss from the persisted, MANIFEST-ANCHORED prediction
     + target artifacts (Gate 29) — not from any stored metric JSON."""
+    _run_datasets_eligible(project_id, run_id)          # R4: current dataset-parent eligibility (quarantine blocks reload)
     from sklearn.metrics import log_loss
     run = get_run(project_id=project_id, run_id=run_id)
     bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
@@ -1262,8 +1460,12 @@ def _build_v2_content_children(*, authority: Mapping[str, Any], binding: Mapping
     """Assemble the fixed content children (Gate 1) as canonical bytes. No host-specific absolute path enters
     logical identity."""
     rr_sha = authority.get("modelRequestReceiptSha256")
+    _reject_reparse_authority(_state(project_id, "requests"), STATE_ROOT)   # R6: reject a junctioned requests dir first
     rr_path = _state(project_id, "requests", f"{rr_sha}.json")
-    request_receipt = _read_json(rr_path) if rr_path.is_file() else {"requestReceiptSha256": rr_sha}
+    _reject_reparse_authority(rr_path, STATE_ROOT)
+    if not rr_sha or not rr_path.is_file() or rr_path.is_symlink():   # Gate 5 (B3) — no placeholder fallback
+        raise AuthorityError("cannot publish evidence: immutable model-request receipt is missing (fail-closed)")
+    request_receipt = _read_json(rr_path)
     is_base_sem = authority.get("featureSetName", "base") == "base" and binding["generation"] in ("GEN2", "GEN3")
     fam = FS.base_family_contracts() if is_base_sem else {}
     sem = FS.all_feature_semantic_contracts() if is_base_sem else {}
@@ -1359,7 +1561,7 @@ def _publish_v2_bundle(*, project_id: str, run_id: str, authority: Mapping[str, 
         (staging / _V2_MANIFEST_NAME).write_bytes(manifest_bytes)
         if final.exists():
             raise AuthorityError("V2 bundle content-address conflict (published during staging)")
-        os.replace(staging, final)                                 # atomic publish
+        _atomic_replace_dir(staging, final)                        # atomic publish (retry transient FS locks)
     finally:
         if staging.exists():
             import shutil
@@ -1445,7 +1647,9 @@ def _publish_run_receipt(*, project_id: str, run_id: str, authority: Mapping[str
 def _load_v2_bundle(project_id: str, manifest_sha: str) -> tuple[Path, dict[str, Any]]:
     """Gate 7/8 — content-addressed load with full path containment + exact child set + every child SHA."""
     final = _v2_objects_dir(project_id, manifest_sha)              # hex-validated + contained under state root
+    _reject_reparse_authority(final, STATE_ROOT)                   # R6: reject a junctioned bundle dir BEFORE any read
     mpath = final / _V2_MANIFEST_NAME
+    _reject_reparse_authority(mpath, STATE_ROOT)
     if not final.is_dir() or not mpath.is_file() or mpath.is_symlink():
         raise AuthorityError("V2 bundle not found")
     manifest_bytes = mpath.read_bytes()
@@ -1464,6 +1668,7 @@ def _load_v2_bundle(project_id: str, manifest_sha: str) -> tuple[Path, dict[str,
     for name, meta in children.items():
         if name not in _V2_ALLOWED_NAMES or not _V2_SAFE_NAME.match(name) or name != meta.get("file"):
             raise AuthorityError(f"V2 bundle child name invalid: {name!r}")
+        _reject_reparse_authority(final / name, STATE_ROOT)        # R6: reject a junctioned child BEFORE resolve()
         cpath = (final / name).resolve()
         if cpath.parent != root:
             raise AuthorityError("V2 bundle child escapes the bundle root")
@@ -1486,6 +1691,7 @@ def verify_model_run_receipt(*, project_id: str, run_id: str, expected_binding: 
     (the receipt's own SHA + runId/project are re-verified after lookup)."""
     if not _OPAQUE_RE.match(run_id or ""):
         raise AuthorityError("invalid run id")
+    _run_datasets_eligible(project_id, run_id)          # R4/R6: reparse guard + current dataset-parent eligibility
     receipt_sha = _evidence_registry_get(project_id, run_id)
     rpath = _v2_receipt_dir(project_id, receipt_sha) / "receipt.json"
     if not rpath.is_file() or rpath.is_symlink():
@@ -1518,10 +1724,123 @@ def verify_model_run_receipt(*, project_id: str, run_id: str, expected_binding: 
     return {"receipt": receipt, "manifest": manifest, "bundleDir": bundle_dir, "receiptSha256": receipt_sha}
 
 
+def verify_canonical_model_run_chain(*, project_id: str, run_id: str, expected_binding_revision: int | None = None,
+                                     require_current_binding: bool = True) -> dict[str, Any]:
+    """Gate 6 (B4) — the ONE canonical scientific parent-chain verifier. On top of verify_model_run_receipt
+    (registry -> immutable receipt -> content-addressed bundle -> every child SHA -> COMPLETE -> no sealed
+    year), it RECONSTRUCTS every immutable parent from the CURRENT canonical authority (fail-closed registry,
+    current binding, current generation contracts, physically re-verified research object, persisted request
+    receipt, code/environment) and RELATIONALLY cross-checks the bundled children — not merely their hashes. An
+    internally self-consistent forged bundle is rejected because it disagrees with the current canonical
+    binding / registry / contracts / verified object / request receipt / code+environment."""
+    binding = None
+    if require_current_binding:
+        binding = active_binding(project_id=project_id)
+        if binding is None:
+            raise AuthorityError("no active binding for project")
+        if expected_binding_revision is not None and int(binding["revision"]) != int(expected_binding_revision):
+            raise StaleAuthorityError("expected active binding revision does not match the current active binding")
+        v = verify_model_run_receipt(project_id=project_id, run_id=run_id, expected_binding=binding)
+    else:
+        v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    manifest, bdir = v["manifest"], v["bundleDir"]
+
+    def child(name: str):
+        return json.loads(_v2_child_bytes(bdir, manifest, name).decode("utf-8"))
+
+    b_authority = child("run-authority.json"); b_request = child("model-request-receipt.json")
+    b_object = child("verified-object-receipt.json"); b_binding = child("binding-receipt.json")
+    b_efffeat = child("effective-features.json"); b_modelmeta = child("model-metadata.json")
+    b_classes = child("classes.json"); b_codeenv = child("code-environment-receipt.json")
+
+    # (1) dataset/object reconstructed from the fail-closed canonical registry + physical re-verification
+    entry = _resolve_version(manifest["datasetVersionId"])
+    generation = entry["generation"]
+    if manifest["datasetContentSha256"] != entry["logicalContentSha256"] \
+            or b_authority.get("datasetContentSha256") != entry["logicalContentSha256"] \
+            or b_authority.get("generation") != generation:
+        raise AuthorityError("chain: bundle dataset/generation disagrees with the canonical registry")
+    _, object_receipt = _verify_object(entry, capability=RESEARCH_OBJECT_READ)
+    for k in ("logicalContentSha256", "physicalParquetSha256", "schemaSha256"):
+        if b_object.get(k) != object_receipt.get(k):
+            raise AuthorityError("chain: bundled object receipt disagrees with the canonical verified object")
+
+    # (2) current generation contracts
+    contracts = GC.contracts_for_generation(generation)
+    for field, key in (("targetContractSha256", "target"), ("populationContractSha256", "population"),
+                       ("temporalContractSha256", "temporal"), ("preprocessingContractSha256", "preprocessing"),
+                       ("knowledgeTimeContractSha256", "knowledgeTime"), ("featureContractSha256", "baseFeature")):
+        if b_authority.get(field) != contracts[key]["sha256"]:
+            raise AuthorityError(f"chain: authority {field} disagrees with the current generation contract")
+    if b_authority.get("contractBundleSha256") != GC.contract_bundle_sha_for(generation):
+        raise AuthorityError("chain: contract bundle is not generation-correct")
+
+    # (3) class order == target contract == governed order
+    order = list(b_classes.get("classOrder", []))
+    if order != list(contracts["target"]["payload"]["classOrder"]) or order != list(PA_CLASS_ORDER):
+        raise AuthorityError("chain: class order disagrees with the target contract")
+
+    # (4) feature-set ordered ids == effective-features == manifest.orderedFeatures == authority featureSet, and
+    #     the feature-set contract must RESOLVE for the current registry entry + the authority's named set
+    eff_order = list(b_efffeat.get("featureOrder", []))
+    if eff_order != list(manifest.get("orderedFeatures", [])) or eff_order != list(b_authority.get("featureSet", [])):
+        raise AuthorityError("chain: effective feature order disagrees with the authority/manifest")
+    fsc = _resolve_feature_set(entry, b_authority.get("featureSetName", "base"))
+    if list(fsc["payload"]["featureOrder"]) != eff_order or b_authority.get("featureSetSha256") != fsc["sha256"]:
+        raise AuthorityError("chain: feature-set contract disagrees with the current registry")
+    sem = _semantic_feature_identity(binding or b_binding, b_authority.get("featureSetName", "base"))
+    if b_authority.get("semanticFeatureSetSha256") != sem["semanticFeatureSetSha256"] \
+            or list(b_authority.get("semanticFeatureFamilyIds", [])) != list(sem["semanticFeatureFamilyIds"]):
+        raise AuthorityError("chain: semantic feature-set identity disagrees with the registry")
+
+    # (5) immutable request receipt: bundled == persisted (content-addressed) == authority, fields match
+    rr_sha = b_authority.get("modelRequestReceiptSha256")
+    if b_request.get("requestReceiptSha256") != rr_sha:
+        raise AuthorityError("chain: bundled request receipt sha != authority request receipt sha")
+    rr_path = _state(project_id, "requests", f"{rr_sha}.json")
+    if not rr_path.is_file() or rr_path.is_symlink():
+        raise AuthorityError("chain: persisted immutable request receipt is missing (fail-closed)")
+    persisted_rr = json.loads(rr_path.read_bytes().decode("utf-8"))
+    if {k: vv for k, vv in persisted_rr.items() if k != "requestReceiptSha256"} \
+            != {k: vv for k, vv in b_request.items() if k != "requestReceiptSha256"}:
+        raise AuthorityError("chain: persisted request receipt disagrees with the bundled request receipt")
+    for f in ("modelFamily", "effectiveHyperparameters", "seed", "featureSetName", "featureSetSha256"):
+        if b_request.get(f) != b_authority.get(f):
+            raise AuthorityError(f"chain: request receipt {f} disagrees with the run authority")
+
+    # (6) model family/metadata + estimator class consistency
+    if b_authority.get("modelFamily") != manifest.get("modelFamily"):
+        raise AuthorityError("chain: manifest/authority model family disagree")
+    fam_to_cls = {"governed_logistic": "LogisticRegression", "governed_hgb": "HistGradientBoostingClassifier"}
+    if b_modelmeta.get("estimator") != fam_to_cls.get(b_authority.get("modelFamily")):
+        raise AuthorityError("chain: model metadata estimator class disagrees with the model family")
+
+    # (7) code/environment child == authority snapshot
+    if b_codeenv.get("codeRevision") != b_authority.get("codeRevision") \
+            or b_codeenv.get("worktreeContentSha256") != b_authority.get("worktreeContentSha256") \
+            or b_codeenv.get("environmentSha256") != b_authority.get("environmentSha256"):
+        raise AuthorityError("chain: code/environment child disagrees with the run authority")
+
+    # (8) binding: bundle == binding-receipt child; current active binding when required
+    if b_binding.get("bindingId") != manifest.get("bindingId") \
+            or int(b_binding.get("revision", -1)) != int(manifest.get("bindingRevision", -2)):
+        raise AuthorityError("chain: binding receipt disagrees with the manifest")
+    if require_current_binding and binding is not None:
+        if manifest.get("bindingId") != binding["bindingId"] or int(manifest.get("bindingRevision", -1)) != int(binding["revision"]):
+            raise StaleAuthorityError("chain: run binding is not the current active binding")
+
+    return {**v, "authority": b_authority, "binding": b_binding, "entry": entry, "objectReceipt": object_receipt,
+            "contracts": contracts, "featureSetContract": fsc, "classOrder": order, "orderedFeatures": eff_order,
+            "currentBinding": binding}
+
+
 def _v2_child_bytes(bundle_dir: Path, manifest: Mapping[str, Any], name: str) -> bytes:
     """Read one already-verified V2 child by its fixed name (containment re-checked)."""
     if name not in _V2_MANDATORY_CHILDREN:
         raise AuthorityError(f"unknown V2 child {name!r}")
+    from .path_containment import is_reparse_point
+    if is_reparse_point(bundle_dir) or is_reparse_point(bundle_dir / name):   # Phase 7D.5A G — reject junctions
+        raise AuthorityError("reparse point (junction/symlink) rejected in the V2 evidence path")
     cpath = (bundle_dir / name).resolve()
     if cpath.parent != bundle_dir.resolve() or cpath.is_symlink() or not cpath.is_file():
         raise AuthorityError("V2 child path invalid")
@@ -1534,6 +1853,7 @@ def _v2_child_bytes(bundle_dir: Path, manifest: Mapping[str, Any], name: str) ->
 def load_fitted_estimator_v2(*, project_id: str, run_id: str) -> Any:
     """Gate 9 — reload the fitted estimator from the verified V2 bundle: read the model artifact bytes ONCE,
     verify their SHA, deserialize from the in-memory buffer, and check the recorded class. No TOCTOU."""
+    _run_datasets_eligible(project_id, run_id)          # R4: current dataset-parent eligibility (quarantine blocks reload)
     import io
     import joblib
     v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
@@ -1589,6 +1909,12 @@ def recompute_validation_logloss_v2(*, project_id: str, run_id: str) -> dict[str
             "validationRows": n_rows, "matchesStored": abs(float(metrics["logLoss"]) - float(stored["logLoss"])) < 1e-9}
 
 
+def _final_publication_code_identity() -> dict[str, Any]:
+    """Gate 11 (B7) — the code/environment identity recomputed at the FINAL publication boundary. Isolated as a
+    named function so an injected-late-drift test can simulate drift between post-fit and COMPLETE publication."""
+    return _code_identity()
+
+
 def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
     """Gate 23 — trusted-local INTERPROCESS bound: one heavy run per project at a time. The per-project lock
     is same-thread reentrant (an in-process ablation orchestrator running control then challenger through
@@ -1603,6 +1929,7 @@ def execute(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, 
 def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> dict[str, Any]:
     authority = get_run_authority(project_id=project_id, run_authority_id=run_authority_id)
     entry, path, receipt = _validate_authority(authority, project_id)
+    assert_canonical_eligibility(entry)                       # Repair 4: re-check eligibility at the execution boundary
     dev_seasons = list(authority["developmentSeasons"]); val_season = int(authority["validationSeason"])
     sealed = set(entry.get("sealedSeasons") or [])
     feature_order = list(authority["featureSet"])   # Gate 9 — the bound generation-specific ordered set
@@ -1688,9 +2015,24 @@ def _execute_locked(*, actor: str, project_id: str, run_authority_id: str) -> di
                                     val_encoded=encoded[val_mask], val_ids=ids[val_mask], val_dates=dates[val_mask],
                                     val_game_ids=game_ids[val_mask], full_metrics=metrics, model_artifact=model_artifact,
                                     preprocessor_state=pre.state(), fitted_estimator=est)
+    # Gate 11 (B7) — FINAL code/environment recompute inside the publication critical section (under the held
+    # execution lock), immediately before COMPLETE. Any drift from the issuance / post-fit identity means NO
+    # COMPLETE V2 bundle / receipt / registry entry / activation — only FAILED_STALE_AUTHORITY is written.
+    final_code = _final_publication_code_identity()
+    if final_code.get("codeRevision") != authority["codeRevision"] \
+            or final_code.get("worktreeContentSha256") != authority["worktreeContentSha256"] \
+            or final_code.get("codeRevision") != code["codeRevision"] \
+            or final_code.get("worktreeContentSha256") != code["worktreeContentSha256"] \
+            or _env_sha() != authority["environmentSha256"]:
+        _write_json_atomic(_state(project_id, "runs", f"{run_id}.json"),
+                           {"schemaVersion": "MODEL_EXPERIMENT_RUN_EVIDENCE_V1", "experimentRunId": run_id,
+                            "runAuthorityId": authority["runAuthorityId"], "projectId": project_id,
+                            "status": "FAILED_STALE_AUTHORITY", "failureClass": "CODE_OR_ENVIRONMENT_DRIFT_AT_PUBLICATION",
+                            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        raise StaleAuthorityError("code/environment drifted at the final publication boundary; run failed closed (no COMPLETE evidence)")
     # Phase 7D.3 Gate 1-5 — publish the COMPLETE run as one content-addressed V2 bundle + an immutable run
     # receipt registered create-once in the canonical evidence registry (inside this critical section, on the
-    # already-verified post-fit code/environment identity).
+    # verified-equal code/environment identity).
     import io as _io
     import joblib as _joblib
     _buf = _io.BytesIO(); _joblib.dump(est, _buf); _estimator_bytes = _buf.getvalue()
@@ -1785,15 +2127,46 @@ def run_authorized_suite(*, actor: str, project_id: str, binding_id: str,
             "bestLogLoss": best["metrics"]["logLoss"] if best else None}
 
 
-def _validation_evidence(project_id: str, run_id: str) -> dict[str, Any]:
-    """Return the manifest-anchored 2024 validation predictions + target for a run (paired-comparison input)."""
-    run = get_run(project_id=project_id, run_id=run_id)
-    bdir, manifest = _open_verified_evidence(project_id, run_id, run.get("evidenceBundleSha256"))
-    pm = manifest["children"]["predictions"]
-    proba = np.frombuffer((bdir / pm["file"]).read_bytes(), dtype=np.float64).reshape(pm["shape"])
-    vt = json.loads((bdir / manifest["children"]["validationTarget"]["file"]).read_bytes().decode("utf-8"))
+def _v2_validation_evidence(project_id: str, run_id: str) -> dict[str, Any]:
+    """Gate 10 (B6) — resolve ONE comparison arm's 2024 validation predictions/target ONLY through the canonical
+    V2 chain: evidence registry -> immutable MODEL_RUN_RECEIPT_V1 -> content-addressed MODEL_RUN_EVIDENCE_BUNDLE_V2
+    -> every child SHA -> full parent-chain reconstruction (pinned to the CURRENT active binding). No mutable run
+    JSON, no V1 bundle, no 2025. A stale/superseded binding, missing receipt, or forged arm fails closed here."""
+    v = verify_canonical_model_run_chain(project_id=project_id, run_id=run_id, require_current_binding=True)
+    m, bdir = v["manifest"], v["bundleDir"]
+    n_rows, k = int(m["validationRows"]), len(PA_CLASS_ORDER)
+    proba = np.frombuffer(_v2_child_bytes(bdir, m, "validation-probabilities.f64"), dtype=np.float64).reshape(n_rows, k)
+    vt = json.loads(_v2_child_bytes(bdir, m, "validation-target.json").decode("utf-8"))
+    rids = json.loads(_v2_child_bytes(bdir, m, "validation-row-ids.json").decode("utf-8"))
+    metrics = json.loads(_v2_child_bytes(bdir, m, "aggregate-metrics.json").decode("utf-8"))
     return {"proba": proba, "encoded": np.asarray(vt["encoded"], dtype=np.int64),
-            "rowIds": vt["rowIds"], "gameIds": vt.get("gameIds") or vt["rowIds"], "run": run}
+            "rowIds": rids["rowIds"], "gameIds": rids.get("gameIds") or rids["rowIds"],
+            "metrics": {kk: float(metrics[kk]) for kk in ("logLoss", "brierScore", "topLabelEce", "top1Accuracy", "macroF1")},
+            "receiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+            "featureSetName": m["featureSetName"], "featureSetSha256": m["featureSetSha256"], "manifest": m}
+
+
+def _added_family_contract(entry: Mapping[str, Any], challenger_feature_set: str, added: list[str]) -> dict[str, Any]:
+    """Gate 10 (B6) — prove the challenger adds EXACTLY ONE registered feature family. Every added tail feature
+    must be declared in the challenger's V2 feature-set semantic contracts, pass the leakage validator, and
+    share one family; the returned MLB_FEATURE_FAMILY_CONTRACT_V1 (id + sha) content-addresses that single-family
+    provenance so the comparison receipt binds it (not just ordered-prefix arithmetic)."""
+    spec = (entry.get("featureSets") or {}).get(challenger_feature_set)
+    if not isinstance(spec, Mapping) or not isinstance(spec.get("semanticContracts"), list):
+        raise AuthorityError("challenger feature set lacks V2 semantic authority for family provenance (B6)")
+    by_id = {c["payload"]["featureId"]: c for c in spec["semanticContracts"] if isinstance(c, Mapping)}
+    fams: set[str] = set()
+    members: dict[str, Any] = {}
+    for fid in added:
+        c = by_id.get(fid)
+        if c is None:
+            raise AuthorityError(f"added feature '{fid}' has no semantic contract in the challenger set (B6)")
+        FS.validate_feature_semantic_contract(c)
+        members[fid] = c
+        fams.add(c["payload"]["featureFamilyId"])
+    if len(fams) != 1:
+        raise AuthorityError("challenger adds features from more than one family; not a single-family comparison (B6)")
+    return FS.feature_family_contract(next(iter(fams)), list(added), members)
 
 
 def _assert_strict_control_plus_one_family(control_order: list[str], challenger_order: list[str]) -> list[str]:
@@ -1819,24 +2192,38 @@ def _assert_strict_control_plus_one_family(control_order: list[str], challenger_
 
 
 def _build_and_persist_ablation_comparison(*, project_id: str, actor: str, binding: Mapping[str, Any],
-                                           model_family: str, seed: int, control_feature_set: str,
-                                           challenger_feature_set: str, base_fs: Mapping[str, Any],
-                                           adv_fs: Mapping[str, Any], added: list[str], ev_c: Mapping[str, Any],
-                                           ev_h: Mapping[str, Any], bootstrap_iterations: int) -> dict[str, Any]:
-    """Gate 14 — the 2024-only paired comparison, built under the held ablation lock. Both arms are the
-    manifest-anchored 2024 validation predictions/target of their own immutable runs; the paired game-cluster
-    bootstrap gives the log-loss delta uncertainty. Persisted as immutable content-addressed evidence (no
-    overwrite)."""
-    c = _validation_evidence(project_id, ev_c["experimentRunId"])
-    h = _validation_evidence(project_id, ev_h["experimentRunId"])
+                                           entry: Mapping[str, Any], model_family: str, seed: int,
+                                           control_feature_set: str, challenger_feature_set: str,
+                                           base_fs: Mapping[str, Any], adv_fs: Mapping[str, Any], added: list[str],
+                                           ev_c: Mapping[str, Any], ev_h: Mapping[str, Any],
+                                           bootstrap_iterations: int) -> dict[str, Any]:
+    """Gate 10 (B6) — the 2024-only paired comparison, built under the held ablation lock. BOTH arms resolve
+    ONLY through the canonical V2 chain (registry -> immutable receipt -> content-addressed bundle -> verified
+    children -> full parent reconstruction pinned to the current active binding); the paired game-cluster
+    bootstrap gives the log-loss delta uncertainty. The result is an IMMUTABLE, content-addressed, create-once
+    MODEL_FEATURE_FAMILY_COMPARISON_RECEIPT_V1 (SHA over the body excluding its own field), binding both arms'
+    run-receipt + bundle-manifest SHAs, both feature-set SHAs, and the single added family's contract SHA. No
+    V1/mutable evidence; no 2025."""
+    c = _v2_validation_evidence(project_id, ev_c["experimentRunId"])
+    h = _v2_validation_evidence(project_id, ev_h["experimentRunId"])
     if c["rowIds"] != h["rowIds"]:
         raise AuthorityError("control/challenger validation rows differ; comparison is not paired")
+    family = _added_family_contract(entry, challenger_feature_set, added)   # single-family provenance (B6)
+    # both arms are pinned to the current active binding by _v2_validation_evidence; assert they agree on the
+    # authorized dataset + binding + the expected control/challenger feature-set identities.
+    cm_, hm_ = c["manifest"], h["manifest"]
+    if cm_["datasetContentSha256"] != hm_["datasetContentSha256"] or cm_["bindingId"] != hm_["bindingId"] \
+            or int(cm_["bindingRevision"]) != int(hm_["bindingRevision"]):
+        raise AuthorityError("comparison arms disagree on dataset/binding (incompatible comparison)")
+    if c["featureSetName"] != control_feature_set or h["featureSetName"] != challenger_feature_set:
+        raise AuthorityError("comparison arms do not carry the expected control/challenger feature sets")
+    if c["featureSetSha256"] != base_fs["sha256"] or h["featureSetSha256"] != adv_fs["sha256"]:
+        raise AuthorityError("comparison arm feature-set SHAs disagree with the resolved feature-set contracts")
     y = c["encoded"]; n = len(y)
     eps = 1e-15
     row_ll_c = -np.log(np.clip(c["proba"][np.arange(n), y], eps, 1.0))
     row_ll_h = -np.log(np.clip(h["proba"][np.arange(n), y], eps, 1.0))
     delta_row = row_ll_h - row_ll_c
-    logloss_delta = float(row_ll_h.mean() - row_ll_c.mean())
     class_cond = {}
     for ci, cls in enumerate(PA_CLASS_ORDER):
         mask = y == ci
@@ -1852,33 +2239,40 @@ def _build_and_persist_ablation_comparison(*, project_id: str, actor: str, bindi
         idx = np.concatenate([game_to_rows[g] for g in pick])
         boot[b] = float(delta_row[idx].mean())
     ci_lo, ci_hi = (float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975)))
-    uncertainty = {"method": "PAIRED_GAME_CLUSTER_BOOTSTRAP", "iterations": bootstrap_iterations,
-                   "games": int(len(uniq_games)), "logLossDeltaMean": float(delta_row.mean()),
-                   "logLossDelta95CI": [ci_lo, ci_hi], "challengerImproves": bool(ci_hi < 0.0)}
-    comparison = {
-        "schemaVersion": "MODEL_FEATURE_FAMILY_ABLATION_V1", "projectId": project_id, "actor": actor,
-        "bindingId": binding["bindingId"], "bindingRevision": binding["revision"], "generation": binding["generation"],
-        "datasetVersionId": binding["datasetVersionId"], "modelFamily": model_family, "seed": seed,
+    cm, hm = c["metrics"], h["metrics"]
+    body = {
+        "schemaVersion": "MODEL_FEATURE_FAMILY_COMPARISON_RECEIPT_V1", "projectId": project_id,
+        "bindingId": binding["bindingId"], "bindingRevision": int(binding["revision"]), "generation": binding["generation"],
+        "datasetVersionId": binding["datasetVersionId"], "datasetContentSha256": binding["datasetContentSha256"],
+        "modelFamily": model_family, "seed": int(seed),
         "controlFeatureSet": control_feature_set, "challengerFeatureSet": challenger_feature_set,
-        "featureFamilyAdded": added, "controlFeatureSetSha256": base_fs["sha256"], "challengerFeatureSetSha256": adv_fs["sha256"],
-        "controlRunId": ev_c["experimentRunId"], "challengerRunId": ev_h["experimentRunId"],
-        "controlEvidenceSha256": ev_c.get("evidenceBundleSha256"), "challengerEvidenceSha256": ev_h.get("evidenceBundleSha256"),
+        "featureFamilyAdded": list(added), "featureFamilyId": family["id"], "featureFamilySha256": family["sha256"],
+        "control": {"runId": ev_c["experimentRunId"], "runReceiptSha256": c["receiptSha256"],
+                    "bundleManifestSha256": c["bundleManifestSha256"], "featureSetName": c["featureSetName"],
+                    "featureSetSha256": c["featureSetSha256"], "metrics": cm},
+        "challenger": {"runId": ev_h["experimentRunId"], "runReceiptSha256": h["receiptSha256"],
+                       "bundleManifestSha256": h["bundleManifestSha256"], "featureSetName": h["featureSetName"],
+                       "featureSetSha256": h["featureSetSha256"], "metrics": hm},
         "validationSeason": 2024, "validationRows": int(n),
-        "metricDelta": {"logLoss": logloss_delta,
-                        "brierScore": float(ev_h["metrics"]["brierScore"] - ev_c["metrics"]["brierScore"]),
-                        "topLabelEce": float(ev_h["metrics"]["topLabelEce"] - ev_c["metrics"]["topLabelEce"]),
-                        "top1Accuracy": float(ev_h["metrics"]["top1Accuracy"] - ev_c["metrics"]["top1Accuracy"]),
-                        "macroF1": float(ev_h["metrics"]["macroF1"] - ev_c["metrics"]["macroF1"])},
-        "controlMetrics": ev_c["metrics"], "challengerMetrics": ev_h["metrics"],
-        "classConditionalLogLossDelta": class_cond, "uncertainty": uncertainty,
+        "metricDelta": {"logLoss": float(hm["logLoss"] - cm["logLoss"]), "brierScore": float(hm["brierScore"] - cm["brierScore"]),
+                        "topLabelEce": float(hm["topLabelEce"] - cm["topLabelEce"]),
+                        "top1Accuracy": float(hm["top1Accuracy"] - cm["top1Accuracy"]), "macroF1": float(hm["macroF1"] - cm["macroF1"])},
+        "classConditionalLogLossDelta": class_cond,
+        "uncertainty": {"method": "PAIRED_GAME_CLUSTER_BOOTSTRAP", "iterations": int(bootstrap_iterations),
+                        "games": int(len(uniq_games)), "logLossDeltaMean": float(delta_row.mean()),
+                        "logLossDelta95CI": [ci_lo, ci_hi], "challengerImproves": bool(ci_hi < 0.0)},
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    comp_sha = sha256_bytes(canonical_json_bytes(comparison))
-    out = _state(project_id, "ablations", "sha256", f"{comp_sha}.json")   # immutable, content-addressed
-    if not out.is_file():
-        _write_json_atomic(out, {**comparison, "comparisonManifestSha256": comp_sha})
-    comparison["comparisonManifestSha256"] = comp_sha
-    return comparison
+    comp_sha = sha256_bytes(canonical_json_bytes(body))
+    receipt = {**body, "comparisonReceiptSha256": comp_sha}
+    out = _state(project_id, "comparisons", "sha256", f"{comp_sha}.json")   # immutable, content-addressed, create-once
+    if out.is_file():
+        existing = _read_json(out)
+        if existing.get("comparisonReceiptSha256") != comp_sha:
+            raise AuthorityError("feature-family comparison receipt content-address conflict")
+    else:
+        _write_json_atomic(out, receipt)
+    return receipt
 
 
 def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str, model_family: str = "governed_logistic",
@@ -1913,7 +2307,7 @@ def run_feature_family_ablation(*, actor: str, project_id: str, binding_id: str,
                                        hyperparameters=hyper, seed=seed, feature_set=challenger_feature_set)
             ev_h = execute(actor=actor, project_id=project_id, run_authority_id=au_h["runAuthorityId"])
             return _build_and_persist_ablation_comparison(
-                project_id=project_id, actor=actor, binding=binding, model_family=model_family, seed=seed,
+                project_id=project_id, actor=actor, binding=binding, entry=entry, model_family=model_family, seed=seed,
                 control_feature_set=control_feature_set, challenger_feature_set=challenger_feature_set,
                 base_fs=base_fs, adv_fs=adv_fs, added=added, ev_c=ev_c, ev_h=ev_h,
                 bootstrap_iterations=bootstrap_iterations)
@@ -1927,7 +2321,10 @@ def get_run(*, project_id: str, run_id: str) -> dict[str, Any]:
     path = _state(project_id, "runs", f"{run_id}.json")
     if not path.is_file():
         raise AuthorityError("run not found for project")
-    return _read_json(path)
+    record = _read_json(path)
+    if record.get("projectId") != project_id:
+        raise AuthorityError("stored authority does not belong to this project")
+    return record
 
 
 def list_runs(*, project_id: str) -> list[dict[str, Any]]:
@@ -1937,6 +2334,8 @@ def list_runs(*, project_id: str) -> list[dict[str, Any]]:
     out = []
     for f in sorted(d.glob("*.json")):
         r = _read_json(f)
+        if r.get("projectId") != project_id:
+            raise AuthorityError("stored run does not belong to this project")
         out.append({k: r[k] for k in ("experimentRunId", "runAuthorityId", "datasetVersionId", "generation",
                                       "modelFamily", "metrics", "createdAt", "developmentRows", "validationRows")})
     return out
@@ -1978,9 +2377,11 @@ def activate_candidate(*, actor: str, project_id: str, run_id: str,
     binding = active_binding(project_id=project_id)
     if binding is None:
         raise AuthorityError("no active binding for project")
+    assert_canonical_eligibility(_resolve_version(binding["datasetVersionId"]))   # Repair 4: re-check at activation
     if expected_binding_revision is not None and int(binding["revision"]) != int(expected_binding_revision):
         raise StaleAuthorityError("expected active binding revision does not match the current active binding")
-    v = verify_model_run_receipt(project_id=project_id, run_id=run_id, expected_binding=binding)
+    v = verify_canonical_model_run_chain(project_id=project_id, run_id=run_id,
+                                         expected_binding_revision=binding["revision"], require_current_binding=True)
     manifest = v["manifest"]
     prev_p = _state(project_id, "active-candidate.json")
     prev = _read_json(prev_p) if prev_p.is_file() else None
@@ -2014,7 +2415,8 @@ def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
         return None
     if act.get("bindingId") != binding["bindingId"] or int(act.get("bindingRevision", -1)) != int(binding["revision"]):
         return None  # binding changed since activation -> STALE / no active candidate
-    v = verify_model_run_receipt(project_id=project_id, run_id=act["runId"], expected_binding=binding)
+    v = verify_canonical_model_run_chain(project_id=project_id, run_id=act["runId"],
+                                         expected_binding_revision=binding["revision"], require_current_binding=True)
     if v["receiptSha256"] != act.get("runReceiptSha256") or v["receipt"]["bundleManifestSha256"] != act.get("bundleManifestSha256"):
         raise AuthorityError("active candidate parent chain does not verify (tampered/stale)")
     m = v["manifest"]
@@ -2026,30 +2428,90 @@ def get_active_candidate(*, project_id: str) -> dict[str, Any] | None:
         "preprocessingContractId": m["preprocessingContractId"]}}
 
 
-def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
-    """Gate 12 — Evaluation and Calibration consume the V2 verified evidence ONLY: they resolve the active
-    candidate, load metrics/per-class/confusion/reliability from the verified bundle, and INDEPENDENTLY
-    recompute the metrics from the persisted predictions/target. No mutable run JSON, no browser result, no
-    2025 row. Returns None when no candidate is active."""
+def _active_candidate_verified_payload(project_id: str) -> dict[str, Any] | None:
+    """Gate 9/12 — the SINGLE verified-evidence resolver behind Evaluation / Calibration / Registry-Evidence.
+    Resolves the active candidate (which re-verifies the full canonical parent chain), re-verifies the chain,
+    independently recomputes the 2024 metrics from the persisted predictions/target (fail-closed on mismatch),
+    and loads the manifest-anchored aggregate / per-class / confusion / reliability children from the verified
+    V2 bundle. No mutable run JSON, no browser result, no 2025 row. Returns None when no candidate is active."""
     act = get_active_candidate(project_id=project_id)
     if act is None:
         return None
     run_id = act["runId"]
-    v = verify_model_run_receipt(project_id=project_id, run_id=run_id)
+    v = verify_canonical_model_run_chain(project_id=project_id, run_id=run_id, require_current_binding=True)
     m, bdir = v["manifest"], v["bundleDir"]
     recomputed = recompute_validation_logloss_v2(project_id=project_id, run_id=run_id)
+    if not recomputed["matchesStored"]:   # Gate 9 (B9) — fail closed on a recompute mismatch, not a boolean flag
+        raise AuthorityError("Evaluation: independent metric recompute does not match the stored aggregate (fail-closed)")
     stored_metrics = json.loads(_v2_child_bytes(bdir, m, "aggregate-metrics.json").decode("utf-8"))
     reliability = json.loads(_v2_child_bytes(bdir, m, "reliability-diagnostics.json").decode("utf-8"))
     per_class = json.loads(_v2_child_bytes(bdir, m, "per-class-metrics.json").decode("utf-8"))
     confusion = json.loads(_v2_child_bytes(bdir, m, "confusion-matrix.json").decode("utf-8"))
+    return {"runId": run_id, "receiptSha256": v["receiptSha256"], "manifest": m,
+            "metrics": stored_metrics, "reliability": reliability, "perClass": per_class, "confusion": confusion,
+            "recomputed": recomputed}
+
+
+def active_candidate_evaluation(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9/12 — MODEL_EVALUATION_RESPONSE_V2 payload: verified aggregate + per-class + confusion +
+    reliability from the immutable V2 bundle, plus the independent log-loss recompute. Returns None when no
+    candidate is active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, recomputed = p["manifest"], p["recomputed"]
     return {
-        "runId": run_id, "runReceiptSha256": v["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "schemaVersion": "MODEL_EVALUATION_RESPONSE_V2",
+        "runId": p["runId"], "runReceiptSha256": p["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
         "runAuthorityId": m["runAuthorityId"], "generation": m["generation"], "datasetVersionId": m["datasetVersionId"],
         "datasetContentSha256": m["datasetContentSha256"], "developmentSeasons": m["developmentSeasons"],
         "developmentRows": m["developmentRows"], "validationSeason": m["validationSeason"], "validationRows": m["validationRows"],
         "modelFamily": m["modelFamily"], "featureCount": len(m["orderedFeatures"]), "preprocessingContractId": m["preprocessingContractId"],
-        "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
-        "metrics": stored_metrics, "perClass": per_class, "confusion": confusion, "diagnostics": reliability,
+        "classOrder": list(PA_CLASS_ORDER), "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
+        "metrics": p["metrics"], "perClass": p["perClass"], "confusion": p["confusion"], "diagnostics": p["reliability"],
         "independentRecomputedLogLoss": recomputed["recomputedLogLoss"], "recomputationMatchesStored": recomputed["matchesStored"],
+        "validationLabel": "2024 validation (2025 sealed — never scored)",
+    }
+
+
+def active_candidate_calibration(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9 — MODEL_CALIBRATION_RESPONSE_V2 payload. States the RAW / uncalibrated condition honestly (no
+    governed calibrator is fit in this phase); the reliability curves are the candidate's raw 2024-validation
+    probabilities resolved from the verified V2 bundle. Returns None when no candidate is active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, metrics, rel = p["manifest"], p["metrics"], p["reliability"]
+    return {
+        "schemaVersion": "MODEL_CALIBRATION_RESPONSE_V2",
+        "runId": p["runId"], "runReceiptSha256": p["receiptSha256"], "bundleManifestSha256": m["bundleManifestSha256"],
+        "generation": m["generation"], "modelFamily": m["modelFamily"], "validationSeason": m["validationSeason"],
+        "calibrationStatus": "RAW_UNCALIBRATED", "calibratorConfigured": False,
+        "topLabelEce": float(metrics["topLabelEce"]), "brierScore": float(metrics["brierScore"]),
+        "classOrder": list(PA_CLASS_ORDER), "topLabelReliability": rel.get("topLabelReliability") or [],
+        "classwiseReliability": rel.get("classwiseReliability") or {},
+        "validationLabel": "2024 validation (2025 sealed — never calibrated)",
+    }
+
+
+def active_candidate_registry_evidence(*, project_id: str) -> dict[str, Any] | None:
+    """Gate 9 — MODEL_REGISTRY_EVIDENCE_RESPONSE_V2 payload. Immutable content-addressed identities + digests
+    resolved from the verified V2 bundle/receipt (never inferred / decorative). Returns None when none active."""
+    p = _active_candidate_verified_payload(project_id)
+    if p is None:
+        return None
+    m, metrics, recomputed = p["manifest"], p["metrics"], p["recomputed"]
+    return {
+        "schemaVersion": "MODEL_REGISTRY_EVIDENCE_RESPONSE_V2",
+        "runId": p["runId"], "runAuthorityId": m["runAuthorityId"], "runReceiptSha256": p["receiptSha256"],
+        "bundleManifestSha256": m["bundleManifestSha256"], "datasetVersionId": m["datasetVersionId"],
+        "datasetContentSha256": m["datasetContentSha256"], "generation": m["generation"], "modelFamily": m["modelFamily"],
+        "preprocessorSha256": m["preprocessorSha256"], "modelSha256": m["modelSha256"], "predictionSha256": m["predictionSha256"],
+        "aggregateMetricsSha256": m["aggregateMetricsSha256"], "codeRevision": m["codeRevision"],
+        "worktreeContentSha256": m["worktreeContentSha256"], "environmentSha256": m["environmentSha256"],
+        "developmentSeasons": m["developmentSeasons"], "developmentRows": m["developmentRows"],
+        "validationSeason": m["validationSeason"], "validationRows": m["validationRows"], "featureCount": len(m["orderedFeatures"]),
+        "logLoss": float(metrics["logLoss"]), "independentRecomputedLogLoss": recomputed["recomputedLogLoss"],
+        "recomputationMatchesStored": recomputed["matchesStored"], "calibrationStatus": "RAW_UNCALIBRATED",
         "validationLabel": "2024 validation (2025 sealed — never scored)",
     }

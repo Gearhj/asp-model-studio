@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronDown, LogOut, Settings2, ShieldCheck, UserCircle } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import ErrorBoundary from "../components/ErrorBoundary";
@@ -7,7 +7,7 @@ import ProjectSaveStatus from "../components/ProjectSaveStatus";
 import Sidebar from "../components/Sidebar";
 import { AccountPage, AdminUsersPage, LoginPage } from "../steps/AuthPages";
 import { logout, me } from "../lib/auth";
-import { loginPathForReturnTo } from "../lib/authReturnPath";
+import { loginPathForReturnTo, safeAuthReturnPath } from "../lib/authReturnPath";
 import { setCachedUserId } from "../lib/authSession";
 import type { AtlasUser } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -16,8 +16,11 @@ import WorkflowLibrary from "../sports/WorkflowLibrary";
 import ForecastWorkflow from "../sports/ForecastWorkflow";
 import GuidedWorkflow from "../sports/workflow/GuidedWorkflow";
 import WorkflowReturnBar from "../sports/workflow/WorkflowReturnBar";
+import { useProjectStage3DataAuthority } from "../sports/workflow/currentGoldDataReview";
+import { useCanonicalSportsProject } from "../sports/workflow/useCanonicalSportsProject";
 import NewSportsProject from "../sports/NewSportsProject";
 import SportsProjects from "../sports/SportsProjects";
+import SportAwareWorkflowRoute from "../sports/shared/SportAwareWorkflowRoute";
 import SportsProjectOverview from "../sports/SportsProjectOverview";
 import {
   AdministrationPage,
@@ -36,6 +39,10 @@ import {
   UsersSettingsPage,
 } from "../sports/StudioModules";
 import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
+import {
+  Stage3FocusModeProvider,
+  useProjectStage3FocusPreference,
+} from "../sports/cockpit/stage3FocusMode";
 
 const PaModelingCockpit = lazy(() => import("../sports/cockpit/PaModelingCockpit"));
 const AnalyticsWorkbench = lazy(() => import("../steps/AnalyticsWorkbench"));
@@ -127,9 +134,24 @@ export default function ModelingApp() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const storeProjectId = useWorkflowStore((state) => state.projectId);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const page = useMemo(() => pageLabel(location.pathname), [location.pathname]);
   const inSportsProject = isSportsWorkflow(workflowId) && projectName !== "Untitled Sports Project";
+  const focusRoute = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const projectId = (params.get("projectId") || storeProjectId || "").trim();
+    const stage3Route = (
+      (location.pathname === "/workflows/mlb" && params.get("stage") === "3")
+      || location.pathname === "/pa-modeling-cockpit"
+    );
+    return {
+      projectId,
+      stage3SurfaceActive: Boolean(projectId) && stage3Route,
+    };
+  }, [location.pathname, location.search, storeProjectId]);
+  const stage3Focus = useProjectStage3FocusPreference(focusRoute.projectId);
+  const stage3FocusActive = focusRoute.stage3SurfaceActive && stage3Focus.enabled;
 
   useEffect(() => {
     let cancelled = false;
@@ -178,11 +200,21 @@ export default function ModelingApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3f6f8] text-slate-950">
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">
-          <header className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,.04)] backdrop-blur-xl lg:top-0">
+    <Stage3FocusModeProvider
+      projectId={focusRoute.projectId}
+      stage3SurfaceActive={focusRoute.stage3SurfaceActive}
+      focusModeEnabled={stage3Focus.enabled}
+      setFocusModeEnabled={stage3Focus.setEnabled}
+    >
+      <div
+        className="min-h-screen bg-[#f3f6f8] text-slate-950"
+        data-stage3-app-shell={focusRoute.stage3SurfaceActive ? "active" : undefined}
+        data-stage3-focus-mode={stage3FocusActive ? "active" : undefined}
+      >
+        <div className="flex min-h-screen">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col pt-16 lg:pt-0">
+          {!stage3FocusActive && <header className="sticky top-16 z-30 border-b border-slate-200/90 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,.04)] backdrop-blur-xl lg:top-0">
             <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 sm:px-6 xl:px-8">
               <div className="min-w-0">
                 <nav className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400" aria-label="Breadcrumb">
@@ -205,15 +237,15 @@ export default function ModelingApp() {
                 />
               </div>
             </div>
-          </header>
+          </header>}
 
-          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 xl:px-8">
-            <div className="mx-auto w-full max-w-[1880px]">
-              <WorkflowReturnBar />
+          <main className={`min-w-0 flex-1 ${stage3FocusActive ? "px-2 py-2 sm:px-3 sm:py-3 xl:px-4" : "px-3 py-4 sm:px-5 sm:py-6 xl:px-8"}`}>
+            <div className={stage3FocusActive ? "w-full max-w-none" : "mx-auto w-full max-w-[1880px]"}>
+              {!stage3FocusActive && <WorkflowReturnBar />}
               <ErrorBoundary title="This sports modeling surface could not be rendered safely." resetKey={location.pathname}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/login" element={<Navigate to={safeAuthReturnPath(new URLSearchParams(location.search).get("returnTo")) || "/dashboard"} replace />} />
                   <Route path="/register" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<StudioHome />} />
                   <Route path="/projects" element={<Navigate to="/projects/open" replace />} />
@@ -222,16 +254,16 @@ export default function ModelingApp() {
                   <Route path="/project-overview" element={<SportsProjectOverview />} />
                   <Route path="/templates" element={<WorkflowLibrary />} />
                   <Route path="/workflows" element={<Navigate to="/templates" replace />} />
-                  <Route path="/workflows/mlb" element={<GuidedWorkflow />} />
+                  <Route path="/workflows/mlb" element={<SportAwareWorkflowRoute requestedLeagueCode="MLB"><GuidedWorkflow /></SportAwareWorkflowRoute>} />
                   <Route path="/workflows/mlb-spec" element={<ForecastWorkflow workflowKey="mlb" />} />
-                  <Route path="/workflows/nfl" element={<ForecastWorkflow workflowKey="nfl" />} />
+                  <Route path="/workflows/nfl" element={<SportAwareWorkflowRoute requestedLeagueCode="NFL" allowReadinessWithoutProject><ForecastWorkflow workflowKey="nfl" /></SportAwareWorkflowRoute>} />
                   <Route path="/data-warehouse" element={<DataWarehousePage />} />
                   <Route path="/datasets" element={<Navigate to="/data-warehouse" replace />} />
                   <Route path="/datasets/*" element={<Navigate to="/data-warehouse" replace />} />
                   <Route path="/player-team-state" element={<PlayerTeamStatePage />} />
                   <Route path="/participation-usage" element={<ParticipationUsagePage />} />
-                  <Route path="/model-laboratory" element={<ModelLaboratoryPage />} />
-                  <Route path="/pa-modeling-cockpit" element={<RetainedToolRoute label="MLB PA Modeling Cockpit"><PaModelingCockpit /></RetainedToolRoute>} />
+                  <Route path="/model-laboratory" element={<ProjectAwareModelLaboratoryRoute />} />
+                  <Route path="/pa-modeling-cockpit" element={<StandaloneCockpitRoute />} />
                   <Route path="/modeling-cockpit" element={<Navigate to="/pa-modeling-cockpit" replace />} />
                   <Route path="/experiments" element={<Navigate to="/model-laboratory" replace />} />
                   <Route path="/simulation-studio" element={<SimulationStudioPage />} />
@@ -272,9 +304,72 @@ export default function ModelingApp() {
               </ErrorBoundary>
             </div>
           </main>
+          </div>
         </div>
       </div>
-    </div>
+    </Stage3FocusModeProvider>
+  );
+}
+
+// Keep the top-level navigation honest for an opened sports project. The legacy
+// workspace laboratory summarizes the globally active dataset, while the Stage 3
+// laboratory is the tenant-authoritative surface for the selected project.
+function ProjectAwareModelLaboratoryRoute() {
+  const [params] = useSearchParams();
+  const requestedProjectId = (params.get("projectId") || "").trim();
+  const selectedProjectId = useWorkflowStore((state) => state.projectId);
+  const projectId = requestedProjectId || (selectedProjectId || "").trim();
+  if (!projectId) return <ModelLaboratoryPage />;
+  const target = new URLSearchParams({ projectId, stage3Step: "modellab" });
+  return <Navigate to={`/pa-modeling-cockpit?${target.toString()}`} replace />;
+}
+
+// The standalone PA Modeling Cockpit route resolves the GOVERNED project explicitly instead of a fixed default:
+// an authorized deep-link (?projectId=<id>) wins, else the current workflow project. The backend still authorizes
+// the id (unknown -> 404, unauthorized -> 403), so the cockpit can never invent ownership. When no project can be
+// resolved, an explicit "no project selected" state is shown — never a silent fixed project masquerading as empty
+// scientific state.
+function StandaloneCockpitRoute() {
+  const [params] = useSearchParams();
+  const urlProjectId = (params.get("projectId") || "").trim();
+  const storeProjectId = useWorkflowStore((s) => s.projectId);
+  const projectName = useWorkflowStore((s) => s.projectName);
+  const projectId = urlProjectId || (storeProjectId || "").trim();
+  const projectIdentity = useCanonicalSportsProject(projectId, storeProjectId);
+  const currentGoldReview = useProjectStage3DataAuthority(
+    projectId,
+    Boolean(projectId) && projectIdentity.status === "ready",
+  );
+  return (
+    <RetainedToolRoute label="MLB PA Modeling Cockpit">
+      {projectId && projectIdentity.status === "ready" ? (
+        <PaModelingCockpit
+          projectId={projectId}
+          projectName={projectName}
+          currentGoldReview={currentGoldReview}
+        />
+      ) : projectId ? (
+        <section
+          className={`grid min-h-[40vh] place-items-center rounded-2xl border p-8 text-center ${projectIdentity.status === "error" ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-white"}`}
+          role={projectIdentity.status === "error" ? "alert" : "status"}
+        >
+          <div className="max-w-md">
+            <p className={`text-sm font-semibold ${projectIdentity.status === "error" ? "text-rose-900" : "text-slate-700"}`}>
+              {projectIdentity.status === "error" ? "Project authority unavailable" : "Reopening the canonical ASP Model Studio project…"}
+            </p>
+            {projectIdentity.error ? <p className="mt-2 text-sm text-rose-800">{projectIdentity.error}</p> : null}
+          </div>
+        </section>
+      ) : (
+        <section className="grid min-h-[40vh] place-items-center rounded-2xl border border-amber-300 bg-amber-50 p-8 text-center">
+          <div className="max-w-md">
+            <p className="text-sm font-semibold text-amber-900">No project is selected</p>
+            <p className="mt-2 text-sm text-amber-800">Open a project from Sports Projects, or deep-link this
+              cockpit with <code className="rounded bg-amber-100 px-1">?projectId=&lt;id&gt;</code>.</p>
+          </div>
+        </section>
+      )}
+    </RetainedToolRoute>
   );
 }
 

@@ -1,12 +1,21 @@
-"""Phase 7B0 — quarantined MLB advanced Bronze acquisition tooling.
+"""Quarantined MLB advanced Bronze acquisition tooling.
 
 STANDALONE. This package has NO import dependency on any ASP modeling, authority, registry, feature, or
-research service. It downloads raw source evidence (Statcast, Retrosheet, Chadwick, Lahman) for 2019-2024
-ONLY into an external quarantined staging root, records immutable Bronze manifests + checksums, and is
-resumable. It performs NO integration, joining, feature engineering, target construction, or modeling, and
-it refuses every 2025/2026 request.
+research service. The legacy Phase 7B0 planners remain sealed to 2019-2024. A separate, explicitly
+date-bounded Statcast extension path is authorized only for the current-data task through 2026-08-27.
+Both paths land raw evidence under an external quarantined staging root, record checksummed Bronze
+manifests, and are resumable. They perform no joining, feature engineering, target construction, or modeling.
 """
 
 BRONZE_MANIFEST_CONTRACT = "MLB_ADVANCED_BRONZE_SOURCE_MANIFEST_V1"
 MIN_YEAR = 2019
 MAX_YEAR = 2024  # hard ceiling — 2025 is sealed, 2026 is untouched
+
+# Explicit current-season authorization. This does not relax any legacy year planner or its tests.
+CURRENT_STATCAST_MIN_DATE = "2025-03-01"
+CURRENT_STATCAST_MAX_DATE = "2026-08-27"
+
+# The immutable one-time extension above remains frozen.  The nightly command
+# has a separately named, current-season-only ceiling and still cannot reach a
+# future season or the legacy 2019--2024 planner.
+NIGHTLY_CURRENT_STATCAST_MAX_DATE = "2026-12-31"

@@ -502,6 +502,8 @@ def _assemble_decision(seasons_payload, classifier) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # fits/evaluates 2025 + surfaces logLoss2025 -> exit before any data open
     parser = argparse.ArgumentParser(description="Phase 4F severe-miss forensic study.")
     parser.add_argument("--exchange-root", default=os.getenv("ASP_MODEL_EXCHANGE_ROOT", ""))
     parser.add_argument("--estimate-only", action="store_true")

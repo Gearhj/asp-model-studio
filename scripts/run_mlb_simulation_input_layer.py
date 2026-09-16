@@ -21,6 +21,7 @@ PA features, E6, algorithm tournament, premium-data acquisition, provider/networ
 """
 
 from __future__ import annotations
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 import argparse
 import glob
@@ -499,6 +500,7 @@ def _write_record(payload: dict[str, Any], *, run_id: str) -> dict[str, Any]:
 
 
 def main() -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     parser = argparse.ArgumentParser(description="Phase 5C simulation input layer validation")
     parser.add_argument("--exchange-root", default=str(DEFAULT_EXCHANGE_ROOT))
     parser.add_argument("--status", action="store_true", help="print latest record status and exit")

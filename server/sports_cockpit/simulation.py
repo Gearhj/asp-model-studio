@@ -43,9 +43,9 @@ _TRANSITION_CACHE: dict[str, Any] = {}
 _ACTUALS_CACHE: dict[str, Any] = {}
 
 MANIFEST = "1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49"
-PLAY_TRANSITION_GLOB = (
-    f"C:/Users/james/asp-model-exchange/datasets/mlb-fd1/sha256-{MANIFEST}/parquet/play_transition/**/*.parquet"
-)
+# Isolated-gate-safe resolution (no external model-exchange fallback under ASP_REQUIRE_ISOLATED_RUNTIME=1).
+from .game_preps import resolve_play_transition_glob as _resolve_pt_glob  # noqa: E402
+PLAY_TRANSITION_GLOB = _resolve_pt_glob()
 
 
 # ----------------------------------------------------------------------------------------

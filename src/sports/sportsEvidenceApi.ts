@@ -6,24 +6,68 @@ export type SportsDatasetTotals = {
   parquetFiles: number;
   rows: number;
   parquetBytes: number;
-  games: number;
+  games?: number;
   plateAppearances: number;
-  transitions: number;
-  starterTargets: number;
-  bullpenAppearances: number;
-  playerPriors: number;
+  transitions?: number;
+  starterTargets?: number;
+  bullpenAppearances?: number;
+  playerPriors?: number;
   partitions: number;
-  playerIdentityCoverage: number;
+  playerIdentityCoverage?: number;
+  tables?: number;
+  canonicalRows?: number;
+  plays?: number;
+  drives?: number;
+  teamGameRows?: number;
+  playerGameRows?: number;
+  goldPregameGames?: number;
+  goldPlayStates?: number;
 };
 
 export type SportsDatasetFamily = { family: string; rows: number };
+export type SportsDatasetSourceFamily = {
+  familyId: string;
+  mandatory: boolean;
+  status: string;
+  partitionCount: number;
+  rowCount: number;
+  byteCount: number;
+  seasons: number[];
+  rowsBySeason: Array<{ season: number; rowCount: number }>;
+  minimumDate?: string;
+  maximumDate?: string;
+  missingSeasons: number[];
+  releaseTags: string[];
+  latestSourceUpdate?: string;
+  licenseIds: string[];
+  schemaVariantCount: number;
+};
+export type SportsNflQuality = {
+  scheduleBySeasonAndGameType: Array<{ season: number; gameType: string; scheduledGames: number; completedGames: number }>;
+  pbpBySeasonAndGameType: Array<{ season: number; gameType: string; games: number; plays: number }>;
+  identity: Record<string, unknown>;
+  reconciliation: Record<string, unknown>;
+  stateQuality: Record<string, unknown>;
+  marketCoverage: Record<string, unknown>;
+  current2026: Record<string, unknown>;
+  gold: Record<string, unknown>;
+  modelsFitted?: number;
+};
 export type SportsSeasonCoverage = {
   season: number;
-  games: number;
+  games?: number;
   plateAppearances: number;
-  transitions: number;
-  starterTargets: number;
-  bullpenAppearances: number;
+  transitions?: number;
+  starterTargets?: number;
+  bullpenAppearances?: number;
+  earliestDate?: string;
+  latestDate?: string;
+};
+export type SportsDateCoverage = {
+  earliestDate: string;
+  latestDate: string;
+  rowCount: number;
+  partitionCount: number;
 };
 export type SportsPopulation = {
   populationId: string;
@@ -657,10 +701,54 @@ export type ActiveSportsDataset = {
   rightsStatus: string;
   limitationCount: number;
   active: boolean;
+  authorityLayer?: string;
+  authorityState?: string;
+  workspaceActivationEligible?: boolean;
+  compatibleWorkflowIds?: string[];
+  sourceProvider?: string;
+  sourceFamilies?: SportsDatasetSourceFamily[];
+  featureFamilies?: Record<string, string[]>;
+  featureEraContracts?: Record<string, Record<string, unknown>>;
+  quality?: SportsNflQuality;
+  nflCurrentSync?: {
+    status?: string;
+    latestSuccessfulAtUtc?: string;
+    [key: string]: unknown;
+  };
   seasons: number[];
   totals: SportsDatasetTotals;
   families: SportsDatasetFamily[];
   seasonCoverage: SportsSeasonCoverage[];
+  dateCoverage?: SportsDateCoverage;
+  temporalContract?: {
+    featureCutoffRule: string;
+    intendedCombinedDevelopmentSelection: [string, string];
+    intendedCombinedEligibleEvidence: [string, string];
+    intendedCombinedFinalOot: [string, string];
+  };
+  modelingStatus?: string;
+  modelFitOccurred?: boolean;
+  currentStatcastSync?: {
+    status?: string;
+    attemptedAtUtc?: string;
+    lastSuccessfulAtUtc?: string;
+    latestMlbFinalDate?: string;
+    requestedThroughDate?: string;
+    sourcePitches?: number;
+    sourcePitchRows?: number;
+    acceptedPitches?: number;
+    acceptedPitchRows?: number;
+    acceptedPlateAppearances?: number;
+    rejectedPlateAppearances?: number;
+    rejectReasons?: Record<string, number>;
+    latestFullyCompletedDate?: string;
+    silverPartitionCount?: number;
+    completeEmptyPartitionCount?: number;
+    revisedPartitionCount?: number;
+    goldRows?: number;
+    resultingCoverage?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
   populations: SportsPopulation[];
   folds: SportsTemporalFold[];
   evidenceCoverage: SportsEvidenceCoverage[] | Record<string, string | boolean | number>;
@@ -1645,6 +1733,84 @@ function normalizeProject(value: unknown): RegisteredSportsProject | undefined {
   };
 }
 
+function normalizeSportsSourceFamilies(value: unknown): SportsDatasetSourceFamily[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || typeof item.familyId !== "string") return [];
+    return [{
+      familyId: publicString(item.familyId),
+      mandatory: item.mandatory === true,
+      status: publicString(item.status, "UNKNOWN"),
+      partitionCount: finiteNumber(item.partitionCount),
+      rowCount: finiteNumber(item.rowCount),
+      byteCount: finiteNumber(item.byteCount),
+      seasons: numberArray(item.seasons),
+      rowsBySeason: Array.isArray(item.rowsBySeason)
+        ? item.rowsBySeason.flatMap((entry) => isRecord(entry) ? [{
+            season: finiteNumber(entry.season),
+            rowCount: finiteNumber(entry.rowCount),
+          }] : [])
+        : [],
+      minimumDate: typeof item.minimumDate === "string" ? publicString(item.minimumDate) : undefined,
+      maximumDate: typeof item.maximumDate === "string" ? publicString(item.maximumDate) : undefined,
+      missingSeasons: numberArray(item.missingSeasons),
+      releaseTags: publicStringArray(item.releaseTags),
+      latestSourceUpdate: typeof item.latestSourceUpdate === "string" ? publicString(item.latestSourceUpdate) : undefined,
+      licenseIds: publicStringArray(item.licenseIds),
+      schemaVariantCount: finiteNumber(item.schemaVariantCount),
+    }];
+  });
+}
+
+function normalizeFeatureFamilies(value: unknown): Record<string, string[]> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([family, features]) => {
+    const publicFamily = publicString(family);
+    return publicFamily && Array.isArray(features) ? [[publicFamily, publicStringArray(features)]] : [];
+  }));
+}
+
+function normalizeFeatureEraContracts(value: unknown): Record<string, Record<string, unknown>> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([family, contract]) => {
+    const publicFamily = publicString(family);
+    return publicFamily && isRecord(contract)
+      ? [[publicFamily, normalizePublicEvidenceRecord(contract)]]
+      : [];
+  }));
+}
+
+function normalizeNflQuality(value: unknown): SportsNflQuality | undefined {
+  if (!isRecord(value)) return undefined;
+  const scheduleRows = Array.isArray(value.scheduleBySeasonAndGameType)
+    ? value.scheduleBySeasonAndGameType.flatMap((item) => isRecord(item) ? [{
+        season: finiteNumber(item.season),
+        gameType: publicString(item.gameType, "UNKNOWN"),
+        scheduledGames: finiteNumber(item.scheduledGames),
+        completedGames: finiteNumber(item.completedGames),
+      }] : [])
+    : [];
+  const pbpRows = Array.isArray(value.pbpBySeasonAndGameType)
+    ? value.pbpBySeasonAndGameType.flatMap((item) => isRecord(item) ? [{
+        season: finiteNumber(item.season),
+        gameType: publicString(item.gameType, "UNKNOWN"),
+        games: finiteNumber(item.games),
+        plays: finiteNumber(item.plays),
+      }] : [])
+    : [];
+  return {
+    scheduleBySeasonAndGameType: scheduleRows,
+    pbpBySeasonAndGameType: pbpRows,
+    identity: normalizePublicEvidenceRecord(value.identity),
+    reconciliation: normalizePublicEvidenceRecord(value.reconciliation),
+    stateQuality: normalizePublicEvidenceRecord(value.stateQuality),
+    marketCoverage: normalizePublicEvidenceRecord(value.marketCoverage),
+    current2026: normalizePublicEvidenceRecord(value.current2026),
+    gold: normalizePublicEvidenceRecord(value.gold),
+    modelsFitted: optionalFiniteNumber(value.modelsFitted),
+  };
+}
+
 function normalizeActiveDataset(value: ActiveSportsDataset): ActiveSportsDataset {
   const raw = value as unknown as Record<string, unknown>;
   const coverage = isRecord(raw.evidenceCoverage)
@@ -1682,6 +1848,22 @@ function normalizeActiveDataset(value: ActiveSportsDataset): ActiveSportsDataset
   }) : [];
   return {
     ...value,
+    authorityLayer: typeof raw.authorityLayer === "string" ? publicString(raw.authorityLayer) : undefined,
+    authorityState: typeof raw.authorityState === "string" ? publicString(raw.authorityState) : undefined,
+    workspaceActivationEligible: typeof raw.workspaceActivationEligible === "boolean"
+      ? raw.workspaceActivationEligible
+      : undefined,
+    compatibleWorkflowIds: Array.isArray(raw.compatibleWorkflowIds)
+      ? publicStringArray(raw.compatibleWorkflowIds)
+      : undefined,
+    sourceProvider: typeof raw.sourceProvider === "string" ? publicString(raw.sourceProvider) : undefined,
+    sourceFamilies: normalizeSportsSourceFamilies(raw.sourceFamilies),
+    featureFamilies: normalizeFeatureFamilies(raw.featureFamilies),
+    featureEraContracts: normalizeFeatureEraContracts(raw.featureEraContracts),
+    quality: normalizeNflQuality(raw.quality),
+    nflCurrentSync: isRecord(raw.nflCurrentSync)
+      ? sanitizePublicEvidenceValue(raw.nflCurrentSync) as ActiveSportsDataset["nflCurrentSync"]
+      : undefined,
     evidenceCoverage: coverage,
     rights,
     limitations,
@@ -1721,6 +1903,42 @@ export async function getActiveSportsDataset(signal: AbortSignal) {
   return dataset ? normalizeActiveDataset(dataset) : null;
 }
 
+export async function getSportsDatasetCatalog(signal: AbortSignal): Promise<ActiveSportsDataset[] | null> {
+  const response = await fetch(`${BASE}/sports/datasets/catalog`, {
+    method: "GET",
+    credentials: "include",
+    signal,
+    headers: {
+      Accept: "application/json",
+      ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
+    },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(publicErrorMessage(payload, `HTTP ${response.status}`));
+  if (!isRecord(payload) || !Array.isArray(payload.datasets)) return null;
+  const datasets = payload.datasets
+    .filter(isRecord)
+    .map((item) => normalizeActiveDataset(item as ActiveSportsDataset));
+  return datasets.length ? datasets : null;
+}
+
+export async function activateSportsDataset(registrationId: string): Promise<ActiveSportsDataset> {
+  const response = await fetch(`${BASE}/sports/datasets/${encodeURIComponent(registrationId)}/activate`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(devUserId ? { "X-ATLAS-USER-ID": devUserId } : {}),
+    },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(publicErrorMessage(payload, `Activation failed with HTTP ${response.status}`));
+  if (!isRecord(payload) || !isRecord(payload.dataset)) {
+    throw new Error("The dataset activation response was incomplete.");
+  }
+  return normalizeActiveDataset(payload.dataset as ActiveSportsDataset);
+}
+
 export async function registerApprovedSportsDataset(): Promise<ActiveSportsDataset | null> {
   const response = await fetch(`${BASE}/sports/datasets/register-approved`, {
     method: "POST",
@@ -1738,13 +1956,14 @@ export async function registerApprovedSportsDataset(): Promise<ActiveSportsDatas
   return isRecord(payload.dataset) ? normalizeActiveDataset(payload.dataset as ActiveSportsDataset) : null;
 }
 
-function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>): RefreshableEvidenceState<T> {
+function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>, enabled = true): RefreshableEvidenceState<T> {
   const [state, setState] = useState<EvidenceState<T>>(initialEvidenceState);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   useEffect(() => {
     const controller = new AbortController();
     setState(initialEvidenceState);
+    if (!enabled) return () => controller.abort();
     void loader(controller.signal)
       .then((data) => setState(data
         ? { status: "ready", data, error: null }
@@ -1758,12 +1977,16 @@ function useEvidence<T>(loader: (signal: AbortSignal) => Promise<T | null>): Ref
         });
       });
     return () => controller.abort();
-  }, [loader, revision]);
+  }, [loader, revision, enabled]);
   return { ...state, refresh } as RefreshableEvidenceState<T>;
 }
 
 export function useActiveSportsDataset() {
   return useEvidence(getActiveSportsDataset);
+}
+
+export function useSportsDatasetCatalog(enabled = true) {
+  return useEvidence(getSportsDatasetCatalog, enabled);
 }
 
 export function logicalExchangeUri(value: string | undefined) {

@@ -624,7 +624,7 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
   emitProjectSaveStatus({
     status: "saving",
     projectId: snapshot.projectId,
-    message: "Saving ATLAS project snapshot...",
+    message: "Saving ASP Model Studio project snapshot...",
   });
   const snapshotToPersist = attachPersistedProjectState(snapshot);
   const existing = loadLocalProjects();
@@ -651,7 +651,7 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
       snapshotBytes: estimateBytes(record.snapshot),
       message: registryWarning
         ? `Project snapshot preserved for this session, but the Recent Projects index could not be written: ${registryWarning}`
-        : "Project saved to the local compatibility store. ATLAS database sync is pending.",
+        : "Project saved to the local compatibility store. ASP Model Studio database sync is pending.",
     });
     queueProjectDatabaseSave(record.snapshot);
     return record;
@@ -659,7 +659,7 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
     emitProjectSaveStatus({
       status: "save_failed",
       projectId: record.projectId,
-      message: error instanceof Error ? error.message : "ATLAS could not save this project snapshot.",
+      message: error instanceof Error ? error.message : "ASP Model Studio could not save this project snapshot.",
     });
     throw error;
   }
@@ -708,7 +708,7 @@ export function saveActiveProjectBeforeNavigation(
         snapshotBytes: estimateBytes(fallbackSnapshot),
         message: registryWarning
           ? `Thin project snapshot preserved for this session, but the Recent Projects index could not be written: ${registryWarning}`
-          : "ATLAS saved a thin project snapshot before navigation.",
+          : "ASP Model Studio saved a thin project snapshot before navigation.",
       });
       queueProjectDatabaseSave(record.snapshot);
       return { ok: true, message: registryWarning || "Project saved as a thin snapshot before navigation.", registryWarning };
@@ -721,12 +721,12 @@ export function saveActiveProjectBeforeNavigation(
             ? fallbackError.message
             : error instanceof Error
               ? error.message
-              : "ATLAS could not save the current project before navigation.",
+              : "ASP Model Studio could not save the current project before navigation.",
       });
     }
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "ATLAS could not save the current project before navigation.",
+      message: error instanceof Error ? error.message : "ASP Model Studio could not save the current project before navigation.",
     };
   }
 }

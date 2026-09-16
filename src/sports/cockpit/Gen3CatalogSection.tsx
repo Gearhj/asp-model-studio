@@ -3,9 +3,10 @@
 // "selection" mode the scientist selects an EXACT immutable version -> the backend creates a project
 // binding; the active binding auto-restores on mount (server wins over any local cache). The sealed
 // 2025 object is shown as restricted/non-selectable and never exposes analytical distributions.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Database, ShieldCheck, Lock, CheckCircle2, TriangleAlert, Loader2 } from "lucide-react";
 import { getJSON, postJSON } from "../../lib/api";
+import { getCachedUserId, subscribeCachedUserId } from "../../lib/authSession";
 
 export type CatalogEntry = {
   datasetVersionId: string; label: string; generation: string; status: string; selectable: boolean;
@@ -44,18 +45,28 @@ const STATE_TONE: Record<string, string> = {
   ACTIVE: "border-emerald-200 bg-emerald-50 text-emerald-800",
 };
 
-export function useGen3Catalog() {
-  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
+export function useGen3Catalog(projectId: string) {
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, () => null);
+  const identity = `${userId ?? "anonymous"}:${projectId}`;
+  const [state, setState] = useState<{ identity: string; catalog: CatalogEntry[]; error: string | null }>({ identity: "", catalog: [], error: null });
   useEffect(() => {
+    let alive = true;
+    setState({ identity, catalog: [], error: null });
+    if (!projectId.trim() || !userId) {
+      setState({ identity, catalog: [], error: "Select a project and sign in to inspect its governed datasets." });
+      return;
+    }
     (async () => {
       try {
-        // Registration is an explicit build/admin action (A2-06); the UI only READS the server catalog.
-        setCatalog((await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog")).datasets);
-      } catch (e) { setError(String(e)); }
+        const result = await getJSON<{ datasets: CatalogEntry[] }>(`/cockpit/gen3/catalog?projectId=${encodeURIComponent(projectId)}`);
+        if (alive) setState({ identity, catalog: result.datasets, error: null });
+      } catch (error) {
+        if (alive) setState({ identity, catalog: [], error: String(error) });
+      }
     })();
-  }, []);
-  return { catalog, error };
+    return () => { alive = false; };
+  }, [projectId, userId, identity]);
+  return state.identity === identity ? state : { identity, catalog: [], error: null };
 }
 
 // Server-authoritative active binding with auto-restore + an explicit state machine (Gate 4/5). Never
@@ -77,12 +88,14 @@ function classify(err: unknown): BindingState {
 }
 
 export function useActiveBinding(projectId: string) {
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, () => null);
   const [binding, setBinding] = useState<Binding | null>(null);
   const [state, setState] = useState<BindingState>("LOADING");
   const reqId = useRef(0);
   const refresh = useCallback(async () => {
     const mine = ++reqId.current;
     setState("LOADING");
+    if (!projectId.trim() || !userId) { setBinding(null); setState(userId ? "NO_BINDING" : "UNAUTHENTICATED"); return; }
     try {
       const b = await getJSON<Binding>(`/cockpit/gen3/binding/${encodeURIComponent(projectId)}`);
       if (mine !== reqId.current) return;           // a newer project request superseded this one
@@ -91,7 +104,7 @@ export function useActiveBinding(projectId: string) {
       if (mine !== reqId.current) return;
       setBinding(null); setState(classify(e));       // never a silent null-collapse
     }
-  }, [projectId]);
+  }, [projectId, userId]);
   // Gate 5 — on project switch, immediately clear display state and re-enter LOADING for the new project.
   useEffect(() => { setBinding(null); setState("LOADING"); reqId.current++; refresh(); }, [refresh]);
   return { binding, state, loaded: state !== "LOADING", refresh, setBinding };
@@ -110,15 +123,22 @@ export type BindingPopulation = {
 // Gate 1/2/3 — the ACTIVE MODELING DATASET authority, driven entirely by the server active binding
 // (never notes/localStorage, never opens the sealed object). Generation-aware; no 2025 distribution.
 export function Gen3PopulationPanel({ projectId }: { projectId: string }) {
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, () => null);
+  return <ProjectPopulationPanel key={`${userId ?? "anonymous"}:${projectId}`} projectId={projectId} userId={userId} />;
+}
+
+function ProjectPopulationPanel({ projectId, userId }: { projectId: string; userId: string | null }) {
   const [pop, setPop] = useState<BindingPopulation | null>(null);
   const [state, setState] = useState<BindingState>("LOADING");
   const reqId = useRef(0);
   useEffect(() => {
     const mine = ++reqId.current; setPop(null); setState("LOADING");
+    if (!projectId.trim() || !userId) { setState(userId ? "NO_BINDING" : "UNAUTHENTICATED"); return; }
     getJSON<BindingPopulation>(`/cockpit/gen3/population/${encodeURIComponent(projectId)}`)
       .then((p) => { if (mine === reqId.current) { setPop(p); setState("ACTIVE"); } })
       .catch((e) => { if (mine === reqId.current) { setPop(null); setState(classify(e)); } });
-  }, [projectId]);
+    return () => { reqId.current++; };
+  }, [projectId, userId]);
 
   if (state !== "ACTIVE" || !pop) {
     return (
@@ -220,18 +240,26 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 }
 
 export default function Gen3CatalogSection({ mode, projectId }: { mode: "warehouse" | "selection"; projectId?: string }) {
-  const { catalog, error } = useGen3Catalog();
-  const active = useActiveBinding(mode === "selection" ? (projectId || "mlb-gen2") : "");
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, () => null);
+  return <ProjectCatalogSection key={`${userId ?? "anonymous"}:${projectId ?? ""}:${mode}`} mode={mode} projectId={projectId} userId={userId} />;
+}
+
+function ProjectCatalogSection({ mode, projectId, userId }: { mode: "warehouse" | "selection"; projectId?: string; userId: string | null }) {
+  const { catalog, error } = useGen3Catalog(projectId ?? "");
+  const active = useActiveBinding(mode === "selection" ? (projectId ?? "") : "");
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [bindError, setBindError] = useState<string | null>(null);
   const [changed, setChanged] = useState<string | null>(null); // Gate 9 — dataset-change invalidation
 
   const select = async (versionId: string) => {
-    if (mode !== "selection") return;
+    if (mode !== "selection" || !projectId?.trim() || !userId || !mounted.current || getCachedUserId() !== userId) return;
     const priorVersion = active.state === "ACTIVE" && active.binding ? active.binding.datasetVersionId : null;
     setBusy(versionId); setBindError(null);
     try {
-      await postJSON<Binding>("/cockpit/gen3/bind", { projectId: projectId || "mlb-gen2", datasetVersionId: versionId });
+      await postJSON<Binding>("/cockpit/gen3/bind", { projectId, datasetVersionId: versionId });
+      if (!mounted.current || getCachedUserId() !== userId) return;
       await active.refresh(); // server wins — re-resolve authoritative binding
       // Gate 9 — a real dataset change supersedes the prior binding and marks all downstream work stale.
       if (priorVersion && priorVersion !== versionId) setChanged(priorVersion);

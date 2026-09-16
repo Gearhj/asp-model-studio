@@ -1,4 +1,12 @@
 import type { SportsPhase4Study } from "./sportsEvidenceApi";
+import type { LeagueCode, ParticipantType, SportCode, WorkflowAvailability } from "./shared/sportRegistry";
+import {
+  MLB_GAME_FORECAST_WORKFLOW_V1,
+  NFL_GAME_FORECAST_WORKFLOW_V1,
+} from "./shared/workflowManifest";
+
+export { SPORT_REGISTRY_V1 } from "./shared/sportRegistry";
+export { SPORT_WORKFLOW_MANIFEST_V1 } from "./shared/workflowManifest";
 
 export type SportsWorkflowKey = "mlb" | "nfl";
 
@@ -16,6 +24,11 @@ export type SportsWorkflowStep = {
 export type SportsWorkflow = {
   key: SportsWorkflowKey;
   id: string;
+  sportCode: SportCode;
+  leagueCode: LeagueCode;
+  manifestCode: string;
+  availability: WorkflowAvailability;
+  participantType: ParticipantType;
   sport: string;
   league: string;
   title: string;
@@ -49,6 +62,11 @@ function step(
 export const MLB_WORKFLOW: SportsWorkflow = {
   key: "mlb",
   id: "mlb-forecasting",
+  sportCode: "BASEBALL",
+  leagueCode: "MLB",
+  manifestCode: MLB_GAME_FORECAST_WORKFLOW_V1.workflowCode,
+  availability: MLB_GAME_FORECAST_WORKFLOW_V1.availability,
+  participantType: "TEAM",
   sport: "Baseball",
   league: "MLB",
   title: "MLB Forecasting",
@@ -202,7 +220,12 @@ export function mlbPhase4StepPresentation(step: SportsWorkflowStep, study: Sport
 export const NFL_WORKFLOW: SportsWorkflow = {
   key: "nfl",
   id: "nfl-forecasting",
-  sport: "Professional Football",
+  sportCode: "FOOTBALL",
+  leagueCode: "NFL",
+  manifestCode: NFL_GAME_FORECAST_WORKFLOW_V1.workflowCode,
+  availability: NFL_GAME_FORECAST_WORKFLOW_V1.availability,
+  participantType: "TEAM",
+  sport: "Football",
   league: "NFL",
   title: "NFL Forecasting",
   status: "WORKFLOW FOUNDATION",
@@ -235,11 +258,9 @@ export const NFL_WORKFLOW: SportsWorkflow = {
 export const SPORTS_WORKFLOWS = [MLB_WORKFLOW, NFL_WORKFLOW] as const;
 
 export const PLANNED_SPORTS = [
-  { name: "College Football", league: "NCAA Football", icon: "CFB" },
-  { name: "NBA & WNBA", league: "Professional Basketball", icon: "BKB" },
-  { name: "NHL", league: "Professional Hockey", icon: "HKY" },
-  { name: "MMA", league: "UFC", icon: "MMA" },
-  { name: "Boxing", league: "Boxing — General", icon: "BOX" },
+  { name: "NBA", league: "Basketball", icon: "NBA" },
+  { name: "WNBA", league: "Basketball", icon: "WNBA" },
+  { name: "UFC", league: "Mixed Martial Arts", icon: "UFC" },
 ] as const;
 
 export const PIPELINE_NODES = [
@@ -312,6 +333,11 @@ export type SportsProjectMetadata = {
   projectId: string;
   sport: string;
   league: string;
+  sportCode?: SportCode;
+  leagueCode?: LeagueCode;
+  workflowCode?: string;
+  workflowAvailability?: WorkflowAvailability;
+  evidenceStatus?: "UNBOUND" | "BOUND" | "BLOCKED" | "RESEARCH_ONLY";
   period: string;
   workflowId: "mlb-forecasting" | "nfl-forecasting";
   lifecycle: string;
@@ -346,4 +372,19 @@ export function isSportsWorkflow(workflowId: string | undefined) {
 
 export function sportsWorkflowForId(workflowId: string | undefined) {
   return SPORTS_WORKFLOWS.find((workflow) => workflow.id === workflowId) ?? MLB_WORKFLOW;
+}
+
+export function findSportsWorkflowForId(workflowId: string | undefined) {
+  return SPORTS_WORKFLOWS.find((workflow) => workflow.id === workflowId) ?? null;
+}
+
+/** Legacy records predate canonical sport fields. Their immutable workflow type
+ * is mapped deterministically without rewriting the persisted record. */
+export function legacyWorkflowIdentity(workflowId: string | undefined) {
+  const workflow = findSportsWorkflowForId(workflowId);
+  return workflow ? {
+    sportCode: workflow.sportCode,
+    leagueCode: workflow.leagueCode,
+    workflowCode: workflow.manifestCode,
+  } : null;
 }

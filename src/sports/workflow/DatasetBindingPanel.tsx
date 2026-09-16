@@ -42,6 +42,7 @@ export function DatasetBindingPanel({
       projectId,
       registrationId: dataset.registrationId,
       datasetId: dataset.datasetId,
+      datasetVersionId: dataset.datasetVersionId,
       manifestSha: dataset.manifestSha,
       seasons: dataset.seasons,
       boundAt: new Date().toISOString(),
@@ -62,7 +63,7 @@ export function DatasetBindingPanel({
           </div>
           <p className="mt-3 text-xs text-emerald-800">This project references the governed dataset. No data was copied and no duplicate registration was created.</p>
         </section>
-        <DataPreviewPanel title="Your selected data" />
+        <DataPreviewPanel projectId={projectId} title="Your selected data" />
       </div>
     );
   }

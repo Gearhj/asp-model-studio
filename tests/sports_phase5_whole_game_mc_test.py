@@ -22,9 +22,10 @@ from server.sports_phase5.game_initialization import RngLineage
 from server.sports_phase5.pa_provider import D3_STATE_TABLE_SHA
 
 REPO = Path(__file__).resolve().parents[1]
-DYNAMIC_NS = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-dynamic-player-state-v1"
-PA_NS = REPO / ".runtime/asp-model-studio/sports-modeling/mlb-pa-v1"
-MC_RECORD = REPO / ".runtime/asp-model-studio/sports-phase5/whole-game-monte-carlo/latest.montecarlo.json"
+from server.sports_cockpit.engine import RUNTIME_ROOT  # seam-aware runtime root
+DYNAMIC_NS = RUNTIME_ROOT / "sports-modeling/mlb-dynamic-player-state-v1"
+PA_NS = RUNTIME_ROOT / "sports-modeling/mlb-pa-v1"
+MC_RECORD = RUNTIME_ROOT / "sports-phase5/whole-game-monte-carlo/latest.montecarlo.json"
 
 # Import CLI helpers by path (scripts/ is not a package).
 _spec = importlib.util.spec_from_file_location("wg_mc_cli", REPO / "scripts" / "run_mlb_whole_game_monte_carlo.py")

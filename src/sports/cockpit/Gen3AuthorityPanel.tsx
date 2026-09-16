@@ -3,9 +3,10 @@
 // selection becomes a server-issued binding; a run authority carries every contract/content digest; the
 // server validates fail-closed, executes on the exact object (never the sealed 2025 object), and the
 // result echoes the same authority (UI = SERVER = TRAINING = RESULT).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Database, ShieldCheck, Lock, Play, CheckCircle2, TriangleAlert, Loader2 } from "lucide-react";
 import { getJSON, postJSON } from "../../lib/api";
+import { getCachedUserId, subscribeCachedUserId } from "../../lib/authSession";
 
 type CatalogEntry = {
   datasetVersionId: string; label: string; generation: string; status: string; selectable: boolean;
@@ -28,6 +29,14 @@ const short = (s?: string) => (s ? s.slice(0, 12) + "…" : "—");
 const FAMILIES = [{ id: "governed_logistic", label: "Governed multinomial logistic" }, { id: "governed_hgb", label: "Governed HGB (deterministic)" }];
 
 export default function Gen3AuthorityPanel({ projectId }: { projectId: string }) {
+  const userId = useSyncExternalStore(subscribeCachedUserId, getCachedUserId, () => null);
+  return <ProjectAuthorityPanel key={`${userId ?? "anonymous"}:${projectId}`} projectId={projectId} userId={userId} />;
+}
+
+function ProjectAuthorityPanel({ projectId, userId }: { projectId: string; userId: string | null }) {
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const identityCurrent = () => mounted.current && getCachedUserId() === userId;
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [versionId, setVersionId] = useState("");
   const [family, setFamily] = useState("governed_hgb");
@@ -43,10 +52,11 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
     // state is cleared immediately and never displayed. On a resolve error we DO NOT fall back to a
     // first-selectable dataset — execution stays blocked until Data & Population establishes a binding.
     let alive = true;
-    setBinding(null); setVersionId(""); setResult(null); setAuthority(null); setActivated(false); setError(null);
+    setCatalog([]); setBinding(null); setVersionId(""); setResult(null); setAuthority(null); setActivated(false); setError(null);
+    if (!projectId.trim() || !userId) { setError("Select a project and sign in to inspect its dataset authority."); return; }
     (async () => {
       try {
-        const res = await getJSON<{ datasets: CatalogEntry[] }>("/cockpit/gen3/catalog");
+        const res = await getJSON<{ datasets: CatalogEntry[] }>(`/cockpit/gen3/catalog?projectId=${encodeURIComponent(projectId)}`);
         if (!alive) return;
         setCatalog(res.datasets);
         try {
@@ -57,20 +67,21 @@ export default function Gen3AuthorityPanel({ projectId }: { projectId: string })
       } catch (e) { if (alive) setError(String(e)); }
     })();
     return () => { alive = false; };
-  }, [projectId]);
+  }, [projectId, userId]);
 
   const entry = catalog.find((d) => d.datasetVersionId === versionId) || null;
   const authorizeAndRun = async () => {
-    if (!binding) return;
+    if (!binding || !identityCurrent()) return;
     setBusy("run"); setError(null); setResult(null); setActivated(false);
     try {
       const au = await postJSON<Authority>("/cockpit/gen3/run-authority", { projectId, bindingId: binding.bindingId, modelFamily: family });
+      if (!identityCurrent()) return;
       setAuthority(au);
       setResult(await postJSON<Evidence>("/cockpit/gen3/execute", { projectId, runAuthorityId: au.runAuthorityId }));
     } catch (e) { setError(String(e)); } finally { setBusy(null); }
   };
   const activate = async () => {
-    if (!result) return;
+    if (!result || !identityCurrent()) return;
     setBusy("activate"); setError(null);
     try { await postJSON("/cockpit/gen3/activate", { projectId, runId: result.experimentRunId }); setActivated(true); }
     catch (e) { setError(String(e)); } finally { setBusy(null); }

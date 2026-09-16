@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "CODEX_PHASE7D5A5_DELTA_ACCEPTANCE_MANIFEST_V1",
+  "manifestVersion": 1,
+  "suiteId": "ASP_MODEL_STUDIO_PHASE_7D5A5_DELTA_RED_SILVER_GATE",
+  "baselineHead": "0ab232bc6a13b157ecc44a1902403a8a9ba7be1d",
+  "builderConstraints": {
+    "testsImmutableToBuilder": true,
+    "runnerImmutableToBuilder": true,
+    "prohibitedActions": [
+      "editing",
+      "deleting",
+      "renaming",
+      "weakening",
+      "skipping",
+      "xfailing",
+      "replacing",
+      "bypassing",
+      "shadowing",
+      "intercepting",
+      "changing acceptance inputs"
+    ]
+  },
+  "findings": [
+    {
+      "findingId": "D1_PATH_INDEPENDENT_SEASON_AUTHORITY",
+      "sourceAuditFinding": "The same 2019 scientific source receives different Stage-A treatment by path and can reach Stage C beneath RUNTIME_ROOT because placement disables callback and authorized-season enforcement.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_placement_does_not_disable_season_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identical_source_has_identical_season_decision_inside_and_outside_runtime_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_cannot_publish_2019_as_authorized",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_callback_cannot_relabel_2019_as_2024",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_output_receipt_manifest_and_source_seasons_must_all_agree"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_placement_does_not_disable_season_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identical_source_has_identical_season_decision_inside_and_outside_runtime_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_cannot_publish_2019_as_authorized",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_runtime_root_source_callback_cannot_relabel_2019_as_2024",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_output_receipt_manifest_and_source_seasons_must_all_agree"
+      ],
+      "expectedPassingNodeIds": [],
+      "currentExpectedFailureBehavior": "All five nodes remain red: current production gives identical false-callback Stage-A inputs different decisions by path and, after the runner-owned 2019 issuer record is explicitly attached, does not produce the required temporal-authority rejection at Stage B. The paired valid-2023 issuer control remains independently satisfiable.",
+      "expectedFailureSignature": "D1_PATH_INDEPENDENT_SEASON_AUTHORITY:",
+      "requiredCorrectedBehavior": "Stage A may reject the false callback or stage actual 2019 truthfully, but its decision and evidence must be path-independent and it must mint no issuer authority. After fixture setup attaches the content-addressed runner issuer relationship, the valid-2023 control must pass Stage B/C while the issuer-bound 2019 control must reject specifically at Stage B under the 2021-2024 temporal contract rather than as missing issuer; Stage C must remain unreachable and no Silver object or registry entry may be emitted.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_publish source/Silver publication and server.sports_modeling.silver_transform season authorization",
+      "windowsOnly": false,
+      "subprocessRequired": false,
+      "riskTypes": ["scientific"]
+    },
+    {
+      "findingId": "D2_CRYPTOGRAPHIC_ISSUER_AUTHORITY",
+      "sourceAuditFinding": "A lexical token blacklist substitutes for a persisted server issuer record: neutral caller-staged objects can mint governed authority, while reserved or ownership-looking wording changes decisions without canonical issuer state.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_neutral_looking_identifier_cannot_mint_source_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identifier_vocabulary_does_not_determine_issuer_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_requires_persisted_server_issuer_record",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_forged_issuer_record_reference_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_issuer_record_body_is_rehashed_and_relationally_verified",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_authority_survives_renaming_only_when_issuer_record_is_unchanged"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_neutral_looking_identifier_cannot_mint_source_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_identifier_vocabulary_does_not_determine_issuer_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_requires_persisted_server_issuer_record",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_forged_issuer_record_reference_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_issuer_record_body_is_rehashed_and_relationally_verified",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d1_d2.py::test_source_authority_survives_renaming_only_when_issuer_record_is_unchanged"
+      ],
+      "expectedPassingNodeIds": [],
+      "currentExpectedFailureBehavior": "All six nodes remain red because issuer-less neutral staged objects resolve and publish, no immutable issuer receipt is enforced, and forged issuer references or bodies are ignored. The rename node fails on that same missing-issuer boundary; its positive same-issuer rename transition is represented by the joint contract's trace-only aliases without prescribing a production display-ID API.",
+      "expectedFailureSignature": "D2_CRYPTOGRAPHIC_ISSUER_AUTHORITY:",
+      "requiredCorrectedBehavior": "Neutral labels may identify Stage-A physical objects but create no authority; syntax validation may reject reserved label forms but cannot grant or revoke governed authority. Stage B and Stage C require a persisted content-addressed server issuer record whose body and relationships are independently rehashed. Rename labels are trace-only, excluded from authority lookup, and therefore cannot change the decision for an unchanged valid issuer.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_publish source issuance, registry, resolver, and Silver ingress",
+      "windowsOnly": false,
+      "subprocessRequired": false,
+      "riskTypes": ["scientific", "gate-authority"]
+    },
+    {
+      "findingId": "D3_OUTER_RELATIONAL_RECONSTRUCTION",
+      "sourceAuditFinding": "verify_silver accepts separately re-addressed outer seasons, source identity, row count, a divergent canonical source registry, and a fully coordinated new scientific parent.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_seasons_cannot_redefine_canonical_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_source_dataset_id_cannot_redefine_canonical_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_expected_outer_relationships_do_not_come_from_candidate_bundle",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_canonical_source_is_reloaded_independently_during_verification",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_outer_manifest_and_transformation_receipt_cannot_coordinate_a_new_parent"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_seasons_cannot_redefine_canonical_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_readdressed_outer_source_dataset_id_cannot_redefine_canonical_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_expected_outer_relationships_do_not_come_from_candidate_bundle",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_canonical_source_is_reloaded_independently_during_verification",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d3.py::test_outer_manifest_and_transformation_receipt_cannot_coordinate_a_new_parent"
+      ],
+      "expectedPassingNodeIds": [],
+      "currentExpectedFailureBehavior": "All five nodes fail because internally coherent re-addressing is accepted and the verifier never reloads the canonical source/issuer authority independently.",
+      "expectedFailureSignature": "D3_OUTER_RELATIONAL_RECONSTRUCTION:",
+      "requiredCorrectedBehavior": "Verification must reconstruct every outer relationship from immutable canonical source and issuer authority rather than candidate fields, rejecting coordinated new parents and divergent canonical records.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_publish.verify_silver canonical relational reconstruction",
+      "windowsOnly": false,
+      "subprocessRequired": false,
+      "riskTypes": ["scientific"]
+    },
+    {
+      "findingId": "D6_PRE_IO_CONTAINMENT_ORDER",
+      "sourceAuditFinding": "Object-root mkdir, final-object exists, registry-parent mkdir, and registry lock creation occur before complete reparse containment.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_object_root_junction_is_rejected_before_mkdir",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_final_object_junction_is_rejected_before_exists",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_registry_parent_junction_is_rejected_before_mkdir",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_registry_path_is_rejected_before_exists_or_read",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_lock_parent_is_rejected_before_lock_file_creation"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_object_root_junction_is_rejected_before_mkdir",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_final_object_junction_is_rejected_before_exists",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_registry_parent_junction_is_rejected_before_mkdir",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_registry_path_is_rejected_before_exists_or_read"
+      ],
+      "expectedPassingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d6.py::test_lock_parent_is_rejected_before_lock_file_creation"
+      ],
+      "currentExpectedFailureBehavior": "Four nodes detect an operation before rejection; the lock-parent control already rejects before lock acquisition and passes.",
+      "expectedFailureSignature": "D6_PRE_IO_CONTAINMENT_ORDER:",
+      "requiredCorrectedBehavior": "Every object root, final object, registry parent/path, and lock parent must be fully contained before mkdir, exists, iteration, resolution, read, write, rename, replace, or lock creation.",
+      "affectedProductionBoundary": "server.sports_modeling.silver_publish atomic object publication and locked registry update",
+      "windowsOnly": true,
+      "subprocessRequired": true,
+      "riskTypes": ["filesystem"]
+    },
+    {
+      "findingId": "D7_SESSION_BOUND_TEMP_AUTHORITY",
+      "sourceAuditFinding": "The isolated-data guard grants blanket authority to the predictable pytest-of-user parent and to unmarked leaves not bound to the active audit session.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_predictable_pytest_user_temp_prefix_does_not_grant_data_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_sibling_pytest_session_root_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_forged_session_directory_name_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_active_session_leaf_requires_capability_marker",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_session_capability_is_bound_to_exact_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_arbitrary_parquet_under_allowed_parent_is_rejected_before_io"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_predictable_pytest_user_temp_prefix_does_not_grant_data_authority",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_sibling_pytest_session_root_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_forged_session_directory_name_is_rejected",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_active_session_leaf_requires_capability_marker",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_session_capability_is_bound_to_exact_root",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d7.py::test_arbitrary_parquet_under_allowed_parent_is_rejected_before_io"
+      ],
+      "expectedPassingNodeIds": [],
+      "currentExpectedFailureBehavior": "All six harmless nonexistent probes are authorized by predictable parent/prefix matching before any reader or open is invoked.",
+      "expectedFailureSignature": "D7_SESSION_BOUND_TEMP_AUTHORITY:",
+      "requiredCorrectedBehavior": "Only the exact active session root with a runner-established capability may authorize data; siblings, forged names, replayed names, and unmarked leaves must reject before I/O.",
+      "affectedProductionBoundary": "tests._isolated_data_guard temporary-root authorization",
+      "windowsOnly": false,
+      "subprocessRequired": false,
+      "riskTypes": ["filesystem", "gate-authority"]
+    },
+    {
+      "findingId": "D8_INJECTIVE_COLLECTION_RESULT_PARITY",
+      "sourceAuditFinding": "Lossy namespace canonicalization collapses distinct collection and JUnit IDs into one dictionary key, hiding missing or duplicate results.",
+      "pytestNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_distinct_collection_ids_cannot_share_one_canonical_key",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_canonical_key_collision_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_missing_one_of_two_colliding_nodes_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_collection_to_junit_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_to_collection_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_duplicate_canonical_result_key_is_fatal"
+      ],
+      "expectedFailingNodeIds": [
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_distinct_collection_ids_cannot_share_one_canonical_key",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_canonical_key_collision_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_missing_one_of_two_colliding_nodes_is_fatal",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_collection_to_junit_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_junit_to_collection_mapping_is_one_to_one",
+        "tests/codex_phase7d5a5_delta_red_gate/test_d8.py::test_duplicate_canonical_result_key_is_fatal"
+      ],
+      "expectedPassingNodeIds": [],
+      "currentExpectedFailureBehavior": "All six analyzer invocations return zero and report SKIP-GOV PASS despite canonical collisions or missing/duplicate one-to-one mappings.",
+      "expectedFailureSignature": "D8_INJECTIVE_COLLECTION_RESULT_PARITY:",
+      "requiredCorrectedBehavior": "Canonicalization must be injective or collision-aware, and collection-to-JUnit plus JUnit-to-collection mappings must be exact one-to-one relations with collisions fatal.",
+      "affectedProductionBoundary": "scripts.phase7d5a_skip_governance collection/JUnit parity analyzer",
+      "windowsOnly": false,
+      "subprocessRequired": true,
+      "riskTypes": ["gate-authority"]
+    }
+  ]
+}

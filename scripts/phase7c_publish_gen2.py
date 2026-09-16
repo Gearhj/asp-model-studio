@@ -55,6 +55,8 @@ def _resolve_combined() -> Path:
 
 
 def main() -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # one-time migration reads sealed-2025 rows to split; separation already done -> exit
     combined = _resolve_combined()
     combined_physical = hashlib.sha256(combined.read_bytes()).hexdigest()
     _log(f"administrative source read: {combined.name} (physical sha256={combined_physical[:16]}…)")

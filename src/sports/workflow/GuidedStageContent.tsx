@@ -1,10 +1,8 @@
 // Embedded analytical content for the 9-stage MLB PROGRAM workflow (Phase 6D). Reuses the exact
 // standalone module content (no duplication, no iframes) so the scientist stays inside the project.
 // Stage 2 merges dataset preview + identity/leakage data-quality; Stage 3 is the PA Modeling Cockpit.
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ExternalLink, CheckCircle2, Layers, ShieldCheck, Database, TriangleAlert } from "lucide-react";
-import { getJSON } from "../../lib/api";
+import { ArrowRight, ExternalLink, CheckCircle2, ShieldCheck } from "lucide-react";
 import type { ActiveSportsDataset } from "../sportsEvidenceApi";
 import {
   ParticipationUsageBody, GameReplaySection, BaseOutTransitionSection, SimulationInputSection,
@@ -12,9 +10,16 @@ import {
   Phase4EvaluationSection, Phase4GraphSection, Phase4RegistrySection,
 } from "../Phase4Surfaces";
 import PaModelingCockpit from "../cockpit/PaModelingCockpit";
-import DataPreviewPanel from "../cockpit/DataPreviewPanel";
+import { CurrentGoldDataReviewPanel } from "./CurrentGoldDataReviewPanel";
+import type { CurrentGoldReviewState } from "./currentGoldDataReview";
 import type { StageResolution, ForecastContract } from "./workflowState";
-import { GOVERNED_TEMPORAL, developmentWindowLabel } from "./workflowState";
+import {
+  GOVERNED_TEMPORAL,
+  developmentWindowLabel,
+  finalOotWindowLabel,
+  temporalDesignMode,
+  validationWindowLabel,
+} from "./workflowState";
 
 function pct(v: number | undefined | null): string {
   if (v === undefined || v === null || Number.isNaN(v)) return "—";
@@ -32,7 +37,7 @@ function QualityChip({ label, value, pass = true }: { label: string; value: stri
   );
 }
 
-export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset | null }) {
+export function DataQualitySummary({ dataset, contract = null }: { dataset: ActiveSportsDataset | null; contract?: ForecastContract | null }) {
   const bridge = dataset?.identityBridge;
   const ja = bridge?.joinAudit;
   const audit = dataset?.featureAudit;
@@ -40,6 +45,10 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
   const seasons = audit?.perSeasonRows ?? [];
   const limitations = dataset?.limitations ?? [];
   const mapping = ja ? pct(ja.mappingRate) : (bridge ? "registered" : "—");
+  const customDates = temporalDesignMode(contract) === "CUSTOM_DATES_ROLLING_ORIGIN";
+  const sourceEvidenceLabel = customDates && contract?.eligibleEvidence
+    ? `${contract.eligibleEvidence.startDate}–${contract.eligibleEvidence.endDate}`
+    : `${GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–${GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}`;
   return (
     <section className="sports-panel p-5 sm:p-6">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><ShieldCheck size={14} /> Data quality</div>
@@ -50,12 +59,12 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
       <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/60 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Population authority — source evidence vs. modeling development</div>
         <div className="mt-1.5 grid gap-2 text-sm sm:grid-cols-4">
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Source evidence</div><div className="font-semibold text-slate-900">{GOVERNED_TEMPORAL.sourceEvidenceSeasons[0]}–{GOVERNED_TEMPORAL.sourceEvidenceSeasons.slice(-1)[0]}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Modeling development</div><div className="font-semibold text-emerald-700">{GOVERNED_TEMPORAL.developmentSeasons.join(", ")}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Validation</div><div className="font-semibold text-amber-700">{GOVERNED_TEMPORAL.validationSeason}</div></div>
-          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Frozen final</div><div className="font-semibold text-rose-700">{GOVERNED_TEMPORAL.frozenSeason}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Source evidence</div><div className="font-semibold text-slate-900">{sourceEvidenceLabel}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Modeling development</div><div className="font-semibold text-emerald-700">{customDates ? developmentWindowLabel(contract) : GOVERNED_TEMPORAL.developmentSeasons.join(", ")}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">Validation</div><div className="font-semibold text-amber-700">{customDates ? validationWindowLabel(contract) : GOVERNED_TEMPORAL.validationSeason}</div></div>
+          <div><div className="text-[11px] font-semibold uppercase text-slate-400">{customDates ? "Final OOT" : "Frozen final"}</div><div className="font-semibold text-rose-700">{customDates ? finalOotWindowLabel(contract) : GOVERNED_TEMPORAL.frozenSeason}</div></div>
         </div>
-        <div className="mt-1.5 text-xs text-slate-600">{GOVERNED_TEMPORAL.priorOnlyReason}</div>
+        <div className="mt-1.5 text-xs text-slate-600">{customDates ? "Exact chronological folds remain deferred to Validation & Calibration; the final OOT range is reporting-only." : GOVERNED_TEMPORAL.priorOnlyReason}</div>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -102,35 +111,36 @@ export function DataQualitySummary({ dataset }: { dataset: ActiveSportsDataset |
   );
 }
 
-// ---- Stage 3: PA Model Development intro ----
-function CockpitIntro({ contract }: { contract: ForecastContract | null }) {
-  const facts: [string, string][] = [
-    ["Target", contract?.target || "Plate-Appearance Outcome"],
-    ["Development", developmentWindowLabel(contract)],
-    ["Validation", contract ? String(contract.validationSeason) : "2024"],
-    ["Frozen", contract ? String(contract.frozenSeason) : "2025"],
-    ["Champion", "D3 (candidate C4)"],
-    ["Evidence mode", contract?.evidenceMode || "STRICT"],
-  ];
-  return (
-    <section className="sports-panel p-5">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-700"><Layers size={14} /> Begin model development</div>
-      <p className="mt-1 text-sm text-slate-600">Project context is inherited automatically — you do not configure it again. Player-state and pitch-sequence research now appear as <b>feature families</b> inside step 06 Feature Engineering.</p>
-      <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
-        {facts.map(([k, v]) => <div key={k} className="bg-white px-3 py-2"><dt className="text-[11px] font-semibold uppercase text-slate-400">{k}</dt><dd className="mt-0.5 text-sm font-semibold text-slate-900">{v}</dd></div>)}
-      </dl>
-    </section>
-  );
-}
-
 /** Central analytical content for a program stage. Stages 1 & 9 are handled inline in the shell. */
-export function GuidedStageContent({ number, dataset, contract }: { number: number; dataset: ActiveSportsDataset | null; contract?: ForecastContract | null }) {
+export function GuidedStageContent({
+  number,
+  projectId,
+  dataset,
+  contract,
+  currentGoldReview,
+  programStages,
+  onGoProgramStage,
+  projectName,
+}: {
+  number: number;
+  projectId: string;
+  dataset: ActiveSportsDataset | null;
+  contract?: ForecastContract | null;
+  currentGoldReview?: CurrentGoldReviewState;
+  programStages?: StageResolution[];
+  onGoProgramStage?: (number: number) => void;
+  projectName?: string;
+}) {
   const p4 = dataset?.phase4;
   switch (number) {
     case 2:
-      return <div className="space-y-4"><DataQualitySummary dataset={dataset} /><DataPreviewPanel title="Your selected data" /></div>;
+      return currentGoldReview
+        ? <CurrentGoldDataReviewPanel state={currentGoldReview} />
+        : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The project-scoped current Gold review authority is unavailable.</section>;
     case 3:
-      return <div className="space-y-4"><CockpitIntro contract={contract ?? null} /><PaModelingCockpit embedded projectId={contract?.projectId ?? "mlb-gen2"} /></div>;
+      return currentGoldReview && projectId
+        ? <PaModelingCockpit embedded projectId={projectId} currentGoldReview={currentGoldReview} programStages={programStages} onGoProgramStage={onGoProgramStage} projectName={projectName} />
+        : <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-900" role="alert">The accepted project-bound Stage 2 authority is required before Stage 3 can open.</section>;
     case 4:
       return <div className="space-y-4"><ParticipationUsageBody study={p4} /></div>;
     case 5:
@@ -155,10 +165,23 @@ export function GuidedStageContent({ number, dataset, contract }: { number: numb
 }
 
 /** Compact adopt/continue bar for stages 2 & 4–8. Stage 3 (cockpit) and stage 9 (export) are special. */
-export function AdoptBar({ focus, onAdopt }: { focus: StageResolution; onAdopt: () => void }) {
+export function AdoptBar({
+  focus,
+  projectId,
+  onAdopt,
+  disabled = false,
+  disabledReason,
+}: {
+  focus: StageResolution;
+  projectId: string;
+  onAdopt: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+}) {
   const complete = focus.status === "COMPLETE";
   const route = focus.action.route || "/dashboard";
-  const href = `${route}?from=mlb-workflow&stage=${focus.number}`;
+  const query = new URLSearchParams({ from: "mlb-workflow", stage: String(focus.number), projectId });
+  const href = `${route}?${query.toString()}`;
   const moduleLabel = focus.action.moduleLabel || "standalone workspace";
   const label = focus.number === 2 ? "Accept Data & Continue" : focus.action.kind === "inline_adopt" ? focus.action.label : "Accept & Continue";
   return (
@@ -166,11 +189,11 @@ export function AdoptBar({ focus, onAdopt }: { focus: StageResolution; onAdopt: 
       {complete ? (
         <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><CheckCircle2 size={16} /> Adopted by this project — use Continue for the next stage.</div>
       ) : (
-        <p className="text-sm text-slate-600">{focus.evidenceAvailable ? "Review the evidence above, then accept it into this project to continue." : "This project has not yet adopted or materialized evidence for this stage."}</p>
+        <p className={`text-sm ${disabled ? "font-semibold text-amber-800" : "text-slate-600"}`}>{disabled && disabledReason ? disabledReason : focus.evidenceAvailable ? "Review the evidence above, then accept it into this project to continue." : "This project has not yet adopted or materialized evidence for this stage."}</p>
       )}
       <div className="flex shrink-0 flex-wrap gap-2">
         <Link to={href} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open full {moduleLabel} <ExternalLink size={14} /></Link>
-        {!complete && <button onClick={onAdopt} className="sports-primary-button">{label} <ArrowRight size={15} /></button>}
+        {!complete && <button type="button" onClick={onAdopt} disabled={disabled} className="sports-primary-button disabled:cursor-not-allowed disabled:opacity-50">{label} <ArrowRight size={15} /></button>}
       </div>
     </section>
   );

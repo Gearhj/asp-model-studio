@@ -1,11 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, FolderKanban, Plus, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { deleteLocalProject, loadLocalProjects } from "../lib/localProjects";
-import { deleteProjectFromDatabase, PersistenceHttpError } from "../lib/serverPersistence";
+import { deleteLocalProject, loadLocalProjects, type LocalProjectRecord } from "../lib/localProjects";
+import { deleteProjectFromDatabase, flushProjectDatabaseSave, listProjectsFromDatabase, PersistenceHttpError } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { deleteSportsProjectMetadata, isSportsWorkflow, loadSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
+import { deleteSportsProjectMetadata, isSportsWorkflow, loadSportsProjectMetadata, saveSportsProjectMetadata, sportsWorkflowForId } from "./sportsConfig";
 import { sportsPaDecisionStatus, type RegisteredSportsProject, type SportsPaTerminalStatus, useActiveSportsDataset } from "./sportsEvidenceApi";
+import { sportsProjectOverviewRoute } from "./sportsProjectRoutes";
+import { loadPersistedSportsProject, persistedSportsProjectSnapshot, sportsMetadataFromPersistedProject } from "./sportsProjectPersistence";
+import { sanitizeSportsAuthorityMessage } from "./workflow/sportsAuthorityErrors";
+import { LIVE_PROJECT_FILTER_LEAGUES, type LiveProjectLeagueFilter } from "./shared/sportRegistry";
+import { projectMatchesLeagueFilter } from "./shared/workflowRouteGuard";
 
 export default function SportsProjects() {
   const navigate = useNavigate();
@@ -13,6 +18,10 @@ export default function SportsProjects() {
   const [pendingRemovalId, setPendingRemovalId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [removalError, setRemovalError] = useState("");
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState("");
+  const [registryLoading, setRegistryLoading] = useState(true);
+  const [sportFilter, setSportFilter] = useState<LiveProjectLeagueFilter>("ALL");
   const datasetEvidence = useActiveSportsDataset();
   const governedProject = datasetEvidence.status === "ready" ? datasetEvidence.data.project ?? null : null;
   const terminalStatus = datasetEvidence.status === "ready"
@@ -31,12 +40,90 @@ export default function SportsProjects() {
   const localProjects = governedProject
     ? projects.filter((project) => project.projectId !== governedProject.projectId && project.projectName !== governedProject.name)
     : projects;
+  const filteredLocalProjects = localProjects.filter((project) => projectMatchesLeagueFilter(sportFilter, project.workflowId, loadSportsProjectMetadata(project.projectId)));
+  const showGovernedProject = Boolean(governedProject && (sportFilter === "ALL" || sportFilter === "MLB"));
 
-  function openProject(projectId: string) {
+  useEffect(() => {
+    const controller = new AbortController();
+    void listProjectsFromDatabase(controller.signal)
+      .then((persistedProjects) => {
+        if (controller.signal.aborted) return;
+        const localById = new Map(projects.map((project) => [project.projectId, project]));
+        const merged = [...projects];
+        for (const persisted of persistedProjects) {
+          const workflowId = String(persisted.workflowType ?? persisted.workflow_type ?? "");
+          if (!isSportsWorkflow(workflowId)) continue;
+          const projectId = String(persisted.projectId ?? persisted.project_id ?? "").trim();
+          if (!projectId) continue;
+          const sportsMetadata = sportsMetadataFromPersistedProject(persisted);
+          if (sportsMetadata) saveSportsProjectMetadata(sportsMetadata);
+          const local = localById.get(projectId);
+          if (local) {
+            const index = merged.findIndex((project) => project.projectId === projectId);
+            merged[index] = { ...local, backendMetadata: persisted };
+            continue;
+          }
+          const snapshot = persistedSportsProjectSnapshot(persisted);
+          const record: LocalProjectRecord = {
+            projectId,
+            modelId: snapshot.modelId,
+            projectName: snapshot.projectName,
+            projectType: snapshot.projectType,
+            workflowId: snapshot.workflowId,
+            createdAt: String(persisted.createdAt ?? persisted.created_at ?? ""),
+            lastModified: String(persisted.updatedAt ?? persisted.updated_at ?? ""),
+            source: "database",
+            backendMetadata: persisted,
+            snapshot,
+          };
+          merged.push(record);
+          localById.set(projectId, record);
+        }
+        merged.sort((left, right) => right.lastModified.localeCompare(left.lastModified));
+        setProjects(merged);
+        setRegistryLoading(false);
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        setRegistryLoading(false);
+        if (projects.length === 0) {
+          setOpenError(caught instanceof Error
+            ? sanitizeSportsAuthorityMessage(caught.message)
+            : "The backend sports-project registry could not be loaded.");
+        }
+      });
+    return () => controller.abort();
+    // The browser snapshot is captured once, then reconciled against one server listing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openProject(projectId: string) {
     const project = projects.find((item) => item.projectId === projectId);
     if (!project) return;
-    useWorkflowStore.getState().loadProjectSnapshot(project.snapshot);
-    navigate("/project-overview");
+    setOpeningId(projectId);
+    setOpenError("");
+    try {
+      const persisted = await loadPersistedSportsProject(projectId);
+      if (persisted.sportsMetadata) saveSportsProjectMetadata(persisted.sportsMetadata);
+      useWorkflowStore.getState().loadProjectSnapshot(persisted.snapshot);
+    } catch (caught) {
+      if (caught instanceof PersistenceHttpError && caught.status === 404) {
+        const sportsMetadata = loadSportsProjectMetadata(projectId);
+        const reconciled = await flushProjectDatabaseSave(project.snapshot, sportsMetadata ? { sportsProject: sportsMetadata } : {});
+        if (!reconciled) {
+          setOpenError("This browser project could not be reconciled to backend persistence. Restore the backend and retry.");
+          setOpeningId(null);
+          return;
+        }
+        useWorkflowStore.getState().loadProjectSnapshot(project.snapshot);
+      } else {
+        setOpenError(caught instanceof Error ? sanitizeSportsAuthorityMessage(caught.message) : "The project could not be reopened from backend persistence.");
+        setOpeningId(null);
+        return;
+      }
+    }
+    navigate(sportsProjectOverviewRoute(projectId));
+    setOpeningId(null);
   }
 
   function openGovernedProject(project: RegisteredSportsProject) {
@@ -71,7 +158,7 @@ export default function SportsProjects() {
       hasDataset: false,
       datasetIdentity: null,
     });
-    navigate("/project-overview");
+    navigate(sportsProjectOverviewRoute(project.projectId));
   }
 
   async function removeProject(projectId: string) {
@@ -105,7 +192,14 @@ export default function SportsProjects() {
         <Link to="/projects/new" className="sports-primary-button"><Plus size={17} /> Create Sports Project</Link>
       </section>
 
-      {datasetEvidence.status === "loading" && localProjects.length === 0 ? (
+      {openError ? <section className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-900" role="alert">{openError}</section> : null}
+
+      <section className="sports-panel flex flex-wrap items-center justify-between gap-3 p-4" aria-label="Project sport filters">
+        <div><p className="text-sm font-semibold text-slate-950">Project sport</p><p className="mt-0.5 text-xs text-slate-500">Filters do not change project registrations.</p></div>
+        <div className="flex flex-wrap gap-2">{LIVE_PROJECT_FILTER_LEAGUES.map((filter) => <button key={filter} type="button" aria-pressed={sportFilter === filter} onClick={() => setSportFilter(filter)} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${sportFilter === filter ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-600"}`}>{filter === "ALL" ? "All Sports" : filter}</button>)}</div>
+      </section>
+
+      {(registryLoading || datasetEvidence.status === "loading") && localProjects.length === 0 ? (
         <section className="sports-panel grid min-h-[260px] place-items-center p-8 text-center" role="status"><div><FolderKanban size={26} className="mx-auto animate-pulse text-cyan-700" /><h2 className="mt-4 text-xl font-semibold text-slate-950">Loading governed project registry</h2><p className="mt-2 text-sm text-slate-600">Checking the active sports dataset registration.</p></div></section>
       ) : datasetEvidence.status === "error" && localProjects.length === 0 ? (
         <section className="sports-panel grid min-h-[260px] place-items-center border-amber-200 bg-amber-50 p-8 text-center" role="alert"><div><FolderKanban size={26} className="mx-auto text-amber-700" /><h2 className="mt-4 text-xl font-semibold text-amber-950">Governed project registry unavailable</h2><p className="mt-2 max-w-xl text-sm text-amber-900">{datasetEvidence.error}</p></div></section>
@@ -120,8 +214,8 @@ export default function SportsProjects() {
         </section>
       ) : (
         <section className="grid gap-4 lg:grid-cols-2">
-          {governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount + phase4EvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
-          {localProjects.map((project) => {
+          {showGovernedProject && governedProject ? <GovernedProjectCard project={governedProject} terminalStatus={terminalStatus} baselineEvidenceCount={baselineEvidenceCount + phase4EvidenceCount} onOpen={() => openGovernedProject(governedProject)} /> : null}
+          {filteredLocalProjects.map((project) => {
             const workflow = sportsWorkflowForId(project.workflowId);
             const metadata = loadSportsProjectMetadata(project.projectId);
             const complete = project.snapshot.workflowSteps.filter((step) => step.status === "complete").length;
@@ -136,12 +230,16 @@ export default function SportsProjects() {
                   <span className="sports-status sports-status--amber">NOT CONFIGURED</span>
                 </div>
                 <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3">
+                  <Fact label="Sport" value={metadata?.sportCode || workflow.sportCode} />
+                  <Fact label="League" value={metadata?.leagueCode || workflow.leagueCode} />
+                  <Fact label="Workflow" value={metadata?.workflowCode || workflow.manifestCode} />
                   <Fact label="Lifecycle" value={metadata?.lifecycle || "Not configured"} />
                   <Fact label="Primary target" value={metadata?.primaryTarget || "Not configured"} />
-                  <Fact label="Workflow" value={`${complete} / ${project.snapshot.workflowSteps.length}`} />
+                  <Fact label="Evidence status" value={metadata?.evidenceStatus || "UNBOUND"} />
+                  <Fact label="Workflow completion" value={`${complete} / ${project.snapshot.workflowSteps.length}`} />
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <button onClick={() => openProject(project.projectId)} className="sports-secondary-button">Open project <ArrowRight size={16} /></button>
+                  <button disabled={openingId === project.projectId} onClick={() => void openProject(project.projectId)} className="sports-secondary-button disabled:cursor-wait disabled:opacity-60">{openingId === project.projectId ? "Reopening…" : "Open project"} <ArrowRight size={16} /></button>
                   <button type="button" onClick={() => { setPendingRemovalId(project.projectId); setRemovalError(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50">
                     <Trash2 size={16} /> Remove local project
                   </button>
@@ -177,7 +275,7 @@ function GovernedProjectCard({ project, terminalStatus, baselineEvidenceCount, o
     : (project.status || "").toLowerCase().includes("blocked");
   return <article className={`sports-panel ${projectBlocked ? "border-amber-200" : "border-emerald-200"} p-5 sm:p-6`} data-governed-sports-project={project.projectId}>
     <div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><span className="sports-status sports-status--teal">{project.league || "MLB"}</span><h2 className="mt-3 break-words text-xl font-semibold text-slate-950">{project.name}</h2><p className="mt-1 text-sm text-slate-500">Governed project bound to the active immutable dataset registration · {project.developmentPeriod || "development period not recorded"}</p></div><span className={`sports-status ${projectBlocked ? "sports-status--amber" : terminalStatus ? "sports-status--teal" : "sports-status--green"} max-w-full whitespace-normal break-words text-center leading-4`}>{terminalStatus || project.status || "REGISTERED"}</span></div>
-    <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3"><Fact label="Lifecycle" value={project.forecastLifecycle || "Not recorded"} /><Fact label="Primary target" value={project.primaryTarget || "Not recorded"} /><Fact label="Workflow evidence" value={`${evidencedStages} / 12`} /></div>
+    <div className="mt-5 grid grid-cols-2 gap-3 border-y border-slate-100 py-4 sm:grid-cols-3"><Fact label="Sport" value="BASEBALL" /><Fact label="League" value="MLB" /><Fact label="Workflow" value="MLB_GAME_FORECAST_WORKFLOW_V1" /><Fact label="Lifecycle" value={project.forecastLifecycle || "Not recorded"} /><Fact label="Primary target" value={project.primaryTarget || "Not recorded"} /><Fact label="Evidence status" value="BOUND" /><Fact label="Workflow evidence" value={`${evidencedStages} / 12`} /></div>
     <div className="mt-5"><button type="button" onClick={onOpen} className="sports-secondary-button">Open governed project <ArrowRight size={16} /></button></div>
     <details className="mt-4 text-xs text-slate-500"><summary className="cursor-pointer font-semibold">Technical details</summary><div className="mt-2 break-all rounded-lg bg-slate-50 p-3">Project ID: {project.projectId}</div></details>
   </article>;

@@ -38,6 +38,15 @@ ALLOWED_PREDICTOR_CLASSES = frozenset({PREGAME_KNOWN, CONDITIONAL_PRE_PA_STATE, 
 PROHIBITED_PREDICTOR_CLASSES = frozenset({POST_PA_PROHIBITED, FUTURE_PROHIBITED,
                                           IDENTIFIER_NOT_PREDICTOR, TARGET_PROHIBITED})
 
+# Gate 2 (7D.4 / B2) — leakageClassification is a strict CLOSED enum. Only explicit SAFE classes may enter an
+# authorized feature set; unknown / blank / null / unregistered values are rejected before registration.
+SAFE_LEAKAGE_CLASSES = frozenset({"SAFE_PREGAME", "SAFE_HISTORICAL_AS_OF", "SAFE_CONDITIONAL_PRE_PA"})
+PROHIBITED_LEAKAGE_CLASSES = frozenset({"TARGET_PROHIBITED", "POST_PA_PROHIBITED", "FUTURE_PROHIBITED",
+                                        "IDENTIFIER_PROHIBITED", "UNRESOLVED_PROHIBITED"})
+LEAKAGE_CLASSIFICATIONS = SAFE_LEAKAGE_CLASSES | PROHIBITED_LEAKAGE_CLASSES
+_KT_TO_SAFE_LEAKAGE = {PREGAME_KNOWN: "SAFE_PREGAME", CONDITIONAL_PRE_PA_STATE: "SAFE_CONDITIONAL_PRE_PA",
+                       HISTORICAL_AS_OF_CUTOFF: "SAFE_HISTORICAL_AS_OF"}
+
 # Fields that may NEVER appear as a derivation source (post-PA outcome / target / post-score / future).
 PROHIBITED_SOURCE_FIELDS = frozenset({
     "outcome", "events", "description", "launch_speed", "launch_angle", "hit_distance",
@@ -122,7 +131,7 @@ def feature_semantic_contract(feature_id: str) -> dict[str, Any]:
                        else "full prior-season aggregate as-of the eligibility cutoff"),
         "allowedSeasons": [2021, 2022, 2023, 2024], "availabilityStart": 2021, "availabilityEnd": 2024,
         "missingnessSemantics": missingness, "imputationEligibility": bool(impute),
-        "leakageClassification": "SAFE_PREGAME_OR_PRE_PA_STATE",
+        "leakageClassification": _KT_TO_SAFE_LEAKAGE[ktc],
         "prohibitedSourceFields": sorted(PROHIBITED_SOURCE_FIELDS),
         "identifierClassification": "NOT_IDENTIFIER",
         "targetRelationshipClassification": "INDEPENDENT_OF_TARGET_PA_OUTCOME",
@@ -143,23 +152,32 @@ def build_semantic_contract(*, feature_id: str, display_name: str, family_id: st
                             source_columns: list[str], canonical_derivation: str, derivation_code_digest: str,
                             derivation_version: str, window_rule: str, allowed_seasons: list[int],
                             missingness_semantics: str = "", imputation_eligibility: bool = True,
-                            leakage_classification: str = "SAFE_HISTORICAL_AS_OF_CUTOFF",
+                            leakage_classification: str = "SAFE_HISTORICAL_AS_OF",
                             identifier_classification: str = "NOT_IDENTIFIER",
                             target_relationship_classification: str = "INDEPENDENT_OF_TARGET_PA_OUTCOME",
                             dtype: str = "float64", nullable: bool = False,
                             simulator_availability: str = "PREGAME_PRIOR_RESOLVED",
-                            source_terms: str = "declared historical fixture") -> dict[str, Any]:
+                            source_terms: str = "declared historical fixture",
+                            partition_columns: list[str] | None = None, order_columns: list[str] | None = None,
+                            derivation_type: str = "DECLARED_DERIVATION") -> dict[str, Any]:
     """Generic immutable semantic-contract constructor (Gate 1) for an advanced/derived feature — used to
     register a scientifically-safe advanced feature (and, in tests, to construct the leaky variants that the
     validator must reject). The record carries the SAME mandatory lineage/derivation/as-of/knowledge-time
-    fields as a base feature; nothing is authorized merely because a column exists."""
+    fields as a base feature; nothing is authorized merely because a column exists.
+
+    ``partition_columns`` / ``order_columns`` (Phase 7D.5A) declare grouping/ordering KEYS for a point-in-time
+    aggregation feature (e.g. a per-batter count of strictly-earlier PAs). Identity/temporal keys may appear
+    there — they determine the aggregation, not the feature's numeric VALUE — but the target / post-PA / future
+    prohibition still applies to them, and an identifier may enter ``source_columns`` only when it is also a
+    declared partition/order key."""
     payload = {
         "contractVersion": SEMANTIC_CONTRACT_VERSION,
         "featureId": feature_id, "featureName": feature_id, "displayName": display_name,
         "dtype": dtype, "nullable": bool(nullable), "featureFamilyId": family_id,
         "sourceObjectIds": list(source_object_ids), "sourceReceiptShas": list(source_receipt_shas),
         "sourceColumns": list(source_columns),
-        "derivationType": "DECLARED_DERIVATION", "canonicalDerivation": canonical_derivation,
+        "partitionColumns": list(partition_columns or []), "orderColumns": list(order_columns or []),
+        "derivationType": derivation_type, "canonicalDerivation": canonical_derivation,
         "derivationCodeDigest": derivation_code_digest, "derivationVersion": derivation_version,
         "grain": "PLATE_APPEARANCE", "knowledgeTimeClass": knowledge_time_class, "asOfRule": as_of_rule,
         "windowRule": window_rule, "allowedSeasons": list(allowed_seasons),
@@ -192,6 +210,12 @@ def validate_feature_semantic_contract(contract: Mapping[str, Any]) -> None:
         raise LeakageError(f"unknown knowledge-time class for {fid!r}")
     if ktc in PROHIBITED_PREDICTOR_CLASSES:
         raise LeakageError(f"feature {fid!r} has a prohibited knowledge-time class {ktc}")
+    # Gate 2 (B2) — leakageClassification is a strict closed enum; only explicit SAFE classes may be authorized
+    lc = p.get("leakageClassification")
+    if lc not in LEAKAGE_CLASSIFICATIONS:
+        raise LeakageError(f"feature {fid!r} has an unknown/blank leakage classification {lc!r}")
+    if lc not in SAFE_LEAKAGE_CLASSES:
+        raise LeakageError(f"feature {fid!r} has a prohibited leakage classification {lc}")
     # declared lineage + derivation + as-of are MANDATORY (structural provability)
     if not p.get("sourceObjectIds") or not p.get("sourceReceiptShas"):
         raise LeakageError(f"feature {fid!r} is missing source lineage (object/receipt)")
@@ -212,13 +236,20 @@ def validate_feature_semantic_contract(contract: Mapping[str, Any]) -> None:
         raise LeakageError("the target column may never be authorized as a predictor")
     if fid in IDENTIFIER_COLUMNS:
         raise LeakageError(f"identifier column {fid!r} may never be an ordinary numeric predictor")
-    # a prohibited (post-PA/target/future) field may never appear as a derivation source
-    leaked = set(str(c) for c in p.get("sourceColumns", [])) & PROHIBITED_SOURCE_FIELDS
+    # a prohibited (post-PA/target/future) field may never appear as ANY source/partition/order key
+    src = set(str(c) for c in p.get("sourceColumns", []))
+    partition = set(str(c) for c in p.get("partitionColumns", []))
+    order = set(str(c) for c in p.get("orderColumns", []))
+    leaked = (src | partition | order) & PROHIBITED_SOURCE_FIELDS
     if leaked:
         raise LeakageError(f"feature {fid!r} derives from prohibited source field(s): {sorted(leaked)}")
-    id_leaked = set(str(c) for c in p.get("sourceColumns", [])) & IDENTIFIER_COLUMNS
+    # an identifier column may enter the derivation ONLY as a declared partition/order key (grouping/ordering),
+    # never as a VALUE source (which would encode identity into the numeric feature).
+    value_source = src - partition - order
+    id_leaked = value_source & IDENTIFIER_COLUMNS
     if id_leaked:
-        raise LeakageError(f"feature {fid!r} derives its VALUE from identifier column(s): {sorted(id_leaked)}")
+        raise LeakageError(f"feature {fid!r} derives its VALUE from identifier column(s) (not as a partition/order "
+                           f"key): {sorted(id_leaked)}")
 
 
 def validate_registered_feature(contract: Mapping[str, Any]) -> dict[str, Any]:
@@ -236,6 +267,7 @@ def feature_family_contract(family_id: str, ordered_feature_ids: list[str],
         raise LeakageError(f"feature family {family_id!r} is empty")
     kt_policies = set()
     ordered_ids, ordered_shas = [], []
+    member_receipt_shas: set[str] = set()
     for fid in ordered_feature_ids:
         c = contracts[fid]
         validate_feature_semantic_contract(c)
@@ -244,12 +276,13 @@ def feature_family_contract(family_id: str, ordered_feature_ids: list[str],
             raise LeakageError(f"feature {fid!r} does not belong to family {family_id!r}")
         kt_policies.add(p["knowledgeTimeClass"])
         ordered_ids.append(c["id"]); ordered_shas.append(c["sha256"])
+        member_receipt_shas.update(p.get("sourceReceiptShas", []))  # lineage DERIVED from verified members
     if len(kt_policies) != 1:
         raise LeakageError(f"family {family_id!r} mixes knowledge-time policies: {sorted(kt_policies)}")
     payload = {
         "contractVersion": FAMILY_CONTRACT_VERSION, "familyId": family_id, "familyName": family_id,
         "orderedFeatureIds": ordered_ids, "orderedFeatureContractShas": ordered_shas,
-        "sourceReceiptShas": list(_SOURCE_RECEIPT_SHAS), "sharedKnowledgeTimeClass": next(iter(kt_policies)),
+        "sourceReceiptShas": sorted(member_receipt_shas), "sharedKnowledgeTimeClass": next(iter(kt_policies)),
         "derivationVersion": "MLB_GEN3_BASE_FEATURE_CONTRACT_V1", "featureCount": len(ordered_ids),
     }
     digest = sha256_bytes(canonical_json_bytes(payload))

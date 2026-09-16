@@ -487,6 +487,8 @@ def _supervise(argv: list[str]) -> SupervisedWorkerResult:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # trains/scores 2025 participation + surfaces final2025 -> exit before any data open
     forwarded = list(sys.argv[1:] if argv is None else argv)
     args = _arguments(forwarded)
     if args.estimate_only:

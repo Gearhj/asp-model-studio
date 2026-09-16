@@ -1,0 +1,211 @@
+{
+  "schemaVersion": "MLB_CURRENT_STATCAST_STAGE3_EXCLUSION_MEMBERSHIP_V1",
+  "artifactVersion": 1,
+  "generationMethod": "READ_ONLY_CANONICAL_PA_ID_ANTI_JOIN_OF_THE_EXACT_REGISTERED_SOURCE_PARTITIONS_AGAINST_THE_BOUND_CURRENT_GOLD_PARTITIONS; GROUPINGS_USE_SOURCE_ROW_FIELDS, THE VERIFIED DIM_GAME TEAM JOIN, AND THE REGISTERED TARGET_EVENT_MAP WITH AN EXPLICIT UNMAPPED BUCKET; NO REBUILD, PROVIDER CALL, LEGACY_TARGET_EXCLUSION_LEDGER, OR CAUSAL INFERENCE",
+  "causalityClaimed": false,
+  "legacyTargetExclusionLedgerUsed": false,
+  "providerCalls": 0,
+  "rebuilds": 0,
+  "authority": {
+    "source": {
+      "datasetId": "asp.mlb.statcast.current-pa.v1",
+      "registrationId": "sports-dataset-current-statcast-03ca6dab30e760b2",
+      "datasetVersionId": "asp.mlb.statcast.current-pa.v1:partition-authority-sha256:6e134d8726587ad88d0807effb6e6b12ad39f39b99acb7f523ae6ae98155df34",
+      "manifestSha256": "03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c",
+      "partitionAuthoritySha256": "6e134d8726587ad88d0807effb6e6b12ad39f39b99acb7f523ae6ae98155df34",
+      "currentSilverPublicationManifestSha256": "fcfb95724f2cc44ae45555897365497c538f5ea6303fe041dd4afa9697c62d2a"
+    },
+    "boundCurrentGold": {
+      "datasetId": "gold-table:gold_mlb_current_pa_v1",
+      "manifestSha256": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+      "sourceSilverManifestSha256": "fcfb95724f2cc44ae45555897365497c538f5ea6303fe041dd4afa9697c62d2a"
+    },
+    "teamIdentity": {
+      "tableName": "dim_game",
+      "publicationManifestSha256": "1afa766640c202742f270184b81a26056080c79a2a726279e1cb961b7e78e456",
+      "registrationSha256": "63dc253ac7270c1a8a85b4509fd7097b4adbb9c18875fe1408075bff2f723ada",
+      "physicalObjectSha256": "e7b1e65136be13503847f8f9d5a1e2453500fa0cac5ae7a15c9f4e5304108006"
+    },
+    "playerIdentity": {
+      "tableName": "dim_player",
+      "publicationManifestSha256": "ab06c88e7d4fa6e78b397c8a4dfbbc2c8a21a51c03f50fd78ee49de232fb0aaf",
+      "registrationSha256": "ea7d1808b76eaec5506f30c1797cbdec10bc2ad8f9a39cc72f29643f23366227"
+    }
+  },
+  "membershipKey": "canonicalPaId",
+  "identitySetSha256": {
+    "algorithm": "SHA-256",
+    "canonicalization": "SORT_ASCENDING_UTF8_JOIN_LF_WITHOUT_TRAILING_LF",
+    "value": "a3a781e273ac64f81df539b5c59308a58e424a0bcbffc4f74a6f1ec9b740a83b"
+  },
+  "rowReconciliation": {
+    "sourceRows": 702326,
+    "sourceUniqueCanonicalPaIds": 702326,
+    "sourceDuplicateCanonicalPaIds": 0,
+    "goldRows": 697729,
+    "goldUniqueCanonicalPaIds": 697729,
+    "goldDuplicateCanonicalPaIds": 0,
+    "goldCanonicalPaIdsAbsentFromSource": 0,
+    "sourceCanonicalPaIdsAbsentFromGold": 4597,
+    "excludedRows": 4597
+  },
+  "membershipStatusCounts": {
+    "NOT_PRESENT_IN_BOUND_CURRENT_GOLD_BY_CANONICAL_PA_ID": 4597
+  },
+  "causalReasonStatus": "FINER_SOURCE_SIDE_CAUSE_NOT_RECORDED",
+  "causalReasonCounts": {
+    "NOT_ADMITTED_TO_FROZEN_GOLD_V1_BRIDGE_MATCHED_SET": 4597
+  },
+  "exclusionStageEvidence": {
+    "status": "EXACT_DERIVED_CONSTRUCTION_STAGE_COUNTS",
+    "counts": {
+      "PRE_FEATURE_BRIDGE_NON_ADMISSION": 4597,
+      "FEATURE_CONSTRUCTION_ROW_LOSS": 0
+    },
+    "finerSourceSideCauseStatus": "NOT_RECORDED",
+    "proof": "The registered 2023-2024 current-source identities are the frozen Silver input consumed by Gold V1; current Gold reuses the frozen Gold V1 rows exactly; the bridge matched set is established before the row-preserving feature assembly. The target-side legacy bridge ledger is not source-side authority and is not reused."
+  },
+  "aggregationSemantics": "Each aggregate groups the exact registered source population. presentInGoldRows is sourceRows minus membership-only excludedRows. Counts are exact; percentage fields are rounded to six decimal places.",
+  "percentPrecision": 6,
+  "bySeason": [
+    {"season": 2023, "sourceRows": 184497, "presentInGoldRows": 182072, "excludedRows": 2425, "exclusionRatePct": 1.314385, "shareOfExclusionsPct": 52.751795},
+    {"season": 2024, "sourceRows": 182883, "presentInGoldRows": 180711, "excludedRows": 2172, "exclusionRatePct": 1.187645, "shareOfExclusionsPct": 47.248205},
+    {"season": 2025, "sourceRows": 182847, "presentInGoldRows": 182847, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"season": 2026, "sourceRows": 152099, "presentInGoldRows": 152099, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0}
+  ],
+  "byMonth": [
+    {"month": "2023-03", "sourceRows": 1508, "presentInGoldRows": 1508, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2023-04", "sourceRows": 30705, "presentInGoldRows": 30626, "excludedRows": 79, "exclusionRatePct": 0.257287, "shareOfExclusionsPct": 1.718512},
+    {"month": "2023-05", "sourceRows": 31478, "presentInGoldRows": 31133, "excludedRows": 345, "exclusionRatePct": 1.096004, "shareOfExclusionsPct": 7.504894},
+    {"month": "2023-06", "sourceRows": 29588, "presentInGoldRows": 29197, "excludedRows": 391, "exclusionRatePct": 1.321482, "shareOfExclusionsPct": 8.505547},
+    {"month": "2023-07", "sourceRows": 27856, "presentInGoldRows": 27484, "excludedRows": 372, "exclusionRatePct": 1.335439, "shareOfExclusionsPct": 8.092234},
+    {"month": "2023-08", "sourceRows": 31155, "presentInGoldRows": 30915, "excludedRows": 240, "exclusionRatePct": 0.770342, "shareOfExclusionsPct": 5.220796},
+    {"month": "2023-09", "sourceRows": 31071, "presentInGoldRows": 30076, "excludedRows": 995, "exclusionRatePct": 3.202343, "shareOfExclusionsPct": 21.644551},
+    {"month": "2023-10", "sourceRows": 1136, "presentInGoldRows": 1133, "excludedRows": 3, "exclusionRatePct": 0.264085, "shareOfExclusionsPct": 0.06526},
+    {"month": "2024-03", "sourceRows": 4265, "presentInGoldRows": 4258, "excludedRows": 7, "exclusionRatePct": 0.164127, "shareOfExclusionsPct": 0.152273},
+    {"month": "2024-04", "sourceRows": 29886, "presentInGoldRows": 29509, "excludedRows": 377, "exclusionRatePct": 1.26146, "shareOfExclusionsPct": 8.201001},
+    {"month": "2024-05", "sourceRows": 30650, "presentInGoldRows": 30247, "excludedRows": 403, "exclusionRatePct": 1.314845, "shareOfExclusionsPct": 8.766587},
+    {"month": "2024-06", "sourceRows": 30065, "presentInGoldRows": 29822, "excludedRows": 243, "exclusionRatePct": 0.808249, "shareOfExclusionsPct": 5.286056},
+    {"month": "2024-07", "sourceRows": 27929, "presentInGoldRows": 27855, "excludedRows": 74, "exclusionRatePct": 0.264958, "shareOfExclusionsPct": 1.609745},
+    {"month": "2024-08", "sourceRows": 31138, "presentInGoldRows": 30298, "excludedRows": 840, "exclusionRatePct": 2.697668, "shareOfExclusionsPct": 18.272787},
+    {"month": "2024-09", "sourceRows": 28950, "presentInGoldRows": 28722, "excludedRows": 228, "exclusionRatePct": 0.787565, "shareOfExclusionsPct": 4.959756},
+    {"month": "2025-03", "sourceRows": 5017, "presentInGoldRows": 5017, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-04", "sourceRows": 29360, "presentInGoldRows": 29360, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-05", "sourceRows": 30969, "presentInGoldRows": 30969, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-06", "sourceRows": 29970, "presentInGoldRows": 29970, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-07", "sourceRows": 27742, "presentInGoldRows": 27742, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-08", "sourceRows": 31803, "presentInGoldRows": 31803, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2025-09", "sourceRows": 27986, "presentInGoldRows": 27986, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-03", "sourceRows": 5722, "presentInGoldRows": 5722, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-04", "sourceRows": 29913, "presentInGoldRows": 29913, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-05", "sourceRows": 31470, "presentInGoldRows": 31470, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-06", "sourceRows": 29854, "presentInGoldRows": 29854, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-07", "sourceRows": 28032, "presentInGoldRows": 28032, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0},
+    {"month": "2026-08", "sourceRows": 27108, "presentInGoldRows": 27108, "excludedRows": 0, "exclusionRatePct": 0.0, "shareOfExclusionsPct": 0.0}
+  ],
+  "byBattingTeam": [
+    {"battingTeam": "ATH", "sourceRows": 23259, "presentInGoldRows": 23071, "excludedRows": 188, "exclusionRatePct": 0.808289, "shareOfExclusionsPct": 4.089624},
+    {"battingTeam": "ATL", "sourceRows": 23531, "presentInGoldRows": 23265, "excludedRows": 266, "exclusionRatePct": 1.130424, "shareOfExclusionsPct": 5.786382},
+    {"battingTeam": "AZ", "sourceRows": 23737, "presentInGoldRows": 23630, "excludedRows": 107, "exclusionRatePct": 0.450773, "shareOfExclusionsPct": 2.327605},
+    {"battingTeam": "BAL", "sourceRows": 23396, "presentInGoldRows": 23375, "excludedRows": 21, "exclusionRatePct": 0.089759, "shareOfExclusionsPct": 0.45682},
+    {"battingTeam": "BOS", "sourceRows": 23644, "presentInGoldRows": 23308, "excludedRows": 336, "exclusionRatePct": 1.421079, "shareOfExclusionsPct": 7.309115},
+    {"battingTeam": "CHC", "sourceRows": 23809, "presentInGoldRows": 23624, "excludedRows": 185, "exclusionRatePct": 0.777017, "shareOfExclusionsPct": 4.024364},
+    {"battingTeam": "CIN", "sourceRows": 23298, "presentInGoldRows": 23111, "excludedRows": 187, "exclusionRatePct": 0.802644, "shareOfExclusionsPct": 4.06787},
+    {"battingTeam": "CLE", "sourceRows": 23057, "presentInGoldRows": 22731, "excludedRows": 326, "exclusionRatePct": 1.413887, "shareOfExclusionsPct": 7.091581},
+    {"battingTeam": "COL", "sourceRows": 23126, "presentInGoldRows": 22952, "excludedRows": 174, "exclusionRatePct": 0.7524, "shareOfExclusionsPct": 3.785077},
+    {"battingTeam": "CWS", "sourceRows": 22936, "presentInGoldRows": 22905, "excludedRows": 31, "exclusionRatePct": 0.135159, "shareOfExclusionsPct": 0.674353},
+    {"battingTeam": "DET", "sourceRows": 23264, "presentInGoldRows": 23084, "excludedRows": 180, "exclusionRatePct": 0.773728, "shareOfExclusionsPct": 3.915597},
+    {"battingTeam": "HOU", "sourceRows": 23537, "presentInGoldRows": 23510, "excludedRows": 27, "exclusionRatePct": 0.114713, "shareOfExclusionsPct": 0.58734},
+    {"battingTeam": "KC", "sourceRows": 23064, "presentInGoldRows": 22890, "excludedRows": 174, "exclusionRatePct": 0.754422, "shareOfExclusionsPct": 3.785077},
+    {"battingTeam": "LAA", "sourceRows": 23177, "presentInGoldRows": 23139, "excludedRows": 38, "exclusionRatePct": 0.163956, "shareOfExclusionsPct": 0.826626},
+    {"battingTeam": "LAD", "sourceRows": 23918, "presentInGoldRows": 23713, "excludedRows": 205, "exclusionRatePct": 0.857095, "shareOfExclusionsPct": 4.45943},
+    {"battingTeam": "MIA", "sourceRows": 23304, "presentInGoldRows": 23198, "excludedRows": 106, "exclusionRatePct": 0.454858, "shareOfExclusionsPct": 2.305852},
+    {"battingTeam": "MIL", "sourceRows": 23707, "presentInGoldRows": 23594, "excludedRows": 113, "exclusionRatePct": 0.476652, "shareOfExclusionsPct": 2.458125},
+    {"battingTeam": "MIN", "sourceRows": 23485, "presentInGoldRows": 23311, "excludedRows": 174, "exclusionRatePct": 0.740898, "shareOfExclusionsPct": 3.785077},
+    {"battingTeam": "NYM", "sourceRows": 23433, "presentInGoldRows": 22987, "excludedRows": 446, "exclusionRatePct": 1.903299, "shareOfExclusionsPct": 9.70198},
+    {"battingTeam": "NYY", "sourceRows": 23430, "presentInGoldRows": 23094, "excludedRows": 336, "exclusionRatePct": 1.434059, "shareOfExclusionsPct": 7.309115},
+    {"battingTeam": "PHI", "sourceRows": 23599, "presentInGoldRows": 23401, "excludedRows": 198, "exclusionRatePct": 0.839019, "shareOfExclusionsPct": 4.307157},
+    {"battingTeam": "PIT", "sourceRows": 23446, "presentInGoldRows": 23410, "excludedRows": 36, "exclusionRatePct": 0.153544, "shareOfExclusionsPct": 0.783119},
+    {"battingTeam": "SD", "sourceRows": 23376, "presentInGoldRows": 23271, "excludedRows": 105, "exclusionRatePct": 0.449179, "shareOfExclusionsPct": 2.284098},
+    {"battingTeam": "SEA", "sourceRows": 23491, "presentInGoldRows": 23455, "excludedRows": 36, "exclusionRatePct": 0.15325, "shareOfExclusionsPct": 0.783119},
+    {"battingTeam": "SF", "sourceRows": 23248, "presentInGoldRows": 23154, "excludedRows": 94, "exclusionRatePct": 0.404336, "shareOfExclusionsPct": 2.044812},
+    {"battingTeam": "STL", "sourceRows": 23535, "presentInGoldRows": 23498, "excludedRows": 37, "exclusionRatePct": 0.157213, "shareOfExclusionsPct": 0.804873},
+    {"battingTeam": "TB", "sourceRows": 23265, "presentInGoldRows": 23066, "excludedRows": 199, "exclusionRatePct": 0.855362, "shareOfExclusionsPct": 4.32891},
+    {"battingTeam": "TEX", "sourceRows": 23426, "presentInGoldRows": 23233, "excludedRows": 193, "exclusionRatePct": 0.823871, "shareOfExclusionsPct": 4.19839},
+    {"battingTeam": "TOR", "sourceRows": 23512, "presentInGoldRows": 23484, "excludedRows": 28, "exclusionRatePct": 0.119088, "shareOfExclusionsPct": 0.609093},
+    {"battingTeam": "WSH", "sourceRows": 23316, "presentInGoldRows": 23265, "excludedRows": 51, "exclusionRatePct": 0.218734, "shareOfExclusionsPct": 1.109419}
+  ],
+  "byGovernedTargetOrUnmapped": [
+    {"target": "STRIKEOUT", "sourceRows": 157236, "presentInGoldRows": 156384, "excludedRows": 852, "exclusionRatePct": 0.541861, "shareOfExclusionsPct": 18.533826},
+    {"target": "WALK_HBP_CI", "sourceRows": 67810, "presentInGoldRows": 67423, "excludedRows": 387, "exclusionRatePct": 0.570712, "shareOfExclusionsPct": 8.418534},
+    {"target": "HOME_RUN", "sourceRows": 21577, "presentInGoldRows": 21459, "excludedRows": 118, "exclusionRatePct": 0.546879, "shareOfExclusionsPct": 2.566891},
+    {"target": "SINGLE", "sourceRows": 99576, "presentInGoldRows": 99023, "excludedRows": 553, "exclusionRatePct": 0.555355, "shareOfExclusionsPct": 12.029585},
+    {"target": "DOUBLE", "sourceRows": 29992, "presentInGoldRows": 29831, "excludedRows": 161, "exclusionRatePct": 0.53681, "shareOfExclusionsPct": 3.502284},
+    {"target": "TRIPLE", "sourceRows": 2584, "presentInGoldRows": 2572, "excludedRows": 12, "exclusionRatePct": 0.464396, "shareOfExclusionsPct": 0.26104},
+    {"target": "BIP_OUT", "sourceRows": 317191, "presentInGoldRows": 315528, "excludedRows": 1663, "exclusionRatePct": 0.52429, "shareOfExclusionsPct": 36.175767},
+    {"target": "OTHER_REACH", "sourceRows": 5533, "presentInGoldRows": 5505, "excludedRows": 28, "exclusionRatePct": 0.506055, "shareOfExclusionsPct": 0.609093},
+    {"target": "SOURCE_TARGET_UNMAPPED", "sourceRows": 827, "presentInGoldRows": 4, "excludedRows": 823, "exclusionRatePct": 99.516324, "shareOfExclusionsPct": 17.90298}
+  ],
+  "unmappedTargetDetail": {
+    "excludedRows": 823,
+    "sourcePaEventCounts": {
+      "truncated_pa": 588,
+      "NULL": 235
+    },
+    "interpretation": "These rows have no supported governed eight-class target assignment in the registered source targetEventMap. They remain an explicit descriptive bucket."
+  },
+  "identityConditions": {
+    "affectedCanonicalGames": 884,
+    "fullyExcludedCanonicalGames": 44,
+    "fullyExcludedRows": 3373,
+    "partiallyExcludedCanonicalGames": 840,
+    "partiallyExcludedRows": 1224,
+    "distinctBatterCanonicalPlayerIds": 530,
+    "distinctPitcherCanonicalPlayerIds": 569,
+    "distinctBatterPitcherCanonicalPairs": 3252,
+    "nullCanonicalPaIdRows": 0,
+    "nullCanonicalGameIdRows": 0,
+    "nullBatterCanonicalPlayerIdRows": 0,
+    "nullPitcherCanonicalPlayerIdRows": 0,
+    "dimGameJoin": {
+      "matchedRows": 4597,
+      "unmatchedRows": 0,
+      "rowReconciliationStatusCounts": {
+        "MATCHED_EXACT": 4597
+      },
+      "distinctGameReconciliationStatusCounts": {
+        "MATCHED_EXACT": 884
+      }
+    },
+    "dimPlayerJoin": {
+      "batterMatchedRows": 4597,
+      "batterUnmatchedRows": 0,
+      "pitcherMatchedRows": 4597,
+      "pitcherUnmatchedRows": 0,
+      "batterRowResolutionStatusCounts": {
+        "MATCHED_EXACT": 4597
+      },
+      "pitcherRowResolutionStatusCounts": {
+        "MATCHED_EXACT": 4597
+      },
+      "distinctBatterResolutionStatusCounts": {
+        "MATCHED_EXACT": 530
+      },
+      "distinctPitcherResolutionStatusCounts": {
+        "MATCHED_EXACT": 569
+      }
+    }
+  },
+  "finalOot": {
+    "startDate": "2026-08-14",
+    "endDate": "2026-08-27",
+    "sourceRows": 14067,
+    "presentInGoldRows": 14067,
+    "excludedRows": 0
+  },
+  "featureConstructionCondition": "PRE_FEATURE_BRIDGE_NON_ADMISSION",
+  "featureConstructionConditionCounts": {
+    "PRE_FEATURE_BRIDGE_NON_ADMISSION": 4597,
+    "FEATURE_CONSTRUCTION_ROW_LOSS": 0
+  }
+}

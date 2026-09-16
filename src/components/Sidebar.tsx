@@ -31,6 +31,8 @@ import {
 import BrandLogo from "./BrandLogo";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { isSportsWorkflow, sportsWorkflowForId } from "../sports/sportsConfig";
+import { sportWorkflowRoute } from "../sports/sportsProjectRoutes";
+import { useStage3FocusMode } from "../sports/cockpit/stage3FocusMode";
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
@@ -76,8 +78,11 @@ export default function Sidebar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [compact, setCompact] = useState(() => localStorage.getItem("asp-sidebar-mode") === "compact");
+  const { focusModeActive, setFocusModeEnabled } = useStage3FocusMode();
+  const effectiveCompact = compact || focusModeActive;
   const projectName = useWorkflowStore((state) => state.projectName);
   const workflowId = useWorkflowStore((state) => state.workflowId);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const hasSportsProject = isSportsWorkflow(workflowId) && projectName !== "Untitled Sports Project";
   const workflow = sportsWorkflowForId(workflowId);
 
@@ -101,37 +106,37 @@ export default function Sidebar() {
 
       {mobileOpen && <button type="button" className="fixed inset-0 z-40 bg-slate-950/65 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation overlay" />}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[min(88vw,300px)] flex-col border-r border-white/10 bg-[#071526] shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:shrink-0 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"} ${compact ? "lg:w-[82px]" : "lg:w-[278px]"}`}>
-        <div className={`flex min-h-[76px] items-center border-b border-white/10 ${compact ? "justify-center px-3" : "justify-between px-4"}`}>
-          <BrandLogo size="sm" variant={compact ? "icon" : "dark"} showSubtitle={!compact} />
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[min(88vw,300px)] flex-col border-r border-white/10 bg-[#071526] shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:shrink-0 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"} ${effectiveCompact ? "lg:w-[82px]" : "lg:w-[278px]"}`} data-modeling-focus-rail={focusModeActive ? "true" : undefined}>
+        <div className={`flex min-h-[76px] items-center border-b border-white/10 ${effectiveCompact ? "justify-center px-3" : "justify-between px-4"}`}>
+          <BrandLogo size="sm" variant={effectiveCompact ? "icon" : "dark"} showSubtitle={!effectiveCompact} />
           <button type="button" onClick={() => setMobileOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-300 hover:bg-white/10 hover:text-white lg:hidden" aria-label="Close navigation"><X size={19} /></button>
-          {!compact && <button type="button" onClick={toggleCompact} className="hidden h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white lg:grid" aria-label="Collapse navigation"><ChevronLeft size={18} /></button>}
-          {compact && <button type="button" onClick={toggleCompact} className="absolute -right-3 top-6 hidden h-7 w-7 place-items-center rounded-full border border-slate-700 bg-[#0c2037] text-slate-300 shadow-lg lg:grid" aria-label="Expand navigation"><ChevronRight size={15} /></button>}
+          {!effectiveCompact && <button type="button" onClick={toggleCompact} className="hidden h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white lg:grid" aria-label="Collapse navigation"><ChevronLeft size={18} /></button>}
+          {effectiveCompact && <button type="button" onClick={focusModeActive ? () => setFocusModeEnabled(false) : toggleCompact} className="absolute -right-3 top-6 hidden h-7 w-7 place-items-center rounded-full border border-slate-700 bg-[#0c2037] text-slate-300 shadow-lg lg:grid" aria-label={focusModeActive ? "Exit modeling focus mode" : "Expand navigation"}><ChevronRight size={15} /></button>}
         </div>
 
-        <nav className={`flex-1 space-y-6 overflow-y-auto py-5 ${compact ? "px-2" : "px-3"}`} aria-label="Primary navigation">
+        <nav className={`flex-1 space-y-6 overflow-y-auto py-5 ${effectiveCompact ? "px-2" : "px-3"}`} aria-label="Primary navigation">
           {hasSportsProject && (
-            <NavSection label="Current Project" compact={compact}>
-              <div className={`${compact ? "hidden" : "mx-2 mb-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.06] px-3 py-2"}`}>
+            <NavSection label="Current Project" compact={effectiveCompact}>
+              <div className={`${effectiveCompact ? "hidden" : "mx-2 mb-2 rounded-xl border border-cyan-300/10 bg-cyan-300/[0.06] px-3 py-2"}`}>
                 <div className="truncate text-sm font-semibold text-white">{projectName}</div>
                 <div className="mt-0.5 text-xs text-cyan-200">{workflow.league} · {workflow.status === "ACTIVE WORKFLOW" ? "Active" : "Foundation"}</div>
               </div>
-              <NavigationLink item={{ to: "/project-overview", label: "Project Overview", icon: Network }} compact={compact} />
-              <NavigationLink item={{ to: `/workflows/${workflow.key}`, label: `${workflow.league} Workflow`, icon: Workflow }} compact={compact} />
+              <NavigationLink item={{ to: "/project-overview", label: "Project Overview", icon: Network }} compact={effectiveCompact} />
+              <NavigationLink item={{ to: sportWorkflowRoute(workflow.leagueCode as "MLB" | "NFL", projectId), label: `${workflow.league} Workflow`, icon: Workflow }} compact={effectiveCompact} />
             </NavSection>
           )}
 
           {NAV_GROUPS.map((group) => (
-            <NavSection key={group.label} label={group.label} compact={compact}>
-              {group.items.map((item) => <NavigationLink key={item.to} item={item} compact={compact} />)}
+            <NavSection key={group.label} label={group.label} compact={effectiveCompact}>
+              {group.items.map((item) => <NavigationLink key={item.to} item={item} compact={effectiveCompact} />)}
             </NavSection>
           ))}
         </nav>
 
-        <div className={`border-t border-white/10 p-3 ${compact ? "text-center" : ""}`}>
-          <div className={`rounded-xl border border-teal-300/10 bg-teal-300/[0.06] p-3 ${compact ? "grid place-items-center" : ""}`}>
+        <div className={`border-t border-white/10 p-3 ${effectiveCompact ? "text-center" : ""}`}>
+          <div className={`rounded-xl border border-teal-300/10 bg-teal-300/[0.06] p-3 ${effectiveCompact ? "grid place-items-center" : ""}`}>
             <span className="inline-flex h-2 w-2 rounded-full bg-teal-300 shadow-[0_0_10px_rgba(94,234,212,.8)]" />
-            {!compact && <><div className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-teal-200">Phase 1 workspace</div><div className="mt-1 text-xs leading-5 text-slate-400">Local · isolated · authenticated</div></>}
+            {!effectiveCompact && <><div className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-teal-200">Phase 1 workspace</div><div className="mt-1 text-xs leading-5 text-slate-400">Local · isolated · authenticated</div></>}
           </div>
         </div>
       </aside>

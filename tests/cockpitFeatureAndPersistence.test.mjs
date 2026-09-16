@@ -20,7 +20,7 @@ globalThis.localStorage = {
 
 async function transpile(src, out) {
   let code = await readFile(new URL(src, ROOT), "utf8");
-  code = ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve } }).outputText;
+  code = ts.transpileModule(code, { fileName: src, compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.Preserve } }).outputText;
   code = code.replace(/from\s+["'](\.{1,2}\/[^"']+)["']/g, (m, s) => (s.endsWith(".js") || s.endsWith(".json") ? m : m.replace(s, `${s}.js`)));
   await mkdir(path.dirname(out), { recursive: true });
   await writeFile(out, code, "utf8");
@@ -30,6 +30,7 @@ await rm(TMP, { recursive: true, force: true });
 // stub the fetch helper so importing the store has no network dependency
 await mkdir(path.join(TMP, "src/lib"), { recursive: true });
 await writeFile(path.join(TMP, "src/lib/api.js"), "export const BASE='/api'; export async function getJSON(){return {};} export async function postJSON(){return {};}\n", "utf8");
+await transpile("src/lib/authSession.ts", path.join(TMP, "src/lib/authSession.js"));
 await transpile("src/sports/cockpit/cockpitApi.ts", path.join(TMP, "src/sports/cockpit/cockpitApi.js"));
 await transpile("src/sports/cockpit/cockpitPersistence.ts", path.join(TMP, "src/sports/cockpit/cockpitPersistence.js"));
 
@@ -92,7 +93,7 @@ test("snapshot round-trips through localStorage and is versioned", () => {
   assert.equal(loaded.version, 1);
   assert.deepEqual(loaded.config.features, ["a", "b"]);
   assert.equal(loaded.notes.objective, "hi");
-  assert.equal(loaded.savedSteps.missing, true);
+  assert.deepEqual(loaded.savedSteps, {}); // Browser completion markers are not authenticated science evidence.
   assert.equal(loaded.activeStep, "features");
   assert.ok(loaded.savedAt);
 });

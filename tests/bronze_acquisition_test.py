@@ -43,6 +43,19 @@ def test_statcast_url_refuses_sealed_year():
         sources.statcast_partitions(2024, 2025)
 
 
+def test_current_statcast_extension_is_explicit_and_cutoff_bounded():
+    assert safety.assert_current_statcast_date_allowed("2025-03-01") == "2025-03-01"
+    assert safety.assert_current_statcast_date_allowed("2026-08-27") == "2026-08-27"
+    for bad in ("2024-12-31", "2026-08-28", "2027-01-01"):
+        with pytest.raises(BronzeBoundaryError):
+            safety.assert_current_statcast_date_allowed(bad)
+
+    parts = sources.current_statcast_partitions("2026-08-25", "2026-08-27")
+    assert [part.query["date"] for part in parts] == ["2026-08-25", "2026-08-26", "2026-08-27"]
+    assert all(part.scope == "regular" and "hfGT=R%7C" in part.url for part in parts)
+    assert all(part.natural_keys == ["game_pk", "at_bat_number", "pitch_number"] for part in parts)
+
+
 # ---------------- path containment ----------------
 def test_contained_path_rejects_traversal_and_absolute(tmp_path):
     safety.contained_path(tmp_path, "a", "b.csv")            # ok
@@ -131,14 +144,29 @@ def test_download_no_overwrite_divergent(tmp_path):
 
 # ---------------- manifest: canonicalization + resume ----------------
 def test_manifest_canonicalization_stable(tmp_path):
-    m = manifest.BronzeManifest(tmp_path)
-    m.upsert({"partitionId": "s/1", "source": "s", "status": "COMPLETE", "relativePath": "a.csv", "fileSha256": "x"})
+    import hashlib
     (tmp_path / "a.csv").write_text("hi")
+    m = manifest.BronzeManifest(tmp_path)
+    m.upsert({"partitionId": "s/1", "source": "s", "status": "COMPLETE", "relativePath": "a.csv",
+              "fileSha256": hashlib.sha256((tmp_path / "a.csv").read_bytes()).hexdigest()})
     sha_a = m.write()
     m2 = manifest.BronzeManifest(tmp_path); sha_b = m2.write()
     assert sha_a == sha_b                                          # deterministic
     assert m2.has_valid("s/1")                                    # resume sees the completed partition
     assert not m2.has_valid("s/does-not-exist")
+
+
+def test_manifest_resume_rehashes_recorded_bytes(tmp_path):
+    target = tmp_path / "a.csv"
+    target.write_text("original")
+    import hashlib
+    m = manifest.BronzeManifest(tmp_path)
+    m.upsert({"partitionId": "s/1", "source": "s", "status": "COMPLETE", "relativePath": "a.csv",
+              "fileSha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+    m.write()
+    assert m.has_valid("s/1")
+    target.write_text("tampered")
+    assert not m.has_valid("s/1")
 
 
 def test_inspect_csv_counts_and_dupes(tmp_path):
