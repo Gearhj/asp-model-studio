@@ -1,0 +1,373 @@
+{
+  "createdAt": "2026-09-16T13:14:10.767922+00:00",
+  "sourceBase": "9a5edbe46e4398e5dffb9ddc5052496b93499486",
+  "originalDevelopment": "0c786297534c1ffc9892fbcd199d7d7af5ec8bae",
+  "sourceCheckout": "C:\\Users\\james\\asp-model-studio-source",
+  "sourceBranch": "codex/source-development-v1",
+  "independentClone": true,
+  "unfinishedCheckpoint": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+  "unfinishedFiles": [
+    {
+      "path": "docs/ASP_MODEL_STUDIO_PROJECT_MANAGEMENT_HANDOFF_2026-09-11.md",
+      "exists": true,
+      "snapshotSha256": "f6c4a2269398d07c09427008dcdc1784459446656325b6a71bb899af3d5210b1",
+      "currentSha256": "f6c4a2269398d07c09427008dcdc1784459446656325b6a71bb899af3d5210b1",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/build_mlb_v18_diagnosis_report_v1.py",
+      "exists": true,
+      "snapshotSha256": "b65f0e3c4974cc49106295d1f11c2589f8502d09701c85ee9bf679aa5e69c18b",
+      "currentSha256": "b65f0e3c4974cc49106295d1f11c2589f8502d09701c85ee9bf679aa5e69c18b",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/build_mlb_v18_ensemble_release_candidate_v1.py",
+      "exists": true,
+      "snapshotSha256": "faf89c7cc7aa4ddbeb166e9a73ea66265d69fd42cff2e6a5288c7dd1d433c4a7",
+      "currentSha256": "faf89c7cc7aa4ddbeb166e9a73ea66265d69fd42cff2e6a5288c7dd1d433c4a7",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/build_mlb_v18_population_observed_v1.py",
+      "exists": true,
+      "snapshotSha256": "988e4ed8707583c3968f54ca68da37f5977377bc4e55f4fc88a244714643972e",
+      "currentSha256": "988e4ed8707583c3968f54ca68da37f5977377bc4e55f4fc88a244714643972e",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/build_mlb_v18_transition_shrinkage_v1.py",
+      "exists": true,
+      "snapshotSha256": "6ac5c3552b94dc2e75cc209ece2b15f72d05e8fc4802df7677dd3c10631f43f4",
+      "currentSha256": "6ac5c3552b94dc2e75cc209ece2b15f72d05e8fc4802df7677dd3c10631f43f4",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/consume_mlb_v18_simulator_evidence_v1.py",
+      "exists": true,
+      "snapshotSha256": "f43bdcaf27d77745cd361fbec80e695fa3bb6267f989fc9f72d1d336d8793fc3",
+      "currentSha256": "f43bdcaf27d77745cd361fbec80e695fa3bb6267f989fc9f72d1d336d8793fc3",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/diagnose_mlb_v18_calibration_leads_v1.py",
+      "exists": true,
+      "snapshotSha256": "b0f94b83ff586dac4f96429bd2ee9cce2e582bd2891544f23ab63ba041433e96",
+      "currentSha256": "b0f94b83ff586dac4f96429bd2ee9cce2e582bd2891544f23ab63ba041433e96",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/diagnose_mlb_v18_doubles_innings_v1.py",
+      "exists": true,
+      "snapshotSha256": "3e2bece387c24902bd5e6dfdc9e08a1bd62b29c82377c58a5bfaf056e27420c5",
+      "currentSha256": "3e2bece387c24902bd5e6dfdc9e08a1bd62b29c82377c58a5bfaf056e27420c5",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/diagnose_mlb_v18_pa_v1.py",
+      "exists": true,
+      "snapshotSha256": "cc42a48c1d2a6c1b02649cef5e06516df5cbab4ea805404738532107dd753f7f",
+      "currentSha256": "cc42a48c1d2a6c1b02649cef5e06516df5cbab4ea805404738532107dd753f7f",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/diagnose_mlb_v18_whole_game_v1.py",
+      "exists": true,
+      "snapshotSha256": "cdf744eee662da73d49234787d77cd303a0049dbbe2aaccc59c2e66a0e8efb91",
+      "currentSha256": "cdf744eee662da73d49234787d77cd303a0049dbbe2aaccc59c2e66a0e8efb91",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/enrich_mlb_v18_pa_cases_v1.py",
+      "exists": true,
+      "snapshotSha256": "794d2353f04f7c6e584f4c4159820a62488d03a74fe2dcc8a815b5ac751b6e41",
+      "currentSha256": "794d2353f04f7c6e584f4c4159820a62488d03a74fe2dcc8a815b5ac751b6e41",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/export_mlb_v18_ensemble_release_candidate_v1.py",
+      "exists": true,
+      "snapshotSha256": "99bfab90e1bda5160d275de5fbad18bce2074844703a2d0d262c420751d2fae7",
+      "currentSha256": "99bfab90e1bda5160d275de5fbad18bce2074844703a2d0d262c420751d2fae7",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/export_mlb_v18_transition_shrinkage_v1.py",
+      "exists": true,
+      "snapshotSha256": "af1f446bb1d9122c1b6ff45a1e7ee494470e41d9b7cc95b06efe3de8eb2a0594",
+      "currentSha256": "af1f446bb1d9122c1b6ff45a1e7ee494470e41d9b7cc95b06efe3de8eb2a0594",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/followup_mlb_v18_doubles_v1.py",
+      "exists": true,
+      "snapshotSha256": "9d6ab172e2b95bcd84d514065dbe8daf358bcbf6bf05a92676dd31e710ff5a3e",
+      "currentSha256": "9d6ab172e2b95bcd84d514065dbe8daf358bcbf6bf05a92676dd31e710ff5a3e",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/freeze_mlb_v18_transition_shadow_v1.py",
+      "exists": true,
+      "snapshotSha256": "76456e4ecb578c603c813038e071042667f92cbb9072022df42dccab1ad87e05",
+      "currentSha256": "76456e4ecb578c603c813038e071042667f92cbb9072022df42dccab1ad87e05",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/manifest_mlb_v18_diagnosis_v1.py",
+      "exists": true,
+      "snapshotSha256": "b7927ec97bc02ada8edde0ded530b0f06838c0d86baad4b5c2ab6bb290b47b18",
+      "currentSha256": "b7927ec97bc02ada8edde0ded530b0f06838c0d86baad4b5c2ab6bb290b47b18",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/package_mlb_v18_transition_adapter_v2.py",
+      "exists": true,
+      "snapshotSha256": "0ef30432129a7958da04378bf61c90cf30864640564a035e13139e09c4c4ef02",
+      "currentSha256": "0ef30432129a7958da04378bf61c90cf30864640564a035e13139e09c4c4ef02",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/package_mlb_v18_transition_shrinkage_v1.py",
+      "exists": true,
+      "snapshotSha256": "32d400ff891de3496d1b4e63cdae0cfa4c79927a874206bdd9a0c4763ba8ab39",
+      "currentSha256": "32d400ff891de3496d1b4e63cdae0cfa4c79927a874206bdd9a0c4763ba8ab39",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/render_mlb_v18_diagnostic_tables_v1.py",
+      "exists": true,
+      "snapshotSha256": "482a258b9c76b02505994fa11a30696db3716da4388e5cfde8bed02673464570",
+      "currentSha256": "482a258b9c76b02505994fa11a30696db3716da4388e5cfde8bed02673464570",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/run_mlb_v18_empirical_diagnosis_v1.py",
+      "exists": true,
+      "snapshotSha256": "a2c66cea4d1a58c5688104232d5a039201908563b510f62edf323a8fee814ba2",
+      "currentSha256": "a2c66cea4d1a58c5688104232d5a039201908563b510f62edf323a8fee814ba2",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/run_mlb_v18_ensemble_release_candidate_v1.py",
+      "exists": true,
+      "snapshotSha256": "b3e632002a4c2d8a5a1b05c39ac9f42ced7eda32645b6f7e58f849470a9a8b0e",
+      "currentSha256": "b3e632002a4c2d8a5a1b05c39ac9f42ced7eda32645b6f7e58f849470a9a8b0e",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/verify_mlb_v18_ensemble_release_candidate_v1.py",
+      "exists": true,
+      "snapshotSha256": "97532e50631d095a3d09379f552515e2a251d22047d8554195d5a857669a38fb",
+      "currentSha256": "97532e50631d095a3d09379f552515e2a251d22047d8554195d5a857669a38fb",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "scripts/verify_mlb_v18_transition_delivery_v1.py",
+      "exists": true,
+      "snapshotSha256": "bdadc3617039ea5d5cb095ad71cf3ccac8bb2fa03d2275866045102df6cd3905",
+      "currentSha256": "bdadc3617039ea5d5cb095ad71cf3ccac8bb2fa03d2275866045102df6cd3905",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "server/sports_current_statcast/mlb_v18_ensemble_candidate.py",
+      "exists": true,
+      "snapshotSha256": "d36a4c50efa28f02ef2b270f04c582c96915b9b86dfdbfb0b8f7c3a79922e81b",
+      "currentSha256": "d36a4c50efa28f02ef2b270f04c582c96915b9b86dfdbfb0b8f7c3a79922e81b",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "server/sports_current_statcast/mlb_v18_prospective_transform.py",
+      "exists": true,
+      "snapshotSha256": "d9e55b24ebf8279c846c362c03cb0cbd1497e747edbdb8993b21a3aec9c4d687",
+      "currentSha256": "d9e55b24ebf8279c846c362c03cb0cbd1497e747edbdb8993b21a3aec9c4d687",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "outputs/project-management-handoff-20260915-v1/HANDOFF.md",
+      "exists": true,
+      "snapshotSha256": "ee8d817da109bf52bdb940b7747df1b36bcad0505111f8226e98c9975cdfed62",
+      "currentSha256": "ee8d817da109bf52bdb940b7747df1b36bcad0505111f8226e98c9975cdfed62",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "outputs/project-management-handoff-20260915-v1/prepare_report.py",
+      "exists": true,
+      "snapshotSha256": "868a214105f4e74b3d44a16bb386f67d0fe8d3f531821537cb167da7faf07ee6",
+      "currentSha256": "868a214105f4e74b3d44a16bb386f67d0fe8d3f531821537cb167da7faf07ee6",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "outputs/project-management-handoff-20260915-v1/README.md",
+      "exists": true,
+      "snapshotSha256": "09d9e902d275a202fb7412594eecd6fe016d46e7f7d305cd4f5f57e32e437136",
+      "currentSha256": "09d9e902d275a202fb7412594eecd6fe016d46e7f7d305cd4f5f57e32e437136",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "outputs/project-management-handoff-20260915-v1/REPORT.md",
+      "exists": true,
+      "snapshotSha256": "fd26bcfda24c4b08313c2f74650ed4d4675b66cd7a4c8f1302a0ef0b6a38ed00",
+      "currentSha256": "fd26bcfda24c4b08313c2f74650ed4d4675b66cd7a4c8f1302a0ef0b6a38ed00",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    },
+    {
+      "path": "outputs/project-management-handoff-20260915-v1/SOURCES.md",
+      "exists": true,
+      "snapshotSha256": "8f6bbec23b10cb8121f55615fbac554cc0ab95f805faba03798a2443cff30cec",
+      "currentSha256": "8f6bbec23b10cb8121f55615fbac554cc0ab95f805faba03798a2443cff30cec",
+      "changed": false,
+      "disposition": "PRESERVED_ON_UNVALIDATED_CHECKPOINT_NOT_IMPORTED"
+    }
+  ],
+  "subsequentCompletedPublicationCommit": "63e7bddada991f3754bc721df8c62ae60a869379",
+  "transfers": [
+    {
+      "path": ".gitignore",
+      "sourceCommit": "63e7bddada991f3754bc721df8c62ae60a869379",
+      "classification": "REVIEWED_HYGIENE_PLUS_SOURCE_ONLY_IGNORE_RULES"
+    }
+  ],
+  "newChanges": "Restore nine omitted existing application source/static assets from exact original blobs; workflow instructions/ignore rules and metadata-only recovery reports. No model source change or unfinished checkpoint import.",
+  "originalWorktrees": [
+    {
+      "path": "C:/Users/james/asp-model-studio",
+      "head": "0c786297534c1ffc9892fbcd199d7d7af5ec8bae",
+      "headChanged": false,
+      "trackedChanges": 9
+    },
+    {
+      "path": "C:/Users/james/asp-model-studio/.tmp/asp-interaction-authority-v1",
+      "head": "09006653b3f1714574a88efca8650d4f967ab3cd",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/asp-model-studio/.tmp/asp-player-prior-wave2",
+      "head": "bff19a8a657bc96dea0469fad481acdcb4234386",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/asp-model-studio/.tmp/asp-remaining-feature-authority-wave1",
+      "head": "64a74be89b029adc013e118b14aad75e3ddc0232",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/asp-model-studio-spatial",
+      "head": "a9e6d60a669491f911f2506cce2bb1adf11e9d57",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/worktrees/asp-model-studio-fable51-audit",
+      "head": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/worktrees/asp-model-studio-tenant-repair-verification",
+      "head": "7ba66bfbb3baf3c6045f2ca42b8a5a0b07760d2f",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/worktrees/asp-model-studio-tenant-workflow-repair-v1",
+      "head": "9f02e6835f578b13d0429d0a7442b3634048f8f2",
+      "headChanged": false,
+      "trackedChanges": 0
+    },
+    {
+      "path": "C:/Users/james/worktrees/asp-remaining-authority-audit",
+      "head": "056aca14c5dfa959b244cf629bc12fca7a5e9186",
+      "headChanged": false,
+      "trackedChanges": 0
+    }
+  ],
+  "liveRuntimeQualification": "Moving owner pointers are not copied, restored or restamped; source/runtime ownership stays separate.",
+  "applicationResourceRestoration": [
+    {
+      "path": "public/assets/guitar-fretboard.png",
+      "gitBlob": "72903299b69f1d700b6465b48ea577d731483212",
+      "bytes": 1866415,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/assets/branding/atlas-favicon.ico",
+      "gitBlob": "3e6f696e8ddf132bb9073d6c6dc8ec8a48837035",
+      "bytes": 20295,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/assets/branding/atlas-icon.png",
+      "gitBlob": "3e6f696e8ddf132bb9073d6c6dc8ec8a48837035",
+      "bytes": 20295,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/assets/branding/atlas-logo-dark.png",
+      "gitBlob": "0e9ab6d082ca6126b909405cff6da1a94b654c0e",
+      "bytes": 24186,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/assets/branding/atlas-logo-light.png",
+      "gitBlob": "afc7d2ffdb3fdaba902da202aae7c450a5fc93c9",
+      "bytes": 109246,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/data/guitarists.ts",
+      "gitBlob": "6bc6a87bc4bd67d8e7d60228bcd22d6863d744cb",
+      "bytes": 23986,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/data/sourceRankings.ts",
+      "gitBlob": "01477412a050f5b8f4030ef613b0533d717e0f48",
+      "bytes": 12909,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/data/supplementalGuitarists.ts",
+      "gitBlob": "264a2b1079f611df34940109b7ee1e93defc78ba",
+      "bytes": 26033,
+      "sameAsPreviouslyPublishedSafeParent": true
+    },
+    {
+      "path": "src/data/wikidataGuitarists.ts",
+      "gitBlob": "f3e0b48b7544a34ba9f0d6ec7ffae2014f9c7ecd",
+      "bytes": 77056,
+      "sameAsPreviouslyPublishedSafeParent": true
+    }
+  ]
+}

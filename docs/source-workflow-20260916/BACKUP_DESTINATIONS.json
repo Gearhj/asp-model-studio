@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-09-16T13:14:10.791907+00:00",
+  "uploads": 0,
+  "protectedPayloadsOpened": 0,
+  "destinations": [
+    {
+      "path": "C:\\Users\\james\\OneDrive\\ASP-Platform-Backups",
+      "status": "EXISTING_PREVIOUSLY_USED_PRIVATE_DESTINATION_SCOPE_LIMITED",
+      "governingReceipt": "C:\\Users\\james\\OneDrive\\ASP-Platform-Backups\\2026-09-05_131726\\PARTIAL_BACKUP_MANIFEST.json",
+      "receiptSha256": "a874bfef4bcf638eb1d2d3aa298175af6f8a37af206b64ada917d9c3d899d7cf",
+      "exactRecordedPermission": "User explicitly authorized only these two exact credential-bearing bundle files to this private OneDrive destination.",
+      "previousModelStudioBundle": {
+        "filename": "asp-model-studio-2026-09-05.bundle",
+        "bytes": 213810080,
+        "sha256": "03393f00a3069acff249f2ce5d0a4dae3e49f5328bd9fdfc3a68fdb106afe873",
+        "required_head": "bff19a8a657bc96dea0469fad481acdcb4234386",
+        "verified_at": "2026-09-05T17:46:08.152034+00:00"
+      },
+      "priorSyncStatus": "NOT_VERIFIED",
+      "newBundleOrNonGitUploadAuthorizedByPriorReceipt": false,
+      "currentTransferPerformed": false
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\backups\\datasets",
+      "status": "CONFIGURED_LOCAL_DATASET_BACKUP_ROOT",
+      "exists": true,
+      "governingConfiguration": "scripts/start-asp-model-studio.ps1:71",
+      "scope": "Dataset library; not a whole-project off-machine recovery service"
+    },
+    {
+      "path": "C:\\Users\\james\\AppData\\Local\\ATLAS\\dataset-library-backups",
+      "status": "EXISTING_LEGACY_LOCAL_DATASET_BACKUPS",
+      "scope": "Same-machine legacy dataset-library backup; 60 files / 53,160 logical bytes"
+    },
+    {
+      "path": "https://github.com/Gearhj/asp-model-studio",
+      "status": "APPROVED_REVIEWED_SOURCE_DESTINATION",
+      "scope": "Source refs and reviewed admissible evidence, not blanket raw/model/runtime recovery"
+    }
+  ],
+  "missing": [
+    "Current scoped authorization for a new recovery set in an approved private destination; the old OneDrive approval names only two exact September 5 bundles.",
+    "Separate permitted backup handling of credentials and restricted/licensed/sealed/prospective-only evidence; no evaluation exception requested.",
+    "Read/list metadata permission for the exact 435 denied paths in RECOVERY_SIZE_COVERAGE.json to finish size coverage.",
+    "Actual cloud sync and isolated restore verification; neither is inferred from a local OneDrive folder."
+  ],
+  "inspectionLimits": [
+    "rclone/restic not found on PATH; no new backup software installed.",
+    "Windows logical-disk CIM query was denied; no ACL change or elevated disk scan attempted.",
+    "Only the named project backup folder was inventoried; backup archive/log payloads were not opened."
+  ]
+}

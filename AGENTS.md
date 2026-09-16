@@ -16,3 +16,10 @@ The identity-only accounting receipt is
 `outputs/mlb-starter-duration-paired-research-v1/quarantine-key-accounting/objects/sha256/47b1af811219ef30c94225c511b9b8a8860443066f39d28b0e4b155f2201baa8.json`:
 230 of the original 14,067 observations are permanently excluded, leaving 13,837.
 This is a key count, not authorization to read or evaluate the reduced cohort.
+
+# Source-only development workflow
+
+Read `docs/SOURCE_WORKFLOW.md` before coding or pushing from this checkout.
+This source clone does not reconstruct the running system. Preserve the original
+repository/worktrees and all running owners; activation is a separate assignment.
+Do not merge blocked original histories or treat unfinished checkpoints as validated.

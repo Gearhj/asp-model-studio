@@ -1,0 +1,3371 @@
+{
+  "schema": "ASP_RECOVERY_SIZE_COVERAGE_METADATA_V1",
+  "startedAt": "2026-09-16T13:08:29.153488+00:00",
+  "finishedAt": "2026-09-16T13:08:54.783736+00:00",
+  "payloadFilesOpened": 0,
+  "payloadHashesComputed": 0,
+  "uploads": 0,
+  "rootGroups": [
+    {
+      "category": "original_git_store",
+      "path": "C:\\Users\\james\\asp-model-studio\\.git",
+      "exists": true,
+      "files": 6122,
+      "logicalBytes": 1186290340,
+      "classificationCounts": {
+        "other_contents_not_inspected": 6108,
+        "name_marked_restricted_review_required": 3,
+        "archive_or_git_pack": 11
+      },
+      "classificationBytes": {
+        "other_contents_not_inspected": 137111348,
+        "name_marked_restricted_review_required": 732,
+        "archive_or_git_pack": 1049178260
+      },
+      "latestFileModificationUtc": "2026-09-16T13:03:03.059964+00:00",
+      "topLevelGroups": {
+        "COMMIT_EDITMSG": {
+          "files": 1,
+          "logicalBytes": 73
+        },
+        "FETCH_HEAD": {
+          "files": 1,
+          "logicalBytes": 285
+        },
+        "HEAD": {
+          "files": 1,
+          "logicalBytes": 60
+        },
+        "ORIG_HEAD": {
+          "files": 1,
+          "logicalBytes": 41
+        },
+        "config": {
+          "files": 1,
+          "logicalBytes": 709
+        },
+        "description": {
+          "files": 1,
+          "logicalBytes": 73
+        },
+        "hooks": {
+          "files": 14,
+          "logicalBytes": 25827
+        },
+        "index": {
+          "files": 1,
+          "logicalBytes": 1808816
+        },
+        "info": {
+          "files": 2,
+          "logicalBytes": 7083
+        },
+        "logs": {
+          "files": 132,
+          "logicalBytes": 187548
+        },
+        "objects": {
+          "files": 5847,
+          "logicalBytes": 1180459042
+        },
+        "packed-refs": {
+          "files": 1,
+          "logicalBytes": 6889
+        },
+        "refs": {
+          "files": 63,
+          "logicalBytes": 2583
+        },
+        "worktrees": {
+          "files": 56,
+          "logicalBytes": 3791311
+        }
+      }
+    },
+    {
+      "category": "research_outputs",
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs",
+      "exists": true,
+      "files": 21694,
+      "logicalBytes": 8798332063,
+      "classificationCounts": {
+        "json_contents_not_inspected": 19642,
+        "other_contents_not_inspected": 737,
+        "fitted_or_serialized_artifact": 397,
+        "name_marked_restricted_review_required": 51,
+        "tabular_or_array_data": 827,
+        "archive_or_git_pack": 40
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 5167398383,
+        "other_contents_not_inspected": 92134516,
+        "fitted_or_serialized_artifact": 2151795231,
+        "name_marked_restricted_review_required": 6983483,
+        "tabular_or_array_data": 1298711887,
+        "archive_or_git_pack": 81308563
+      },
+      "latestFileModificationUtc": "2026-09-16T13:04:08.972063+00:00",
+      "topLevelGroups": {
+        "cfb-archetype-extended-gap-v1": {
+          "files": 108,
+          "logicalBytes": 21368435
+        },
+        "cfb-gen1-current-v1": {
+          "files": 54,
+          "logicalBytes": 7527043
+        },
+        "cfb-gen1-v1": {
+          "files": 88,
+          "logicalBytes": 10785944
+        },
+        "four-sport-operational-handoff-20260915-v1": {
+          "files": 9,
+          "logicalBytes": 454340
+        },
+        "market-intelligence-rff-v1": {
+          "files": 85,
+          "logicalBytes": 69734861
+        },
+        "mlb-corrected-treatment": {
+          "files": 4,
+          "logicalBytes": 716119
+        },
+        "mlb-gen1-bet-readiness-cohort": {
+          "files": 9,
+          "logicalBytes": 17129529
+        },
+        "mlb-matchup-starter-shrinkage-v1": {
+          "files": 37,
+          "logicalBytes": 3668134
+        },
+        "mlb-pitcher-archetype-survival-v1": {
+          "files": 42,
+          "logicalBytes": 44821788
+        },
+        "mlb-prospective-closeout-and-explanations-v1": {
+          "files": 56,
+          "logicalBytes": 817072
+        },
+        "mlb-regime-hybrid-ensemble-v1": {
+          "files": 55,
+          "logicalBytes": 361434886
+        },
+        "mlb-roster-freshness-repair-v1": {
+          "files": 9,
+          "logicalBytes": 4214735
+        },
+        "mlb-selection-policy-study": {
+          "files": 4,
+          "logicalBytes": 34869
+        },
+        "mlb-show-preview-feasibility-v1": {
+          "files": 31,
+          "logicalBytes": 14950253
+        },
+        "mlb-starter-duration-paired-research-v1": {
+          "files": 2531,
+          "logicalBytes": 126928174
+        },
+        "mlb-starter-survival-hierarchical-pa-v1": {
+          "files": 54,
+          "logicalBytes": 84319891
+        },
+        "mlb-v18-acceptance-protocol": {
+          "files": 3,
+          "logicalBytes": 9058
+        },
+        "mlb-v18-acceptance-protocol-v2": {
+          "files": 4,
+          "logicalBytes": 13894
+        },
+        "mlb-v18-cold-start-reconciliation-v1": {
+          "files": 6,
+          "logicalBytes": 2461143
+        },
+        "mlb-v18-conditional-champion-v1": {
+          "files": 17,
+          "logicalBytes": 10805416
+        },
+        "mlb-v18-current-slate-v1": {
+          "files": 26,
+          "logicalBytes": 7750491
+        },
+        "mlb-v18-current-state-pipeline-v1": {
+          "files": 11919,
+          "logicalBytes": 6342422280
+        },
+        "mlb-v18-daily-slate": {
+          "files": 279,
+          "logicalBytes": 22826536
+        },
+        "mlb-v18-delivery-timing-audit-v1": {
+          "files": 9,
+          "logicalBytes": 131102
+        },
+        "mlb-v18-doubles-followup-v1": {
+          "files": 5,
+          "logicalBytes": 151473
+        },
+        "mlb-v18-doubles-inning-duration-v1": {
+          "files": 22,
+          "logicalBytes": 23361607
+        },
+        "mlb-v18-empirical-diagnosis-v1": {
+          "files": 57,
+          "logicalBytes": 6375936
+        },
+        "mlb-v18-ensemble-release-candidate-v1": {
+          "files": 22,
+          "logicalBytes": 2993778
+        },
+        "mlb-v18-pa-game-baseline": {
+          "files": 46,
+          "logicalBytes": 6682525
+        },
+        "mlb-v18-play-geometry": {
+          "files": 9,
+          "logicalBytes": 478317
+        },
+        "mlb-v18-population-diagnostics-v1": {
+          "files": 87,
+          "logicalBytes": 51490791
+        },
+        "mlb-v18-population-geometry": {
+          "files": 71,
+          "logicalBytes": 6410600
+        },
+        "mlb-v18-position-and-survival-verification-v1": {
+          "files": 60,
+          "logicalBytes": 1664018
+        },
+        "mlb-v18-rf-operationalization-v1": {
+          "files": 10,
+          "logicalBytes": 262496
+        },
+        "mlb-v18-score-limited-v1": {
+          "files": 61,
+          "logicalBytes": 16807009
+        },
+        "mlb-v18-september12-miss-analysis-v1": {
+          "files": 85,
+          "logicalBytes": 5945123
+        },
+        "mlb-v18-september14-publication-audit-v1": {
+          "files": 2,
+          "logicalBytes": 16172
+        },
+        "mlb-v18-survival-results-and-permission-v1": {
+          "files": 15,
+          "logicalBytes": 174949
+        },
+        "mlb-v18-survival-starter-coverage-v1": {
+          "files": 199,
+          "logicalBytes": 5312742
+        },
+        "mlb-v18-three-arm-pregame-comparison-v1": {
+          "files": 498,
+          "logicalBytes": 34440995
+        },
+        "mlb-v18-totals-distribution-v1": {
+          "files": 66,
+          "logicalBytes": 975909
+        },
+        "mlb-v18-transition-shrinkage-v1": {
+          "files": 61,
+          "logicalBytes": 1122149
+        },
+        "mlb-v18-unattended-v1": {
+          "files": 1330,
+          "logicalBytes": 64260139
+        },
+        "mlb-v18-whole-game-challenger": {
+          "files": 26,
+          "logicalBytes": 7864384
+        },
+        "mlb-v19-current-state-specialists-v1": {
+          "files": 80,
+          "logicalBytes": 227242319
+        },
+        "model-vs-market-benchmark-v1": {
+          "files": 6,
+          "logicalBytes": 528696
+        },
+        "multisport-feature-engineering-audit-v1": {
+          "files": 37,
+          "logicalBytes": 21938106
+        },
+        "multisport-paper-eligibility-20260915-v1": {
+          "files": 51,
+          "logicalBytes": 139378
+        },
+        "multisport-paper-focused-07be9480a84f4ec48b15bed63806ae94": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-2beea397f41a42f5b1623ba359005894": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-3c23786618a049a4856fd5e80980cd09": {
+          "files": 6,
+          "logicalBytes": 5839
+        },
+        "multisport-paper-focused-577b46caf4fd4653ae072600a511579b": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-58560c2f884c435a8ce2456625777a2b": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-5b8a12e9ae5e432cac9b723d39835003": {
+          "files": 6,
+          "logicalBytes": 5275
+        },
+        "multisport-paper-focused-5dda6b5190be4341a7c3a69561dfc7a7": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-803f83a70042419fa8e977d984235019": {
+          "files": 6,
+          "logicalBytes": 5275
+        },
+        "multisport-paper-focused-82ba3a8097ea458eb9f8f316d95bf473": {
+          "files": 5,
+          "logicalBytes": 3986
+        },
+        "multisport-paper-focused-af04155de0554a818dbbada757bdf42f": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-b4c0ba0843464edcb95febef7a766432": {
+          "files": 6,
+          "logicalBytes": 5275
+        },
+        "multisport-paper-focused-bf377d07d23e482684f25b2cb6118f1b": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-c5b5e4207ad54d1aaebc37e91dd83633": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-cc419ce654b141c3a147931821ae3f9f": {
+          "files": 6,
+          "logicalBytes": 5839
+        },
+        "multisport-paper-focused-da077f1a24f849daa637b2115b2f16f7": {
+          "files": 6,
+          "logicalBytes": 5839
+        },
+        "multisport-paper-focused-e3b4fecf9ba64ae9947c0aa7fc8f9346": {
+          "files": 6,
+          "logicalBytes": 5275
+        },
+        "multisport-paper-focused-e6b5fbc2e1b54baf8f8fd531d87fc1ee": {
+          "files": 6,
+          "logicalBytes": 5845
+        },
+        "multisport-paper-focused-ec2bd0a684ee4ed4a7e3f4023b32c0d0": {
+          "files": 6,
+          "logicalBytes": 5839
+        },
+        "multisport-paper-focused-fd4fe49bcc6c4c56a0c72f2c2aed3a3a": {
+          "files": 1,
+          "logicalBytes": 12
+        },
+        "multisport-paper-focused-ff93544fcfe244bebb019471ed83c0d1": {
+          "files": 6,
+          "logicalBytes": 5839
+        },
+        "multisport-show-preview-producer-v1": {
+          "files": 132,
+          "logicalBytes": 24758921
+        },
+        "nba-gen1-close-score-v1": {
+          "files": 46,
+          "logicalBytes": 20702298
+        },
+        "nba-gen1-exchange-delivery-v1": {
+          "files": 13,
+          "logicalBytes": 89981
+        },
+        "nba-gen1-historical-pilot-v1": {
+          "files": 44,
+          "logicalBytes": 25085155
+        },
+        "nba-gen1-joint-prospective-v1": {
+          "files": 58,
+          "logicalBytes": 965442
+        },
+        "nba-gen1-joint-residual-v1": {
+          "files": 70,
+          "logicalBytes": 51187977
+        },
+        "nba-gen1-long-gap-v1": {
+          "files": 85,
+          "logicalBytes": 11124797
+        },
+        "nba-gen1-recent-v1": {
+          "files": 85,
+          "logicalBytes": 37580054
+        },
+        "nba-gen1-v1": {
+          "files": 11,
+          "logicalBytes": 63409
+        },
+        "nfl-current-state-cold-start-v2": {
+          "files": 880,
+          "logicalBytes": 321552725
+        },
+        "nfl-drive-competing-risks-v1": {
+          "files": 498,
+          "logicalBytes": 114317200
+        },
+        "nfl-existing-track-current-shadow-v1": {
+          "files": 3,
+          "logicalBytes": 15022
+        },
+        "nfl-forward-vintages-v1": {
+          "files": 64,
+          "logicalBytes": 22519212
+        },
+        "nfl-labs-simulation-v1": {
+          "files": 82,
+          "logicalBytes": 22970355
+        },
+        "nfl-m1-current-season-update-v1": {
+          "files": 42,
+          "logicalBytes": 7198193
+        },
+        "nfl-m1-publication-audit-20260912": {
+          "files": 19,
+          "logicalBytes": 283631
+        },
+        "nfl-m1-qb-context-residual-v1": {
+          "files": 39,
+          "logicalBytes": 26418644
+        },
+        "nfl-overnight-model-laboratory-v1": {
+          "files": 7,
+          "logicalBytes": 191902
+        },
+        "nfl-paper-eligibility-utf8-successor-v1": {
+          "files": 4,
+          "logicalBytes": 38390
+        },
+        "nfl-paper-research-eligibility-20260914-v1": {
+          "files": 12,
+          "logicalBytes": 84600
+        },
+        "nfl-play-level-engine-v1": {
+          "files": 252,
+          "logicalBytes": 365493520
+        },
+        "nfl-research-benchmarks-v1": {
+          "files": 6,
+          "logicalBytes": 792283
+        },
+        "nfl-semantic-lab-v1": {
+          "files": 201,
+          "logicalBytes": 75499367
+        },
+        "nfl-semantic-session-v1": {
+          "files": 12,
+          "logicalBytes": 5124720
+        },
+        "nfl-week1-incremental-publication-v1": {
+          "files": 9,
+          "logicalBytes": 233583
+        },
+        "nfl-week2-paper-eligibility-20260915-v1": {
+          "files": 160,
+          "logicalBytes": 2668149
+        },
+        "nfl-week2-successor-automation-v1": {
+          "files": 3,
+          "logicalBytes": 20453
+        },
+        "producer-readiness-20260914-v1": {
+          "files": 11,
+          "logicalBytes": 1408342
+        },
+        "project-management-handoff-20260915-v1": {
+          "files": 263,
+          "logicalBytes": 5472983
+        },
+        "show-preview-focused-tests": {
+          "files": 143,
+          "logicalBytes": 853559
+        },
+        "v14-feature-audit": {
+          "files": 21,
+          "logicalBytes": 11591358
+        }
+      }
+    },
+    {
+      "category": "server_artifacts",
+      "path": "C:\\Users\\james\\asp-model-studio\\server\\artifacts",
+      "exists": true,
+      "files": 767,
+      "logicalBytes": 438007036,
+      "classificationCounts": {
+        "json_contents_not_inspected": 648,
+        "database_or_journal": 1,
+        "tabular_or_array_data": 102,
+        "fitted_or_serialized_artifact": 12,
+        "other_contents_not_inspected": 2,
+        "name_marked_restricted_review_required": 2
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 60168450,
+        "database_or_journal": 57344,
+        "tabular_or_array_data": 377759867,
+        "fitted_or_serialized_artifact": 15322,
+        "other_contents_not_inspected": 2,
+        "name_marked_restricted_review_required": 6051
+      },
+      "latestFileModificationUtc": "2026-09-13T01:58:56.389741+00:00",
+      "topLevelGroups": {
+        "analytics": {
+          "files": 1,
+          "logicalBytes": 12481
+        },
+        "config": {
+          "files": 2,
+          "logicalBytes": 398
+        },
+        "credit_risk": {
+          "files": 13,
+          "logicalBytes": 177142
+        },
+        "datasets": {
+          "files": 330,
+          "logicalBytes": 371545983
+        },
+        "eda_documentation": {
+          "files": 1,
+          "logicalBytes": 8425785
+        },
+        "evidence": {
+          "files": 251,
+          "logicalBytes": 47307652
+        },
+        "feature_manifests": {
+          "files": 113,
+          "logicalBytes": 525954
+        },
+        "governance": {
+          "files": 2,
+          "logicalBytes": 6051
+        },
+        "model_documentation": {
+          "files": 5,
+          "logicalBytes": 98979
+        },
+        "model_registry": {
+          "files": 12,
+          "logicalBytes": 15322
+        },
+        "notebooks": {
+          "files": 7,
+          "logicalBytes": 41774
+        },
+        "projects": {
+          "files": 1,
+          "logicalBytes": 22
+        },
+        "scoring_runs": {
+          "files": 22,
+          "logicalBytes": 9616234
+        },
+        "security": {
+          "files": 1,
+          "logicalBytes": 57344
+        },
+        "vif_resolution_plans": {
+          "files": 6,
+          "logicalBytes": 175915
+        }
+      }
+    },
+    {
+      "category": "server_data",
+      "path": "C:\\Users\\james\\asp-model-studio\\server\\data",
+      "exists": true,
+      "files": 4,
+      "logicalBytes": 1986584,
+      "classificationCounts": {
+        "other_contents_not_inspected": 1,
+        "database_or_journal": 3
+      },
+      "classificationBytes": {
+        "other_contents_not_inspected": 24,
+        "database_or_journal": 1986560
+      },
+      "latestFileModificationUtc": "2026-09-10T14:34:27.550614+00:00",
+      "topLevelGroups": {
+        ".gitignore": {
+          "files": 1,
+          "logicalBytes": 24
+        },
+        "atlas_local.db": {
+          "files": 1,
+          "logicalBytes": 1953792
+        },
+        "atlas_local.db-shm": {
+          "files": 1,
+          "logicalBytes": 32768
+        },
+        "atlas_local.db-wal": {
+          "files": 1,
+          "logicalBytes": 0
+        }
+      }
+    },
+    {
+      "category": "root_artifacts",
+      "path": "C:\\Users\\james\\asp-model-studio\\artifacts",
+      "exists": true,
+      "files": 7,
+      "logicalBytes": 878149,
+      "classificationCounts": {
+        "other_contents_not_inspected": 7
+      },
+      "classificationBytes": {
+        "other_contents_not_inspected": 878149
+      },
+      "latestFileModificationUtc": "2026-07-18T16:19:10.683998+00:00",
+      "topLevelGroups": {
+        "qa": {
+          "files": 7,
+          "logicalBytes": 878149
+        }
+      }
+    },
+    {
+      "category": "runtime",
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime",
+      "exists": true,
+      "files": 11164,
+      "logicalBytes": 10548921354,
+      "classificationCounts": {
+        "database_or_journal": 8,
+        "other_contents_not_inspected": 4319,
+        "json_contents_not_inspected": 6593,
+        "tabular_or_array_data": 69,
+        "fitted_or_serialized_artifact": 158,
+        "name_marked_restricted_review_required": 16,
+        "archive_or_git_pack": 1
+      },
+      "classificationBytes": {
+        "database_or_journal": 197525504,
+        "other_contents_not_inspected": 3705193863,
+        "json_contents_not_inspected": 4594239517,
+        "tabular_or_array_data": 1143528965,
+        "fitted_or_serialized_artifact": 666680975,
+        "name_marked_restricted_review_required": 18103870,
+        "archive_or_git_pack": 223648660
+      },
+      "latestFileModificationUtc": "2026-09-16T13:04:08.985564+00:00",
+      "topLevelGroups": {
+        "asp-model-studio": {
+          "files": 11092,
+          "logicalBytes": 10525546268
+        },
+        "asp-model-studio.db": {
+          "files": 1,
+          "logicalBytes": 0
+        },
+        "claude-overnight-audit": {
+          "files": 3,
+          "logicalBytes": 3416
+        },
+        "github-publication-20260916-v1": {
+          "files": 29,
+          "logicalBytes": 21531713
+        },
+        "mlb-v18-launcher-stop-fixture-20260910": {
+          "files": 3,
+          "logicalBytes": 1223
+        },
+        "mlb-v18-unattended": {
+          "files": 27,
+          "logicalBytes": 1813564
+        },
+        "model-lab-acceptance-backend-cors.stderr.log": {
+          "files": 1,
+          "logicalBytes": 202
+        },
+        "model-lab-acceptance-backend-cors.stdout.log": {
+          "files": 1,
+          "logicalBytes": 20846
+        },
+        "model-lab-acceptance-backend.stderr.log": {
+          "files": 1,
+          "logicalBytes": 202
+        },
+        "model-lab-acceptance-backend.stdout.log": {
+          "files": 1,
+          "logicalBytes": 705
+        },
+        "server-logs": {
+          "files": 4,
+          "logicalBytes": 3085
+        },
+        "workflow_checkpoint.json": {
+          "files": 1,
+          "logicalBytes": 130
+        }
+      }
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments",
+      "exists": true,
+      "files": 6859,
+      "logicalBytes": 156023234,
+      "classificationCounts": {
+        "json_contents_not_inspected": 72,
+        "other_contents_not_inspected": 6743,
+        "name_marked_restricted_review_required": 44
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 9662695,
+        "other_contents_not_inspected": 145107213,
+        "name_marked_restricted_review_required": 1253326
+      },
+      "latestFileModificationUtc": "2026-09-15T13:15:20.191725+00:00",
+      "topLevelGroups": {
+        "mlb-v18-unattended": {
+          "files": 6859,
+          "logicalBytes": 156023234
+        }
+      }
+    },
+    {
+      "category": "source_staging",
+      "path": "C:\\Users\\james\\asp-data-staging",
+      "exists": true,
+      "files": 18964,
+      "logicalBytes": 18945256748,
+      "classificationCounts": {
+        "json_contents_not_inspected": 3929,
+        "tabular_or_array_data": 14534,
+        "fitted_or_serialized_artifact": 55,
+        "other_contents_not_inspected": 428,
+        "name_marked_restricted_review_required": 6,
+        "archive_or_git_pack": 12
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 125673955,
+        "tabular_or_array_data": 18524678558,
+        "fitted_or_serialized_artifact": 166299588,
+        "other_contents_not_inspected": 84811935,
+        "name_marked_restricted_review_required": 27411190,
+        "archive_or_git_pack": 16381522
+      },
+      "latestFileModificationUtc": "2026-09-16T09:38:55.582434+00:00",
+      "topLevelGroups": {
+        "mlb-advanced-bronze-v1": {
+          "files": 2610,
+          "logicalBytes": 2730451133
+        },
+        "mlb-current-statcast-bronze-v1": {
+          "files": 361,
+          "logicalBytes": 907970161
+        },
+        "mlb-current-statcast-context-gold-v2": {
+          "files": 14,
+          "logicalBytes": 110431320
+        },
+        "mlb-current-statcast-gold-v1": {
+          "files": 18,
+          "logicalBytes": 113820145
+        },
+        "mlb-current-statcast-silver-v1": {
+          "files": 2673,
+          "logicalBytes": 133202204
+        },
+        "mlb-gold-v1": {
+          "files": 153,
+          "logicalBytes": 1668942041
+        },
+        "mlb-silver-v1": {
+          "files": 6915,
+          "logicalBytes": 6737266451
+        },
+        "mlb-silver-v1-idem2": {
+          "files": 2315,
+          "logicalBytes": 2292241374
+        },
+        "nfl": {
+          "files": 3904,
+          "logicalBytes": 4249038463
+        },
+        "warehouse-manifests": {
+          "files": 1,
+          "logicalBytes": 1893456
+        }
+      }
+    },
+    {
+      "category": "exchange",
+      "path": "C:\\Users\\james\\asp-model-exchange",
+      "exists": true,
+      "files": 5785,
+      "logicalBytes": 1928385405,
+      "classificationCounts": {
+        "json_contents_not_inspected": 3880,
+        "tabular_or_array_data": 716,
+        "other_contents_not_inspected": 1158,
+        "fitted_or_serialized_artifact": 18,
+        "name_marked_restricted_review_required": 13
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 1211474416,
+        "tabular_or_array_data": 710750348,
+        "other_contents_not_inspected": 3313253,
+        "fitted_or_serialized_artifact": 2800520,
+        "name_marked_restricted_review_required": 46868
+      },
+      "latestFileModificationUtc": "2026-09-16T12:49:04.074706+00:00",
+      "topLevelGroups": {
+        "aisp-daily-forecast-bundles": {
+          "files": 2974,
+          "logicalBytes": 473398698
+        },
+        "aisp-final-evidence": {
+          "files": 41,
+          "logicalBytes": 2437046
+        },
+        "cfb-gen1-research-v1": {
+          "files": 13,
+          "logicalBytes": 134353
+        },
+        "contracts": {
+          "files": 5,
+          "logicalBytes": 53754
+        },
+        "datasets": {
+          "files": 670,
+          "logicalBytes": 679637724
+        },
+        "identity-bridges": {
+          "files": 7,
+          "logicalBytes": 2071740
+        },
+        "mlb-starter-duration-research-v1": {
+          "files": 204,
+          "logicalBytes": 25775065
+        },
+        "mlb-v18-current": {
+          "files": 308,
+          "logicalBytes": 994046
+        },
+        "mlb-v18-ensemble-research-v1": {
+          "files": 581,
+          "logicalBytes": 52924070
+        },
+        "mlb-v18-simulator-evidence-v1": {
+          "files": 13,
+          "logicalBytes": 21772780
+        },
+        "mlb-v18-transition-shrinkage-v1": {
+          "files": 65,
+          "logicalBytes": 1203257
+        },
+        "model-studio-operational-handoffs": {
+          "files": 17,
+          "logicalBytes": 196301
+        },
+        "nba-gen1-research-v1": {
+          "files": 30,
+          "logicalBytes": 304468
+        },
+        "nfl-labs-play-level-supplements": {
+          "files": 435,
+          "logicalBytes": 617915610
+        },
+        "nfl-labs-simulation-supplements": {
+          "files": 225,
+          "logicalBytes": 24288000
+        },
+        "nfl-labs-supplements": {
+          "files": 37,
+          "logicalBytes": 170303
+        },
+        "nfl-week2-paper-eligibility": {
+          "files": 5,
+          "logicalBytes": 42850
+        },
+        "show-preview-forecasts-v1": {
+          "files": 155,
+          "logicalBytes": 25065340
+        }
+      }
+    },
+    {
+      "category": "exchange_staging",
+      "path": "C:\\Users\\james\\asp-model-exchange.staging",
+      "exists": true,
+      "files": 0,
+      "logicalBytes": 0,
+      "classificationCounts": {},
+      "classificationBytes": {},
+      "latestFileModificationUtc": null,
+      "topLevelGroups": {}
+    },
+    {
+      "category": "legacy_dataset_backups",
+      "path": "C:\\Users\\james\\AppData\\Local\\ATLAS\\dataset-library-backups",
+      "exists": true,
+      "files": 60,
+      "logicalBytes": 53160,
+      "classificationCounts": {
+        "json_contents_not_inspected": 60
+      },
+      "classificationBytes": {
+        "json_contents_not_inspected": 53160
+      },
+      "latestFileModificationUtc": "2026-08-12T01:25:28.440028+00:00",
+      "topLevelGroups": {
+        "atlas-dataset-library-20260806T190609.172566Z-acdc5ebe047a4f47aa81a14bd2e7bd74": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260806T200235.751023Z-c49b6a3afbab4d48b3b23e169ce7dfc9": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260806T200258.514351Z-c5a791e24aa94a47beb51925ebfede9f": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260806T201708.040900Z-c54b48956348406c9f689638c3d76cbb": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260806T202758.717940Z-d13df7e970fa466caebec13e7f0b5db7": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260806T205507.399381Z-47aa6e237e554021adbfd821f7854c84": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T010110.851777Z-fe49382a57f642f8949999a4168a284d": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T155755.325557Z-df7811701c3a473fa99366fb1315c48c": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T200930.962710Z-d1d9800665d8420d98c643c51650e007": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T204210.417188Z-60c259faa9ef45cc841606c292e3226f": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T211613.483951Z-706d692421f9496cb8bfb099ba2f3dcc": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T231328.359963Z-0c0baf3206384f0a928e42fb937da575": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260807T231630.933557Z-99bed3e79d484c70847ebd1b36393682": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260808T003236.328574Z-434636882ac845cb940d3e6af27ec5df": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260808T210408.493954Z-e7c0397ff3ff4422be873cba2a6f861a": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260809T021121.979444Z-bc717344a296404d862ee59b8ba7c28c": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260809T165430.735177Z-199fa8ab2e9948588acb3057033916dc": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260809T234659.212221Z-16381fa7705d430f833e17212a6726d4": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260811T215659.145790Z-bf0bbf68240d4d46b44453e397573328": {
+          "files": 3,
+          "logicalBytes": 2658
+        },
+        "atlas-dataset-library-20260812T012528.419040Z-68824e3b10f146549649a19cf6ccdce1": {
+          "files": 3,
+          "logicalBytes": 2658
+        }
+      }
+    },
+    {
+      "category": "existing_onedrive_backup",
+      "path": "C:\\Users\\james\\OneDrive\\ASP-Platform-Backups",
+      "exists": true,
+      "files": 276,
+      "logicalBytes": 292382243,
+      "classificationCounts": {
+        "other_contents_not_inspected": 115,
+        "archive_or_git_pack": 2,
+        "json_contents_not_inspected": 142,
+        "tabular_or_array_data": 13,
+        "name_marked_restricted_review_required": 4
+      },
+      "classificationBytes": {
+        "other_contents_not_inspected": 69504381,
+        "archive_or_git_pack": 219978798,
+        "json_contents_not_inspected": 2378393,
+        "tabular_or_array_data": 483922,
+        "name_marked_restricted_review_required": 36749
+      },
+      "latestFileModificationUtc": "2026-09-06T16:30:56.925294+00:00",
+      "topLevelGroups": {
+        "2026-09-05_131726": {
+          "files": 274,
+          "logicalBytes": 228520369
+        },
+        "2026-09-06-aisp-runtime-repair": {
+          "files": 2,
+          "logicalBytes": 63861874
+        }
+      }
+    }
+  ],
+  "credentialAndOwnerConfigMetadata": [
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.env.local",
+      "exists": true,
+      "bytes": 137,
+      "payloadOpenedByInventory": false
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.env",
+      "exists": false
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-unattended\\deployment.json",
+      "exists": true,
+      "bytes": 255764,
+      "payloadOpenedByInventory": false
+    }
+  ],
+  "errors": [
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-tests-code-agent-20260907-c45e62",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-tests-code-agent-20260907-b847ea",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-tests-code-agent-20260907-9f634b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-tests-code-agent-20260907-8d439a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-recovery-telemetry-20260908-f702cb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-recovery-telemetry-20260908-e073fb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-recovery-telemetry-20260908-bd602e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\synthetic-recovery-telemetry-20260908-830d47",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-xc9qp12q",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-usz9_ygx",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-unfk3uc4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-kejwrkfr",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-fobet78s",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-6vttxofa",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\show-preview-2nzdl0nb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\repair-publisher-test-268bbca1c5c849e9b7c81cee87f2f7ca",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\pytest-mlb-v18-status-20260914",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\pytest-cache-files-rekah2gv",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\pytest-cache-files-ms88awa9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-week2-successor-pytest",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-m1-publication-audit-20260912\\lock-test-temp",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-m1-publication-audit-20260912\\lock-test-approved",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-current-shadow-scope-focused-tests-host-v2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-current-shadow-scope-focused-tests-host",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-current-shadow-scope-focused-tests",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\runner-test-tmp-verified",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\runner-test-tmp-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\runner-test-tmp",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\focused-unit-checks-20260913-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\authority-test-tmp-verified",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\authority-test-tmp-partitions",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\authority-test-tmp-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-v1\\authority-test-tmp",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-transition-shrinkage-v1\\adapter-v2\\verification\\adapter-fixture-jmci8g0z",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-position-and-survival-verification-v1\\integration\\check-work\\bounded-g48kixsm",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-survival-hierarchical-pa-v1\\focused-pa-tests-approved-20260911-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-survival-hierarchical-pa-v1\\focused-pa-tests-20260911-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\three-game-intake-supported-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\publication-synthetic-supported-v2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\publication-synthetic-check-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\native-projection-recovery-supported-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\intake-idempotency-supported-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\intake-guard-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-test-artifacts\\intake-guard-supported-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-structured-reason-check-20260911-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-starter-duration-paired-research-v1\\focused-dispatcher-check-20260911-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\forward-vintages-test-a74fdc3be8074e1fa4cd5ceac7e81e8a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\forward-vintages-test-9c09179c8d0d41f390ba0a1c3bfdd1e8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\exposure-focused-test-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\exposure-focused-approved-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.tmp-current-handoff-focused-approved-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.tmp-current-handoff-focused-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.pytest-timing-repair-20260914-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.pytest-timing-repair-20260914",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.pytest-timing-closeout-47f6ab9f81434fdcadc17c754a660407",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\.pytest-multisport-paper-20260915",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\v19-source-evidence-test-supported-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\v19-source-evidence-test-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\v19-source-evidence-focused-final-20260910",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\v19-meta-focused-20260911-a1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\tmpzufi4nsm",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-population-geometry-final-5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-population-geometry-final-4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-population-geometry-final-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-population-geometry-final-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-population-geometry-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-game-final-escalated-20260907",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-game-final-calibration-20260907",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\v18-game-final-20260907",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\regression-215ddea7712b4d46997a4527c0db3796",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\recovery-runner-5b2df1168dbb42e8b8151bdc66c1ff6c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\recovery-release-38ec87d45b6a47aebd6b9894c999d977",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\recovery-full-aed2eedd1f184075a0cc51159c979ba3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\recovery-final-43a77945aa984c6fb2e4b145411adfec",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-publisher-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-publisher-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-publisher",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-provider-fix",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-exact-row-fix",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\daily-slate-aggregate",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-regression-0600cbf207214ca882520dcde9d0ed7a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-entry-final-a747b9c998a341ec8fc04b766b23fc90",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-closeout-a9120b4013d9479aa6092eebf74da211",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-cf7daf3a0e3d45c891d8db6289c3be51",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-7ee512e93002496390cc673f09592e38",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-2043a7d7d3ba4a0e92f2a38d1f7a0bea",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\testtmp\\corrected-0eae7331975c4769b612c252d559a5d8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-v18-acceptance-20260907",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-studio-debug-0831b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-subagent\\base",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-debug2-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-debug-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-corrections-final-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-corrections-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-balance-final5-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-balance-final4-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-balance-final3-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-balance-final2-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-split-balance-final-0831",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-runner-regression-verification-20260902-ef31d572",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-runner-regression-verification-20260902-a7c94e61",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-regfix-20260829a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-sync-integration",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-m1-bounded-a9c481",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-m1-artifact-7f33fdea",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-foundation-final2-cf001bebcd4c43678d48b78ca6574788",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-foundation-final-36ab372200a24607b1fcd9a507a9eacd",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-foundation-4d7052376f924a0eb3480c546eca6f43",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-focused-b84358936e5b469ab6b1402fc3ff594f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-current-shadow-v1-run1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-current-season-sync-escalated-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-current-season-sync-escalated-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-current-season-sync-escalated",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-nfl-current-season-sync",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-legacy-runner-root",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-contextual-sources-12488",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-context-receipt-final-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-context-receipt-final-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-context-receipt-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-candidate-20260902-01",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-cache-files-_uh46bcr",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-cache-files-b64iw7q3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-cache-files-6601pzzn",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-cache-acquisition-review-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-cache-acquisition-review-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-acquisition-review-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-acquisition-review-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\pytest-acquisition-review",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\nfl-shadow-tests\\2b34a4aba26846f5af72fc2803455445\\publication\\feature-vectors\\sha256\\.staging-vie32fqv",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\nba-pilot-focused-f8219274907540df8b9fc802594a50f7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\nba-pilot-focused-approved-4ca49b2a4e8a4a62a12bda8fc5ad756f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\nba-pilot-final-approved-6ea1b90bf6d344b0866a7d6693c6c739",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-deployment-test-20260910-c874",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-deployment-test-20260910-a681",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-deployment-test-20260910-664c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-unattended-root-9c1a0c7c9c6f44748104f85285b8928f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-junction-regression-2cce2764deea47acbdf4427a20dcd061",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-current-slate-tests-ccc9ef52036e4a64aa266405d27acf78",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-current-slate-tests-ac4b93d3314c40d5a551af22c2e7f9e5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\market-rff-focused-b5387291fd0c4f76b0e08060285d646a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\daily-three-view-tests3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\daily-three-view-tests2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\daily-three-view-tests-final2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\daily-three-view-tests-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\daily-three-view-tests",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\v18-current-sources-20260910-r1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\stage3-model-workflow-regression",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\mlb-regime-baseline-v1-supported",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\mlb-regime-baseline-v1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\core-challenger-repo",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\binary-contract-fix-host",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\test-tmp\\binary-contract-fix",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-stage3-treatment-final-20260830",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-runner-terminal-telemetry",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-runner-redesign-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-runner-redesign-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-runner-redesign-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-runner-redesign",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-legacy-runtime-full",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-legacy-runtime-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-legacy-runtime-escalated",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\temp\\pytest-legacy-runtime",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\pytest-feature-engineering-definitive-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\pytest-feature-engineering-definitive-2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\pytest-feature-engineering-definitive",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\pytest-core-final",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\pytest-core-definitive",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\checkpoints\\preintegration-20260906-wave2-tenant-repair\\test-temp\\workflow\\tenant-project-atomic-w_5tzp_w",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\checkpoints\\preintegration-20260906-wave2-tenant-repair\\test-temp\\workflow\\tenant-project-access-i22asuux",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\checkpoints\\preintegration-20260906-wave2-tenant-repair\\test-temp\\routes\\pytest-of-james",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\asp-model-studio\\checkpoints\\preintegration-20260906-wave2-tenant-repair\\test-temp\\publication\\pytest-of-james",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\m1-pytest-spread-semantics-20260829",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\m1-pytest-manifest-root-20260829",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\m1-pytest-final-root-20260829",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\m1-pytest-20260829-3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-data-staging\\nfl\\m1-pytest-20260829-1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ff954cdea6976f80bcc014e9c7193e28dd9b1809dee846424d4e73b3b3cf1902",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ff91ba59580692606cce94de8a98022bc73a87dc824645b033bc31de0bc959c6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\fddc5c2f502a5a85e98c3bb9e91d44291f286d4ced7b71bdacc152b16516bcea",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\fd5e668d10ad6783ed414310ae066b97ae510a809387e5d475b2182e33819c74",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\fcf181e581ce5b9aad79c018228efe5f3cf9572fbadd33f8cdefaab8ae8be0e2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\fa7e17efee692a58f90ec1151d7f64517187a82a7a340e372c940f59b35ee281",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\fa0233e8f6a0313cce3715e32ed60a955162170b455eaa3f4a9c76780cafbcc2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f942a13966e51e462badd653cb0c359e209d276ccd104ae0035cceacfd70e861",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f941f65cbc1ed32c40c31ead432fc8edb972327ac1ad99a18de21e06f014ade6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f876351b52196c4561c2c4e6cb7fc9a825ef4744897fa0e55230af1a37e201c9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f6eed161ebe1bfaa9528778a5896ccc96ed341bff0a36ac0795b5eb7ace025cc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f65fbc32d820a53db4b6d7789783a2b86ae763686fefba97acc2f629ae53a78d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f5b0a85fb043ddc725a7c6ba83f902424cec36a29d2ad3b9c77a12262ba877ca",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f5627cb2749c42ca36f539858658b9c84bc0eb888cff2fdc913af86c87d5a084",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f4d12522d093c6f785fe6ee82aa0c31f081f353b32c14a3e143fecb2c01b3e8a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f47f02a93a6e3ef4f3e272b1ca51e622f0c239c6f112fc7b69d51c0633711921",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f2b27339c02bc42dc15bb7fa42625b67899aa8346f7a280e21377701ae5f6441",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f2a89d43dc3197efdddf5b561e0896217fc28ab28c674121ff255aa66b44dfd7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f25ab4f11fc56ba18a890777f1091f010a8fdec0028056466867dc822009a775",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f21a101eeff9ee8b114ca55dfd7f2399db7780bfa12d4eec3f987e7ae67bff1d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f1823f87d83e33b71c5c57ea5d8aa773a59526dd4db6f836f9f8c66a7d1f8ee4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\f113662dd5a44ef9db9132291c985b44f4054d35a3971487f1812e7717b6d163",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ef7534ecc630bc4e94e94682e807bb4302950db4c5b6f83d6b10d04235a78fb9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ef16e92177c290c523e95e015dfcb5fa4fc96c4cebb31f8f4a15b1b9e4838017",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\edc749e4f1ad83f7fb1669fcff63194edaf5abaff96bb061cbd3fa1600cd9a78",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ec8bb0ed9e32c15237811fccc4dd2d1da5c03cb9fadb75a0a14668018d2dfa57",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\eb19611c1d4e7113a69a641e3b36208409497d3426aea639312bdb5393a7d1df",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\e7a8b926c7715b1a25d83b239bfa704bec47ec33fa416157aa1e9019eb6770e8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\e72d36206614ea712049ca46826255d2010472b865861d7068ec1e24d973787f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\e52b6702a009f998e01f82afbccdb7b7f36abee285891b56e46e8b55bbdfdb0f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\e4dfd45dc1b698dabf39d63eb0f941f5c7b1c479154492b8b991aacffb48729d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\e4b4c657601513ce0af0981eebe7ec023576eb25d351faa593194ba2bd31a601",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ded1009bedeb07687b2099a97abb41fcb628f4400bb55bbb90c820ab34996258",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\de5a5929c65950c10581993501d8718ccd33cf3b3b9aec91d950dc6f56a86727",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\de2784ec4b2ca9d42ff95ed82e4de3d8ee0b552fd0ae36dd440e0ddb9e0b0dbd",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\dd4fe64de2500ae824fd0d9409dc46ef1ef007771f1092327fdc0c6e03ecf1cb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\dc9a0a55e7c9b3187c966f0832dfeedb338a3b510ff90d6d9c6c7fe33597629b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\dc0d212409e3f23d181db615ea2dddf7d2e133fce782f2308798e46d49d1ee53",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d99b2c21f74d7afe56545e8f6ceaf7910173dd6d92e007af336b635c482e0a43",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d87fc443d6d7c32d062af84c50a9f772e707d6cf043fb84541d04d45fcbc53fd",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d7d1cf6527068d18aa492d50944f205746a0ef566b209047a74d9b930a6c7257",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d555537c4927a81b46da6b921e375dc1500d902fc4d512a29f6eb5b47f1bd50d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d5399012f7a026ea1768ba4f5bc35a54371c245197d931cdfcd634984332d129",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d488c96d35d14bccb423ff700ad4918b1103c507fde61136783c45fd7a8fecde",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d22cf3cb6a2c9d353b6de519d47dd8acfa359abdc5d1f83651f9da7a93f38655",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d1f3a2937ea6a52fab419278ea42cab185040530538a683b68ecd3ac293e3f6a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d16f51f4e36fb0dd0be562d03b6a2264c00f3d3899cbf66ea3713db2a783c7e0",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\d08efb3379d7585f6704b759ca08e1b20e5988c217571b1f6c1644dc848396b1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cf082c38e2678538015045c5ac18bc92b29e0cecbdc5ade0727fa64caf8a0a8b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ce4d27d15f827b0ba998a823371ece2184f045ab40cc2ebf9df877d3884227d9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cd171bd615ac9d1604ad7215081d09a58d0a7223cdce990a6bcf2e752dfbcd7c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cd14ef65dbb4361b24dd400dbe1e7341c842d73b43b906fa00337acdb22a44f3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cc100fa77c61b173e4ebee1fb49dd916fff1e30ec946d67e1e606e5a2c81907d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cbb6e9d6cd2f0c4c8d7ad8f48c4edd537795d6e44bd1b903e135e2f79b083d6d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cba31e61488fe79df524d2fb5e6b6d833493474a40e9edecb7120273880a06be",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cb942c94c23856d56bf03dc7eb704b4fc6a554b57f92889878b812582bfd3c3b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cb8f5cd0eee3abc72cea7abd17028a4a17fd010f8c04c2c52bcfb2ac48af0db6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\cada270167f0d9b2c90f7fee1f6990056842342489ed8c00c5300ee6190403f5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ca8634898d5635c3eb73f0ac3d7207cdb010f8da843ff9192b7d6e427a739eb0",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c862c27b7285a9d4bcfab0a950195a914810c4d4baeca10234f50b97f02e5e52",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c72460a1571596bb5b6bdb9913c6d943ba9a90e8744bf2c5b201e78560b2e0bf",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c3b29439c18e96254ba4ac65bd427936ec30d657a1c11d63b4efee61b92bbc79",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c216914429423ac6062ce318b6ecf11e0449618fbf77b38d03f918c9dd0251c1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c1df0f5e0a2a75f90aa7aadccb339b6eb5d14385491a0ad7f69c7260f00613eb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c09a88cb0306b0fc97e5df09858820f26b0705bf077c65852678a6f0a379a217",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\c073df9c24413e68dfe787df583bec050a7d9105daab5b35084e277cf6184ae7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bfaccf313be8fcaae5e4f55f400247374bacd924eb8e36e23493b2c8bd0e4590",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bf657cc169cf49a18a1a517bcaa29b37c15c7e8836d2c847eb33f2a507c678ef",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\be68e68431bc3e71b26d642c8d12a57affd1288967e9672bbd16813cff8765f0",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\be686ec3e0a62cc42d27e46a4e54083cce21fdc1b22c21e048dc7029662f6eca",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bdf483978100d65e6c180999f0d90cfb1a17f413d974ad35bfc1572433ea4896",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bc02265593fc96a221b696e307edfb9c857a523f914169f20a5dd9d8c4bc3ddf",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bb6494d537cd7fcca5499bfdfa1950259e04cf7d21913d285cef2998394ea8b3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bacd2e8314278cb4a1d5199a9c5c2aa33a7c41743ed9368df8338e1cb7dd5161",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bac1f13633b5b4355d3667264a3470b8d29e74696ccd48168cf78ac3f2509fbc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\bab9a66fbc3e09e21d9c7789ccb1ae58c2d46cf89624783e714c9ee021c13539",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b9a919d351bd976ad3a1f0a0e7c24673fb1992dc7b77827984b8c3172e4bc177",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b9a5291c4fb171fcf560c9df47b655cc103349af668a4326ad2250cf69dfde26",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b97742414554dc549ff84280203118b70769b17875ad1b2a7b208afc22f1f0aa",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b8d3a724e5d986be6fbbd4bccf67445acddcbc9ecb50e6a487476e2244256ce4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b815ddeffcf8f0f242431081a31e70d2fe46efd493d02902ced92208e3a8e59a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b7710c17f00a663b26360291ae3dad30be943aa149a54a128426a26a187f0eb6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b6266153436d4be0909f5f8e7a778eceee5035c785362514a5e5c5cd06d831f8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b3cc41a44ee9cee500b1382f83e3d8abd58012fb9b648615f25a9fbe98b5bd8e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b34ac63b87864bd4caa65ecbbcb7f0375ae832c1f1424bb4b0cf589439ffed38",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b2baadd8d04b8e0861d9dc91191af4640dce5d034f81726a5d362eacac1c0a32",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b28861635b275e34131cf3fd963cfe16f94e57c043bbaaf68c422d14d7a1a6e5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b1fa052de7788e4626f035d89840f57c6577b8ac990b7bc0115bf18c4d206ecb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\b04fd14935ddb073e529e6973f718dbffd56d1cbc6ddeccc61326d12fb7e3f2e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\af77bf345f6e744098a8d6a63c16eb89520211bdddae825c22b7e70717e6404a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\aef76670bb4917c86a1071dfcb8be5fb708b76887f0812eea27c9bb123c7d434",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\ab92f5ee1094821377ec028e0a107f3104fdf3c949efd7b7e8f016ca632d9861",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\aa193d1c2c79ce045926db139163d1a5ac757cb0c300558da03e6489405e7c7b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a9db0749749bbc504b0f969b0d0100cd5dc95486e15017700f9829d877917760",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a944b25c14c61f7a8d3f890980eb4420f32d898c8e761e02fb46a747afcfce6d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a8963b93dd1ad6dd59f01a95361ed37bfb4d88c94d1500ed5825b4c608afe805",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a7c1a781c24f55708b1fd209c37c5c2a36a266ecac4070a40e99e709520ae273",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a64980a7590cf53b4b01b34e98eda74743c91d218e7eb5ec1e553805b3063417",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a2fe6525bc3f389eeecaf1ae7ac2210c653ac63d0b3f8c98e1e6957fe14a6781",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a28763d2310efd80f9827ea37bad7933346b4a6cebbcc64b9464e0c0d89282d6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a1d57dcb68f19d49002460a7d495c7aca187dde3ab9dbb25b46c2056e89e0de9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\a1654db3530ba150a25284d9b0c98f8d50d5ccb215455556d8c718588e2852d1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9fecf9cb94f48e462719f1f548c98a3472df35c2e6e31aeda7e175ae51761a01",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9fb7ee57038570f5a8f8945914f4e0bee629de50deab90785f781ecec8aaa908",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9f3617d26cc2705c3ac7c0e1eb07927fbf9577219db79e4ce9918ecf5eaf82ba",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9c9624abec1da274221620354c9d6211e33553ee769263a25f533f5f5be2b6cf",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9c0ee914bb04693deca6308b1c14a67febf15600670fd196e3704dd39aef74be",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9bbd8790abee550a38050f88a8d1da2b222e2ef6533fc82f9624f89e7114b961",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9b0fb7aca923613bb31b0ed9c620809e6f60b02116964779e303402724b8338f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9a9a9fee4ad92da8b608c7b03434fd7151982a99ab2df33817a57ca39af364eb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9a124f41ee14b289a8f0b74de13c0aad700eb3da7110f7ee71273125d8e046b9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\999c43ede9bd1e9501a24f4afb7a63d9cd76b91b0a6b489c9c38ff947648445e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\98bcf469722482c6232168c422802b8c5107e1316bdfc253f61a58e5cb96e6c6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\979f419349c65fc7f84178ea6d96b5322cb1838c25da35fa0b33062667c278c4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\9726f54208c2364db933bb3bf82b13e187605088ac56177b41b1eedb80d35099",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\96c0d673a41140b5f8487a60b5fb49fbddf80f27edb3d86e01da3cbaab38e506",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\963831e42411c089d3d3ef3f671e16e1491e8236c97bbffc1451e9f9a3f292bc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\95437d594db078259dc2b2702eb0cf0aa6803fc6894f75cf12a9031fddd0e4ee",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\944eaa131c8a19b644ae81ac7d5e0c6e07679f9022911a3136339323e99d51a4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\943f5b8fb15869a860dc30904caf07bb06c173a6e2bc124a113302183cde73b7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\904e21ac905492025550359c0e9913c06a258bb508ddfea57553061ac9a19923",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8e3653210e6d062166b1d9b52c784e0b0357f6502ad24d8539fbb578d1983c4f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8e03796b2b244f98a1c9478396744b76ba7f465e2373c525f3d91dac6156fd78",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8dffd76e3976f4928325480987b9ba3e9207eb4b4f59183bbddf59b662fe35c1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8dbc38f2dc8c8bfe70fc64eb3f86c71c73b2cd4238afc04036e49961c852efc5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8c9fe59f2a5c2664c6463f6f83ab8cda3fbe162d1d7ed33383f46f1add902177",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8c8a77927936f7c3f374a8a8bf0cda9c2aba251055510476df6af723ab190ecc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8b50f6aef7be29f0aadb9c192a8507e3d8c7b26fe576401cf60fc8e80f6945fc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\89246b7dc9d74af98ee22712e9a4f8a1f8f08989f5a935f1defb697a5744db8e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\891da5f8fc173d5eee0a98765323740f20f8839d0d7844aee1841acd498799d1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\85bfc1cc036796ba4464004a3f996cb5d4d1765002014827678ccb067c1c4cb0",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8385fd9d99b73099b2cf75299bee91bedd9d2c6c8292d612fae77e3ce89c3104",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\8205c91137732615b95e03c01a9112634362ede51bc8b4c6578576e2a0bd55f1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\80ae1c78aba4a1ff3c4bb3c09bf0069798d53604bb6a7b320f5fe4833800c6f9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\7e1f7c19a429d721ae3c47254e236662a4b6afcd2130a067962b741de38eacc6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\7d032508c0af39177fdd3ff8e4e0e13ff089bed94991011481b2bfac6e8573d6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\7baa7355e205c3e251f61ea4b1191c26d6e7b33ef6306b167c8f4b4820728420",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\797017ead9def0fa797a94004ab1515e6e334d91771a48bdabfc2fcdf5b78c69",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\7965f89d62d7f3bb4808debe9ca7972ba6012f001d5fd812d72ade90015076ef",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\77a2a79d884c42c56b721ac9ead5b3eee32df1fa7f22903efee9948eb37ddc4d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\75d39f46942acd7ac81c293b94253b88396341e631b723647f8c777bf167a2f6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\7525b7ad0d24639fc3a8398afb0e11f3595fc41c0072e729b7854719ce6b1f7f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\744d31506a2511eb3eb66c4c093148f31a2d1cf6d740ff741edd7c12f92bad32",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\72c291b606a04c5afe5058dd0b2797f9ba667d6083ceef2089a9497c603053e3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\71975a16599dce69fb9f0da4ec6d3d98a8b39558dc7eaec735f38907589ca077",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\707920198428bbec016305e433b29b3bad791100b1d14f931f4dd9b674b34d58",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6f98e66b8402d1ecf8643f0612a30336c441cd4daac3011e895eae9ecc39972d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6eba695d8cb7b71a9844a19c5d70470b3982054ce93814ae0ad7c8487a041056",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6c192a8a863e1847dd34c14ef710126c22ff4f13e9f90d54c7f8ed7338cb9516",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6b8236ab7ac87fe8dce735c12559aa78db86d84e8532724b48264332b09746bb",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6b7ecf0f9cd4ca5ab240161875b5f586aa04ebbefd7dcb4f839c149957ea4386",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6b761e4396b9be4a23f23570c31c047403636778a15ed3d82dc352971087ecae",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6a7ca3a4c7d41a0542e5013631bc5045bef4c49f9f8d126a06e32b81a5ffe565",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6a266eef93c4e616f3ffd206e7212886a6ffe83b146519412d1af22272853d2d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\693dba803f8e93c90eb67a60101f0cfa74a1cadd961c55794d3dffc1bb1c7387",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\68d6bdc55b8c7921dcc46b80521f70e2a845fc3d4856f45943271a60de45de98",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\68935e7de60cb4a30732ef7d55eaa95714d116e2970d652967dcc9c5b5048d21",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6666dcced40f080eed7d4ef9707d49d6b781d91ba720701aff7d5e2f00c661fe",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\65c25e100e90522c6e8c92b6dc464aecd10425f0361008a790053daea4896fe6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\61f1779477e69c1ebe281742ff24d95ece466992580ee6a4acae2b1e4f70d738",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\6012380eec5b7062212f7e7457dd0462315ba0e2e21633f4e29d79c34c9356d8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5f22dc1473e174defb65e21cc44b7055178177517d44f3c9ee2dfb821c3adb7e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5f101be8e1ec7c231cf81c03eddd2065c95e6dab6a7ef41d9f92db91ea753cf8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5edb5bd40df8a3a1baada713971061fc55a71bc97e6704a41c09dbda5b604241",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5e7a1f02f6739e949bd571b53582fc0153a045d55d534ee0cb95c7a9b98e23c0",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5d4b0c6fc45ebb8cae6bec54a74e3eeb1ecd934c8850813e92ac022a778e1027",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5c5ce4181b99c60bb77a2755ffa6cbd47a89ae35f06914314f7cdfef5fadd687",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5b9ac2e48d4f7b536cc74aa656480199aec60e1cc4322c217812df747011b2ac",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\599006fc92e41033471b3b5c5777e24b0687266eb0ce4c8806d0e91816a39ea4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\592a3d97638260a939c89eceb89df4503791ab2f554b53ad0b97b87026d23942",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\58ca4b640b272e869f59daa720415b258482e8ef48e5f82a412468498a742804",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\55aef331d8b7659a3983e21adf5bf0e75cbee16b9cec2878734a882b19fb4e1b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5597f90136551c1440534eee52ea2d74d8b6754fd7de0c9b5dd1afc67790b073",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5588c9d0cc2153d467456233e721f7e83eecfe3cae0d259a7f8f7f465e999122",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\550efa5755e3d7f0e0f7e1549b5de8798150b09206a151ad900ecfb1ac41d8a4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5257809c77040a5d77d00a91cee35c2e2358aa69ab59f6b060f0fa86cfe68764",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\51ce0cff7aacbb33af36f5c263d8eef5ffa5b93e2ff24f9355488071c5a37bc9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\5172a454b0891977298e9d7d785526eee48f89b585a10e51e833a7b89af24fb6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4fe8b7f630180e3acb494dbe66029d68de71d50310d42b9563129d6677213365",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4e4e47d0a75f788aa6d137199b929841e99f8db1f4fc165886cc2b0b78941294",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4df810828b029fa8e7958c00632f2a56f5db0c861ac61ec3f92f3865f75c42d1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4a38d4108a8bb3fec30d907e2eb730c849d373f531d43799de3e1aa1ae280bd7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\486ad7d552c1d53f23f4053b89b4519a9ecab75a52fb1338789cdb0d9b635745",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\46fb0d3cbdc05eb7169b751a6c061ff8ef4af38789b88efa6fe0a264c7109731",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\464f95d86e408b66be82bccc39db16307aa0d4cef54122a58cc48c6157ad089c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\461f04a0e560a99798f93509851ed34afe584a1fd3a0dc016ab33976216c1e55",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\459d801a13e35d5021a225338b689b6e49d8eb9913d260aaf511e5aba000e007",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\43cf1e7954ba68a80bacbb0aa6478a61a1eb6ca6da0c65f6701c53285f2ce3d5",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\439c187c6f2d18e69ef32239303393f502c0becd72fc6d6f2c9d113de058fe52",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\436227aa81f905424f7b4543a5352e2021646aa81b1f3b07b994e762a68e699d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\425e3b6c2ec79b89658601f1ac0dfa0b8e2b9be69a4152986bb2d5226b797e52",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\41112de555c01d5bc4ad9425db8eeb9071fb4832bbe6a138303ccbd705bc7bf4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\407a84de3d45a2146722ccead265b3c747fe001f30b9289a94eb224920154ce9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\405dcc4beac4962a25ea5c798a2331330cf3314a239713966770e80ec04aab49",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4016cf0c4ab0e00771c799f2c50e56d4e34d868bd461e078953d2837282e40ce",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\4001fd3e8dae812acd6ac0e9db6c80d501db3951c87e994457b1ccd8746e21c4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3f81ebb5d1e1483119e2074696d272ce244ee65ad5a925a3f9868403acbf8e10",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3f074f343c38ce571e8e1ee6ff7125c76360df1a2c48631169564de0da77ba30",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3e080889895205c5ae135c00e4c833368715376411aaca6701705668aea9ae49",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3cedc0d2ad96187207d0f69b1181b5274a9753b3030f8bf6f476132cc71f21a2",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3c824ba3414dfd2aab2699ab71c4d3b25e6f6fa9aa702af839b0976a3de50b6d",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3bc568862c6ccd1b79c77dabb8838ade2b4cd07a14329273974cef0eea7a8254",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3bbd548142aef7752fa7af08c209557cd9131f867a8c5f91889d05e4c438dc18",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3badee7a1e9269ffb3fc4793ae1a87fbd15f6da2b77b274915d5f9483dafb5ff",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3a273d53066b83c18952f71258c1be45a24deea04c83f1149b708b1843401771",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3955445cf6637d644bb8e7b71b4f41c276159ff293f579f264782225928a7e47",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\384b3168057dd4536cfdc08c22f2d9c838dc1d628158873386b6c10a71fa74dd",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\37b5e9c6d670ecf12c98dea1ab3a7124848aee246d91ea0fed309629288c934f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\379270cdd4b9d6d71331ae35c0f4f791524765b81f373fe214b61e8bc55afae7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3710b0135a7f1c567b0b5f3653cd19e9275791423386b1a59df3b3ad0c5d4675",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\356e1311f0ad2bb2516d355c8d0c4c4f6edf6f544982ca2918e1c4182fe8973a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\312815f8ab4747717d52e801bece2489d7df23fdd2d36ad3175e1db0cdeae4fe",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\30b3ad7d777edcb25465f3571da2294a0aae1e5830b9d5cd7bd1f3046e4953d9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\3097c23266320fdc7572f236300356a907109fcbc3747c1ac4527417f460df5f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2f769479300a8f9989693f64d9ed634ac166012d0449e4607f0e08df1b35e351",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2e9f3a9505888a0c06cca539b4659187d38822ddde96786ef873e3d30ac9f8a6",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2e4f0e9f27d843366eebd55d846db7859eb9a983e5057634d346fa963d13b535",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2e01a2b6084ed672b64d56558757e330cb98fbf1fd6af4cee7d4cb0c3ac68e6b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2d4ead5810f94096a374713f6218ec9cc35eaf97f7db7be977e6bb9207e1b7e1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2bd049daefca5bb1b6dbb050afc44a0b5ded1aa9275cad36e7037e9924e82391",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2bc05bceca80a8d911ab8ee546d21b59c75aa1ec0f3306374aede5f4d926b447",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2a7aa30b181a10d9db6e10133f7061734b51a042daca45ca6ff0786693f541dc",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2a4e80121579815a8c6ad7d8a0b55f458a8c1d4f3f52e0844000a72cc96e89ab",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\294241020d7716cc9c9b70b5dade96a027aab5ef73fb2a5f582c7e9563be16be",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\278018f733ba7bbefa3d753070577e4a3833dff972a2a374ed6da9096a9eae1a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\271a6082d02a6291e73b900ac5386607ffeaa5f4e5d5504279664e07ed50d7b3",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\22caed0d901498f87b1df6be18a5725feca40391a85c6b483cf64d003b51f4cd",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\21920a25ecc4f51765aabcf08c5fee49bf1270ae14165df28102931d2a1d5453",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\2087d20f5e5f4687337ed53b29d15b9a3fc939de73c81d08c7d53acc6d91b7f8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\1f1f1719c7b413288d432d574ae19bf201590529aa683d601308c0f83058e5af",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\1d7ec2ac77292be49bccff81754fb68017f37cfc5e9ac89135713faeb8ce26b7",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\18eaa5e55bc2c7e8e87ac965215e9d0136e0632d5eba6d94031afa275a79c661",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\18d5eecfdd63d109525396357a476cfd9310df38e01b3b5baf631d8691a82449",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\186b14d941265c9a0f29aca5ec54687bddd58069da73b15af391d1d68b544f3a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\1710f3c68dc8f1a05cf35b024c3a28a4eb4e30cbaf604c24211a4a482733f512",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\1698cce82d73c5a9db600776df2487c2308dc62b6e8f8df3ab9afb0af80f94b8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\15a7b79c3136e3f094facc6aeb68ff47def0d0f11202839a4bdddd740963301f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\14a57e65d53057942bb8eb844256a20fe126faac87f072fbbb335064fa6afd5b",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\13d036f207087bf9ea82090d6f2e5d2a3b97d2ec0c2d40871efe48a7939cfb6e",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\1361e4635896d939bd6bbbe2db5304e7629f5d886d4840f502d40731f96cabe8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0ed869e5d8725833277863115f20657de00587957821ce92299124847ac822ae",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0e09b48af100de3adbeeb981fed39a81c4b24de9a5647fcba436741794e2418c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0d6f6f687e95c5aefb46d9a13c883a972487c22c99e5692a41bb45376cb26e1f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0bb8c0080dc975eed537258ac50323c738a2ab5450d7033e464e164ba6675373",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0ba81939edba8508bd4237e3bfbe46109ddf2b015cf3b8b32f02ea220021e72f",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0b8b9c3a5127b14fd03a048becdaf28aadaffa93a8bbc8414385cd5dc29a765a",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0abe67ea5722f0bcf8ba282e6ec3638219304d8c1346bb34248319f9f0bfdfd9",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\06a45c7835860dbc469e0534546567ec65970c04f725b413c59edbeb00d04ec8",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\04e515597037180867eaad5dd7b30f3dfaa46ec0e2db26513c18555762c193ef",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\046f9569553d41cae0efc990c5cdebc331d2233868568fa5e6513c358b8e4e4c",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\02d34f5e5bd44ee683c3bf7b2a55747cd53a4d23565d872f6bee17e26b72de34",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\024261b21827c3151254615918fff08da7c81ce24086755fbf06a44cab170884",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\023861e642407397f6aecaf5117fbabc5ce33d761d1cf18ca171ed5e4559c644",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\019aafae32a22c929b665c72a9bb7c2681aabfa36c6dda0e8c38593a40de96a1",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\009442e11ceb926281b9752ab878b20262429d947844246f69688aeb0b129b21",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0035f713582b2f1ee172fdc409f07ad083cab2d2757cb7554fa37472505198de",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\mlb-v18-current\\sha256\\0000cef48191d6b09b667b9348604090dc639d02ea9e2c8e9ecc08a3760703c4",
+      "error": "PermissionError",
+      "winerror": 5
+    },
+    {
+      "path": "C:\\Users\\james\\asp-model-exchange\\aisp-daily-forecast-bundles\\sha256\\784ccb36d14e4eb988c22b755d35ecee5e7d29f2f0fe1fa5fdd39c5a64d33ca4",
+      "error": "PermissionError",
+      "winerror": 5
+    }
+  ],
+  "linksNotFollowed": [
+    {
+      "category": "research_outputs",
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\v14-feature-audit\\node_modules",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "runtime",
+      "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v19-workbook\\node_modules",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\ec64fc9a0deb0b1c7f90ccc84fd35d6217d9b6d8\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\ec64fc9a0deb0b1c7f90ccc84fd35d6217d9b6d8\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\ba9fe4d0f01c5f7330d5b3ac2d748337c4f6325c\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\ba9fe4d0f01c5f7330d5b3ac2d748337c4f6325c\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\9bb1a947fc863596433fac569822ad95f2c71dac\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\9bb1a947fc863596433fac569822ad95f2c71dac\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\91faa71352ef4a8cbad00e17b3d29869726a5af2\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\91faa71352ef4a8cbad00e17b3d29869726a5af2\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\77d39e1ae08e05be82e19bdb0bab21999fba1d3b\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\77d39e1ae08e05be82e19bdb0bab21999fba1d3b\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\4757da061139e6196450bd43653ee1ecc850ba58\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\4757da061139e6196450bd43653ee1ecc850ba58\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\3b28dd57e5885e693a063077c4f59a7554eff8c2\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\3b28dd57e5885e693a063077c4f59a7554eff8c2\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\0a2fb8282d68d1a06ac478e5cf3e3442dafe09d8\\.runtime",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    },
+    {
+      "category": "deployments",
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\0a2fb8282d68d1a06ac478e5cf3e3442dafe09d8\\outputs",
+      "reparseTag": "0xa0000003",
+      "followed": false
+    }
+  ],
+  "excludedPaths": [
+    "C:\\Users\\james\\asp-model-studio\\.runtime\\source-workflow-20260916-v1",
+    "C:\\Users\\james\\asp-model-studio\\.runtime\\github-publication-20260916-v1\\fresh-clone"
+  ],
+  "recordCount": 71702,
+  "sumLogicalBytesNotDeduplicated": 42296516316,
+  "metadataFile": "C:\\Users\\james\\asp-model-studio\\.runtime\\source-workflow-20260916-v1\\RECOVERY_FILE_METADATA.jsonl",
+  "metadataFileBytes": 24503930,
+  "metadataFileSha256": "95412c7e4b168991413ce45a68bdb347e983617a3eb2e2b749ba30b18f92fad4",
+  "qualifications": [
+    "Live metadata inventory, not a consistent backup snapshot.",
+    "Logical sizes can count duplicate content and hard links; filesystem compression and allocation not estimated.",
+    "Name-based restricted classification is conservative screening, not a permission determination.",
+    "OneDrive placeholder metadata is not a verified remote sync or restore receipt.",
+    "Source checkouts/dependencies are excluded; reinstall dependencies from pinned definitions in an isolated environment.",
+    "AISP repository/database excluded; existing named backup directory metadata may include older AISP backup files."
+  ]
+}
