@@ -9,7 +9,7 @@ Repository: https://github.com/Gearhj/asp-model-studio (private, verified 2026-0
 - The deployment pointer and its 872 code-file hashes were verified without starting, stopping or reinstalling the owner. The development working tree and real Git index were preserved.
 - `main` and the default remote branch retain their historical meanings. A branch named research, champion, candidate, or checkpoint does not confer production or wagering authority.
 
-See `repository-publication/2026-09-16/` for exact ref mapping, review, source-checkpoint provenance and remaining gaps. Some original later histories cannot be pushed intact: three ancestor model blobs exceed GitHub's 100 MiB limit. A tip deletion would not remove them from ancestry. The current development branch also contains prospective-only restricted source objects. No existing history was rewritten.
+See `repository-publication/2026-09-16/` for exact ref mapping, review, source-checkpoint provenance and remaining gaps. Some original later histories cannot be pushed intact: three ancestor model blobs exceed GitHub's 100 MiB limit. A tip deletion would not remove them from ancestry. The current development branch also contains prospective-only restricted source objects. No existing history was rewritten. Do not expect a new commit on that original branch to fix either blocker; inspect the dated source-checkpoint branches and recovery gaps before choosing a future development base.
 
 ## Commit and push procedure
 
@@ -39,6 +39,8 @@ The dated audit scripts are a reproducible record of this publication, not an un
 | AISP | Separate repository/database and consumer ownership; this task does not back it up or modify it |
 
 No complete off-machine backup of model artifacts, runtime or exchange was established by this publication. An independently authorized private artifact destination (and explicit permitted handling of restricted source objects) is needed before claiming full recovery. Replacing large historical blobs with LFS pointers would rewrite affected commit identities and was not authorized here.
+
+The fresh clone has no local object alternates, no shallow boundary and no partial-clone filter. It verifies all 59 published branches and all 872 deployed source-file hashes, but cannot resolve the original development or deployed commit IDs. Their independent code snapshots are explicitly marked as such. Thirty unfinished source/document files are preserved on an unvalidated checkpoint. During the task the existing NFL owner advanced its moving `CURRENT.json`; this task left the update in place, did not stage that pointer, and did not claim the runtime remained frozen.
 
 ## Historical material and cleanup
 

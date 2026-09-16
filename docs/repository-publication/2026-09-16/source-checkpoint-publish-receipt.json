@@ -1,0 +1,48 @@
+{
+  "refs": [
+    {
+      "ref": "refs/heads/codex/archive/development-source-0c786297",
+      "sha": "9a5edbe46e4398e5dffb9ddc5052496b93499486",
+      "parent": "fe9fd790b4bb713256763b13fcd319044d35df27",
+      "files": 2583,
+      "manifestSha256": "d760c0ad0e66a0cbd0d883b4a8a35d7d7ff13a430b54553f368ee87662117335"
+    },
+    {
+      "ref": "refs/heads/codex/archive/mlb-owner-source-77d39e1a",
+      "sha": "5932310243fe40a31b02ba8dc46383c97d5c97e5",
+      "parent": "fe9fd790b4bb713256763b13fcd319044d35df27",
+      "files": 873,
+      "manifestSha256": "3f8edbfcb9c089b496ac01fd128155511564e9efb35e51b6fdfe2c021f6dcc0c"
+    },
+    {
+      "ref": "refs/heads/codex/checkpoint/unfinished-source-20260916",
+      "sha": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+      "parent": "9a5edbe46e4398e5dffb9ddc5052496b93499486",
+      "files": 2612,
+      "manifestSha256": "b217bb56f30ba7ca386e4c1f94162b7b44fbcb1ab8ae986f9e155991a8172664"
+    },
+    {
+      "ref": "refs/heads/codex/repository-publication-20260916",
+      "sha": "53387e7537b6af7316b31ec2032d8b85acee20d3",
+      "parent": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+      "files": 2620,
+      "manifestSha256": "7cf441b6d3fa7816ff7a92268e2671b78572c0843828897eb41988f6aa011f48"
+    }
+  ],
+  "runs": [
+    {
+      "dryRun": true,
+      "utc": "2026-09-16T12:50:28.564199+00:00",
+      "exitCode": 0,
+      "stdout": "To https://github.com/Gearhj/asp-model-studio.git\n*\t9a5edbe46e4398e5dffb9ddc5052496b93499486:refs/heads/codex/archive/development-source-0c786297\t[new branch]\n*\t5932310243fe40a31b02ba8dc46383c97d5c97e5:refs/heads/codex/archive/mlb-owner-source-77d39e1a\t[new branch]\n*\t34ef33401ba838e6e8740cbc43044b5d8ffb66f5:refs/heads/codex/checkpoint/unfinished-source-20260916\t[new branch]\n*\t53387e7537b6af7316b31ec2032d8b85acee20d3:refs/heads/codex/repository-publication-20260916\t[new branch]\nDone\n",
+      "stderr": ""
+    },
+    {
+      "dryRun": false,
+      "utc": "2026-09-16T12:50:33.919574+00:00",
+      "exitCode": 0,
+      "stdout": "To https://github.com/Gearhj/asp-model-studio.git\n*\t9a5edbe46e4398e5dffb9ddc5052496b93499486:refs/heads/codex/archive/development-source-0c786297\t[new branch]\n*\t5932310243fe40a31b02ba8dc46383c97d5c97e5:refs/heads/codex/archive/mlb-owner-source-77d39e1a\t[new branch]\n*\t34ef33401ba838e6e8740cbc43044b5d8ffb66f5:refs/heads/codex/checkpoint/unfinished-source-20260916\t[new branch]\n*\t53387e7537b6af7316b31ec2032d8b85acee20d3:refs/heads/codex/repository-publication-20260916\t[new branch]\nDone\n",
+      "stderr": ""
+    }
+  ]
+}

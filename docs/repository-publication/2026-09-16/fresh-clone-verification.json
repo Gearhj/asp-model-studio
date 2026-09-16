@@ -1,0 +1,138 @@
+{
+  "verifiedAt": "2026-09-16T12:52:40.185987+00:00",
+  "repository": "https://github.com/Gearhj/asp-model-studio",
+  "expectedRemoteRefs": {
+    "refs/heads/claude/fable51-model-studio-security-ml-integrity-audit": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+    "refs/heads/claude/mlb-remaining-feature-authority-audit": "056aca14c5dfa959b244cf629bc12fca7a5e9186",
+    "refs/heads/claude/model-studio-tenant-repair-independent-verification": "7ba66bfbb3baf3c6045f2ca42b8a5a0b07760d2f",
+    "refs/heads/codex/2025-to-2026-walk-forward": "726708bd698ce007d372f359020d544ab5615349",
+    "refs/heads/codex/game-simulation-market-mvp": "4fb1aaf182e525ea7f617e4ac839fa5f1901606b",
+    "refs/heads/codex/mlb-feature-treatment-spec-v1": "3b7cad59930cdfe5e14cf401774a40a256ff69fc",
+    "refs/heads/codex/mlb-governed-prior-engine-v1": "922450b9c0492b4c86f12a87ff3217bfb3fc70cc",
+    "refs/heads/codex/mlb-interaction-authority-v1": "09006653b3f1714574a88efca8650d4f967ab3cd",
+    "refs/heads/codex/mlb-player-prior-wave2": "bff19a8a657bc96dea0469fad481acdcb4234386",
+    "refs/heads/codex/mlb-remaining-feature-authority-wave1": "64a74be89b029adc013e118b14aad75e3ddc0232",
+    "refs/heads/codex/mlb-selection-policy-optimization-v1": "9ae3887d07c54cbf824e828e3e6dd50fbc248238",
+    "refs/heads/codex/mlb-v18-daily-geometry-complete-v1": "3cc9d67376aaa6ef7364f044a02813d8d61e056b",
+    "refs/heads/codex/mlb-v18-daily-slate-publisher-v1": "3cc9d67376aaa6ef7364f044a02813d8d61e056b",
+    "refs/heads/codex/mlb-v18-play-geometry-v1": "3b362cd334888ece86d9159692c8aa37b50d5352",
+    "refs/heads/codex/model-studio-tenant-workflow-repair-v1": "9f02e6835f578b13d0429d0a7442b3634048f8f2",
+    "refs/heads/codex/multisport-platform-architecture": "17e2907d74fca6f42378183eed18fde8b990bfee",
+    "refs/heads/codex/nfl-2026-prospective-shadow": "f4ce121d0217a52f63f10cdadd58f3d14aa78c3d",
+    "refs/heads/codex/nfl-existing-track-current-shadow-v1": "4ae5bf0884730f721c6b7153e879f9787a39a107",
+    "refs/heads/codex/nfl-gold-data-foundation": "5213be4f6c8777ce3975ae30bb1027500699ed20",
+    "refs/heads/codex/nfl-m1-modeling-benchmark": "e60f5b1500e1c574e17a526a6c2e8bef047f92e2",
+    "refs/heads/codex/nfl-overnight-model-laboratory-v1": "7b14c29c77817b01cd5590a616adaac95d16aaa7",
+    "refs/heads/codex/nfl-semantic-labs-v1": "9df8a5a96dea85251235e55731203742de62b78d",
+    "refs/heads/codex/nfl-week1-incremental-publication-v1": "40000ac5f803640e72ef772c537e9b66231dbed7",
+    "refs/heads/codex/recent-data-walk-forward-study": "edeb9e964e11adf91ad51f55582304c776cd07b0",
+    "refs/heads/codex/stage3-executable-artifact-game-scoring": "5e3a2c657799ebe09d91e2c277d66abd8cfd4566",
+    "refs/heads/main": "924db29511f93909f9d785855bfa056775443690",
+    "refs/heads/phase4-milestone-b-closeout": "924db29511f93909f9d785855bfa056775443690",
+    "refs/heads/phase5-game-replay-foundation": "a95b197841f534a97c16fbfc3e9026d713f4725f",
+    "refs/heads/phase7-advanced-mlb-data-integration": "7eb8de556682108d86b6ea1135a3085fe16703da",
+    "refs/heads/phase7b0-bronze-data-landing": "962a40b19d6a0ee22782a0ec1fff577b25948098",
+    "refs/heads/phase7b1-full-corpus-retrosheet-completion": "9b3e513cefff7d17288f0f90536a505808fce4de",
+    "refs/heads/phase7b1-governed-silver-normalization": "9bb2b9d0d964eb0a1fcd4a3932d69dbbdd19b887",
+    "refs/heads/phase7b2-gold-v1-modeling": "a9eef89a30e238ecb118c57e2e031ba928946454",
+    "refs/heads/phase7b3-hierarchical-model-robustness": "009b3f87aa9352fee16e4c27ce5d0bc8bcb7c91d",
+    "refs/heads/phase7b4-recent-state-matchup-ensemble-study": "e911f58e5dfa3c2a37486a0c564bd417e22009dd",
+    "refs/heads/phase7c-canonical-authority-cutover": "93f1634e27ed32f713edd6cf43035d56baf546fa",
+    "refs/heads/phase7d-acquisition-gate-hardening": "1aa274ad943a70689ca0c52e41a75958240c3144",
+    "refs/heads/phase7d1-final-integration-gate": "4c5c4ca8c1c4ef13b05432b07eb9d6a58a6e37bd",
+    "refs/heads/phase7d2-semantic-evidence-closure": "254a92456495579c069730715357ad9ac18c3378",
+    "refs/heads/phase7d3-immutable-evidence-closure": "fe9fd790b4bb713256763b13fcd319044d35df27",
+    "refs/heads/phase7d4-production-semantic-chain-closure": "cdd651c1cda9199c3cd4f2a9b35884af0dd1062c",
+    "refs/heads/phase7d5a-silver-ingress-safety-closure": "34cf3c8a44a26b4cc0da58b2046be38d609c369f",
+    "refs/heads/phase7d5a10-claude-final-silver-ingress-closure": "bfeff81a8348580627ed115efbd018392b083b82",
+    "refs/heads/phase7d5a11-codex-final-three-red-gate": "cdf3ad5548235943f9c6114e7698c7dc5cd04e25",
+    "refs/heads/phase7d5a12-claude-final-three-green-gate": "b0989cd99745abde975af34ac632a799436a7e30",
+    "refs/heads/phase7d5a13-claude-authority-and-full-gate-recovery": "be5376f7f8bb938b37ce1224061f68fb93a511a4",
+    "refs/heads/phase7d5a14-final-release-candidate-closure": "ca6eb0385c9f3514357dd426fb5cb1f099c30bf4",
+    "refs/heads/phase7d5a2-silver-publication-integrity-closure": "5ec6c9b7267f0d209fbc93c4397315a9fe5fe216",
+    "refs/heads/phase7d5a3-codex-red-silver-gate": "9835689616aeff17357f096caea90b039eadfe0a",
+    "refs/heads/phase7d5a4-claude-green-silver-gate": "0ab232bc6a13b157ecc44a1902403a8a9ba7be1d",
+    "refs/heads/phase7d5a5-codex-delta-red-silver-gate": "8ab74422928b8483402d247c3822a0171f766a1b",
+    "refs/heads/phase7d5a6-claude-dual-green-silver-gate": "8ab74422928b8483402d247c3822a0171f766a1b",
+    "refs/heads/phase7d5a7-codex-acceptance-contract-reconciliation": "4b06cef966a906bdcc026351f719e1978650f78e",
+    "refs/heads/phase7d5a8-claude-stage-contract-silver-closure": "21fa2e621ae12b38ccbf4053fd8b18b4119bc96d",
+    "refs/heads/phase7d5a9-codex-protected-set-reconciliation": "7f25993fd4c9a3157d31c29904a503a7c003bc99",
+    "refs/heads/codex/archive/development-source-0c786297": "9a5edbe46e4398e5dffb9ddc5052496b93499486",
+    "refs/heads/codex/archive/mlb-owner-source-77d39e1a": "5932310243fe40a31b02ba8dc46383c97d5c97e5",
+    "refs/heads/codex/checkpoint/unfinished-source-20260916": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+    "refs/heads/codex/repository-publication-20260916": "53387e7537b6af7316b31ec2032d8b85acee20d3"
+  },
+  "remoteRefsExact": true,
+  "freshCloneRefsExact": true,
+  "refCount": 59,
+  "tags": 0,
+  "clone": "C:\\Users\\james\\asp-model-studio\\.runtime\\github-publication-20260916-v1\\fresh-clone",
+  "cloneIndependent": true,
+  "cloneShallow": false,
+  "cloneFiltered": false,
+  "checkoutPerformed": false,
+  "connectivityExitCode": 0,
+  "sourceSnapshotChecks": [
+    {
+      "ref": "refs/heads/codex/archive/development-source-0c786297",
+      "sha": "9a5edbe46e4398e5dffb9ddc5052496b93499486",
+      "filesVerified": 2582
+    },
+    {
+      "ref": "refs/heads/codex/archive/mlb-owner-source-77d39e1a",
+      "sha": "5932310243fe40a31b02ba8dc46383c97d5c97e5",
+      "filesVerified": 872
+    },
+    {
+      "ref": "refs/heads/codex/checkpoint/unfinished-source-20260916",
+      "sha": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+      "filesVerified": 2611
+    },
+    {
+      "ref": "refs/heads/codex/repository-publication-20260916",
+      "sha": "53387e7537b6af7316b31ec2032d8b85acee20d3",
+      "filesVerified": 2619
+    }
+  ],
+  "deployedSourceSha256Checks": 872,
+  "originalCommitsUnavailableInClone": {
+    "0c786297534c1ffc9892fbcd199d7d7af5ec8bae": true,
+    "77d39e1ae08e05be82e19bdb0bab21999fba1d3b": true
+  },
+  "preexistingWorkingFileHashes": {
+    "outputs/mlb-starter-duration-paired-research-v1/current.json": {
+      "originalSha256": "f0a22e47b4961126fb12bfd69d1c23c1f7c6fb2226f65c3cdcb1bc08f1cd67c2",
+      "currentSha256": "f0a22e47b4961126fb12bfd69d1c23c1f7c6fb2226f65c3cdcb1bc08f1cd67c2"
+    },
+    "outputs/mlb-starter-duration-paired-research-v1/monitoring/current.json": {
+      "originalSha256": "c8fa2ccf6352277b4c5c7b795cb8b9f8c05fc84b93f198cac57225823a16f139",
+      "currentSha256": "c8fa2ccf6352277b4c5c7b795cb8b9f8c05fc84b93f198cac57225823a16f139"
+    },
+    "outputs/mlb-starter-duration-paired-research-v1/readiness-state.json": {
+      "originalSha256": "d5bdb48826d52b92fc3c017f034e700e2a3e1152dd17efbb9c1f72fbc16350b9",
+      "currentSha256": "d5bdb48826d52b92fc3c017f034e700e2a3e1152dd17efbb9c1f72fbc16350b9"
+    },
+    "outputs/mlb-v18-current-state-pipeline-v1/slates/2026-09-10/latest.json": {
+      "originalSha256": "51b01ed242899b1528502af4a4c6e03916d5827ec54e5965b0f26587b63fa32c",
+      "currentSha256": "51b01ed242899b1528502af4a4c6e03916d5827ec54e5965b0f26587b63fa32c"
+    },
+    "outputs/mlb-v18-current-state-pipeline-v1/slates/2026-09-11/latest.json": {
+      "originalSha256": "2c7e0a367760749febf99214482321a8c38898e6794b145ffe310d32ffa98cb1",
+      "currentSha256": "2c7e0a367760749febf99214482321a8c38898e6794b145ffe310d32ffa98cb1"
+    },
+    "outputs/nfl-forward-vintages-v1/CURRENT.json": {
+      "originalSha256": "4f7529a2733792f646d7aba65ec69c6ff6841d443a878fad9aebe9a9c1737298",
+      "currentSha256": "cfa0e1a99cd2613f931568a2ea0895d33e72c3c634d4aa48ded33056ccd5dc14"
+    },
+    "outputs/nfl-play-level-engine-v1/CURRENT.json": {
+      "originalSha256": "ffc7ba300913669ae42b84f5e3d5597ac0f9b7823a1c1ef516e4638cb9b2d011",
+      "currentSha256": "ffc7ba300913669ae42b84f5e3d5597ac0f9b7823a1c1ef516e4638cb9b2d011"
+    },
+    "server/sports_current_statcast/mlb_v18_prospective_transform.py": {
+      "originalSha256": "d9e55b24ebf8279c846c362c03cb0cbd1497e747edbdb8993b21a3aec9c4d687",
+      "currentSha256": "d9e55b24ebf8279c846c362c03cb0cbd1497e747edbdb8993b21a3aec9c4d687"
+    }
+  },
+  "realIndexAndHeadUnchanged": true,
+  "qualification": "Source checkpoints do not preserve omitted original ancestry or model/runtime artifacts. An independent existing owner advanced the NFL CURRENT pointer; this task did not restore or write it."
+}

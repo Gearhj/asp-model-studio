@@ -430,6 +430,10 @@
       "mode": "100644",
       "oid": "172086861fc3be62b54da82c3260a1088ead89ae"
     },
+    "docs/ASP_MODEL_STUDIO_PROJECT_MANAGEMENT_HANDOFF_2026-09-11.md": {
+      "mode": "100644",
+      "oid": "e9895a38ea1204a6c07d1e418e07df1e11325214"
+    },
     "docs/ASP_MODEL_STUDIO_SETUP.md": {
       "mode": "100644",
       "oid": "8e2a89d09ac88d88257614ae36b3dba17cc83f26"
@@ -890,6 +894,10 @@
       "mode": "100644",
       "oid": "35311d8cc5129651a1f05798b652aee55025d105"
     },
+    "docs/REPOSITORY_WORKFLOW.md": {
+      "mode": "100644",
+      "oid": "ce3b66d349d907daea2bfb6d6b285c3b9e29ea8f"
+    },
     "docs/RUNTIME_ISOLATION_FORENSIC_REPORT_2026-08-04.md": {
       "mode": "100644",
       "oid": "fe4ca5a9e4852818d39fea5e68038bb08f5ba8fc"
@@ -1085,6 +1093,50 @@
     "docs/repair-evidence/security-completion/SECURITY_COMPLETION_REPORT.md": {
       "mode": "100644",
       "oid": "0a1ba3175244bfa94613fbec57cd1f64fae2a412"
+    },
+    "docs/repository-publication/2026-09-16/BRANCH_MAPPING.csv": {
+      "mode": "100644",
+      "oid": "cc98513df489edae3eaf2f180fe6aa8635f6283e"
+    },
+    "docs/repository-publication/2026-09-16/README.md": {
+      "mode": "100644",
+      "oid": "b99d5ded9297c269a9c7c3391f264f3fdb53bbc7"
+    },
+    "docs/repository-publication/2026-09-16/SOURCE_CHECKPOINT_EXCLUSIONS.json": {
+      "mode": "100644",
+      "oid": "b04dafdfc7dc6cdf9ca758e2d086d4c37b2b9651"
+    },
+    "docs/repository-publication/2026-09-16/deployment-verification.json": {
+      "mode": "100644",
+      "oid": "3fa5191bb22b3630687bedff94d0ff3829161670"
+    },
+    "docs/repository-publication/2026-09-16/fresh-clone-verification.json": {
+      "mode": "100644",
+      "oid": "ecde9e114a33d3a9d28c80ccee10948052a3e189"
+    },
+    "docs/repository-publication/2026-09-16/inventory-summary.json": {
+      "mode": "100644",
+      "oid": "641e1fdd3306d2684b433801af855401b01ff8e1"
+    },
+    "docs/repository-publication/2026-09-16/publication-review.json": {
+      "mode": "100644",
+      "oid": "6bc9b8670781f4199ec7a018928fece96452c514"
+    },
+    "docs/repository-publication/2026-09-16/publish-receipt.json": {
+      "mode": "100644",
+      "oid": "1b7441d7f2ce0eeb5abbcd5e1ff287b8979e546e"
+    },
+    "docs/repository-publication/2026-09-16/source-checkpoint-publish-receipt.json": {
+      "mode": "100644",
+      "oid": "43f39d5d6d582e3c0fb7a79361b8e0cf76b76508"
+    },
+    "docs/repository-publication/2026-09-16/source-checkpoint-receipt.json": {
+      "mode": "100644",
+      "oid": "ee82181f944b918fd9a69f9c26b4d66611404668"
+    },
+    "docs/repository-publication/2026-09-16/source-checkpoint-review.json": {
+      "mode": "100644",
+      "oid": "8c3c04dc5234944870b829955eb9fbfe3e470b48"
     },
     "docs/security/PHASE_1_SECURITY_CONTAINMENT_REPORT.md": {
       "mode": "100644",
@@ -1870,6 +1922,26 @@
       "mode": "100644",
       "oid": "a4a1688ccefd0c4d9c67e90ef79d1787a56e7af1"
     },
+    "outputs/project-management-handoff-20260915-v1/HANDOFF.md": {
+      "mode": "100644",
+      "oid": "db695ddb8d915dcd7c83dcc62755724e52b525cd"
+    },
+    "outputs/project-management-handoff-20260915-v1/README.md": {
+      "mode": "100644",
+      "oid": "266fab54d461ec762f001d4f253d4f6ed6301b34"
+    },
+    "outputs/project-management-handoff-20260915-v1/REPORT.md": {
+      "mode": "100644",
+      "oid": "7e3a128fcdaaeeec56e2c08cce979724d5a273ed"
+    },
+    "outputs/project-management-handoff-20260915-v1/SOURCES.md": {
+      "mode": "100644",
+      "oid": "f3724aa18d5b8c699a740b06df0f7f8afba83d1f"
+    },
+    "outputs/project-management-handoff-20260915-v1/prepare_report.py": {
+      "mode": "100644",
+      "oid": "e457f6760bd20088ca027e245c3070fca6d1ee23"
+    },
     "package-lock.json": {
       "mode": "100644",
       "oid": "d9db19cc197f3b36bd03baa488a53b2bffa66d93"
@@ -2030,6 +2102,14 @@
       "mode": "100644",
       "oid": "7db37c0a24215b56514aea58931ace45d443b8a8"
     },
+    "scripts/build_mlb_v18_diagnosis_report_v1.py": {
+      "mode": "100644",
+      "oid": "ef421518fc91f553ca7d7d3436231546bea5f00d"
+    },
+    "scripts/build_mlb_v18_ensemble_release_candidate_v1.py": {
+      "mode": "100644",
+      "oid": "00c578fe4bd014906da5b74bf87be2d7ce5ef875"
+    },
     "scripts/build_mlb_v18_play_geometry_supplement.py": {
       "mode": "100644",
       "oid": "b5c543483af144a9e6ce878bc9691a30dbafc230"
@@ -2037,6 +2117,14 @@
     "scripts/build_mlb_v18_population_geometry_supplement.py": {
       "mode": "100644",
       "oid": "998f774fb177d9559f81ba6e6ac3f3a31247dbb6"
+    },
+    "scripts/build_mlb_v18_population_observed_v1.py": {
+      "mode": "100644",
+      "oid": "6c63830098f470c276a7c28a2fcabb8923a38a67"
+    },
+    "scripts/build_mlb_v18_transition_shrinkage_v1.py": {
+      "mode": "100644",
+      "oid": "89d83e7af2f79bfcab680619bc5b9b02e7b4e238"
     },
     "scripts/build_mlb_v19_baseline_atlas.py": {
       "mode": "100644",
@@ -2110,6 +2198,10 @@
       "mode": "100644",
       "oid": "ad4ce24ad34396dd173726a3f8c771d734c8be9a"
     },
+    "scripts/consume_mlb_v18_simulator_evidence_v1.py": {
+      "mode": "100644",
+      "oid": "032d5dd19168e0c43d3feb1aeb958fc87a247502"
+    },
     "scripts/dataset_library_recovery.py": {
       "mode": "100644",
       "oid": "08a4d22ccfc558b0fbb689e38d40109cdbd83585"
@@ -2130,9 +2222,29 @@
       "mode": "100644",
       "oid": "f42c824d427ec1e594ee119a314b010892722d60"
     },
+    "scripts/diagnose_mlb_v18_calibration_leads_v1.py": {
+      "mode": "100644",
+      "oid": "b029d8d4ed0cf14e0f26073f715fc0ed8761ac2e"
+    },
+    "scripts/diagnose_mlb_v18_doubles_innings_v1.py": {
+      "mode": "100644",
+      "oid": "e317761067bade2959c793848d167a5b2038d83e"
+    },
+    "scripts/diagnose_mlb_v18_pa_v1.py": {
+      "mode": "100644",
+      "oid": "9cf3e48a86e27d2f8a39910499d52fc481fddf28"
+    },
+    "scripts/diagnose_mlb_v18_whole_game_v1.py": {
+      "mode": "100644",
+      "oid": "8483b2b99715d72346ae8659e20a099879942e70"
+    },
     "scripts/diagnose_nfl_uncertainty_repair.py": {
       "mode": "100644",
       "oid": "0d5568c20c8731f6e65380a8d8d2f00d8ab4ad06"
+    },
+    "scripts/enrich_mlb_v18_pa_cases_v1.py": {
+      "mode": "100644",
+      "oid": "87ed1d7892f245eee590d8aacc6cb08ae60e4348"
     },
     "scripts/evaluate_mlb_interaction_authority.py": {
       "mode": "100644",
@@ -2170,9 +2282,17 @@
       "mode": "100644",
       "oid": "9fba768f9408183a6120ea9c0c617dd8454f51e4"
     },
+    "scripts/export_mlb_v18_ensemble_release_candidate_v1.py": {
+      "mode": "100644",
+      "oid": "0400c9694e24d4ce6ba315ee65322586d2651d0f"
+    },
     "scripts/export_mlb_v18_totals_v1.py": {
       "mode": "100644",
       "oid": "49820cb2e3bae54b32d209ed338fff3ed5ff008c"
+    },
+    "scripts/export_mlb_v18_transition_shrinkage_v1.py": {
+      "mode": "100644",
+      "oid": "6a75d3a192b1afab08f1697251c9ba5b18e3f614"
     },
     "scripts/export_model_vs_market_benchmark_readonly.py": {
       "mode": "100644",
@@ -2230,6 +2350,10 @@
       "mode": "100644",
       "oid": "04613903dfbe8f0ad97c04a59c129711a7f8980f"
     },
+    "scripts/followup_mlb_v18_doubles_v1.py": {
+      "mode": "100644",
+      "oid": "c4d485ec77f7b500701f313a51c7208e470879b3"
+    },
     "scripts/forecast_nba_gen1.py": {
       "mode": "100644",
       "oid": "79a735fbfde129e8927b0be7692df53cbd11273b"
@@ -2237,6 +2361,10 @@
     "scripts/forecast_nba_gen1_point.py": {
       "mode": "100644",
       "oid": "10c080dea8590c1bea8e6e3239fd5fb21ee4b995"
+    },
+    "scripts/freeze_mlb_v18_transition_shadow_v1.py": {
+      "mode": "100644",
+      "oid": "c2adc7a8f33fe823cc3d2caab62a23150ae84440"
     },
     "scripts/hermetic_node_guard.mjs": {
       "mode": "100644",
@@ -2306,6 +2434,10 @@
       "mode": "100644",
       "oid": "90203e66eddaec4141c3628bf7d89472cc5edb1e"
     },
+    "scripts/manifest_mlb_v18_diagnosis_v1.py": {
+      "mode": "100644",
+      "oid": "7c703f449420f2758f36f2bbc8ae3d808b97d852"
+    },
     "scripts/migrate_champion_2024_reference.py": {
       "mode": "100644",
       "oid": "3a3c0519dafb408d712e49f5f4b282777c058469"
@@ -2353,6 +2485,14 @@
     "scripts/package_mlb_v18_three_arm_pregame_comparison_v1.py": {
       "mode": "100644",
       "oid": "c34cf1ce96b2cdcd6dd4eec11d19840a6c5a1248"
+    },
+    "scripts/package_mlb_v18_transition_adapter_v2.py": {
+      "mode": "100644",
+      "oid": "3f18b05a996c0cd59d2570eff41b28251cc89afb"
+    },
+    "scripts/package_mlb_v18_transition_shrinkage_v1.py": {
+      "mode": "100644",
+      "oid": "bf7997976f1c3026a9079192f7d52bbd6c51e1a6"
     },
     "scripts/package_mlb_v19_study.py": {
       "mode": "100644",
@@ -2409,6 +2549,10 @@
     "scripts/prepare_nba_gen1_point_coverage.py": {
       "mode": "100644",
       "oid": "38b99f2ab6832b3e21945ec528bde34ad2ed7d8c"
+    },
+    "scripts/preserve_reviewed_source_checkpoints.py": {
+      "mode": "100644",
+      "oid": "83ca0e7ae2c3f4974bd8982dec06938e4ac9cda7"
     },
     "scripts/protected_authority_snapshot.py": {
       "mode": "100644",
@@ -2490,6 +2634,10 @@
       "mode": "100644",
       "oid": "83680a83a5ecbaefbb9c6c84efee7f84421ea0d7"
     },
+    "scripts/publish_reviewed_repository_refs.py": {
+      "mode": "100644",
+      "oid": "9024ed8a4cf19842b0ed16fc56f4892eeabfa8b7"
+    },
     "scripts/quarantine_incomplete_test_namespace.py": {
       "mode": "100644",
       "oid": "17ca3462f215d432a3a88545518b44d44fd53b41"
@@ -2550,6 +2698,10 @@
       "mode": "100644",
       "oid": "21fded5de4b2496f68296a9e94bcb88be2923570"
     },
+    "scripts/render_mlb_v18_diagnostic_tables_v1.py": {
+      "mode": "100644",
+      "oid": "402ca88528e0490dcd712de8b418c2249df8d37e"
+    },
     "scripts/replay_nba_gen1_close_score.py": {
       "mode": "100644",
       "oid": "b850ff05885eef8852ef3bc5b59d2fb51dec3048"
@@ -2609,6 +2761,10 @@
     "scripts/report_show_preview_v1.py": {
       "mode": "100644",
       "oid": "81938065cde6f080b326ba2042a5247661b86b49"
+    },
+    "scripts/repository_publication_audit.py": {
+      "mode": "100644",
+      "oid": "f4b7d09f31ad7a791689ed9ac59687af68b7b3c7"
     },
     "scripts/reproduce_mlb_regime_baseline.py": {
       "mode": "100644",
@@ -2781,6 +2937,14 @@
     "scripts/run_mlb_v18_current_state.py": {
       "mode": "100644",
       "oid": "5f9d7c782bc0996491be2bb4cb5b5d5b60a34735"
+    },
+    "scripts/run_mlb_v18_empirical_diagnosis_v1.py": {
+      "mode": "100644",
+      "oid": "f9897d71d956cd0a53914174969edac3234133d9"
+    },
+    "scripts/run_mlb_v18_ensemble_release_candidate_v1.py": {
+      "mode": "100644",
+      "oid": "7aad18ba77ed03023b120ec52f247437d234c1e8"
     },
     "scripts/run_mlb_v18_population_diagnostics_v1.py": {
       "mode": "100644",
@@ -2978,9 +3142,17 @@
       "mode": "100644",
       "oid": "92c4f80e67157ae9b095d52e4eefe90a0fc70f08"
     },
+    "scripts/verify_mlb_v18_ensemble_release_candidate_v1.py": {
+      "mode": "100644",
+      "oid": "4901c00c87809bf847663fe8fc68b9bf72a8d376"
+    },
     "scripts/verify_mlb_v18_rf_operationalization.py": {
       "mode": "100644",
       "oid": "c719fb31ea0a127c2c9612df77ccda8fe8528f07"
+    },
+    "scripts/verify_mlb_v18_transition_delivery_v1.py": {
+      "mode": "100644",
+      "oid": "6128996a73243ad4f8be10b29691a8924a9f85ac"
     },
     "scripts/verify_nba_gen1_historical_pilot.py": {
       "mode": "100644",
@@ -3033,6 +3205,10 @@
     "scripts/verify_producer_readiness_20260914.py": {
       "mode": "100644",
       "oid": "dcc3c89658ea40962a5506d869ca27d581e382e8"
+    },
+    "scripts/verify_repository_publication.py": {
+      "mode": "100644",
+      "oid": "589bb1fb1da83b84855f824dd9d3779837e762b8"
     },
     "scripts/write_bureau_metadata_browser_reload_evidence.py": {
       "mode": "100644",
@@ -4629,6 +4805,10 @@
     "server/sports_current_statcast/mlb_v18_development_timing.py": {
       "mode": "100644",
       "oid": "1219ccb56c7e6881cc16d94d943a660560b26f2c"
+    },
+    "server/sports_current_statcast/mlb_v18_ensemble_candidate.py": {
+      "mode": "100644",
+      "oid": "7d451955f4422f09ec54667288d54aa9f2caac2d"
     },
     "server/sports_current_statcast/mlb_v18_exchange.py": {
       "mode": "100644",
@@ -10341,157 +10521,25 @@
     "vite.config.ts": {
       "mode": "100644",
       "oid": "fa651dfc9fc21248ac50d7605bac08684a875c95"
-    },
-    "docs/ASP_MODEL_STUDIO_PROJECT_MANAGEMENT_HANDOFF_2026-09-11.md": {
-      "mode": "100644",
-      "oid": "e9895a38ea1204a6c07d1e418e07df1e11325214"
-    },
-    "scripts/build_mlb_v18_diagnosis_report_v1.py": {
-      "mode": "100644",
-      "oid": "ef421518fc91f553ca7d7d3436231546bea5f00d"
-    },
-    "scripts/build_mlb_v18_ensemble_release_candidate_v1.py": {
-      "mode": "100644",
-      "oid": "00c578fe4bd014906da5b74bf87be2d7ce5ef875"
-    },
-    "scripts/build_mlb_v18_population_observed_v1.py": {
-      "mode": "100644",
-      "oid": "6c63830098f470c276a7c28a2fcabb8923a38a67"
-    },
-    "scripts/build_mlb_v18_transition_shrinkage_v1.py": {
-      "mode": "100644",
-      "oid": "89d83e7af2f79bfcab680619bc5b9b02e7b4e238"
-    },
-    "scripts/consume_mlb_v18_simulator_evidence_v1.py": {
-      "mode": "100644",
-      "oid": "032d5dd19168e0c43d3feb1aeb958fc87a247502"
-    },
-    "scripts/diagnose_mlb_v18_calibration_leads_v1.py": {
-      "mode": "100644",
-      "oid": "b029d8d4ed0cf14e0f26073f715fc0ed8761ac2e"
-    },
-    "scripts/diagnose_mlb_v18_doubles_innings_v1.py": {
-      "mode": "100644",
-      "oid": "e317761067bade2959c793848d167a5b2038d83e"
-    },
-    "scripts/diagnose_mlb_v18_pa_v1.py": {
-      "mode": "100644",
-      "oid": "9cf3e48a86e27d2f8a39910499d52fc481fddf28"
-    },
-    "scripts/diagnose_mlb_v18_whole_game_v1.py": {
-      "mode": "100644",
-      "oid": "8483b2b99715d72346ae8659e20a099879942e70"
-    },
-    "scripts/enrich_mlb_v18_pa_cases_v1.py": {
-      "mode": "100644",
-      "oid": "87ed1d7892f245eee590d8aacc6cb08ae60e4348"
-    },
-    "scripts/export_mlb_v18_ensemble_release_candidate_v1.py": {
-      "mode": "100644",
-      "oid": "0400c9694e24d4ce6ba315ee65322586d2651d0f"
-    },
-    "scripts/export_mlb_v18_transition_shrinkage_v1.py": {
-      "mode": "100644",
-      "oid": "6a75d3a192b1afab08f1697251c9ba5b18e3f614"
-    },
-    "scripts/followup_mlb_v18_doubles_v1.py": {
-      "mode": "100644",
-      "oid": "c4d485ec77f7b500701f313a51c7208e470879b3"
-    },
-    "scripts/freeze_mlb_v18_transition_shadow_v1.py": {
-      "mode": "100644",
-      "oid": "c2adc7a8f33fe823cc3d2caab62a23150ae84440"
-    },
-    "scripts/manifest_mlb_v18_diagnosis_v1.py": {
-      "mode": "100644",
-      "oid": "7c703f449420f2758f36f2bbc8ae3d808b97d852"
-    },
-    "scripts/package_mlb_v18_transition_adapter_v2.py": {
-      "mode": "100644",
-      "oid": "3f18b05a996c0cd59d2570eff41b28251cc89afb"
-    },
-    "scripts/package_mlb_v18_transition_shrinkage_v1.py": {
-      "mode": "100644",
-      "oid": "bf7997976f1c3026a9079192f7d52bbd6c51e1a6"
-    },
-    "scripts/render_mlb_v18_diagnostic_tables_v1.py": {
-      "mode": "100644",
-      "oid": "402ca88528e0490dcd712de8b418c2249df8d37e"
-    },
-    "scripts/run_mlb_v18_empirical_diagnosis_v1.py": {
-      "mode": "100644",
-      "oid": "f9897d71d956cd0a53914174969edac3234133d9"
-    },
-    "scripts/run_mlb_v18_ensemble_release_candidate_v1.py": {
-      "mode": "100644",
-      "oid": "7aad18ba77ed03023b120ec52f247437d234c1e8"
-    },
-    "scripts/verify_mlb_v18_ensemble_release_candidate_v1.py": {
-      "mode": "100644",
-      "oid": "4901c00c87809bf847663fe8fc68b9bf72a8d376"
-    },
-    "scripts/verify_mlb_v18_transition_delivery_v1.py": {
-      "mode": "100644",
-      "oid": "6128996a73243ad4f8be10b29691a8924a9f85ac"
-    },
-    "server/sports_current_statcast/mlb_v18_ensemble_candidate.py": {
-      "mode": "100644",
-      "oid": "7d451955f4422f09ec54667288d54aa9f2caac2d"
-    },
-    "outputs/project-management-handoff-20260915-v1/HANDOFF.md": {
-      "mode": "100644",
-      "oid": "db695ddb8d915dcd7c83dcc62755724e52b525cd"
-    },
-    "outputs/project-management-handoff-20260915-v1/prepare_report.py": {
-      "mode": "100644",
-      "oid": "e457f6760bd20088ca027e245c3070fca6d1ee23"
-    },
-    "outputs/project-management-handoff-20260915-v1/README.md": {
-      "mode": "100644",
-      "oid": "266fab54d461ec762f001d4f253d4f6ed6301b34"
-    },
-    "outputs/project-management-handoff-20260915-v1/REPORT.md": {
-      "mode": "100644",
-      "oid": "7e3a128fcdaaeeec56e2c08cce979724d5a273ed"
-    },
-    "outputs/project-management-handoff-20260915-v1/SOURCES.md": {
-      "mode": "100644",
-      "oid": "f3724aa18d5b8c699a740b06df0f7f8afba83d1f"
-    },
-    "docs/REPOSITORY_WORKFLOW.md": {
-      "mode": "100644",
-      "oid": "73e32893912cf9000303513994f6cf9dcd8af45f"
-    },
-    "scripts/repository_publication_audit.py": {
-      "mode": "100644",
-      "oid": "f4b7d09f31ad7a791689ed9ac59687af68b7b3c7"
-    },
-    "scripts/publish_reviewed_repository_refs.py": {
-      "mode": "100644",
-      "oid": "9024ed8a4cf19842b0ed16fc56f4892eeabfa8b7"
-    },
-    "scripts/preserve_reviewed_source_checkpoints.py": {
-      "mode": "100644",
-      "oid": "83ca0e7ae2c3f4974bd8982dec06938e4ac9cda7"
-    },
-    "docs/repository-publication/2026-09-16/BRANCH_MAPPING.csv": {
-      "mode": "100644",
-      "oid": "c1a68c4bf877e9a9d6b0a207e11881698ced3f74"
-    },
-    "docs/repository-publication/2026-09-16/deployment-verification.json": {
-      "mode": "100644",
-      "oid": "3fa5191bb22b3630687bedff94d0ff3829161670"
-    },
-    "docs/repository-publication/2026-09-16/inventory-summary.json": {
-      "mode": "100644",
-      "oid": "641e1fdd3306d2684b433801af855401b01ff8e1"
-    },
-    "docs/repository-publication/2026-09-16/publication-review.json": {
-      "mode": "100644",
-      "oid": "6bc9b8670781f4199ec7a018928fece96452c514"
     }
   },
   "originalHistoryIncluded": false,
   "modelArtifactsIncluded": false,
-  "deploymentAuthority": false
+  "deploymentAuthority": false,
+  "finalEvidencePaths": [
+    "docs/REPOSITORY_WORKFLOW.md",
+    "scripts/verify_repository_publication.py",
+    "docs/repository-publication/2026-09-16/BRANCH_MAPPING.csv",
+    "docs/repository-publication/2026-09-16/deployment-verification.json",
+    "docs/repository-publication/2026-09-16/fresh-clone-verification.json",
+    "docs/repository-publication/2026-09-16/inventory-summary.json",
+    "docs/repository-publication/2026-09-16/publication-review.json",
+    "docs/repository-publication/2026-09-16/publish-receipt.json",
+    "docs/repository-publication/2026-09-16/README.md",
+    "docs/repository-publication/2026-09-16/source-checkpoint-publish-receipt.json",
+    "docs/repository-publication/2026-09-16/source-checkpoint-receipt.json",
+    "docs/repository-publication/2026-09-16/source-checkpoint-review.json",
+    "docs/repository-publication/2026-09-16/SOURCE_CHECKPOINT_EXCLUSIONS.json"
+  ],
+  "auditParent": "53387e7537b6af7316b31ec2032d8b85acee20d3"
 }

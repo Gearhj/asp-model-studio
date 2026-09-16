@@ -1,0 +1,552 @@
+{
+  "createdAt": "2026-09-16T12:40:01.686018+00:00",
+  "mode": "publish",
+  "refCount": 54,
+  "refs": [
+    {
+      "ref": "refs/heads/claude/fable51-model-studio-security-ml-integrity-audit",
+      "sha": "3a70c98b485a6e9450782ad6d296add0ea7f49d6",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7811,
+      "remoteRef": "refs/heads/claude/fable51-model-studio-security-ml-integrity-audit",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/claude/mlb-remaining-feature-authority-audit",
+      "sha": "056aca14c5dfa959b244cf629bc12fca7a5e9186",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7609,
+      "remoteRef": "refs/heads/claude/mlb-remaining-feature-authority-audit",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/claude/model-studio-tenant-repair-independent-verification",
+      "sha": "7ba66bfbb3baf3c6045f2ca42b8a5a0b07760d2f",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8010,
+      "remoteRef": "refs/heads/claude/model-studio-tenant-repair-independent-verification",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/2025-to-2026-walk-forward",
+      "sha": "726708bd698ce007d372f359020d544ab5615349",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6988,
+      "remoteRef": "refs/heads/codex/2025-to-2026-walk-forward",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/game-simulation-market-mvp",
+      "sha": "4fb1aaf182e525ea7f617e4ac839fa5f1901606b",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6803,
+      "remoteRef": "refs/heads/codex/game-simulation-market-mvp",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-feature-treatment-spec-v1",
+      "sha": "3b7cad59930cdfe5e14cf401774a40a256ff69fc",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7564,
+      "remoteRef": "refs/heads/codex/mlb-feature-treatment-spec-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-governed-prior-engine-v1",
+      "sha": "922450b9c0492b4c86f12a87ff3217bfb3fc70cc",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8283,
+      "remoteRef": "refs/heads/codex/mlb-governed-prior-engine-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-interaction-authority-v1",
+      "sha": "09006653b3f1714574a88efca8650d4f967ab3cd",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7645,
+      "remoteRef": "refs/heads/codex/mlb-interaction-authority-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-player-prior-wave2",
+      "sha": "bff19a8a657bc96dea0469fad481acdcb4234386",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7729,
+      "remoteRef": "refs/heads/codex/mlb-player-prior-wave2",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-remaining-feature-authority-wave1",
+      "sha": "64a74be89b029adc013e118b14aad75e3ddc0232",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7691,
+      "remoteRef": "refs/heads/codex/mlb-remaining-feature-authority-wave1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-selection-policy-optimization-v1",
+      "sha": "9ae3887d07c54cbf824e828e3e6dd50fbc248238",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8734,
+      "remoteRef": "refs/heads/codex/mlb-selection-policy-optimization-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-v18-daily-geometry-complete-v1",
+      "sha": "3cc9d67376aaa6ef7364f044a02813d8d61e056b",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8717,
+      "remoteRef": "refs/heads/codex/mlb-v18-daily-geometry-complete-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-v18-daily-slate-publisher-v1",
+      "sha": "3cc9d67376aaa6ef7364f044a02813d8d61e056b",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8717,
+      "remoteRef": "refs/heads/codex/mlb-v18-daily-slate-publisher-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/mlb-v18-play-geometry-v1",
+      "sha": "3b362cd334888ece86d9159692c8aa37b50d5352",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8333,
+      "remoteRef": "refs/heads/codex/mlb-v18-play-geometry-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/model-studio-tenant-workflow-repair-v1",
+      "sha": "9f02e6835f578b13d0429d0a7442b3634048f8f2",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7997,
+      "remoteRef": "refs/heads/codex/model-studio-tenant-workflow-repair-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/multisport-platform-architecture",
+      "sha": "17e2907d74fca6f42378183eed18fde8b990bfee",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7458,
+      "remoteRef": "refs/heads/codex/multisport-platform-architecture",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-2026-prospective-shadow",
+      "sha": "f4ce121d0217a52f63f10cdadd58f3d14aa78c3d",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7265,
+      "remoteRef": "refs/heads/codex/nfl-2026-prospective-shadow",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-existing-track-current-shadow-v1",
+      "sha": "4ae5bf0884730f721c6b7153e879f9787a39a107",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8762,
+      "remoteRef": "refs/heads/codex/nfl-existing-track-current-shadow-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-gold-data-foundation",
+      "sha": "5213be4f6c8777ce3975ae30bb1027500699ed20",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7021,
+      "remoteRef": "refs/heads/codex/nfl-gold-data-foundation",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-m1-modeling-benchmark",
+      "sha": "e60f5b1500e1c574e17a526a6c2e8bef047f92e2",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7078,
+      "remoteRef": "refs/heads/codex/nfl-m1-modeling-benchmark",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-overnight-model-laboratory-v1",
+      "sha": "7b14c29c77817b01cd5590a616adaac95d16aaa7",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8833,
+      "remoteRef": "refs/heads/codex/nfl-overnight-model-laboratory-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-semantic-labs-v1",
+      "sha": "9df8a5a96dea85251235e55731203742de62b78d",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 9233,
+      "remoteRef": "refs/heads/codex/nfl-semantic-labs-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/nfl-week1-incremental-publication-v1",
+      "sha": "40000ac5f803640e72ef772c537e9b66231dbed7",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 8789,
+      "remoteRef": "refs/heads/codex/nfl-week1-incremental-publication-v1",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/recent-data-walk-forward-study",
+      "sha": "edeb9e964e11adf91ad51f55582304c776cd07b0",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6777,
+      "remoteRef": "refs/heads/codex/recent-data-walk-forward-study",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/codex/stage3-executable-artifact-game-scoring",
+      "sha": "5e3a2c657799ebe09d91e2c277d66abd8cfd4566",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 7522,
+      "remoteRef": "refs/heads/codex/stage3-executable-artifact-game-scoring",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/main",
+      "sha": "924db29511f93909f9d785855bfa056775443690",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5259,
+      "remoteRef": "refs/heads/main",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase4-milestone-b-closeout",
+      "sha": "924db29511f93909f9d785855bfa056775443690",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5259,
+      "remoteRef": "refs/heads/phase4-milestone-b-closeout",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase5-game-replay-foundation",
+      "sha": "a95b197841f534a97c16fbfc3e9026d713f4725f",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5717,
+      "remoteRef": "refs/heads/phase5-game-replay-foundation",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7-advanced-mlb-data-integration",
+      "sha": "7eb8de556682108d86b6ea1135a3085fe16703da",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5869,
+      "remoteRef": "refs/heads/phase7-advanced-mlb-data-integration",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7b1-full-corpus-retrosheet-completion",
+      "sha": "9b3e513cefff7d17288f0f90536a505808fce4de",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6645,
+      "remoteRef": "refs/heads/phase7b1-full-corpus-retrosheet-completion",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7b1-governed-silver-normalization",
+      "sha": "9bb2b9d0d964eb0a1fcd4a3932d69dbbdd19b887",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6597,
+      "remoteRef": "refs/heads/phase7b1-governed-silver-normalization",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7b2-gold-v1-modeling",
+      "sha": "a9eef89a30e238ecb118c57e2e031ba928946454",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6680,
+      "remoteRef": "refs/heads/phase7b2-gold-v1-modeling",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7b3-hierarchical-model-robustness",
+      "sha": "009b3f87aa9352fee16e4c27ce5d0bc8bcb7c91d",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6692,
+      "remoteRef": "refs/heads/phase7b3-hierarchical-model-robustness",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7b4-recent-state-matchup-ensemble-study",
+      "sha": "e911f58e5dfa3c2a37486a0c564bd417e22009dd",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6737,
+      "remoteRef": "refs/heads/phase7b4-recent-state-matchup-ensemble-study",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7c-canonical-authority-cutover",
+      "sha": "93f1634e27ed32f713edd6cf43035d56baf546fa",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5904,
+      "remoteRef": "refs/heads/phase7c-canonical-authority-cutover",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d-acquisition-gate-hardening",
+      "sha": "1aa274ad943a70689ca0c52e41a75958240c3144",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 5936,
+      "remoteRef": "refs/heads/phase7d-acquisition-gate-hardening",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d1-final-integration-gate",
+      "sha": "4c5c4ca8c1c4ef13b05432b07eb9d6a58a6e37bd",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6008,
+      "remoteRef": "refs/heads/phase7d1-final-integration-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d2-semantic-evidence-closure",
+      "sha": "254a92456495579c069730715357ad9ac18c3378",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6048,
+      "remoteRef": "refs/heads/phase7d2-semantic-evidence-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d3-immutable-evidence-closure",
+      "sha": "fe9fd790b4bb713256763b13fcd319044d35df27",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6065,
+      "remoteRef": "refs/heads/phase7d3-immutable-evidence-closure",
+      "priorRemoteSha": "50bc1bbcb9897e1c71ae959be5065eac2e75212b",
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d4-production-semantic-chain-closure",
+      "sha": "cdd651c1cda9199c3cd4f2a9b35884af0dd1062c",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6177,
+      "remoteRef": "refs/heads/phase7d4-production-semantic-chain-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a-silver-ingress-safety-closure",
+      "sha": "34cf3c8a44a26b4cc0da58b2046be38d609c369f",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6275,
+      "remoteRef": "refs/heads/phase7d5a-silver-ingress-safety-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a10-claude-final-silver-ingress-closure",
+      "sha": "bfeff81a8348580627ed115efbd018392b083b82",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6510,
+      "remoteRef": "refs/heads/phase7d5a10-claude-final-silver-ingress-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a11-codex-final-three-red-gate",
+      "sha": "cdf3ad5548235943f9c6114e7698c7dc5cd04e25",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6525,
+      "remoteRef": "refs/heads/phase7d5a11-codex-final-three-red-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a12-claude-final-three-green-gate",
+      "sha": "b0989cd99745abde975af34ac632a799436a7e30",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6535,
+      "remoteRef": "refs/heads/phase7d5a12-claude-final-three-green-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a13-claude-authority-and-full-gate-recovery",
+      "sha": "be5376f7f8bb938b37ce1224061f68fb93a511a4",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6557,
+      "remoteRef": "refs/heads/phase7d5a13-claude-authority-and-full-gate-recovery",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a14-final-release-candidate-closure",
+      "sha": "ca6eb0385c9f3514357dd426fb5cb1f099c30bf4",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6579,
+      "remoteRef": "refs/heads/phase7d5a14-final-release-candidate-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a2-silver-publication-integrity-closure",
+      "sha": "5ec6c9b7267f0d209fbc93c4397315a9fe5fe216",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6349,
+      "remoteRef": "refs/heads/phase7d5a2-silver-publication-integrity-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a3-codex-red-silver-gate",
+      "sha": "9835689616aeff17357f096caea90b039eadfe0a",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6370,
+      "remoteRef": "refs/heads/phase7d5a3-codex-red-silver-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a4-claude-green-silver-gate",
+      "sha": "0ab232bc6a13b157ecc44a1902403a8a9ba7be1d",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6420,
+      "remoteRef": "refs/heads/phase7d5a4-claude-green-silver-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a5-codex-delta-red-silver-gate",
+      "sha": "8ab74422928b8483402d247c3822a0171f766a1b",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6434,
+      "remoteRef": "refs/heads/phase7d5a5-codex-delta-red-silver-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a6-claude-dual-green-silver-gate",
+      "sha": "8ab74422928b8483402d247c3822a0171f766a1b",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6434,
+      "remoteRef": "refs/heads/phase7d5a6-claude-dual-green-silver-gate",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a7-codex-acceptance-contract-reconciliation",
+      "sha": "4b06cef966a906bdcc026351f719e1978650f78e",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6462,
+      "remoteRef": "refs/heads/phase7d5a7-codex-acceptance-contract-reconciliation",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a8-claude-stage-contract-silver-closure",
+      "sha": "21fa2e621ae12b38ccbf4053fd8b18b4119bc96d",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6473,
+      "remoteRef": "refs/heads/phase7d5a8-claude-stage-contract-silver-closure",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    },
+    {
+      "ref": "refs/heads/phase7d5a9-codex-protected-set-reconciliation",
+      "sha": "7f25993fd4c9a3157d31c29904a503a7c003bc99",
+      "largeBlobCount": 0,
+      "restrictedSourceBlobCount": 0,
+      "objectCount": 6488,
+      "remoteRef": "refs/heads/phase7d5a9-codex-protected-set-reconciliation",
+      "priorRemoteSha": null,
+      "action": "PUBLISH_EXACT"
+    }
+  ],
+  "exitCode": 0,
+  "stdout": "To https://github.com/Gearhj/asp-model-studio.git\n \tfe9fd790b4bb713256763b13fcd319044d35df27:refs/heads/phase7d3-immutable-evidence-closure\t50bc1bbc..fe9fd790\n*\t3a70c98b485a6e9450782ad6d296add0ea7f49d6:refs/heads/claude/fable51-model-studio-security-ml-integrity-audit\t[new branch]\n*\t056aca14c5dfa959b244cf629bc12fca7a5e9186:refs/heads/claude/mlb-remaining-feature-authority-audit\t[new branch]\n*\t7ba66bfbb3baf3c6045f2ca42b8a5a0b07760d2f:refs/heads/claude/model-studio-tenant-repair-independent-verification\t[new branch]\n*\t726708bd698ce007d372f359020d544ab5615349:refs/heads/codex/2025-to-2026-walk-forward\t[new branch]\n*\t4fb1aaf182e525ea7f617e4ac839fa5f1901606b:refs/heads/codex/game-simulation-market-mvp\t[new branch]\n*\t3b7cad59930cdfe5e14cf401774a40a256ff69fc:refs/heads/codex/mlb-feature-treatment-spec-v1\t[new branch]\n*\t922450b9c0492b4c86f12a87ff3217bfb3fc70cc:refs/heads/codex/mlb-governed-prior-engine-v1\t[new branch]\n*\t09006653b3f1714574a88efca8650d4f967ab3cd:refs/heads/codex/mlb-interaction-authority-v1\t[new branch]\n*\tbff19a8a657bc96dea0469fad481acdcb4234386:refs/heads/codex/mlb-player-prior-wave2\t[new branch]\n*\t64a74be89b029adc013e118b14aad75e3ddc0232:refs/heads/codex/mlb-remaining-feature-authority-wave1\t[new branch]\n*\t9ae3887d07c54cbf824e828e3e6dd50fbc248238:refs/heads/codex/mlb-selection-policy-optimization-v1\t[new branch]\n*\t3cc9d67376aaa6ef7364f044a02813d8d61e056b:refs/heads/codex/mlb-v18-daily-geometry-complete-v1\t[new branch]\n*\t3cc9d67376aaa6ef7364f044a02813d8d61e056b:refs/heads/codex/mlb-v18-daily-slate-publisher-v1\t[new branch]\n*\t3b362cd334888ece86d9159692c8aa37b50d5352:refs/heads/codex/mlb-v18-play-geometry-v1\t[new branch]\n*\t9f02e6835f578b13d0429d0a7442b3634048f8f2:refs/heads/codex/model-studio-tenant-workflow-repair-v1\t[new branch]\n*\t17e2907d74fca6f42378183eed18fde8b990bfee:refs/heads/codex/multisport-platform-architecture\t[new branch]\n*\tf4ce121d0217a52f63f10cdadd58f3d14aa78c3d:refs/heads/codex/nfl-2026-prospective-shadow\t[new branch]\n*\t4ae5bf0884730f721c6b7153e879f9787a39a107:refs/heads/codex/nfl-existing-track-current-shadow-v1\t[new branch]\n*\t5213be4f6c8777ce3975ae30bb1027500699ed20:refs/heads/codex/nfl-gold-data-foundation\t[new branch]\n*\te60f5b1500e1c574e17a526a6c2e8bef047f92e2:refs/heads/codex/nfl-m1-modeling-benchmark\t[new branch]\n*\t7b14c29c77817b01cd5590a616adaac95d16aaa7:refs/heads/codex/nfl-overnight-model-laboratory-v1\t[new branch]\n*\t9df8a5a96dea85251235e55731203742de62b78d:refs/heads/codex/nfl-semantic-labs-v1\t[new branch]\n*\t40000ac5f803640e72ef772c537e9b66231dbed7:refs/heads/codex/nfl-week1-incremental-publication-v1\t[new branch]\n*\tedeb9e964e11adf91ad51f55582304c776cd07b0:refs/heads/codex/recent-data-walk-forward-study\t[new branch]\n*\t5e3a2c657799ebe09d91e2c277d66abd8cfd4566:refs/heads/codex/stage3-executable-artifact-game-scoring\t[new branch]\n*\t924db29511f93909f9d785855bfa056775443690:refs/heads/main\t[new branch]\n*\t924db29511f93909f9d785855bfa056775443690:refs/heads/phase4-milestone-b-closeout\t[new branch]\n*\ta95b197841f534a97c16fbfc3e9026d713f4725f:refs/heads/phase5-game-replay-foundation\t[new branch]\n*\t7eb8de556682108d86b6ea1135a3085fe16703da:refs/heads/phase7-advanced-mlb-data-integration\t[new branch]\n*\t9b3e513cefff7d17288f0f90536a505808fce4de:refs/heads/phase7b1-full-corpus-retrosheet-completion\t[new branch]\n*\t9bb2b9d0d964eb0a1fcd4a3932d69dbbdd19b887:refs/heads/phase7b1-governed-silver-normalization\t[new branch]\n*\ta9eef89a30e238ecb118c57e2e031ba928946454:refs/heads/phase7b2-gold-v1-modeling\t[new branch]\n*\t009b3f87aa9352fee16e4c27ce5d0bc8bcb7c91d:refs/heads/phase7b3-hierarchical-model-robustness\t[new branch]\n*\te911f58e5dfa3c2a37486a0c564bd417e22009dd:refs/heads/phase7b4-recent-state-matchup-ensemble-study\t[new branch]\n*\t93f1634e27ed32f713edd6cf43035d56baf546fa:refs/heads/phase7c-canonical-authority-cutover\t[new branch]\n*\t1aa274ad943a70689ca0c52e41a75958240c3144:refs/heads/phase7d-acquisition-gate-hardening\t[new branch]\n*\t4c5c4ca8c1c4ef13b05432b07eb9d6a58a6e37bd:refs/heads/phase7d1-final-integration-gate\t[new branch]\n*\t254a92456495579c069730715357ad9ac18c3378:refs/heads/phase7d2-semantic-evidence-closure\t[new branch]\n*\tcdd651c1cda9199c3cd4f2a9b35884af0dd1062c:refs/heads/phase7d4-production-semantic-chain-closure\t[new branch]\n*\t34cf3c8a44a26b4cc0da58b2046be38d609c369f:refs/heads/phase7d5a-silver-ingress-safety-closure\t[new branch]\n*\tbfeff81a8348580627ed115efbd018392b083b82:refs/heads/phase7d5a10-claude-final-silver-ingress-closure\t[new branch]\n*\tcdf3ad5548235943f9c6114e7698c7dc5cd04e25:refs/heads/phase7d5a11-codex-final-three-red-gate\t[new branch]\n*\tb0989cd99745abde975af34ac632a799436a7e30:refs/heads/phase7d5a12-claude-final-three-green-gate\t[new branch]\n*\tbe5376f7f8bb938b37ce1224061f68fb93a511a4:refs/heads/phase7d5a13-claude-authority-and-full-gate-recovery\t[new branch]\n*\tca6eb0385c9f3514357dd426fb5cb1f099c30bf4:refs/heads/phase7d5a14-final-release-candidate-closure\t[new branch]\n*\t5ec6c9b7267f0d209fbc93c4397315a9fe5fe216:refs/heads/phase7d5a2-silver-publication-integrity-closure\t[new branch]\n*\t9835689616aeff17357f096caea90b039eadfe0a:refs/heads/phase7d5a3-codex-red-silver-gate\t[new branch]\n*\t0ab232bc6a13b157ecc44a1902403a8a9ba7be1d:refs/heads/phase7d5a4-claude-green-silver-gate\t[new branch]\n*\t8ab74422928b8483402d247c3822a0171f766a1b:refs/heads/phase7d5a5-codex-delta-red-silver-gate\t[new branch]\n*\t8ab74422928b8483402d247c3822a0171f766a1b:refs/heads/phase7d5a6-claude-dual-green-silver-gate\t[new branch]\n*\t4b06cef966a906bdcc026351f719e1978650f78e:refs/heads/phase7d5a7-codex-acceptance-contract-reconciliation\t[new branch]\n*\t21fa2e621ae12b38ccbf4053fd8b18b4119bc96d:refs/heads/phase7d5a8-claude-stage-contract-silver-closure\t[new branch]\n*\t7f25993fd4c9a3157d31c29904a503a7c003bc99:refs/heads/phase7d5a9-codex-protected-set-reconciliation\t[new branch]\nDone\n",
+  "stderr": "",
+  "force": false,
+  "atomic": true
+}
