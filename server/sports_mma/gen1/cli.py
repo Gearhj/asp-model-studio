@@ -351,6 +351,15 @@ def stage_finalize(source_root: Path, output_root: Path, design: Path) -> None:
     closeout_path = output_root / "CLOSEOUT.json"
     closeout = json.loads(closeout_path.read_text(encoding="utf-8"))
     predecessor = closeout["package"]
+    refreshed_quality = profile_source(source_root)
+    refreshed_quality["createdAt"] = utc_now()
+    refreshed_quality["frozenDesignSha256"] = design_sha
+    refreshed_quality["postAssessmentCorrection"] = (
+        "physical height parser recognizes source feet.inches encoding; no fitted feature or prediction uses height"
+    )
+    refreshed_quality["population"]["finalOotDirectionalLabelsOpened"] = True
+    refreshed_quality["population"]["openedUnderFinalistReceiptSha256"] = sha256_file(output_root / "FINALIST_RECEIPT.json")
+    write_canonical_json(output_root / "DATA_QUALITY.json", refreshed_quality)
     try:
         source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         source_status = subprocess.check_output(["git", "status", "--porcelain"], text=True).splitlines()

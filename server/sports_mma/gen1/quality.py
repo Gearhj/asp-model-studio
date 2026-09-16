@@ -40,7 +40,12 @@ def _normalize_name(value: str) -> str:
 
 def _parse_height(value: Any) -> float | None:
     match = re.fullmatch(r"\s*(\d+)\s*'\s*(\d+)\s*\"?\s*", str(value))
-    return float(int(match.group(1)) * 12 + int(match.group(2))) if match else None
+    if match:
+        return float(int(match.group(1)) * 12 + int(match.group(2)))
+    decimal = re.fullmatch(r"\s*(\d+)\.(\d+)\s*", str(value))
+    if decimal:
+        return float(int(decimal.group(1)) * 12 + int(decimal.group(2)))
+    return None
 
 
 def _parse_number(value: Any) -> float | None:
