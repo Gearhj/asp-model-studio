@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "MLB_CORE_CHALLENGER_SCIENTIFIC_DECISION_V1",
+  "decisionId": "MLB_CORE_CHALLENGER_CONTEXT_DEFERRAL_V1",
+  "decisionName": "MLB Core Challenger",
+  "decisionStatus": "APPROVED_FOR_DEVELOPMENT_ONLY_MODEL_COMPETITION",
+  "projectAuthority": {
+    "projectId": "asp-mtlozhdx",
+    "sourceManifestSha": "03ca6dab30e760b2b86b65308090c2d358a67127cc34dfde7a75fc198c3ba84c",
+    "goldManifestSha": "67de02ce19738b29953341151640fb69244b764b0e532b687ab6bacedbb3f758",
+    "contextualManifestSha": "4c228116951a3505d6a5d955f00cd2b92b35b1ccb85c7c69d11d77828485320e",
+    "reviewDigest": "af3e10a6d62537a57c2513a9ed6e96d44e5c7d5a6fdcf845a9fcb097ed8afe41"
+  },
+  "predecessor": {
+    "specificationVersion": 8,
+    "specificationId": "stage3-feature-treatment-spec-df0a0d98784d4de6b30c4dcc1a7aef8a",
+    "manifestChecksum": "9e38ab918d216cd25d85c58248a589aeca2f12cad447b8469f9770aa47e4479b",
+    "compilerSha256": "06a6d26e09dc6695289f71de0a709de2fbac6f9890c57ebb115bd0d24339beb4"
+  },
+  "disposition": "DEFERRED_CONTEXT_AUTHORITY",
+  "deferredFeatures": [
+    "doubleheader_game_number",
+    "holiday_name",
+    "batting_rivalry_pair",
+    "batting_rivalry_game",
+    "batting_home_rivalry_game",
+    "batting_friday_night_home_rivalry",
+    "batting_weekend_home_rivalry",
+    "batting_home_x_rivalry",
+    "batting_rivalry_mapping_missing",
+    "fielding_rivalry_pair",
+    "fielding_rivalry_game",
+    "fielding_home_rivalry_game",
+    "fielding_friday_night_home_rivalry",
+    "fielding_weekend_home_rivalry",
+    "fielding_home_x_rivalry",
+    "fielding_rivalry_mapping_missing"
+  ],
+  "deferredDerivedBindings": [
+    "is_doubleheader",
+    "batting_doubleheader_today",
+    "fielding_doubleheader_today",
+    "batting_doubleheader_x_short_rest",
+    "fielding_doubleheader_x_short_rest",
+    "is_holiday",
+    "is_holiday_eve",
+    "batting_home_x_holiday",
+    "fielding_home_x_holiday",
+    "batting_holiday_calendar_missing",
+    "fielding_holiday_calendar_missing"
+  ],
+  "rules": {
+    "preserveDefinitionsAndAuditEvidence": true,
+    "approveSourceAuthority": false,
+    "populateValues": false,
+    "transformValues": false,
+    "selectInFeatureSet": false,
+    "transitiveReachability": false,
+    "derivedDoubleheaderBindingsReachable": false,
+    "derivedHolidayBindingsReachable": false,
+    "laterContextualWaveOnly": true
+  },
+  "developmentBoundary": {
+    "startDate": "2023-03-30",
+    "endDate": "2026-08-13",
+    "rows": 683662
+  },
+  "finalOotBoundary": {
+    "startDate": "2026-08-14",
+    "endDate": "2026-08-27",
+    "rows": 14067,
+    "status": "LOCKED_UNOPENED",
+    "targetAccessed": false,
+    "featurePayloadAccessed": false
+  },
+  "scope": {
+    "modelCompetition": "DEVELOPMENT_ONLY",
+    "championSelection": false,
+    "promotion": false,
+    "export": false
+  }
+}

@@ -177,6 +177,8 @@ def _emit(audit: Mapping[str, Any], *, reused: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # builds features from a sealed-2025-derived artifact -> exit before any data open
     parser = argparse.ArgumentParser(description="Materialize E2 batter x pitcher process interactions from E1.")
     parser.add_argument("--database", default=os.getenv("ATLAS_SQLITE_PATH", ""))
     parser.add_argument("--estimate-only", action="store_true")

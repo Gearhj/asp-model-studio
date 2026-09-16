@@ -34,7 +34,16 @@ BRIDGE_MANIFEST_SHA = "6b69e7dcf4c5db7615420ee9f6f6f797b0335e31ab475646291f3a4cf
 BRIDGE_ALIAS_AUTHORITY_SHA = _BRIDGE_ALIAS_AUTHORITY_SHA
 BRIDGE_DIMENSION_AUTHORITY_SHA = _BRIDGE_DIMENSION_AUTHORITY_SHA
 
+# TARGET_SEASONS is the FULL physically-governed feature-view inventory (the logical contract) and it INCLUDES
+# the sealed frozen-final season 2025. It is NOT ordinary-modeling authority. Phase 7D.5A.1 makes the season
+# ROLES explicit so no caller can mistake the physical inventory for the ordinary modeling window:
+#   - MODELING_SEASONS (2023 dev + 2024 val) is the ONLY ordinary fit/validate window; it EXCLUDES sealed 2025.
+#   - SEALED_EVIDENCE_SEASONS (2025,) is physically sealed OOT evidence; never an ordinary modeling/scoring season.
+#   - ALL_GOVERNED_SEASONS == TARGET_SEASONS is the full inventory and must NEVER authorize an ordinary model path.
 TARGET_SEASONS: tuple[int, ...] = (2023, 2024, 2025)
+MODELING_SEASONS: tuple[int, ...] = (2023, 2024)
+SEALED_EVIDENCE_SEASONS: tuple[int, ...] = (2025,)
+ALL_GOVERNED_SEASONS: tuple[int, ...] = TARGET_SEASONS
 EXPECTED_SEASON_ROWS: Mapping[int, int] = {
     2023: 184_104,
     2024: 182_449,
@@ -467,6 +476,9 @@ __all__ = [
     "PITCHER_FEATURES",
     "RESEARCH_RUN_SCHEMA_VERSION",
     "TARGET_SEASONS",
+    "MODELING_SEASONS",
+    "SEALED_EVIDENCE_SEASONS",
+    "ALL_GOVERNED_SEASONS",
     "canonical_sha",
     "feature_contract_payload",
     "feature_contract_sha",

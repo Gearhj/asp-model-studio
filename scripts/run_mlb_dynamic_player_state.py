@@ -435,6 +435,8 @@ def _supervise(argv: list[str]) -> SupervisedWorkerResult:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # refits/validates on the frozen 2025 fold -> exit before any data open
     forwarded = list(sys.argv[1:] if argv is None else argv)
     args = _arguments(forwarded)
     if not args.exchange_root:

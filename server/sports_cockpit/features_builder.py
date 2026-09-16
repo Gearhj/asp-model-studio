@@ -134,7 +134,7 @@ def profile_engineered(spec: Mapping[str, Any]) -> dict[str, Any]:
     mi = float(mutual_info_classif(x.reshape(-1, 1), encode_labels(frame["outcome"].to_numpy()[samp]),
                                    discrete_features=[kind == "categorical"], random_state=20260819)[0])
     season_means = {}
-    for s in E.TARGET_SEASONS:
+    for s in E.MODELING_SEASONS:
         sc = col[frame["season"].to_numpy() == s]
         scf = sc[np.isfinite(sc)]
         season_means[str(s)] = float(scf.mean()) if scf.size else None

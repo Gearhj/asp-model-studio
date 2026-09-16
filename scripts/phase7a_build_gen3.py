@@ -52,6 +52,8 @@ def _log(m: str) -> None:
 
 
 def main() -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # one-time seal builder opens 2025 + publishes the sealed object (already published) -> exit
     exchange = _exchange_root()
     _log("validating FD1 package + bridge …")
     parent = SportsDatasetManifestConsumer(approved_package_root(exchange), cache_path=CACHE, progress=None).validate()

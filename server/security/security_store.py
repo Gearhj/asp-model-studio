@@ -933,6 +933,56 @@ def audit_event(
         pass
 
 
+_PROJECT_MUTATION_AUDIT_ACTIONS = ("project.created", "project.saved", "template.selected")
+
+
+def _canonical_project_audit_events(
+    limit: int, *, user_id: Optional[str] = None, resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None, outcome: Optional[str] = None,
+    action: Optional[str] = None, project_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    # Project success events now commit with project/ACL writes in audit_log.
+    # Preserve the existing security audit API as a read projection, including
+    # its filters and historical events, without a second non-atomic WAL write.
+    if resource_type and resource_type != "project":
+        return []
+    if outcome and outcome != "success":
+        return []
+    if action and action not in _PROJECT_MUTATION_AUDIT_ACTIONS:
+        return []
+    from ..persistence.db import PersistenceUnavailableError
+    from ..persistence.service import get_persistence_service
+
+    query = """SELECT audit_id, created_at AS timestamp, user_id, action_type AS action,
+                      entity_type AS resource_type, entity_id AS resource_id,
+                      'success' AS outcome, NULL AS reason, metadata_json
+               FROM audit_log WHERE entity_type = 'project'
+               AND action_type IN (?, ?, ?)
+               AND COALESCE(json_extract(metadata_json, '$.outcome'), 'success') = 'success'"""
+    params: List[Any] = list(_PROJECT_MUTATION_AUDIT_ACTIONS)
+    for column, value in (("user_id", user_id), ("entity_id", resource_id),
+                          ("action_type", action), ("project_id", project_id)):
+        if value:
+            query += f" AND {column} = ?"
+            params.append(value)
+    query += " ORDER BY created_at DESC, audit_id DESC LIMIT ?"
+    params.append(max(1, min(limit, 1000)))
+    try:
+        with get_persistence_service().database.connection() as connection:
+            return [audit_row(row) for row in connection.execute(query, params).fetchall()]
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        # An explicit unavailable response is safer than silently omitting the
+        # only durable copy of a current project success event.
+        raise HTTPException(status_code=503, detail="Project audit history is temporarily unavailable.") from exc
+
+
+def _merge_project_audit_events(legacy: List[Dict[str, Any]], canonical: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    events = {event["auditId"]: event for event in canonical}
+    # Preserve the original payload of historical mirrored events exactly.
+    events.update({event["auditId"]: event for event in legacy})
+    return sorted(events.values(), key=lambda event: (event["timestamp"], event["auditId"]), reverse=True)[:max(1, min(limit, 1000))]
+
+
 def list_audit_events(limit: int = 250, user_id: Optional[str] = None, resource_type: Optional[str] = None, outcome: Optional[str] = None, action: Optional[str] = None, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
     query = "SELECT * FROM audit_events WHERE 1=1"
     params: List[Any] = []
@@ -954,20 +1004,27 @@ def list_audit_events(limit: int = 250, user_id: Optional[str] = None, resource_
         query += " OR json_extract(metadata_json, '$.projectId') = ?"
         query += " OR json_extract(metadata_json, '$.project_id') = ?)"
         params.extend([project_id, project_id, project_id])
-    query += " ORDER BY timestamp DESC LIMIT ?"
+    query += " ORDER BY timestamp DESC, audit_id DESC LIMIT ?"
     params.append(max(1, min(limit, 1000)))
     with connect() as conn:
         rows = conn.execute(query, params).fetchall()
-        return [audit_row(row) for row in rows]
+        legacy = [audit_row(row) for row in rows]
+    canonical = _canonical_project_audit_events(
+        limit, user_id=user_id, resource_type=resource_type, outcome=outcome,
+        action=action, project_id=project_id,
+    )
+    return _merge_project_audit_events(legacy, canonical, limit)
 
 
 def audit_events_for_resource(resource_type: str, resource_id: str, limit: int = 250) -> List[Dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM audit_events WHERE resource_type = ? AND resource_id = ? ORDER BY timestamp DESC LIMIT ?",
+            "SELECT * FROM audit_events WHERE resource_type = ? AND resource_id = ? ORDER BY timestamp DESC, audit_id DESC LIMIT ?",
             (resource_type, resource_id, max(1, min(limit, 1000))),
         ).fetchall()
-        return [audit_row(row) for row in rows]
+        legacy = [audit_row(row) for row in rows]
+    canonical = _canonical_project_audit_events(limit, resource_type=resource_type, resource_id=resource_id)
+    return _merge_project_audit_events(legacy, canonical, limit)
 
 
 def audit_row(row: sqlite3.Row) -> Dict[str, Any]:
@@ -1017,55 +1074,18 @@ def grant_project_access(project_id: str, user_id: str, permission: str, granted
     service = _sharing_service()
     granter_id = (granted_by_user or {}).get("userId")
     mapped_permission = LEGACY_TO_SHARING_PERMISSION[permission]
-    _sync_user_into_persistence(user_id)
-
-    # Bootstrap case: a brand-new project's owner self-granting "owner" before
-    # any permission record exists for it. This mirrors the previous router-level
-    # first_owner_claim check, but against the authoritative permission table
-    # instead of the legacy ACL table. It has to be handled explicitly because
-    # the frontend queues the project's own persistence-layer row asynchronously,
-    # so SharingService.assert_can_manage's owner-of-record lookup can race ahead
-    # of it and would otherwise reject the very first grant on a new project.
-    existing = service.persistence.access.list_permissions_for_resource("project", project_id)
-    first_owner_claim = not existing and user_id == granter_id and permission == "owner"
-
-    if first_owner_claim:
-        record = service.persistence.access.grant_permission(
-            {
-                "permission_id": f"perm_{uuid.uuid4().hex}",
-                "resource_type": "project",
-                "resource_id": project_id,
-                "principal_type": "user",
-                "principal_id": user_id,
-                "permission_level": mapped_permission,
-                "granted_by_user_id": granter_id,
-                "metadata_json": {"source": "project_bootstrap_self_owner", "legacyPermission": permission},
-            }
-        )
-        try:
-            service.persistence.access.upsert_project_collaborator(
-                {
-                    "collaborator_id": f"collab_{uuid.uuid4().hex}",
-                    "project_id": project_id,
-                    "user_id": user_id,
-                    "project_role": mapped_permission,
-                    "added_by_user_id": granter_id,
-                    "metadata_json": {"source": "project_bootstrap_self_owner"},
-                }
-            )
-        except Exception:
-            # The project's own persistence-layer row has not landed yet (see
-            # above); the collaborator table is a denormalized convenience view,
-            # not the authoritative permission record, so this is safe to skip.
-            pass
-    else:
-        result = service.share_resource(
-            granted_by_user or {},
-            "project",
-            project_id,
-            {"principalType": "user", "principalId": user_id, "permissionLevel": mapped_permission},
-        )
-        record = result["permission"]
+    # No public bootstrap exception: an owner must already be the owner of
+    # record. Check before syncing a grantee or making any persistence write.
+    service.assert_can_manage(granted_by_user or {}, "project", project_id)
+    result = service.share_resource(
+        granted_by_user or {},
+        "project",
+        project_id,
+        {"principalType": "user", "principalId": user_id, "permissionLevel": mapped_permission},
+    )
+    record = result["permission"]
+    if not result.get("changed", True):
+        return {"projectId": project_id, "userId": user_id, "permission": permission, "grantedAt": record.get("granted_at")}
 
     audit_event(
         "project.shared",
@@ -1092,8 +1112,9 @@ def revoke_project_access(project_id: str, user_id: str, revoked_by_user: Option
     return {"ok": True, "removed": result.get("revoked", 0)}
 
 
-def list_project_access(project_id: str) -> List[Dict[str, Any]]:
+def list_project_access(project_id: str, user: Dict[str, Any]) -> List[Dict[str, Any]]:
     service = _sharing_service()
+    service.assert_can_manage(user, "project", project_id)
     rows = service.persistence.access.list_permissions_for_resource("project", project_id)
     return [
         {

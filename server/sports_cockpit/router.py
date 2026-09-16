@@ -17,10 +17,41 @@ from . import modeling as M
 from . import simulation as S
 from . import gen3_authority as G3A
 from .engine import ALL_FEATURES, CockpitError
+from .cockpit_dtos import (
+    ActiveCandidateResponseV2, FeatureFamilyComparisonResponseV2, ModelCalibrationResponseV2,
+    ModelEvaluationResponseV2, ModelRegistryEvidenceResponseV2,
+)
 from ..security.security_store import require_user
-from ..core.modeling_scope import authorize_modeling_scope
+from ..core.modeling_scope import authorize_modeling_scope, require_project_view, require_project_edit
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
+
+
+async def require_legacy_research_project(
+    request: Request, scope: dict = Depends(require_project_view)
+) -> dict:
+    """Authorize the project's exact Gen-2 binding before any shared cache read.
+
+    An unbound/current-Gold/Gen-3 project is blocked, never redirected to the
+    Gen-2 research matrix. Registry/binding reads open no data or sealed objects.
+    """
+    pid = scope["projectId"]
+    binding = _guard(G3A.active_binding, project_id=pid)
+    if not binding or binding.get("projectId") != pid or binding.get("generation") != "GEN2":
+        raise HTTPException(409, detail={"code": "PROJECT_RESEARCH_BINDING_REQUIRED",
+            "message": "This project needs an authenticated Gen-2 research binding for this legacy view."})
+    entry = _guard(G3A._selectable_research_entry, "GEN2")
+    if (entry.get("datasetVersionId") != binding.get("datasetVersionId")
+            or entry.get("objectKind") != "gen2-research"
+            or entry.get("logicalContentSha256") != binding.get("datasetContentSha256")):
+        raise HTTPException(409, "The project research binding is stale or inconsistent.")
+    request.state.research_authority = {**scope, "bindingId": binding["bindingId"],
+        "datasetVersionId": binding["datasetVersionId"], "datasetContentSha256": binding["datasetContentSha256"]}
+    E.RESEARCH_REQUEST_SCOPE.set({**request.state.research_authority,
+        "physicalParquetSha256": entry.get("physicalParquetSha256"),
+        "contractBundleSha256": entry.get("contractBundleSha256"),
+        "bindingRevision": binding.get("revision")})
+    return request.state.research_authority
 
 
 def _guard(fn, *args, **kwargs):
@@ -52,22 +83,22 @@ def _gone(detail: str | None = None):
     raise HTTPException(status_code=410, detail=detail or _RETIRED_DETAIL)
 
 
-@router.get("/cockpit/objective")
+@router.get("/cockpit/objective", dependencies=[Depends(require_legacy_research_project)])
 def objective() -> dict[str, Any]:
     return _guard(E.objective_payload)
 
 
-@router.get("/cockpit/population")
+@router.get("/cockpit/population", dependencies=[Depends(require_legacy_research_project)])
 def population() -> dict[str, Any]:
     return _guard(E.population_payload)
 
 
-@router.get("/cockpit/profile")
+@router.get("/cockpit/profile", dependencies=[Depends(require_legacy_research_project)])
 def profile(force: bool = False) -> dict[str, Any]:
     return _guard(E.feature_profile, force)
 
 
-@router.get("/cockpit/data-preview")
+@router.get("/cockpit/data-preview", dependencies=[Depends(require_legacy_research_project)])
 def data_preview(season: int | None = None, limit: int = 25, sample: str = "head") -> dict[str, Any]:
     # Gate 22: the preview reads the research object only (2023-2024). The sealed 2025 season is never
     # previewable — even a request for it is refused, and no 2025 row is resident in the engine frame.
@@ -76,38 +107,38 @@ def data_preview(season: int | None = None, limit: int = 25, sample: str = "head
     return _guard(E.data_preview, season=season, limit=limit, sample=sample)
 
 
-@router.get("/cockpit/profile/feature/{name}")
+@router.get("/cockpit/profile/feature/{name}", dependencies=[Depends(require_legacy_research_project)])
 def feature_detail(name: str) -> dict[str, Any]:
     if name not in ALL_FEATURES:
         raise HTTPException(status_code=404, detail=f"unknown feature: {name}")
     return _guard(E.feature_detail, name)
 
 
-@router.get("/cockpit/correlation")
+@router.get("/cockpit/correlation", dependencies=[Depends(require_legacy_research_project)])
 def correlation() -> dict[str, Any]:
     return _guard(E.correlation_summary)
 
 
-@router.get("/cockpit/target-analysis")
+@router.get("/cockpit/target-analysis", dependencies=[Depends(require_legacy_research_project)])
 def target_analysis() -> dict[str, Any]:
     return _guard(E.target_analysis)
 
 
-@router.post("/cockpit/outliers")
+@router.post("/cockpit/outliers", dependencies=[Depends(require_legacy_research_project)])
 def outliers(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     policy = payload.get("policy") or {"globalMethod": "iqr", "params": {"k": 3.0}}
     features = payload.get("features")
     return _guard(M.outlier_summary, policy, features)
 
 
-@router.post("/cockpit/missing")
+@router.post("/cockpit/missing", dependencies=[Depends(require_legacy_research_project)])
 def missing(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     policy = payload.get("policy") or {"globalMethod": "median"}
     features = payload.get("features")
     return _guard(M.missing_summary, policy, features)
 
 
-@router.get("/cockpit/temporal-split")
+@router.get("/cockpit/temporal-split", dependencies=[Depends(require_legacy_research_project)])
 def temporal_split() -> dict[str, Any]:
     pop = _guard(E.population_payload)
     return {
@@ -137,14 +168,14 @@ def temporal_split() -> dict[str, Any]:
     }
 
 
-@router.post("/cockpit/temporal-split/preview")
+@router.post("/cockpit/temporal-split/preview", dependencies=[Depends(require_legacy_research_project)])
 def temporal_split_preview(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     policy = payload.get("policy") or "SEASON_HOLDOUT"
     boundary_date = payload.get("boundaryDate")
     return _guard(E.temporal_split_preview, policy, boundary_date)
 
 
-@router.get("/cockpit/model-families")
+@router.get("/cockpit/model-families", dependencies=[Depends(require_project_view)])
 def model_families() -> dict[str, Any]:
     fams = []
     for fam, available in M.AVAILABLE_FAMILIES.items():
@@ -188,12 +219,12 @@ def experiment(experiment_id: str) -> dict[str, Any]:
 # AUTHORITY = OBJECT RECEIPT = TRAINING = RESULT; StaleAuthorityError -> 409. The D3/C4-serving
 # /cockpit/experiment/run path and the sealed 2025 object are never touched. Registration is an explicit
 # build/admin action (scripts/phase7a_build_gen3.py), never a route/UI side effect (A2-06/Gate 6).
-@router.get("/cockpit/gen3/catalog")
+@router.get("/cockpit/gen3/catalog", dependencies=[Depends(require_project_view)])
 def gen3_catalog(user: dict = Depends(require_user)) -> dict[str, Any]:
     return {"datasets": _guard(G3A.catalog)}
 
 
-@router.post("/cockpit/gen3/bind")
+@router.post("/cockpit/gen3/bind", dependencies=[Depends(require_project_edit)])
 def gen3_bind(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
     return _guard(G3A.create_binding, actor=_actor(user), project_id=pid,
@@ -202,7 +233,7 @@ def gen3_bind(payload: dict[str, Any] = Body(...), user: dict = Depends(require_
                   expected_revision=payload.get("expectedRevision"))
 
 
-@router.get("/cockpit/gen3/binding/{project_id}")
+@router.get("/cockpit/gen3/binding/{project_id}", dependencies=[Depends(require_project_view)])
 def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, project_id, "view")
     b = _guard(G3A.active_binding, project_id=pid)
@@ -211,7 +242,7 @@ def gen3_active_binding(project_id: str, user: dict = Depends(require_user)) -> 
     return b
 
 
-@router.get("/cockpit/gen3/population/{project_id}")
+@router.get("/cockpit/gen3/population/{project_id}", dependencies=[Depends(require_project_view)])
 def gen3_population(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     # Generation-aware Data & Population authority derived from the active binding (no object opened).
     pid = authorize_modeling_scope(user, project_id, "view")
@@ -251,7 +282,7 @@ class AblationRequest(BaseModel):
     bootstrapIterations: StrictInt = Field(default=1000, ge=100, le=5000)
 
 
-@router.post("/cockpit/gen3/run-authority")
+@router.post("/cockpit/gen3/run-authority", dependencies=[Depends(require_project_edit)])
 def gen3_run_authority(req: RunAuthorityRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, req.projectId, "edit")
     return _guard(G3A.issue_run_authority, actor=_actor(user), project_id=pid,
@@ -259,13 +290,13 @@ def gen3_run_authority(req: RunAuthorityRequest, user: dict = Depends(require_us
                   hyperparameters=req.hyperparameters, seed=req.seed, feature_set=req.featureSet)
 
 
-@router.post("/cockpit/gen3/execute")
+@router.post("/cockpit/gen3/execute", dependencies=[Depends(require_project_edit)])
 def gen3_execute(req: ExecuteRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, req.projectId, "edit")
     return _guard(G3A.execute, actor=_actor(user), project_id=pid, run_authority_id=req.runAuthorityId)
 
 
-@router.post("/cockpit/gen3/run-suite")
+@router.post("/cockpit/gen3/run-suite", dependencies=[Depends(require_project_edit)])
 def gen3_run_suite(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     # Authorized autopilot / tuning: every candidate uses the single server-authorized run path.
     pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
@@ -274,57 +305,96 @@ def gen3_run_suite(payload: dict[str, Any] = Body(...), user: dict = Depends(req
                   source=str(payload.get("source", "suite")))
 
 
-@router.post("/cockpit/gen3/feature-family-ablation")
-def gen3_feature_family_ablation(req: AblationRequest, user: dict = Depends(require_user)) -> dict[str, Any]:
-    # Gate 12 — canonical 2024-only feature-family ablation (control vs challenger differ only by the
-    # registered feature-family contract); paired game-cluster bootstrap; immutable comparison manifest.
+@router.post("/cockpit/gen3/feature-family-ablation", response_model=FeatureFamilyComparisonResponseV2, dependencies=[Depends(require_project_edit)])
+def gen3_feature_family_ablation(req: AblationRequest, user: dict = Depends(require_user)) -> FeatureFamilyComparisonResponseV2:
+    # Gate 10/12 (B6) — canonical 2024-only feature-family comparison. Both arms resolve ONLY through the V2
+    # canonical chain; the result is a strict, content-addressed, immutable MODEL_FEATURE_FAMILY_COMPARISON_
+    # RECEIPT_V1 binding both arms' receipt/bundle SHAs + the single added family's contract SHA. Never 2025.
     pid = authorize_modeling_scope(user, req.projectId, "edit")
-    return _guard(G3A.run_feature_family_ablation, actor=_actor(user), project_id=pid, binding_id=req.bindingId,
-                  model_family=req.modelFamily, control_feature_set=req.controlFeatureSet,
-                  challenger_feature_set=req.challengerFeatureSet, hyperparameters=req.hyperparameters,
-                  seed=req.seed, bootstrap_iterations=req.bootstrapIterations)
+    out = _guard(G3A.run_feature_family_ablation, actor=_actor(user), project_id=pid, binding_id=req.bindingId,
+                 model_family=req.modelFamily, control_feature_set=req.controlFeatureSet,
+                 challenger_feature_set=req.challengerFeatureSet, hyperparameters=req.hyperparameters,
+                 seed=req.seed, bootstrap_iterations=req.bootstrapIterations)
+    return FeatureFamilyComparisonResponseV2.model_validate(out)
 
 
-@router.get("/cockpit/gen3/runs/{project_id}")
+@router.get("/cockpit/gen3/runs/{project_id}", dependencies=[Depends(require_project_view)])
 def gen3_runs(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, project_id, "view")
     return {"runs": _guard(G3A.list_runs, project_id=pid)}
 
 
-@router.get("/cockpit/gen3/run/{project_id}/{run_id}")
+@router.get("/cockpit/gen3/run/{project_id}/{run_id}", dependencies=[Depends(require_project_view)])
 def gen3_run(project_id: str, run_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, project_id, "view")
     return _guard(G3A.get_run, project_id=pid, run_id=run_id)
 
 
-@router.post("/cockpit/gen3/activate")
+@router.post("/cockpit/gen3/activate", dependencies=[Depends(require_project_edit)])
 def gen3_activate(payload: dict[str, Any] = Body(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     pid = authorize_modeling_scope(user, payload.get("projectId"), "edit")
     return _guard(G3A.activate_candidate, actor=_actor(user), project_id=pid, run_id=payload.get("runId", ""),
                   expected_binding_revision=payload.get("expectedBindingRevision"))
 
 
-@router.get("/cockpit/gen3/active-candidate/{project_id}")
-def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+# B9 / Gate 9 — the four scientific reads return STRICT, versioned, backend-authoritative V2 DTOs
+# (extra="forbid"). A renamed/missing/misnested/unexpected field fails construction here (a fail-closed
+# server error), never a silently-truncated "successful" payload. All are resolved only through the canonical
+# chain verifier in the service layer; 2025 never appears. The TypeScript client compiles against these exact
+# shapes (src/sports/cockpit/cockpitApiV2.ts).
+@router.get("/cockpit/gen3/active-candidate/{project_id}", response_model=ActiveCandidateResponseV2, dependencies=[Depends(require_project_view)])
+def gen3_active_candidate(project_id: str, user: dict = Depends(require_user)) -> ActiveCandidateResponseV2:
     pid = authorize_modeling_scope(user, project_id, "view")
     c = _guard(G3A.get_active_candidate, project_id=pid)
     if c is None:
         raise HTTPException(status_code=404, detail="no active candidate for project")
-    return c
+    r = c["run"]
+    return ActiveCandidateResponseV2(
+        status=str(c.get("status", "ACTIVE")), runId=c["runId"], runAuthorityId=r["runAuthorityId"],
+        datasetVersionId=r["datasetVersionId"], generation=r["generation"], modelFamily=r["modelFamily"],
+        developmentSeasons=list(r["developmentSeasons"]), developmentRows=int(r["developmentRows"]),
+        validationSeason=int(r["validationSeason"]), validationRows=int(r["validationRows"]),
+        runReceiptSha256=r["runReceiptSha256"], bundleManifestSha256=r["bundleManifestSha256"],
+        bindingId=c["bindingId"], bindingRevision=int(c["bindingRevision"]),
+        activationRevision=int(c["activationRevision"]), activatedAt=c["activatedAt"],
+        preprocessingContractId=r["preprocessingContractId"])
 
 
-@router.get("/cockpit/gen3/evaluation/{project_id}")
-def gen3_evaluation(project_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
-    # Gate 18/19 — Evaluation/Calibration consume the active candidate's immutable 2024-validation evidence
-    # bundle (full diagnostics + independent log-loss recomputation). Never a browser result; never 2025.
+@router.get("/cockpit/gen3/evaluation/{project_id}", response_model=ModelEvaluationResponseV2, dependencies=[Depends(require_project_view)])
+def gen3_evaluation(project_id: str, user: dict = Depends(require_user)) -> ModelEvaluationResponseV2:
+    # Gate 9/18/19 — Evaluation consumes the active candidate's immutable 2024-validation evidence bundle
+    # (verified aggregate + per-class + confusion + reliability + independent log-loss recompute). Never a
+    # browser result; never 2025.
     pid = authorize_modeling_scope(user, project_id, "view")
     ev = _guard(G3A.active_candidate_evaluation, project_id=pid)
     if ev is None:
         raise HTTPException(status_code=404, detail="no active candidate for project")
-    return ev
+    return ModelEvaluationResponseV2.model_validate(ev)
 
 
-@router.get("/cockpit/gen3/recompute/{project_id}/{run_id}")
+@router.get("/cockpit/gen3/calibration/{project_id}", response_model=ModelCalibrationResponseV2, dependencies=[Depends(require_project_view)])
+def gen3_calibration(project_id: str, user: dict = Depends(require_user)) -> ModelCalibrationResponseV2:
+    # Gate 9/19 — Calibration honestly reports the RAW / uncalibrated condition + the candidate's raw
+    # 2024-validation reliability curves from the verified V2 bundle. No fabricated calibrator; never 2025.
+    pid = authorize_modeling_scope(user, project_id, "view")
+    cal = _guard(G3A.active_candidate_calibration, project_id=pid)
+    if cal is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return ModelCalibrationResponseV2.model_validate(cal)
+
+
+@router.get("/cockpit/gen3/registry-evidence/{project_id}", response_model=ModelRegistryEvidenceResponseV2, dependencies=[Depends(require_project_view)])
+def gen3_registry_evidence(project_id: str, user: dict = Depends(require_user)) -> ModelRegistryEvidenceResponseV2:
+    # Gate 9 — the active candidate's immutable registry record + model card: content-addressed identities and
+    # digests resolved from the verified V2 bundle/receipt (never inferred, never decorative). Never 2025.
+    pid = authorize_modeling_scope(user, project_id, "view")
+    reg = _guard(G3A.active_candidate_registry_evidence, project_id=pid)
+    if reg is None:
+        raise HTTPException(status_code=404, detail="no active candidate for project")
+    return ModelRegistryEvidenceResponseV2.model_validate(reg)
+
+
+@router.get("/cockpit/gen3/recompute/{project_id}/{run_id}", dependencies=[Depends(require_project_view)])
 def gen3_recompute(project_id: str, run_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
     # Independent validation log-loss recomputation from the persisted prediction/target artifacts (Gate 29).
     pid = authorize_modeling_scope(user, project_id, "view")
@@ -355,26 +425,26 @@ def provider_verify(config: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return _gone()
 
 
-@router.get("/cockpit/segmentation/summary")
+@router.get("/cockpit/segmentation/summary", dependencies=[Depends(require_legacy_research_project)])
 def seg_summary(population: str = "BATTERS") -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.population_summary, population)
 
 
-@router.post("/cockpit/segmentation/kmeans")
+@router.post("/cockpit/segmentation/kmeans", dependencies=[Depends(require_legacy_research_project)])
 def seg_kmeans(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.run_kmeans, payload.get("population", "BATTERS"), payload.get("features") or [],
                   int(payload.get("kMin", 2)), int(payload.get("kMax", 10)))
 
 
-@router.post("/cockpit/segmentation/pca")
+@router.post("/cockpit/segmentation/pca", dependencies=[Depends(require_legacy_research_project)])
 def seg_pca(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.pca_scatter, payload.get("population", "BATTERS"), payload.get("features") or [], int(payload.get("k", 4)))
 
 
-@router.post("/cockpit/segmentation/dbscan")
+@router.post("/cockpit/segmentation/dbscan", dependencies=[Depends(require_legacy_research_project)])
 def seg_dbscan(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     from . import segmentation as SEG
     eps = payload.get("eps")
@@ -383,25 +453,25 @@ def seg_dbscan(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
                   float(eps) if eps else None, int(min_samples) if min_samples else None)
 
 
-@router.get("/cockpit/segmentation/grid-guidance")
+@router.get("/cockpit/segmentation/grid-guidance", dependencies=[Depends(require_legacy_research_project)])
 def seg_grid_guidance(population: str = "BATTERS") -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.grid_guidance, population)
 
 
-@router.post("/cockpit/segmentation/stability")
+@router.post("/cockpit/segmentation/stability", dependencies=[Depends(require_legacy_research_project)])
 def seg_stability(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.cluster_stability, payload.get("population", "BATTERS"), payload.get("features") or [], int(payload.get("k", 4)))
 
 
-@router.post("/cockpit/segmentation/grid")
+@router.post("/cockpit/segmentation/grid", dependencies=[Depends(require_legacy_research_project)])
 def seg_grid(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     from . import segmentation as SEG
     return _guard(SEG.grid_3x3, payload.get("population", "BATTERS"), payload["dimX"], payload["dimY"])
 
 
-@router.get("/cockpit/feature/kinds")
+@router.get("/cockpit/feature/kinds", dependencies=[Depends(require_project_view)])
 def feature_kinds() -> dict[str, Any]:
     from . import features_builder as FB
     return {
@@ -413,7 +483,7 @@ def feature_kinds() -> dict[str, Any]:
     }
 
 
-@router.post("/cockpit/feature/profile")
+@router.post("/cockpit/feature/profile", dependencies=[Depends(require_legacy_research_project)])
 def feature_profile_engineered(spec: dict[str, Any] = Body(...)) -> dict[str, Any]:
     from . import features_builder as FB
     return _guard(FB.profile_engineered, spec)
@@ -426,7 +496,7 @@ def feature_ablation(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                  "ablation (which scored 2025 and used it in the verdict) was retired by the Phase 7C cutover.")
 
 
-@router.get("/cockpit/feature-catalog")
+@router.get("/cockpit/feature-catalog", dependencies=[Depends(require_project_view)])
 def feature_catalog() -> dict[str, Any]:
     """Available sports feature families in the governed data plus honestly-labeled roadmap."""
     return {

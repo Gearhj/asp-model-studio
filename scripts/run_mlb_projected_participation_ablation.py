@@ -42,6 +42,7 @@ from server.sports_phase5.participation_projection import (  # noqa: E402
     BRANCHES, BRANCH_LABELS, TemporalStateResolver, build_team_projections, build_branch_pa_uuids,
 )
 from server.sports_phase4.dynamic_contract import PHASE3_FEATURE_CONTRACT_SHA, dynamic_state_contract_sha  # noqa: E402
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 # Reuse the Phase 5D evaluation helpers.
 _spec = importlib.util.spec_from_file_location("wg_mc_cli", REPOSITORY_ROOT / "scripts" / "run_mlb_whole_game_monte_carlo.py")
@@ -309,6 +310,7 @@ def _write(payload, run_id) -> dict[str, Any]:
 
 
 def main() -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     parser = argparse.ArgumentParser(description="Phase 5E projected participation ablation")
     parser.add_argument("--exchange-root", default=str(DEFAULT_EXCHANGE_ROOT))
     parser.add_argument("--status", action="store_true")

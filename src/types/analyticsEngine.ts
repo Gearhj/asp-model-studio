@@ -1,5 +1,0 @@
-export type AnalyticalWarning = { severity?: string; message: string };
-export type AnalyticalTable = { table_id: string; title: string; columns: string[]; rows: Array<Record<string, unknown>> };
-export type AnalyticalChart = { chart_id: string; chart_type: string; title: string; subtitle?: string; x_axis: { field: string; label: string; type: string }; y_axes: Array<{ field: string; label: string }>; data: Array<Record<string, unknown>>; interpretation?: string };
-export type AnalyticalResult = { analysis_id: string; analysis_type: string; status: string; created_at: string; statistics: Record<string, unknown>; tables: AnalyticalTable[]; charts: AnalyticalChart[]; warnings: AnalyticalWarning[]; interpretations: Array<{ title: string; finding: string; severity?: string; recommended_action?: string }>; documentation_payload: Record<string, unknown>; evidence_payload: Record<string, unknown> };
-export type AnalyticalRunResponse = { run: Record<string, unknown>; result: AnalyticalResult };

@@ -228,6 +228,8 @@ def _estimate() -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    retire_2025()   # opens sealed-2025 PA/fielding rows on ordinary run -> exit before any data open
     parser = argparse.ArgumentParser(description="Execute the governed MLB catcher influence readiness audit.")
     parser.add_argument("--exchange-root", default=os.getenv("ASP_MODEL_EXCHANGE_ROOT", ""))
     parser.add_argument("--database", default=os.getenv("ATLAS_SQLITE_PATH", ""))

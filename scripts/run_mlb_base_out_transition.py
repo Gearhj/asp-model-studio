@@ -33,6 +33,7 @@ import pyarrow.parquet as pq  # noqa: E402
 
 from server.sports_phase5 import base_out_transition as bt  # noqa: E402
 from server.sports_phase5 import game_replay as gr  # noqa: E402
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 RUNTIME_ROOT = REPOSITORY_ROOT / ".runtime" / "asp-model-studio"
 OUTPUT_ROOT = RUNTIME_ROOT / "sports-phase5" / "base-out-transition"
@@ -346,6 +347,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     parser = argparse.ArgumentParser(description="Phase 5B empirical base-out transition model.")
     parser.add_argument("--exchange-root", default=os.getenv("ASP_MODEL_EXCHANGE_ROOT", ""))
     parser.add_argument("--estimate-only", action="store_true")

@@ -146,6 +146,10 @@ def _paired_game_bootstrap(data, proba_a, proba_b, n=2000, seed=20260819):
 
 
 def main() -> int:
+    from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
+    # Reads the research object via a BARE runtime path (bypasses the canonical verified_research_object
+    # resolver); superseded by the server-authorized canonical 2024-only feature-family comparison.
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     data = _load_research()
     print(f"[research] seasons present={data['present']} (2025 absent: {2025 not in data['present']})", flush=True)
     branches = {"A0": [2023], "A1": [2022, 2023], "A2": [2021, 2022, 2023]}

@@ -1,0 +1,3498 @@
+{
+  "kind": "deployed-code-only",
+  "sourceCommit": "77d39e1ae08e05be82e19bdb0bab21999fba1d3b",
+  "deploymentBuildSha256": "0622b5395072283903669646ab993c80a3ebf3c01e4299132ce086fabca1d3ce",
+  "files": {
+    "scripts/_retired_2025_guard.py": {
+      "mode": "100644",
+      "oid": "1afebd8c2283ad7daac67a5e626da376f0c25ad4"
+    },
+    "scripts/acquire_cfb_gen1_current_v1.py": {
+      "mode": "100644",
+      "oid": "4315e617e37f4ca06e04edb77193ff2644d9cc74"
+    },
+    "scripts/acquire_cfb_gen1_v1.py": {
+      "mode": "100644",
+      "oid": "a8170b4b8a84779720976ebd619eb8d8ef3bb999"
+    },
+    "scripts/acquire_mlb_starter_duration_history.py": {
+      "mode": "100644",
+      "oid": "bdaaf3b25d73c7b42f7843ff521e089e9b339d84"
+    },
+    "scripts/acquire_mlb_survival_slate_history_v1.py": {
+      "mode": "100644",
+      "oid": "91fb438f16bbf251f0220846650bbe87b67023f9"
+    },
+    "scripts/acquire_mlb_v18_current_sources.py": {
+      "mode": "100644",
+      "oid": "160fb482ee85bf328c3897637ddd3fb61dc1985a"
+    },
+    "scripts/acquire_nba_gen1_2026_schedule.py": {
+      "mode": "100644",
+      "oid": "ae0b3e8130be150614a101877fa3faf27c97b8dd"
+    },
+    "scripts/acquire_nba_gen1_2027_schedule.py": {
+      "mode": "100644",
+      "oid": "441b067db18203ad17176ab9d7bd4b060cfea326"
+    },
+    "scripts/acquire_nba_gen1_historical_source.py": {
+      "mode": "100644",
+      "oid": "07042c956eeac7dc7e0b52f6f9ebba25b7fbbe97"
+    },
+    "scripts/acquire_nba_gen1_recent.py": {
+      "mode": "100644",
+      "oid": "739a030aff82f848c73fcaba14fcab5d6e4d7ff0"
+    },
+    "scripts/analyze_mlb_september12_misses_v1.py": {
+      "mode": "100644",
+      "oid": "7a3443a7e458f5dfdde7409fbb7aaf539384b139"
+    },
+    "scripts/analyze_mlb_v18_september12_exposure_v1.py": {
+      "mode": "100644",
+      "oid": "6b1249572a5dcda3621ce391789a5ca79960326b"
+    },
+    "scripts/archive_mlb_v19_integrity_hold.py": {
+      "mode": "100644",
+      "oid": "5de54b881fa825b6db138d5ee874ac065cc1f41e"
+    },
+    "scripts/archive_nfl_forward_vintages.py": {
+      "mode": "100644",
+      "oid": "e0d0f04e1fd79ba28bf928da3cd78a8c21b15ffb"
+    },
+    "scripts/assess_mlb_existing_prospective_finals_v1.py": {
+      "mode": "100644",
+      "oid": "a62e161e7fa1485bcb9c73d571a9e78d70296c25"
+    },
+    "scripts/assess_mlb_v18_frozen_slate_20260912_v1.py": {
+      "mode": "100644",
+      "oid": "3ee02133b6e83a2be5801c742a966bce845fea1a"
+    },
+    "scripts/audit_nba_gen1_joint_residuals.py": {
+      "mode": "100644",
+      "oid": "ecc49f3b6b030932e5273cc0fbadf14e250bd334"
+    },
+    "scripts/bind_mlb_v18_conditional_champion.py": {
+      "mode": "100644",
+      "oid": "698278413204e217b04ca69254b77360078502a6"
+    },
+    "scripts/bind_mlb_v18_population_observed_v2.py": {
+      "mode": "100644",
+      "oid": "50dcd2599f199e67cf0f4d7ff839750361e0d426"
+    },
+    "scripts/build_bureau_metadata_catalog.py": {
+      "mode": "100644",
+      "oid": "b9923301d0dc5351eefc5e2f6404d1796879bd4d"
+    },
+    "scripts/build_bureau_metadata_crosswalk.py": {
+      "mode": "100644",
+      "oid": "b23948baacfd9cf9f114904e702e032ea5903810"
+    },
+    "scripts/build_current_statcast_extension.py": {
+      "mode": "100644",
+      "oid": "c6bee6bc71c7799fce2cc0691eb9c441bc64a7e8"
+    },
+    "scripts/build_current_sufficient_stats.py": {
+      "mode": "100644",
+      "oid": "383044eb17e3fe7ac4a9b07f2765508b438e3d7b"
+    },
+    "scripts/build_mlb_contextual_gold.py": {
+      "mode": "100644",
+      "oid": "20c6a1c5cb5814c6b97c55cfa6c5b89f64ebfe8b"
+    },
+    "scripts/build_mlb_gen1_bet_readiness_cohort.py": {
+      "mode": "100644",
+      "oid": "7aa92ab281b1826cd8b11492841a5a942d0571fa"
+    },
+    "scripts/build_mlb_regime_forward_contract.py": {
+      "mode": "100644",
+      "oid": "6700addeb8ffc49b78aea56b09b3aa5bc47e8808"
+    },
+    "scripts/build_mlb_regime_game_context.py": {
+      "mode": "100644",
+      "oid": "5c291fe4053568b6a1036efa66f43d97095f1592"
+    },
+    "scripts/build_mlb_roster_freshness_repair_handoff.py": {
+      "mode": "100644",
+      "oid": "5b5437eed7ecfba87c438279b3162088bd8dec46"
+    },
+    "scripts/build_mlb_starter_survival_risk.py": {
+      "mode": "100644",
+      "oid": "da5933ceae06b31a5b5145f40d7332a1a5352d68"
+    },
+    "scripts/build_mlb_survival_slate_history_v1.py": {
+      "mode": "100644",
+      "oid": "8673fcbd0b2da57426992d61b0bbf58f867311e8"
+    },
+    "scripts/build_mlb_v18_acceptance_protocol.py": {
+      "mode": "100644",
+      "oid": "dec03470200b8844c3799e6462dbe04da81620ea"
+    },
+    "scripts/build_mlb_v18_acceptance_protocol_v2.py": {
+      "mode": "100644",
+      "oid": "d4f7f4a140308331d6e52dd47c7ed1236b778d2a"
+    },
+    "scripts/build_mlb_v18_deployment.py": {
+      "mode": "100644",
+      "oid": "e0dc494e697c5546cf619191625ee5e88466a1af"
+    },
+    "scripts/build_mlb_v18_development_integrity.py": {
+      "mode": "100644",
+      "oid": "7db37c0a24215b56514aea58931ace45d443b8a8"
+    },
+    "scripts/build_mlb_v18_play_geometry_supplement.py": {
+      "mode": "100644",
+      "oid": "b5c543483af144a9e6ce878bc9691a30dbafc230"
+    },
+    "scripts/build_mlb_v18_population_geometry_supplement.py": {
+      "mode": "100644",
+      "oid": "998f774fb177d9559f81ba6e6ac3f3a31247dbb6"
+    },
+    "scripts/build_mlb_v19_baseline_atlas.py": {
+      "mode": "100644",
+      "oid": "f88880cb4b5515e6ede907c17724d0c4d4eec789"
+    },
+    "scripts/build_mlb_v19_cluster_cold_start_report.py": {
+      "mode": "100644",
+      "oid": "02820a89b8d60e783cf526d70aa8cfda11691410"
+    },
+    "scripts/build_mlb_v19_feature_quality.py": {
+      "mode": "100644",
+      "oid": "18b1fa333cf1f8e0f8757daab2b2b13d1afb1347"
+    },
+    "scripts/build_mlb_v19_game_context.py": {
+      "mode": "100644",
+      "oid": "17d452d549ce98900b1ca4e5893b03212d267ee1"
+    },
+    "scripts/build_mlb_v19_source_evidence.py": {
+      "mode": "100644",
+      "oid": "af94c28e453111fb12c093c9924fe23becba057f"
+    },
+    "scripts/build_nfl_data_foundation.py": {
+      "mode": "100644",
+      "oid": "a9d5df7a602a01f596a99d365425698055c4c40c"
+    },
+    "scripts/build_nfl_m1_chronological_residuals.py": {
+      "mode": "100644",
+      "oid": "26e144e4739961045cb53c0aaafaecee91459712"
+    },
+    "scripts/build_nfl_research_benchmarks.py": {
+      "mode": "100644",
+      "oid": "692d6a10fdb35e23140a658b3bede436b6a130a8"
+    },
+    "scripts/check_mlb_rf_prior_recovery.py": {
+      "mode": "100644",
+      "oid": "45640de92d330a1a05a2979ef500016860db9214"
+    },
+    "scripts/check_restricted_catalog_source_safety.py": {
+      "mode": "100644",
+      "oid": "b0ab0cc45251d32cad1b3499d1d886f39b281aa2"
+    },
+    "scripts/check_test_storage_isolation.py": {
+      "mode": "100644",
+      "oid": "5209e98684cefba5c47e42fbb3644b406025e1bf"
+    },
+    "scripts/close_mlb_existing_prospective_comparisons_v1.py": {
+      "mode": "100644",
+      "oid": "be22b93760b502de3ef188a375b3336fe5d19ff1"
+    },
+    "scripts/compare_mlb_v19_game_mechanics.py": {
+      "mode": "100644",
+      "oid": "3fb2901b570af9331c23f68b54997bb2fa5dde83"
+    },
+    "scripts/compile_mlb_feature_treatment_spec.py": {
+      "mode": "100644",
+      "oid": "fc4d6b9453a48a6c6ee018274f401621dd00ee9f"
+    },
+    "scripts/complete_market_research_control.py": {
+      "mode": "100644",
+      "oid": "ad4ce24ad34396dd173726a3f8c771d734c8be9a"
+    },
+    "scripts/dataset_library_recovery.py": {
+      "mode": "100644",
+      "oid": "08a4d22ccfc558b0fbb689e38d40109cdbd83585"
+    },
+    "scripts/declare_nba_gen1_historical_pilot.py": {
+      "mode": "100644",
+      "oid": "4ec2e46985026f5c11c732d44e7d02b653b14d43"
+    },
+    "scripts/declare_nba_gen1_recent.py": {
+      "mode": "100644",
+      "oid": "5a0324b938112ca0818e353c1bc31927bb8bc746"
+    },
+    "scripts/derive_mlb_v18_score_limits_v1.py": {
+      "mode": "100644",
+      "oid": "f42c824d427ec1e594ee119a314b010892722d60"
+    },
+    "scripts/diagnose_nfl_uncertainty_repair.py": {
+      "mode": "100644",
+      "oid": "0d5568c20c8731f6e65380a8d8d2f00d8ab4ad06"
+    },
+    "scripts/evaluate_mlb_interaction_authority.py": {
+      "mode": "100644",
+      "oid": "92b3f5a46abd10331bf5aa09c5c01f0ca23a82d7"
+    },
+    "scripts/evaluate_mlb_player_prior_authority.py": {
+      "mode": "100644",
+      "oid": "b88a7b703b447de4c311e71d2087a49182dcc990"
+    },
+    "scripts/evaluate_mlb_player_prior_authority_v2.py": {
+      "mode": "100644",
+      "oid": "9c6b6f7d2ee7646bb4c08b05547d7055821276c7"
+    },
+    "scripts/evaluate_mlb_v18_acceptance_protocol.py": {
+      "mode": "100644",
+      "oid": "3ffb6fdcfded875427a6b8c0bddd160fc9882376"
+    },
+    "scripts/evaluate_mlb_v18_acceptance_protocol_v2.py": {
+      "mode": "100644",
+      "oid": "5f9bc51eef65dac8f35918bd010a2b2205763cab"
+    },
+    "scripts/evaluate_mlb_v19_study.py": {
+      "mode": "100644",
+      "oid": "49be26f75fcb912084d2e33dc37a7d75e711ddc9"
+    },
+    "scripts/export_aisp_gen1_bet_readiness_read_only.py": {
+      "mode": "100644",
+      "oid": "bf3e0f7d5265ce88c0e12e7ef2b4bdd533afa10d"
+    },
+    "scripts/export_aisp_mlb_pregame_snapshot.py": {
+      "mode": "100644",
+      "oid": "102037fc3b92a1ff7a15d4d269f0040506177df4"
+    },
+    "scripts/export_mlb_market_research_read_only.py": {
+      "mode": "100644",
+      "oid": "9fba768f9408183a6120ea9c0c617dd8454f51e4"
+    },
+    "scripts/export_mlb_v18_totals_v1.py": {
+      "mode": "100644",
+      "oid": "49820cb2e3bae54b32d209ed338fff3ed5ff008c"
+    },
+    "scripts/finalize_market_intelligence_rff.py": {
+      "mode": "100644",
+      "oid": "2ca7519174a6263e376a36764e12d9b6e453c4de"
+    },
+    "scripts/finalize_mlb_core_challenger_screen.py": {
+      "mode": "100644",
+      "oid": "e7fed114e2b8a92e47491c0b8878e2817be65419"
+    },
+    "scripts/finalize_mlb_core_challenger_tuning.py": {
+      "mode": "100644",
+      "oid": "420a63bd63a0198dc260c2f7c34ec5d08624b31c"
+    },
+    "scripts/finalize_mlb_corrected_hgb.py": {
+      "mode": "100644",
+      "oid": "c2cbd7fa2c066d17e4f1f9edd7b2aa3d67c2026e"
+    },
+    "scripts/finalize_mlb_corrected_hgb_recovery.py": {
+      "mode": "100644",
+      "oid": "00251d87267fafc2493709aafb1459f9f36a9580"
+    },
+    "scripts/finalize_mlb_v18_game_baseline.py": {
+      "mode": "100644",
+      "oid": "39e6b78a6ab7cb6a6356aff2560b9a9321092ce5"
+    },
+    "scripts/finalize_mlb_v18_whole_game_challenger.py": {
+      "mode": "100644",
+      "oid": "6756fcfa509650bccacf8c948da7fab4c5563db4"
+    },
+    "scripts/finalize_mlb_v19_study.py": {
+      "mode": "100644",
+      "oid": "c018b7c3d3740a59723eabb657169878f6789418"
+    },
+    "scripts/finalize_nfl_current_state_v2.py": {
+      "mode": "100644",
+      "oid": "83a2109043b39cf56e4b367edf4b36ff7e35b170"
+    },
+    "scripts/finalize_nfl_m1_verification.py": {
+      "mode": "100644",
+      "oid": "4c3fff29bed1ee61ae14c8f5979c4e4d08a55bb3"
+    },
+    "scripts/finalize_nfl_semantic_session.py": {
+      "mode": "100644",
+      "oid": "760c933d5892c71ed9d2ed9f8ac47caea78824d7"
+    },
+    "scripts/finalize_nfl_uncertainty_repair.py": {
+      "mode": "100644",
+      "oid": "04613903dfbe8f0ad97c04a59c129711a7f8980f"
+    },
+    "scripts/forecast_nba_gen1.py": {
+      "mode": "100644",
+      "oid": "79a735fbfde129e8927b0be7692df53cbd11273b"
+    },
+    "scripts/forecast_nba_gen1_point.py": {
+      "mode": "100644",
+      "oid": "10c080dea8590c1bea8e6e3239fd5fb21ee4b995"
+    },
+    "scripts/hermetic_test_authority.py": {
+      "mode": "100644",
+      "oid": "ec661fe3232f13a866ddc69966e733b5e775e1bb"
+    },
+    "scripts/hermetic_test_bootstrap.py": {
+      "mode": "100644",
+      "oid": "91d76c2034a1ac2eb0d63a3a44989385109cef15"
+    },
+    "scripts/inspect_atlas_db.py": {
+      "mode": "100644",
+      "oid": "93618fa5122cdb6ae8ada85a1aa493afdaeb1394"
+    },
+    "scripts/inspect_mlb_archetype_metadata.py": {
+      "mode": "100644",
+      "oid": "9987b330a19116efbda4459fbe518736415bdebc"
+    },
+    "scripts/install_bureau_metadata_catalog.py": {
+      "mode": "100644",
+      "oid": "9bb68da6de6f14bf749cde56be720830e7b7e1c3"
+    },
+    "scripts/install_mlb_v18_unattended.ps1": {
+      "mode": "100644",
+      "oid": "09c13a30d6ffb251c00d34d3035e3dab01e946ad"
+    },
+    "scripts/inventory_mlb_current_slate.py": {
+      "mode": "100644",
+      "oid": "2dda9f96f5038a3c5c22291afd4c38e63489cc36"
+    },
+    "scripts/inventory_mlb_duration_game_comparison.py": {
+      "mode": "100644",
+      "oid": "075d2f26fca005232a31c9b784e5a69f27ed1b2b"
+    },
+    "scripts/inventory_mlb_pa_hierarchy_eligibility.py": {
+      "mode": "100644",
+      "oid": "64f78447415b7b676c6a72164c3caee080d99a1f"
+    },
+    "scripts/inventory_mlb_v18_totals_v1.py": {
+      "mode": "100644",
+      "oid": "8985ff2958054d5660b4e1c5f71f1d5f021005ed"
+    },
+    "scripts/inventory_mlb_v19_suspended_game_timing.py": {
+      "mode": "100644",
+      "oid": "01aff4a695a50ff3d2d78cc8109f6e5189e9f528"
+    },
+    "scripts/invoke_mlb_v18_unattended.ps1": {
+      "mode": "100644",
+      "oid": "b5222bb1dd6c713bd9b55eaccbcf288d9ad47725"
+    },
+    "scripts/isolated_loopback_ports.py": {
+      "mode": "100644",
+      "oid": "e802c2be8f4560bf8b132fa516163aff5674c561"
+    },
+    "scripts/manage_mlb_pair_monitor.py": {
+      "mode": "100644",
+      "oid": "90203e66eddaec4141c3628bf7d89472cc5edb1e"
+    },
+    "scripts/migrate_champion_2024_reference.py": {
+      "mode": "100644",
+      "oid": "3a3c0519dafb408d712e49f5f4b282777c058469"
+    },
+    "scripts/migrate_legacy_project_access.py": {
+      "mode": "100644",
+      "oid": "e674418fbb049ff9b2f2537d77038971b4874a4a"
+    },
+    "scripts/package_market_research.py": {
+      "mode": "100644",
+      "oid": "ca7d1c9dbf847f497696893aeb934f7ded8328c1"
+    },
+    "scripts/package_mlb_v18_conditional_champion.py": {
+      "mode": "100644",
+      "oid": "f8f02c7e760ac3f0b0e9f5f76f943eaf8355056d"
+    },
+    "scripts/package_mlb_v18_score_limited_v3.py": {
+      "mode": "100644",
+      "oid": "e268a35725a8c12d9f450e1335dd42d79c152871"
+    },
+    "scripts/package_mlb_v18_three_arm_pregame_comparison_v1.py": {
+      "mode": "100644",
+      "oid": "c34cf1ce96b2cdcd6dd4eec11d19840a6c5a1248"
+    },
+    "scripts/package_mlb_v19_study.py": {
+      "mode": "100644",
+      "oid": "116ab2f1406b6bbe35b5c8ae4354f2e91b05d347"
+    },
+    "scripts/phase7_ablation.py": {
+      "mode": "100644",
+      "oid": "d8d70ecadb7d02fddb6e930672c53b6c12072b94"
+    },
+    "scripts/phase7_build_gen3.py": {
+      "mode": "100644",
+      "oid": "78d9e60398d17e4f1db88c1ef61c9b17479e084d"
+    },
+    "scripts/phase7a_build_gen3.py": {
+      "mode": "100644",
+      "oid": "5af727ae8a79e8201c26a5b7845115f45e17c3aa"
+    },
+    "scripts/phase7a_governed_ablation.py": {
+      "mode": "100644",
+      "oid": "bdfdeaefdfe704602c2ad954e8246f000dcc361f"
+    },
+    "scripts/phase7b_research.py": {
+      "mode": "100644",
+      "oid": "26f151aaf058c534ce2cb5389b41ac3348692d8d"
+    },
+    "scripts/phase7c_publish_gen2.py": {
+      "mode": "100644",
+      "oid": "6acabec4fff207d9fe1f16806b786c82c43476a3"
+    },
+    "scripts/phase7d5a_gate_policy.json": {
+      "mode": "100644",
+      "oid": "7b1a1136eea227ed4e0caebec96c281acb88fb85"
+    },
+    "scripts/phase7d5a_skip_governance.py": {
+      "mode": "100644",
+      "oid": "828ce1193b264049518846e1c749327ff5ebc166"
+    },
+    "scripts/preflight_mlb_corrected_treatment.py": {
+      "mode": "100644",
+      "oid": "9cf57a49696ec7166cbc92fdbe01043245be20b4"
+    },
+    "scripts/prepare_mlb_survival_slate_cached_history_v1.py": {
+      "mode": "100644",
+      "oid": "5a174fb0867f30d71835bd054c7586e0af0ff725"
+    },
+    "scripts/prepare_mlb_v19_review.py": {
+      "mode": "100644",
+      "oid": "41187c1ed3fefdf133d67dbcb20c76da9322c110"
+    },
+    "scripts/prepare_nba_gen1_2026.py": {
+      "mode": "100644",
+      "oid": "2be89bcdb6811c6d14e4375b075d34e0935e4b4f"
+    },
+    "scripts/prepare_nba_gen1_point_coverage.py": {
+      "mode": "100644",
+      "oid": "38b99f2ab6832b3e21945ec528bde34ad2ed7d8c"
+    },
+    "scripts/protected_authority_snapshot.py": {
+      "mode": "100644",
+      "oid": "49d6ee8fca5f98e188e0a8eeb93cb3b8f0d8d44b"
+    },
+    "scripts/publish_canonical_prior.py": {
+      "mode": "100644",
+      "oid": "f3ebcabe6e7627c2ca480e3add1a624358522064"
+    },
+    "scripts/publish_cfb_gen1_current_v1.py": {
+      "mode": "100644",
+      "oid": "34ba1ae459881aaa609c635411cda3fa7358c827"
+    },
+    "scripts/publish_mlb_formal_closeout_v1.py": {
+      "mode": "100644",
+      "oid": "317f14d5c847b452b081550c8e2a2eb0de852fa4"
+    },
+    "scripts/publish_mlb_regime_study.py": {
+      "mode": "100644",
+      "oid": "6382337074efc28adaae451dc3e02f53e0ace655"
+    },
+    "scripts/publish_mlb_v18_daily_slate.py": {
+      "mode": "100644",
+      "oid": "8db53c54a1549a422f71aa578201270f41d9d6fe"
+    },
+    "scripts/publish_mlb_v18_score_limited_v1.py": {
+      "mode": "100644",
+      "oid": "074ee1bfce09d99d3dd298e8868eb3def5c3f118"
+    },
+    "scripts/publish_nba_gen1_joint_prospective.py": {
+      "mode": "100644",
+      "oid": "b28de6a08d9223328a76f143764f7be71cacf0dd"
+    },
+    "scripts/publish_nba_gen1_point_exchange.py": {
+      "mode": "100644",
+      "oid": "0d17193685dda95c88c9ce876da747790ede4f6a"
+    },
+    "scripts/publish_nfl_current_shadow.py": {
+      "mode": "100644",
+      "oid": "47e61a8b0bb1be80c363a7faaa9d99033f31f377"
+    },
+    "scripts/publish_nfl_lab_interpretability_supplement.py": {
+      "mode": "100644",
+      "oid": "6421190cdbfbaedd29b97793ba2d6f89d0401aea"
+    },
+    "scripts/publish_nfl_labs_drive_research.py": {
+      "mode": "100644",
+      "oid": "ad478614e9eec936d5384e8f3d75b60203cf674d"
+    },
+    "scripts/publish_nfl_labs_simulations.py": {
+      "mode": "100644",
+      "oid": "104d59690f3627fda2821401b6d59067dea0587f"
+    },
+    "scripts/publish_nfl_labs_source_metadata.py": {
+      "mode": "100644",
+      "oid": "1776e1571399db960e0bcc92044cd89efb0a4ef9"
+    },
+    "scripts/publish_nfl_paper_research_eligibility.py": {
+      "mode": "100644",
+      "oid": "ba15330c4a59a9d4c2633fd1ac44f2895b7dc6ff"
+    },
+    "scripts/publish_nfl_play_level.py": {
+      "mode": "100644",
+      "oid": "9a1fae95cbb4c6346e1f25829320e3189fc8282c"
+    },
+    "scripts/publish_nfl_rolling_shadow.py": {
+      "mode": "100644",
+      "oid": "5f7ce03fb1372878620425cdb7b0df3f5f236f9e"
+    },
+    "scripts/quarantine_incomplete_test_namespace.py": {
+      "mode": "100644",
+      "oid": "17ca3462f215d432a3a88545518b44d44fd53b41"
+    },
+    "scripts/read_mlb_v18_september12_starter_evidence_v1.py": {
+      "mode": "100644",
+      "oid": "990728758596844020b56b9ec4535fff9488fcd9"
+    },
+    "scripts/reconcile_mlb_v18_cold_start.py": {
+      "mode": "100644",
+      "oid": "d2083c61fba96ebc4172bcc7d2c1285a042249dc"
+    },
+    "scripts/reconcile_mlb_v18_operational_evidence.py": {
+      "mode": "100644",
+      "oid": "f28154770525fde996b96f27a991eb17d2da58f8"
+    },
+    "scripts/reconcile_mlb_v18_september12_postgame_export_v1.py": {
+      "mode": "100644",
+      "oid": "02189120e3b4c62ae64f2489ab6bf214a27091bd"
+    },
+    "scripts/record_mlb_starter_quarantine_key_accounting.py": {
+      "mode": "100644",
+      "oid": "9a83305d94ec583661b1e9d5b047ba0b11ee0843"
+    },
+    "scripts/record_mlb_survival_six_game_amendment_v2.py": {
+      "mode": "100644",
+      "oid": "dd90352c9c1e8b071c4294b4459b8887985dc75e"
+    },
+    "scripts/recover_mlb_corrected_hgb.py": {
+      "mode": "100644",
+      "oid": "f7da16637ce272d1c3b465828a3370ac36ea1782"
+    },
+    "scripts/recover_nfl_m1_input_update_handoff.py": {
+      "mode": "100644",
+      "oid": "a874b62ebb997dd57d8543473a569dbb284c6946"
+    },
+    "scripts/register_current_statcast_dataset.py": {
+      "mode": "100644",
+      "oid": "509dc640519581681b0a00a78745eb4145bd4120"
+    },
+    "scripts/register_mlb_core_challenger.py": {
+      "mode": "100644",
+      "oid": "eafcbe8bf88495cb4a7b478ab15edeeb5503bbe0"
+    },
+    "scripts/register_mlb_corrected_treatment.py": {
+      "mode": "100644",
+      "oid": "7334c1703989a98b2cd24e92cc15667909554dd1"
+    },
+    "scripts/register_mlb_dataset.py": {
+      "mode": "100644",
+      "oid": "9e3b4ee1902fa486bcb1c443c9e8e9c1dd38e45c"
+    },
+    "scripts/register_mlb_identity_bridge.py": {
+      "mode": "100644",
+      "oid": "a0afac0ec938fc08615a30f9f42895f77765441a"
+    },
+    "scripts/register_mlb_v19_study.py": {
+      "mode": "100644",
+      "oid": "21fded5de4b2496f68296a9e94bcb88be2923570"
+    },
+    "scripts/replay_nba_gen1_close_score.py": {
+      "mode": "100644",
+      "oid": "b850ff05885eef8852ef3bc5b59d2fb51dec3048"
+    },
+    "scripts/replay_nba_gen1_joint_residual.py": {
+      "mode": "100644",
+      "oid": "5dd88e668a5c0fc21e359f1d2ff09079f51da71f"
+    },
+    "scripts/report_mlb_starter_survival_hierarchy.py": {
+      "mode": "100644",
+      "oid": "36c6df61cc7928f2730dcb2e4786f11d9a16a01e"
+    },
+    "scripts/report_mlb_v18_three_arm_comparison_v1.py": {
+      "mode": "100644",
+      "oid": "4b3655fbc4341aecac2b174b25818204ddfcf089"
+    },
+    "scripts/report_nba_gen1_close_score.py": {
+      "mode": "100644",
+      "oid": "79bd5cb70f6a11ffbb7d1dc3dd136bf8c0cc835a"
+    },
+    "scripts/report_nba_gen1_historical_pilot.py": {
+      "mode": "100644",
+      "oid": "91a2a44bf60c818721da886bee39d365f053d663"
+    },
+    "scripts/report_nba_gen1_joint_residual.py": {
+      "mode": "100644",
+      "oid": "be84d935e698a0ae6c9e42bdcb8fd77b639c7659"
+    },
+    "scripts/report_nba_gen1_recent.py": {
+      "mode": "100644",
+      "oid": "4ec6aa8810936dd05dd6a0c7f79acdf3b8660a0d"
+    },
+    "scripts/report_nba_gen1_rest.py": {
+      "mode": "100644",
+      "oid": "c88fd3b2d52d10b5257de5719fb4fef969ef54e7"
+    },
+    "scripts/report_nfl_current_state_v2.py": {
+      "mode": "100644",
+      "oid": "69af0c5a383363155691ddc0a5349d4bfa46092a"
+    },
+    "scripts/report_nfl_m1_input_update.py": {
+      "mode": "100644",
+      "oid": "c20e991138c40859d46aea0a9d64ca96439743cb"
+    },
+    "scripts/report_nfl_m1_publication.py": {
+      "mode": "100644",
+      "oid": "3da3ad3b9f022d56b2d27d11a43048406a592f7b"
+    },
+    "scripts/report_nfl_m1_qb_context_residuals.py": {
+      "mode": "100644",
+      "oid": "a1a7e75a64bd4238ec4cea1c575713b5445046d8"
+    },
+    "scripts/report_nfl_uncertainty_repair.py": {
+      "mode": "100644",
+      "oid": "50485c5331f1e19a7c1afb13d2c816e210d7fe52"
+    },
+    "scripts/reproduce_mlb_regime_baseline.py": {
+      "mode": "100644",
+      "oid": "a0a07cc7e2ec6a73cbedf59e3fbc2c24a2807c26"
+    },
+    "scripts/reproduce_mlb_v19_baseline.py": {
+      "mode": "100644",
+      "oid": "11bef0f50c657af0e65e1072b9d14800208424b0"
+    },
+    "scripts/republish_nfl_paper_eligibility_utf8.py": {
+      "mode": "100644",
+      "oid": "b574a4a5c2152089bbcda2d83ddaef4cfc54b6d2"
+    },
+    "scripts/reset_atlas_db.py": {
+      "mode": "100644",
+      "oid": "f63b63794d01181df6a09b2198a642626d7fb0a6"
+    },
+    "scripts/reset_atlas_demo_db.py": {
+      "mode": "100644",
+      "oid": "dc6a6b42213723e765066f47ee7565b7645309f3"
+    },
+    "scripts/run_bureau_metadata_integrated_closeout.py": {
+      "mode": "100644",
+      "oid": "23b01c4058b5486180ca6121b64fae0b06406ab6"
+    },
+    "scripts/run_bureau_metadata_isolated_acceptance.py": {
+      "mode": "100644",
+      "oid": "d40fb17999a5aa3584aafec20d16176034d2ca81"
+    },
+    "scripts/run_bureau_metadata_isolated_services.py": {
+      "mode": "100644",
+      "oid": "315da3a72ef71e6f6e568a3354f4d8f2bcc0660c"
+    },
+    "scripts/run_bureau_metadata_operational_soak.py": {
+      "mode": "100644",
+      "oid": "a9a6235245abec040cede206776071f1f673f03a"
+    },
+    "scripts/run_bureau_metadata_production_auth_acceptance.py": {
+      "mode": "100644",
+      "oid": "57880d0fbc50a344fdd11b3515768c4a9691d0db"
+    },
+    "scripts/run_bureau_metadata_schema_crosswalk_diagnostic.py": {
+      "mode": "100644",
+      "oid": "199e34381587139607ced75860ce764317c98112"
+    },
+    "scripts/run_cfb_gen1_current_v1.py": {
+      "mode": "100644",
+      "oid": "816c6f8199fae2338d6b7130a62d5cd9de21146a"
+    },
+    "scripts/run_cfb_gen1_v1.py": {
+      "mode": "100644",
+      "oid": "47d06cf1c3a723052960d01945da495930093c76"
+    },
+    "scripts/run_hermetic_tests.py": {
+      "mode": "100644",
+      "oid": "7c3881f63ae86f1caf7d12effd8feffe825fbd60"
+    },
+    "scripts/run_isolated_full_workflow_acceptance.py": {
+      "mode": "100644",
+      "oid": "8f665a3775746ba975fae172912af6e2be60fe82"
+    },
+    "scripts/run_market_intelligence_rff.py": {
+      "mode": "100644",
+      "oid": "764fec4fb0514e5e4a05b2872d58fd8efa436516"
+    },
+    "scripts/run_mlb_base_out_transition.py": {
+      "mode": "100644",
+      "oid": "1c724f3536ac37d05c9003b609dec425fd7a5667"
+    },
+    "scripts/run_mlb_catcher_readiness.py": {
+      "mode": "100644",
+      "oid": "9757169173a5bae3ec73130c7c45c66e2dad027f"
+    },
+    "scripts/run_mlb_core_challenger_screen.py": {
+      "mode": "100644",
+      "oid": "d1e055262b8f0b24ce6ee61a1a5253571406808e"
+    },
+    "scripts/run_mlb_core_challenger_tuning.py": {
+      "mode": "100644",
+      "oid": "3517533aeec0df88b1f06f528eac74a8549617fb"
+    },
+    "scripts/run_mlb_corrected_hgb.py": {
+      "mode": "100644",
+      "oid": "be77ee36ab6879ce9f2f2555ae855e69051370b4"
+    },
+    "scripts/run_mlb_dynamic_player_state.py": {
+      "mode": "100644",
+      "oid": "95def7db083ca43ca0ff75e5ffa732828fd1146b"
+    },
+    "scripts/run_mlb_e1_e2_incremental_signal_study.py": {
+      "mode": "100644",
+      "oid": "d44fb750ae9af567129091c0016356d14bf18335"
+    },
+    "scripts/run_mlb_game_replay.py": {
+      "mode": "100644",
+      "oid": "189f8ee6be73f305550f1c113e1a38bc185798c4"
+    },
+    "scripts/run_mlb_pa_baseline.py": {
+      "mode": "100644",
+      "oid": "3d599987d17109b5d9dc9457216d093590a73c92"
+    },
+    "scripts/run_mlb_participation_usage.py": {
+      "mode": "100644",
+      "oid": "2bd5bd261318ffdd7b5628f968b16099976614d8"
+    },
+    "scripts/run_mlb_pitch_sequence_features.py": {
+      "mode": "100644",
+      "oid": "54eef2c7dc1b64273d192300b761c753d7ee6e28"
+    },
+    "scripts/run_mlb_pitcher_archetype_survival.py": {
+      "mode": "100644",
+      "oid": "9906878688962a70d7d5d086d9d30bf506e14403"
+    },
+    "scripts/run_mlb_process_interactions.py": {
+      "mode": "100644",
+      "oid": "bffe5cde33705930d346695f204f14a400b5ecbc"
+    },
+    "scripts/run_mlb_projected_participation_ablation.py": {
+      "mode": "100644",
+      "oid": "090d5021c62c6770795031c3872f962f57117c7c"
+    },
+    "scripts/run_mlb_regime_hybrid_study.py": {
+      "mode": "100644",
+      "oid": "0eff8c57dcb0aeae38cfff7162edcc2113003c33"
+    },
+    "scripts/run_mlb_selection_policy_study.py": {
+      "mode": "100644",
+      "oid": "0ad862598a9bd7b5845a5a41b972c23ce5a84e81"
+    },
+    "scripts/run_mlb_severe_miss_forensics.py": {
+      "mode": "100644",
+      "oid": "b72c511705cfb3f4ec33ff3aafb5d0f447365c22"
+    },
+    "scripts/run_mlb_simulation_input_layer.py": {
+      "mode": "100644",
+      "oid": "7495501de05ac5bf65f0bc45d2fe0e4118740569"
+    },
+    "scripts/run_mlb_starter_duration_paired.py": {
+      "mode": "100644",
+      "oid": "868b60f974e95bd693c50241850c23de47d2e68d"
+    },
+    "scripts/run_mlb_starter_identity.py": {
+      "mode": "100644",
+      "oid": "6e59f7f12ce743db1514494cd8bd71327decbd12"
+    },
+    "scripts/run_mlb_starter_survival_study.py": {
+      "mode": "100644",
+      "oid": "dfebf67cfc38a28030a932d92eccfa8c1a027ef6"
+    },
+    "scripts/run_mlb_survival_coverage_comparisons_v1.py": {
+      "mode": "100644",
+      "oid": "0aba084fc2e9edabb6a7e6aa3dee6a7fb0ad9c18"
+    },
+    "scripts/run_mlb_v18_current_slate.py": {
+      "mode": "100644",
+      "oid": "155e83e78d3666ae958bf3899ed465cbafa23f9f"
+    },
+    "scripts/run_mlb_v18_current_state.py": {
+      "mode": "100644",
+      "oid": "5f9d7c782bc0996491be2bb4cb5b5d5b60a34735"
+    },
+    "scripts/run_mlb_v18_population_diagnostics_v1.py": {
+      "mode": "100644",
+      "oid": "2d2329c24223f1ec58777ac163b871bda4511320"
+    },
+    "scripts/run_mlb_v18_score_limited_v1.py": {
+      "mode": "100644",
+      "oid": "3d341a0a4d67e93bda70efd62de7b62f877cd666"
+    },
+    "scripts/run_mlb_v18_three_arm_pregame_v1.py": {
+      "mode": "100644",
+      "oid": "e6cd5a3d92c7ae5f1a646590efca410c40591661"
+    },
+    "scripts/run_mlb_v18_transition_shrinkage_v1.py": {
+      "mode": "100644",
+      "oid": "8764f2a8fc0f17a7a845754436afffbf3ab3a3a5"
+    },
+    "scripts/run_mlb_v18_unattended.py": {
+      "mode": "100644",
+      "oid": "83bd4fe607ae9845abcefecfe9f19cda6b0dd5fa"
+    },
+    "scripts/run_mlb_v19_study.py": {
+      "mode": "100644",
+      "oid": "be0f4815720c95fd3096caf3146dbcde80229a8b"
+    },
+    "scripts/run_mlb_whole_game_monte_carlo.py": {
+      "mode": "100644",
+      "oid": "3a6ae3a88c7b10694828c12c66053bc7f9f8d53e"
+    },
+    "scripts/run_nba_gen1.py": {
+      "mode": "100644",
+      "oid": "8b2c53038be9f3fd7c88378c1e160dc3d3f3b6a8"
+    },
+    "scripts/run_nba_gen1_close_score.py": {
+      "mode": "100644",
+      "oid": "909d17b260480aad0631452a1400ec5901f5f106"
+    },
+    "scripts/run_nba_gen1_historical_pilot.py": {
+      "mode": "100644",
+      "oid": "d4b4e6232ad18dcd3ab61b13b63d94b0deb5fe4d"
+    },
+    "scripts/run_nba_gen1_joint_residual.py": {
+      "mode": "100644",
+      "oid": "73a55ce9625dfd3bd3b176f0015ce994a5917b03"
+    },
+    "scripts/run_nba_gen1_recent.py": {
+      "mode": "100644",
+      "oid": "0572600b814a6dce6d82f2ba3a1eedc651073c0a"
+    },
+    "scripts/run_nba_gen1_rest.py": {
+      "mode": "100644",
+      "oid": "15ae120313ca8900d07026a2cae0f152d7d8b69d"
+    },
+    "scripts/run_nba_gen1_rest_2026.py": {
+      "mode": "100644",
+      "oid": "68f60573b5ebd3be2fd77af70784816e846f3bc7"
+    },
+    "scripts/run_nfl_2026_prospective_shadow.py": {
+      "mode": "100644",
+      "oid": "78337155d75dbbcfc8f87efda62346b17489c41c"
+    },
+    "scripts/run_nfl_current_state_v2.py": {
+      "mode": "100644",
+      "oid": "b9db9cfe61023e231b2327bf7db301a2a24f9d9b"
+    },
+    "scripts/run_nfl_m1_benchmark.py": {
+      "mode": "100644",
+      "oid": "f8f732a94ed17d159c9a0c80473b0e3b0e772f8a"
+    },
+    "scripts/run_nfl_m1_qb_context_residuals.py": {
+      "mode": "100644",
+      "oid": "116ef81d192a006fb6cc2eeeb071b3c8cdc35a04"
+    },
+    "scripts/run_nfl_overnight_lab.py": {
+      "mode": "100644",
+      "oid": "5544adaf6ae8462dfb27a78e6446531dd87d3873"
+    },
+    "scripts/run_nfl_semantic_lab.py": {
+      "mode": "100644",
+      "oid": "ab95207b42d9b905938bc9c8efed67a790ae5f2f"
+    },
+    "scripts/run_nfl_uncertainty_repair.py": {
+      "mode": "100644",
+      "oid": "8df081e94d980ec094f5e5971ae6667e534feb7b"
+    },
+    "scripts/run_nightly_current_statcast_sync.ps1": {
+      "mode": "100644",
+      "oid": "78a702feddb2ae9649bc9687e030334da626c4eb"
+    },
+    "scripts/run_phase7d5a11_codex_final_red_gate.ps1": {
+      "mode": "100644",
+      "oid": "1b0ccc39ccb4b71e7e591cd71f147e8b541fd46f"
+    },
+    "scripts/run_phase7d5a3_codex_red_gate.ps1": {
+      "mode": "100644",
+      "oid": "10aa02608cea6d45442f070ac07faf0e7c4249ba"
+    },
+    "scripts/run_phase7d5a5_codex_delta_red_gate.ps1": {
+      "mode": "100644",
+      "oid": "8d85790b7a2cb56aefda292c045045940498b3c9"
+    },
+    "scripts/run_phase7d5a7_contract_gate.ps1": {
+      "mode": "100644",
+      "oid": "ef26d0666f4fcff772fc3d519dbfe126f714b4db"
+    },
+    "scripts/run_phase7d5a9_contract_gate.ps1": {
+      "mode": "100644",
+      "oid": "41d07d0d858361ba93c37b33e5676046be5ed6d6"
+    },
+    "scripts/run_phase7d5a_isolated_gate.ps1": {
+      "mode": "100644",
+      "oid": "c005a3707fb41ad99b38aee4ba4013a8dbbee3bc"
+    },
+    "scripts/run_security_tests.py": {
+      "mode": "100644",
+      "oid": "ae4922eb1185e78fadeabd759fe7714a785beca7"
+    },
+    "scripts/score_mlb_frozen_component_pairs_v1.py": {
+      "mode": "100644",
+      "oid": "c09ec8bb8ce3bf76a2897c60aab73fef9a8d2cfb"
+    },
+    "scripts/score_mlb_v18_score_limited_v1.py": {
+      "mode": "100644",
+      "oid": "adf6d95e8e33ca3ace43fd4c50366add26f5abe5"
+    },
+    "scripts/seal_mlb_v18_population_diagnostics_v1.py": {
+      "mode": "100644",
+      "oid": "cf1d2ed7156faebd10dbdb2159f720493dcbcf6b"
+    },
+    "scripts/snapshot_nfl_m1_input_update.py": {
+      "mode": "100644",
+      "oid": "3d754cfd18761c0850cc2a2539d3d8cf8cc2fc97"
+    },
+    "scripts/start-asp-model-studio.ps1": {
+      "mode": "100644",
+      "oid": "3cfb61b8c37a18de45ea8447985e2bdcb66e90e0"
+    },
+    "scripts/summarize_mlb_regime_diagnostics.py": {
+      "mode": "100644",
+      "oid": "76bc8aeb5227d3bfef5b98ddc8913105c1a99cfc"
+    },
+    "scripts/summarize_mlb_v18_population_diagnostics_v1.py": {
+      "mode": "100644",
+      "oid": "e45fa2999dc9748daed30a8c28253c188d7868ce"
+    },
+    "scripts/summarize_mlb_v18_september12_postgame_v1.py": {
+      "mode": "100644",
+      "oid": "cf31e68a7f47099fef1096a83a541f94024fb211"
+    },
+    "scripts/sync-atlas-clean-copy.ps1": {
+      "mode": "100644",
+      "oid": "b1c3ebf7cb79bb375e9cded84ab077492aaf1d76"
+    },
+    "scripts/sync_mlb_current_statcast.py": {
+      "mode": "100644",
+      "oid": "ff7a289291cd1e987a07745b75cd71d0ffc8a745"
+    },
+    "scripts/sync_nfl_current_season.py": {
+      "mode": "100644",
+      "oid": "687c9815fb018c7df6e4d3da19bf6bb9b9af4a97"
+    },
+    "scripts/validate_bureau_metadata_catalog.py": {
+      "mode": "100644",
+      "oid": "535c56ba4bf9500a608f4e5128f57b775ea2830c"
+    },
+    "scripts/verify_cfb_gen1_current_v1.py": {
+      "mode": "100644",
+      "oid": "a2923517ce331f43d4b80842a0a744014e689d0b"
+    },
+    "scripts/verify_content_addressed_package.py": {
+      "mode": "100644",
+      "oid": "0847100ee76babed243f93c3c7dbe679fd70274d"
+    },
+    "scripts/verify_mlb_hgb_recovery_authority.py": {
+      "mode": "100644",
+      "oid": "c1ed5d326ca5d9bedabd9c203afdfa647f9c2553"
+    },
+    "scripts/verify_mlb_starter_duration_actual_hgb_mechanics.py": {
+      "mode": "100644",
+      "oid": "ea265b1a5cbe849a1b55d1bf63493b57d30dc301"
+    },
+    "scripts/verify_mlb_v18_champion_operational_readiness.py": {
+      "mode": "100644",
+      "oid": "92c4f80e67157ae9b095d52e4eefe90a0fc70f08"
+    },
+    "scripts/verify_mlb_v18_rf_operationalization.py": {
+      "mode": "100644",
+      "oid": "c719fb31ea0a127c2c9612df77ccda8fe8528f07"
+    },
+    "scripts/verify_nba_gen1_historical_pilot.py": {
+      "mode": "100644",
+      "oid": "12f5108642f01bea706e6318cf6cebf747d5b772"
+    },
+    "scripts/verify_nba_gen1_joint_counts.py": {
+      "mode": "100644",
+      "oid": "32edb445818cdde767673c750558347aeb245c2f"
+    },
+    "scripts/verify_nba_gen1_joint_preservation.py": {
+      "mode": "100644",
+      "oid": "902bd47c5e9de3889781e4e707e1f562296995e6"
+    },
+    "scripts/verify_nba_gen1_point_snapshot.py": {
+      "mode": "100644",
+      "oid": "b69584c549f991474f48081f76b83f0054f3c8d3"
+    },
+    "scripts/verify_nba_gen1_recent.py": {
+      "mode": "100644",
+      "oid": "bfafd90d4de908fa1dab3e97eeb73d9dfb1e755d"
+    },
+    "scripts/verify_nba_gen1_rest.py": {
+      "mode": "100644",
+      "oid": "16fd4340a485030e13b9e7dcb2968a138f6a47cb"
+    },
+    "scripts/verify_nba_gen1_rest_2026.py": {
+      "mode": "100644",
+      "oid": "8aa93a9023709fc39b601685ba0e5159e2255742"
+    },
+    "scripts/verify_nfl_labs_simulations.py": {
+      "mode": "100644",
+      "oid": "685961ecd6df07fac727d8526ccbe86ff14c8b91"
+    },
+    "scripts/verify_nfl_play_level_publication.py": {
+      "mode": "100644",
+      "oid": "538c0befbc733e8accc6701102c19e00f5f6b74c"
+    },
+    "scripts/verify_nfl_semantic_publication_fixture.py": {
+      "mode": "100644",
+      "oid": "6c7b5802255d1ca9e4186d6427c99a054d4be1c0"
+    },
+    "scripts/verify_producer_readiness_20260914.py": {
+      "mode": "100644",
+      "oid": "dcc3c89658ea40962a5506d869ca27d581e382e8"
+    },
+    "scripts/write_bureau_metadata_browser_reload_evidence.py": {
+      "mode": "100644",
+      "oid": "cdf27768a235a0b2a189741329cd7a36be56df99"
+    },
+    "server/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/admin/__init__.py": {
+      "mode": "100644",
+      "oid": "9fb2d849d01db64ed6bf3a5866d7e905c7bf326f"
+    },
+    "server/admin/admin_service.py": {
+      "mode": "100644",
+      "oid": "ddbbb7dc067f54244445d85e830521528907a73f"
+    },
+    "server/admin/router.py": {
+      "mode": "100644",
+      "oid": "7fea8ef78ba5a007a61916d8a499d8e85de9ae77"
+    },
+    "server/admin/schemas.py": {
+      "mode": "100644",
+      "oid": "2fe37452d0b8bf1fc98e88939c8426360fdc9b41"
+    },
+    "server/analysis_partition/__init__.py": {
+      "mode": "100644",
+      "oid": "9562fac9678a9c6f2a39a4f08863d7773ef2c62f"
+    },
+    "server/analysis_partition/router.py": {
+      "mode": "100644",
+      "oid": "b9b64162754b6763e29c8a262da2692f591a51ae"
+    },
+    "server/analysis_partition/service.py": {
+      "mode": "100644",
+      "oid": "bcf18bdb3c00ef9542eda4a88a25f6cc6b5b4cda"
+    },
+    "server/analysis_partition/types.py": {
+      "mode": "100644",
+      "oid": "8cd8f3d93cf63f741a5b03212b4d33e7ae569a0c"
+    },
+    "server/analytics/__init__.py": {
+      "mode": "100644",
+      "oid": "c808e366a203f348d83235cc65845593635ae91e"
+    },
+    "server/analytics/analysis_scope.py": {
+      "mode": "100644",
+      "oid": "168e55bf375f57d314879fc58b4d4d65accba195"
+    },
+    "server/analytics/analytics_queries_router.py": {
+      "mode": "100644",
+      "oid": "a908e049b57396cccc2f490f86ddd74544edecb4"
+    },
+    "server/analytics/analytics_router.py": {
+      "mode": "100644",
+      "oid": "0cfe12c88c51fad44e02f61894b5650c38acbd34"
+    },
+    "server/analytics/analytics_store.py": {
+      "mode": "100644",
+      "oid": "3ff3e06ec9e421c8bed8559949a2f39748eb79ca"
+    },
+    "server/analytics/artifact_resolver.py": {
+      "mode": "100644",
+      "oid": "d5a02588d30d71bd9c76058561efff623e426324"
+    },
+    "server/analytics/distributed_engine_interface.py": {
+      "mode": "100644",
+      "oid": "73e8919ad03c8945ab12ddfe12fe5409d01ba8f0"
+    },
+    "server/analytics/engines/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/analytics/engines/duckdb_engine.py": {
+      "mode": "100644",
+      "oid": "e5676e8503196150f3408b8b71db68a03b577f35"
+    },
+    "server/analytics/engines/pandas_engine.py": {
+      "mode": "100644",
+      "oid": "aabd0ffc0e56f69ab42e636d390fe9e973f52a9b"
+    },
+    "server/analytics/engines/polars_engine.py": {
+      "mode": "100644",
+      "oid": "fadb8d0dad86d3567534dabc540736448fffec7c"
+    },
+    "server/analytics/export_utils.py": {
+      "mode": "100644",
+      "oid": "0b0ddcbbd1916beff0bc14b75e7142cdd4720ecf"
+    },
+    "server/analytics/parquet_service.py": {
+      "mode": "100644",
+      "oid": "b83d30750f67489d674fb7714dcf98eb06462a71"
+    },
+    "server/analytics/query_contract.py": {
+      "mode": "100644",
+      "oid": "3f55c8aa76513585779faf2c43c2a9dd133888b9"
+    },
+    "server/analytics/query_planner.py": {
+      "mode": "100644",
+      "oid": "257329193ae718ca3a6119b14882c8390d6afafa"
+    },
+    "server/analytics/query_service.py": {
+      "mode": "100644",
+      "oid": "847311d632af9f43d2c2b2364561797d7629b8ec"
+    },
+    "server/analytics/resource_governance.py": {
+      "mode": "100644",
+      "oid": "f186558813b1708ddd8548c8511b932c9909f325"
+    },
+    "server/analytics/result_cache.py": {
+      "mode": "100644",
+      "oid": "2d0ef2c422b37c66c9fecd127f147fd2909cf456"
+    },
+    "server/analytics/sampling.py": {
+      "mode": "100644",
+      "oid": "96b95421e4083dabfccc8c4ee2ff626e22dee1b1"
+    },
+    "server/analytics/target_distribution_service.py": {
+      "mode": "100644",
+      "oid": "66fd448e8078d756e72becdb3f595f8e6f95412f"
+    },
+    "server/analytics/target_intelligence_router.py": {
+      "mode": "100644",
+      "oid": "2dde260eb7c3cf9099d672a365d602139dbcc096"
+    },
+    "server/analytics/target_intelligence_service.py": {
+      "mode": "100644",
+      "oid": "ed23d5e88e388271979fb2d90f8953c9c118671d"
+    },
+    "server/analytics_engine/__init__.py": {
+      "mode": "100644",
+      "oid": "03e34f9090d8ced12077238a544bff0ddb879cb3"
+    },
+    "server/analytics_engine/code_generation.py": {
+      "mode": "100644",
+      "oid": "5f5b71f04413652b74bd99dc7b57bda29dd0d9d4"
+    },
+    "server/analytics_engine/dataset_adapter.py": {
+      "mode": "100644",
+      "oid": "34887597c9044ca821fbea4f3fce87d0d3669311"
+    },
+    "server/analytics_engine/documentation_adapter.py": {
+      "mode": "100644",
+      "oid": "3648752ef4da0bb7b3b9d41915c47cbf8f3f7578"
+    },
+    "server/analytics_engine/errors.py": {
+      "mode": "100644",
+      "oid": "50732fa3cc0438cf260bf1e2eb67a599807671d7"
+    },
+    "server/analytics_engine/evidence_adapter.py": {
+      "mode": "100644",
+      "oid": "3c5c6a5b7404b9f330625ef24b7f531b0d5c6ba8"
+    },
+    "server/analytics_engine/interpretation.py": {
+      "mode": "100644",
+      "oid": "c016751893fe54647b5474207fbb3d4e8e87d111"
+    },
+    "server/analytics_engine/modules/__init__.py": {
+      "mode": "100644",
+      "oid": "0c51fd7a68798d90404dd77da4058c589614ab49"
+    },
+    "server/analytics_engine/modules/classification.py": {
+      "mode": "100644",
+      "oid": "7043b489a69eb8f4f0fd6ecebd54c021dbe20cd3"
+    },
+    "server/analytics_engine/modules/data_quality.py": {
+      "mode": "100644",
+      "oid": "0cb9a089125883f4ca58d24bf6e0e961e30a7a90"
+    },
+    "server/analytics_engine/modules/descriptive.py": {
+      "mode": "100644",
+      "oid": "c277e7cbc0f82141c056d0ecdbb7f40c4bde26d0"
+    },
+    "server/analytics_engine/modules/experimentation.py": {
+      "mode": "100644",
+      "oid": "0477b92f5aa674d6066f95ad3ed7ac4e78c14f6c"
+    },
+    "server/analytics_engine/modules/fairness.py": {
+      "mode": "100644",
+      "oid": "ebb388c7420b076f020f9ea0a66ad27125ca880d"
+    },
+    "server/analytics_engine/modules/forecasting.py": {
+      "mode": "100644",
+      "oid": "c500f4e9c6a665d21cf276ac3a439829b22f0012"
+    },
+    "server/analytics_engine/modules/llm_evaluation.py": {
+      "mode": "100644",
+      "oid": "67f9b2634e61674be509507fc3ee206a78200158"
+    },
+    "server/analytics_engine/modules/monitoring.py": {
+      "mode": "100644",
+      "oid": "db8c0339449dc45d13e59914512928f584cfec37"
+    },
+    "server/analytics_engine/modules/optimization.py": {
+      "mode": "100644",
+      "oid": "3e72682418794a222cfd33e04ba6c4f2da2bad58"
+    },
+    "server/analytics_engine/modules/regression.py": {
+      "mode": "100644",
+      "oid": "e92f913b371241cc110a109a5d2c98d6b7481464"
+    },
+    "server/analytics_engine/modules/time_series.py": {
+      "mode": "100644",
+      "oid": "29432125a5090d99f8f0b1da124a5ce26cf6bddd"
+    },
+    "server/analytics_engine/monitoring_adapter.py": {
+      "mode": "100644",
+      "oid": "71fc9d810f96c8e0a33d31a96c30a9377a503433"
+    },
+    "server/analytics_engine/registry.py": {
+      "mode": "100644",
+      "oid": "d2dcc16df96851381b832ead1dd195894a152e4d"
+    },
+    "server/analytics_engine/result_builder.py": {
+      "mode": "100644",
+      "oid": "069f94cb10b47a32223b7c28ec4e620bb783ece7"
+    },
+    "server/analytics_engine/router.py": {
+      "mode": "100644",
+      "oid": "3b198df8bce4306a5dc9bd530b81c40f6e1620cf"
+    },
+    "server/analytics_engine/schemas.py": {
+      "mode": "100644",
+      "oid": "497f2074d731262f7d3eb3d39325163867647ceb"
+    },
+    "server/analytics_engine/service.py": {
+      "mode": "100644",
+      "oid": "ad4b0205fd74f10eedcc2ca59ad43657c029738a"
+    },
+    "server/analytics_engine/validation_adapter.py": {
+      "mode": "100644",
+      "oid": "3d26161d791861d065d7b6f074374f1855665a72"
+    },
+    "server/audit_assurance/__init__.py": {
+      "mode": "100644",
+      "oid": "1dbfa21b48c6a64759c5f4ae342eb2012c7ed5b3"
+    },
+    "server/audit_assurance/adapters.py": {
+      "mode": "100644",
+      "oid": "b26bd2e2d37092f66d753a87beabecec70d819f2"
+    },
+    "server/audit_assurance/canonical.py": {
+      "mode": "100644",
+      "oid": "c5d442a66417be58a8c9b9965ce861fe4132f4b8"
+    },
+    "server/audit_assurance/contracts.py": {
+      "mode": "100644",
+      "oid": "0c6a471ce0fb72cae20729beca1940bb65fe0988"
+    },
+    "server/bureau_metadata/__init__.py": {
+      "mode": "100644",
+      "oid": "9900967201c280ed3afccc257b3f39f28f0e646b"
+    },
+    "server/bureau_metadata/catalog_binding.py": {
+      "mode": "100644",
+      "oid": "4c02a9c5e8397b3437c897efc224343a9bf2c963"
+    },
+    "server/bureau_metadata/catalog_binding_repository.py": {
+      "mode": "100644",
+      "oid": "847354a205e2f9d7160fba832b0bb7446056e8c4"
+    },
+    "server/bureau_metadata/catalog_binding_router.py": {
+      "mode": "100644",
+      "oid": "d7b1c920772b77bc53fd8d43ee999855415d76d1"
+    },
+    "server/bureau_metadata/catalog_binding_service.py": {
+      "mode": "100644",
+      "oid": "ba084dcdf1e6fd6266149041e5c3e8b1742af970"
+    },
+    "server/bureau_metadata/catalog_builder.py": {
+      "mode": "100644",
+      "oid": "9155eb285a20ff0a75f6bd473daec9529069c59d"
+    },
+    "server/bureau_metadata/catalog_consistency.py": {
+      "mode": "100644",
+      "oid": "edaf738e50330dec0412a76b367a88f423398e66"
+    },
+    "server/bureau_metadata/catalog_documentation.py": {
+      "mode": "100644",
+      "oid": "cbe3f3c3c3c3f7ccd99aebe8976760f440e71c64"
+    },
+    "server/bureau_metadata/catalog_registry.py": {
+      "mode": "100644",
+      "oid": "5360b5fad8e95e5b32ed78a2e3ab5d7e4815bffb"
+    },
+    "server/bureau_metadata/catalog_router.py": {
+      "mode": "100644",
+      "oid": "682fffec41bd0082ddeffe95904de4301ae1158e"
+    },
+    "server/bureau_metadata/catalog_service.py": {
+      "mode": "100644",
+      "oid": "dbbf152f4591648966a60fa2ec4f64159db62e5f"
+    },
+    "server/bureau_metadata/catalog_store.py": {
+      "mode": "100644",
+      "oid": "e996a62abfdedae576d31c974e5443570975cbdd"
+    },
+    "server/bureau_metadata/crosswalk.py": {
+      "mode": "100644",
+      "oid": "066589c5493d4fa77d25e783bf92938db7156be4"
+    },
+    "server/bureau_metadata/crosswalk_governance.py": {
+      "mode": "100644",
+      "oid": "ab8d0c2585be4ee7fc0603dbeb041e7494ab5e97"
+    },
+    "server/bureau_metadata/crosswalk_governance_repository.py": {
+      "mode": "100644",
+      "oid": "3111264305e27cf434708acdec4c4858cb53723a"
+    },
+    "server/bureau_metadata/crosswalk_governance_service.py": {
+      "mode": "100644",
+      "oid": "a8ce8ae314de1e1d35c186438b8fad3fa2ec5349"
+    },
+    "server/bureau_metadata/crosswalk_router.py": {
+      "mode": "100644",
+      "oid": "840e52175b9745a2065a5bc340edd9a3d5967bc3"
+    },
+    "server/bureau_metadata/csv_parser.py": {
+      "mode": "100644",
+      "oid": "3315f2ff028d4f3753fa6acb578d2b6349259bf0"
+    },
+    "server/bureau_metadata/normalizer.py": {
+      "mode": "100644",
+      "oid": "ba4ccde5473e10ac16a7813481bcc33e11d38a5e"
+    },
+    "server/bureau_metadata/operational_service.py": {
+      "mode": "100644",
+      "oid": "0bd212a5d4249a4eca6b48b59e2087250561adaf"
+    },
+    "server/bureau_metadata/pdf_parser.py": {
+      "mode": "100644",
+      "oid": "cac6edc3f5e785032146378c71e29aa6fa48134c"
+    },
+    "server/bureau_metadata/restricted_storage.py": {
+      "mode": "100644",
+      "oid": "317a6451614a26164f722a9cd7ffed28efd68113"
+    },
+    "server/bureau_metadata/semantic_annotation.py": {
+      "mode": "100644",
+      "oid": "b74ce68b567b1e37127771acc6fa167e009ab84c"
+    },
+    "server/bureau_metadata/source_reader.py": {
+      "mode": "100644",
+      "oid": "2ae4a9e1766c6595b5a57728d9dd2d69844a8a1e"
+    },
+    "server/bureau_metadata/types.py": {
+      "mode": "100644",
+      "oid": "535d099ca4671e209dbb3b68ae8f8e48c5714517"
+    },
+    "server/bureau_metadata/validation.py": {
+      "mode": "100644",
+      "oid": "74c7e81f1912787fbf795b43a0bb68c6a95a839d"
+    },
+    "server/charts/__init__.py": {
+      "mode": "100644",
+      "oid": "aff5b64818b3435e487bdda4cec315f2fd644f8d"
+    },
+    "server/charts/chart_router.py": {
+      "mode": "100644",
+      "oid": "0ffe057f66f35a3920a1723308ee6e2dff38bf86"
+    },
+    "server/charts/chart_store.py": {
+      "mode": "100644",
+      "oid": "b19b32ab557b2d80d6a72aea9b58ec288b99b11b"
+    },
+    "server/code_execution/__init__.py": {
+      "mode": "100644",
+      "oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+    },
+    "server/code_execution/dataset_binding.py": {
+      "mode": "100644",
+      "oid": "2177e661c60e6e2388cfaa7f332f1d0ec8969bc5"
+    },
+    "server/code_execution/environment_inventory.py": {
+      "mode": "100644",
+      "oid": "39436fd8e87c4d376a5f1249a94a00bacba83986"
+    },
+    "server/code_execution/runtime_context.py": {
+      "mode": "100644",
+      "oid": "af55a16703967c1d64c0567a0019fe21fb906a17"
+    },
+    "server/code_execution/sandbox_policy.py": {
+      "mode": "100644",
+      "oid": "1b1228fa9cede315a382a863c91477c8167643aa"
+    },
+    "server/code_execution/sas_compatible.py": {
+      "mode": "100644",
+      "oid": "9bbdc8ffa74020e94825cde339c534c3dcba88b2"
+    },
+    "server/core/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/core/checkpoint_inspect.py": {
+      "mode": "100644",
+      "oid": "0d8bb0f7345a019820a48f7609d03c690279dc4b"
+    },
+    "server/core/dataset_state_keys.py": {
+      "mode": "100644",
+      "oid": "b207a2d805ac102271c72cbc3dd94a028c3a98e1"
+    },
+    "server/core/dataset_store.py": {
+      "mode": "100644",
+      "oid": "101a15471fb047279ee31112fa7a3c247ff3facd"
+    },
+    "server/core/json_safety.py": {
+      "mode": "100644",
+      "oid": "6acb789d3093ecbfebfceebe717713112bfed184"
+    },
+    "server/core/metadata_router.py": {
+      "mode": "100644",
+      "oid": "9137f90125c62cc329682e016959c8f06f7df433"
+    },
+    "server/core/modeling_scope.py": {
+      "mode": "100644",
+      "oid": "d298663616e386f1ade8f6441fd2ebdf9b67d39d"
+    },
+    "server/core/population_contract.py": {
+      "mode": "100644",
+      "oid": "382c8f989487636ae84c6270fa0dfcadbf5fa2e4"
+    },
+    "server/core/pretraining_invalidation.py": {
+      "mode": "100644",
+      "oid": "cc3d8e30ddd70ee2ef0381c531e027ce939e72c6"
+    },
+    "server/core/result_store.py": {
+      "mode": "100644",
+      "oid": "e08be8d17eb75b364eaf8803cb256660c16774ef"
+    },
+    "server/core/schemas.py": {
+      "mode": "100644",
+      "oid": "9a72cfda42f3fd8ed1decb272b78f3d0f5307f06"
+    },
+    "server/core/session_checkpoint.py": {
+      "mode": "100644",
+      "oid": "63d9e10fa20790d0d4b5a8374532bfe79ca533a3"
+    },
+    "server/core/utils.py": {
+      "mode": "100644",
+      "oid": "9e88abd2746f515ac20f9d0f9a91958a4983fc83"
+    },
+    "server/credit_risk/__init__.py": {
+      "mode": "100644",
+      "oid": "3f32cf26d316b99fd681c8d7ae5b6a7639a6001b"
+    },
+    "server/credit_risk/credit_risk_router.py": {
+      "mode": "100644",
+      "oid": "0070d2ffc75ef3594edef4e71d950abbb24b90db"
+    },
+    "server/credit_risk/credit_risk_store.py": {
+      "mode": "100644",
+      "oid": "803f5a8beef263f41d2b9868bf837729603a1482"
+    },
+    "server/credit_risk/credit_risk_types.py": {
+      "mode": "100644",
+      "oid": "0207510e8b1c9c9199d974dd342c839859bf75ad"
+    },
+    "server/credit_risk/governed_scope.py": {
+      "mode": "100644",
+      "oid": "52daf098620ee4787dfb109797c4434413fd569f"
+    },
+    "server/credit_risk/leakage_guard.py": {
+      "mode": "100644",
+      "oid": "c80c45314b4e8a6cda1a4eb5689cb27c155cee53"
+    },
+    "server/credit_risk/ml_engine.py": {
+      "mode": "100644",
+      "oid": "e1082d8edde28698732e6022a0b4884f9cb7346b"
+    },
+    "server/credit_risk/scorecard_engine.py": {
+      "mode": "100644",
+      "oid": "4c49656064c876e314cf0bcc9c5cbaba268e9406"
+    },
+    "server/credit_risk/woe_iv_engine.py": {
+      "mode": "100644",
+      "oid": "c909c81eaaa76adec03319ebc3a5e35c0201415d"
+    },
+    "server/datasets/__init__.py": {
+      "mode": "100644",
+      "oid": "65a26e9064d44a3a84ec3772fcdafe866abfbd3b"
+    },
+    "server/datasets/dataset_identity.py": {
+      "mode": "100644",
+      "oid": "ed2704949f63142295cf5581ad0ac2a5355867e0"
+    },
+    "server/datasets/dataset_integrity.py": {
+      "mode": "100644",
+      "oid": "f70c77c49e339ddbd45f1ad3ffcc2cd27c8436bf"
+    },
+    "server/datasets/dataset_integrity_router.py": {
+      "mode": "100644",
+      "oid": "2476ddeb6d8056654b2598c1fa7530bbe80aa4fa"
+    },
+    "server/datasets/dataset_reconciliation.py": {
+      "mode": "100644",
+      "oid": "d49a737b21715f88245cc49173e59e61bae4a985"
+    },
+    "server/datasets/dataset_recovery.py": {
+      "mode": "100644",
+      "oid": "355d4785d74243ec18b5b5cee026b83573521481"
+    },
+    "server/datasets/dataset_registry.py": {
+      "mode": "100644",
+      "oid": "044aa50a85e1e76d0830e0b1fbaf450a276c81b6"
+    },
+    "server/datasets/dataset_router.py": {
+      "mode": "100644",
+      "oid": "5d920c0ff6df5e2cfb1665dbdd4045d9cf8c0703"
+    },
+    "server/datasets/dataset_storage.py": {
+      "mode": "100644",
+      "oid": "d878cc6739e28df096c5a201d79d98929dc6d2dd"
+    },
+    "server/eda/__init__.py": {
+      "mode": "100644",
+      "oid": "b0928d95416234db98ce7350bbc216f083c154dc"
+    },
+    "server/eda/analytical_contract.py": {
+      "mode": "100644",
+      "oid": "7775689a8b037073e9961e6306f3f2ba84995ea0"
+    },
+    "server/eda/bureau_semantic_contract.py": {
+      "mode": "100644",
+      "oid": "105a2f9c44bde7b742876be80afb9181a57aaaa8"
+    },
+    "server/eda/documentation_service.py": {
+      "mode": "100644",
+      "oid": "0c1b6a5b066e1c649d4f1a13927605460954fc07"
+    },
+    "server/eda/documentation_types.py": {
+      "mode": "100644",
+      "oid": "03d0b7ea54705c784b5353ff41293484474219b2"
+    },
+    "server/eda/eda_router.py": {
+      "mode": "100644",
+      "oid": "ccf5361e965b724244536442c1648b342db895b7"
+    },
+    "server/eda/eda_service.py": {
+      "mode": "100644",
+      "oid": "b2e61c4f9dd2f16615ed4cb383e349642b092a46"
+    },
+    "server/eda/vif_plan_store.py": {
+      "mode": "100644",
+      "oid": "be15808730c62bd6dcbf81eae8e9129448ed0ffe"
+    },
+    "server/eda/vif_resolution.py": {
+      "mode": "100644",
+      "oid": "1e83064d8440f994510e1440a337e70650bb9ed4"
+    },
+    "server/eda/workspace_service.py": {
+      "mode": "100644",
+      "oid": "6cc72e1e2359fb415406cca442a3e028028c0e60"
+    },
+    "server/eda/workspace_types.py": {
+      "mode": "100644",
+      "oid": "30fe279663a25f652dccb23db2d18bc0298e75fc"
+    },
+    "server/evaluation/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/evaluation/eval_router.py": {
+      "mode": "100644",
+      "oid": "d5558f7da889ec491c4958888a822a79fe8b1a0f"
+    },
+    "server/evaluation/eval_service.py": {
+      "mode": "100644",
+      "oid": "8c3c7930aaf78e2e78a75be6bae5b777df38b54d"
+    },
+    "server/evidence/__init__.py": {
+      "mode": "100644",
+      "oid": "18d0945fc5d6729b330a922647ceca51034deed9"
+    },
+    "server/evidence/evidence_identity.py": {
+      "mode": "100644",
+      "oid": "349a38a32a1eda257f14dc8598a4145804c4a16e"
+    },
+    "server/evidence/evidence_router.py": {
+      "mode": "100644",
+      "oid": "e7c603365c1b9f35034cd8f1f1ebeb059d65261b"
+    },
+    "server/evidence/evidence_store.py": {
+      "mode": "100644",
+      "oid": "05a868ab2f112d3709e2ee5e227e96ba97543278"
+    },
+    "server/evidence/evidence_types.py": {
+      "mode": "100644",
+      "oid": "1f59a3d13c067b7b34e225b5b53a05f66b176d28"
+    },
+    "server/evidence/financial_services_taxonomy.py": {
+      "mode": "100644",
+      "oid": "3f17990b58bc5552b0acaf306a87a6e0fa78394b"
+    },
+    "server/experimental_design/__init__.py": {
+      "mode": "100644",
+      "oid": "3363476a97199efd6d72fc7f5a243436bb1d082e"
+    },
+    "server/experimental_design/router.py": {
+      "mode": "100644",
+      "oid": "6f1740e08e7c6553cea6a25426e51bb3a8ef38ac"
+    },
+    "server/experimental_design/service.py": {
+      "mode": "100644",
+      "oid": "7aac769d1988405cccdfdc12380f81c1f7c16fd3"
+    },
+    "server/experimentation/__init__.py": {
+      "mode": "100644",
+      "oid": "37d4d2ac0d4ef3a16d6b882014bb417dcfce716a"
+    },
+    "server/experimentation/ab_router.py": {
+      "mode": "100644",
+      "oid": "bceb8310117b4af2cb14019d3f9c825c0ac91845"
+    },
+    "server/experimentation/ab_service.py": {
+      "mode": "100644",
+      "oid": "a340ebe5c668fff07b4cd3abb12a77dd60dd7168"
+    },
+    "server/features/__init__.py": {
+      "mode": "100644",
+      "oid": "a1336fef2c77c86a6345e389484b03d1c0e022a2"
+    },
+    "server/features/feature_manifest_store.py": {
+      "mode": "100644",
+      "oid": "fd9cdf909f9ceac4bb7918368e34c2993e9eea4e"
+    },
+    "server/features/feature_router.py": {
+      "mode": "100644",
+      "oid": "b81ed1d9c76dc614ab3e43ec800b0ae59c002281"
+    },
+    "server/features/feature_service.py": {
+      "mode": "100644",
+      "oid": "d9fc725faffe006ff0da8e2d1f7961542a4d635d"
+    },
+    "server/features/feature_types.py": {
+      "mode": "100644",
+      "oid": "578d91301e3d2ea01667767b8af5c7a2453177df"
+    },
+    "server/governance/__init__.py": {
+      "mode": "100644",
+      "oid": "057cf4c611dcd41ab2a76ef87026db17e958a2d8"
+    },
+    "server/governance/selection_integrity.py": {
+      "mode": "100644",
+      "oid": "dce0ebc4827aae4af5eb4da2366778b55f2f2ff3"
+    },
+    "server/main.py": {
+      "mode": "100644",
+      "oid": "752eed2a22b4bc0b591820ab88f8d5f26a673bf5"
+    },
+    "server/market_intelligence/__init__.py": {
+      "mode": "100644",
+      "oid": "1e2131f961c3eefc5a2cf4221d4d2cf019ed3d2d"
+    },
+    "server/market_intelligence/frozen_candidate.py": {
+      "mode": "100644",
+      "oid": "516e0450d38eca573a19cbe6fc886e54424db09f"
+    },
+    "server/market_intelligence/market_tape.py": {
+      "mode": "100644",
+      "oid": "dce3903e8dbf9d8e7f8943e96c2a251bf2635e5f"
+    },
+    "server/market_intelligence/research_models.py": {
+      "mode": "100644",
+      "oid": "9e2eb3bccb06288b9bba57d6232b2e43d72d6c14"
+    },
+    "server/model_diagnostics/__init__.py": {
+      "mode": "100644",
+      "oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+    },
+    "server/model_diagnostics/diagnostics_router.py": {
+      "mode": "100644",
+      "oid": "c10e34faacc271c53a273cfaa8b6256c16483d5a"
+    },
+    "server/model_diagnostics/diagnostics_store.py": {
+      "mode": "100644",
+      "oid": "a80ed161e1c6b5314eb10a3f0454d2dc93ec8300"
+    },
+    "server/model_documentation/__init__.py": {
+      "mode": "100644",
+      "oid": "0b623a7878bfdabdec90718a87b7defa3950c9e2"
+    },
+    "server/model_documentation/documentation_router.py": {
+      "mode": "100644",
+      "oid": "d5a1a88efe8a7870f4d4938f7e91b1e1ead5fa19"
+    },
+    "server/model_documentation/documentation_store.py": {
+      "mode": "100644",
+      "oid": "b92f1b4dc201985b9f17190334b07c9dc56af7c6"
+    },
+    "server/model_documentation/mdd_framework.py": {
+      "mode": "100644",
+      "oid": "a343b6c401523ba20194b8eba81c7dca6200a99c"
+    },
+    "server/model_registry/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/model_registry/mlb_v18_conditional.py": {
+      "mode": "100644",
+      "oid": "7f5a3d1e52de7382b6943ec998949460ccb8b1f0"
+    },
+    "server/model_registry/model_artifacts.py": {
+      "mode": "100644",
+      "oid": "55623ba015f59c37924fd37360cfecc9376c07e2"
+    },
+    "server/model_registry/model_registry_router.py": {
+      "mode": "100644",
+      "oid": "b489565b586095a06aa35265469357d9a0663ced"
+    },
+    "server/model_registry/model_registry_service.py": {
+      "mode": "100644",
+      "oid": "6b8ec87578b0b635990f0fb28170fbbb359b2c88"
+    },
+    "server/monitoring/__init__.py": {
+      "mode": "100644",
+      "oid": "ed3bd5a4cc12ed76af4abe3186a9def2d4ff4b75"
+    },
+    "server/monitoring/monitoring_service.py": {
+      "mode": "100644",
+      "oid": "6c216471c48b1f87755e5dd265896aae55f6c60d"
+    },
+    "server/monitoring/monitoring_templates.py": {
+      "mode": "100644",
+      "oid": "870de23389f42ccf40f36afeda50b4b373c7cdec"
+    },
+    "server/monitoring/router.py": {
+      "mode": "100644",
+      "oid": "0aa980f6f608329d525a7767261b146bcd095644"
+    },
+    "server/monitoring/schemas.py": {
+      "mode": "100644",
+      "oid": "1a6eba634197e881b4a35527465e5a9167347f06"
+    },
+    "server/notebooks/__init__.py": {
+      "mode": "100644",
+      "oid": "ab6b8e7aaf4dfa6fe65595470869ea45dc71248b"
+    },
+    "server/notebooks/notebook_export.py": {
+      "mode": "100644",
+      "oid": "1deccb9a03a4d19a34365212272ecf75935ece06"
+    },
+    "server/notebooks/notebook_router.py": {
+      "mode": "100644",
+      "oid": "3afede39962d26a575bdada151f7cf85b8e381da"
+    },
+    "server/notebooks/notebook_store.py": {
+      "mode": "100644",
+      "oid": "fd7f422d235b5924b9b44d06211b6a83de58045f"
+    },
+    "server/notifications/__init__.py": {
+      "mode": "100644",
+      "oid": "010b8c2a2b5a2b41afa75f83fe30b18a34e44aaf"
+    },
+    "server/notifications/notification_service.py": {
+      "mode": "100644",
+      "oid": "bf123ba06763d4443d1c37c8bf6ae88cb2bcebec"
+    },
+    "server/notifications/router.py": {
+      "mode": "100644",
+      "oid": "8871be15393969fc88e384392275ff0e9f1e29e5"
+    },
+    "server/notifications/schemas.py": {
+      "mode": "100644",
+      "oid": "09efd3cff024c86514c9dd794be3408d6ce4b64b"
+    },
+    "server/optimization/__init__.py": {
+      "mode": "100644",
+      "oid": "4c4d2668e416d76e0b3f70d1a996c6ee3481c6ed"
+    },
+    "server/optimization/codegen_service.py": {
+      "mode": "100644",
+      "oid": "57962be1292d3e9b9effde3b9e81092524f3748c"
+    },
+    "server/optimization/evidence_service.py": {
+      "mode": "100644",
+      "oid": "3a3c8eaa70d13c7a59ec09269fbed9029498e058"
+    },
+    "server/optimization/input_bundle_service.py": {
+      "mode": "100644",
+      "oid": "59c4fce306be4eb45e2195bb82a0e09d52c0c00a"
+    },
+    "server/optimization/optimization_router.py": {
+      "mode": "100644",
+      "oid": "f0c2ace6ff0a93e131f6e95d54cf0a00846f28f2"
+    },
+    "server/optimization/optimization_service.py": {
+      "mode": "100644",
+      "oid": "006ba0db30150f76e125b8b931b644ac955bcb2d"
+    },
+    "server/optimization/scenario_service.py": {
+      "mode": "100644",
+      "oid": "8663bca9389d3250e7e76fb1088a65b3be668732"
+    },
+    "server/optimization/schemas.py": {
+      "mode": "100644",
+      "oid": "8a64b924c5c35a1e97e5acf46418b6a0d05a202e"
+    },
+    "server/optimization/sensitivity_service.py": {
+      "mode": "100644",
+      "oid": "7eb99993ed51148e0d56e383524ada01051b8ebc"
+    },
+    "server/optimization/solver_service.py": {
+      "mode": "100644",
+      "oid": "4c5502629160b5ffec1f299a8b786bce08e5ff6d"
+    },
+    "server/optimization/transportation_template_service.py": {
+      "mode": "100644",
+      "oid": "c9641f288172a2609d7b6716ca5eb21b2d0cac92"
+    },
+    "server/optimization/validation_service.py": {
+      "mode": "100644",
+      "oid": "40d1813fdf408ad502fc644bc872a2518561dbe5"
+    },
+    "server/persistence/__init__.py": {
+      "mode": "100644",
+      "oid": "30d226e11b9b0de2a17e11e40ea5af76df77bee1"
+    },
+    "server/persistence/db.py": {
+      "mode": "100644",
+      "oid": "8c331c1fd5f4398c63fcd912858b1661a55084b0"
+    },
+    "server/persistence/persistence_router.py": {
+      "mode": "100644",
+      "oid": "9f98e2e869448dd2bfd897f224c6746fd76f4431"
+    },
+    "server/persistence/repositories/__init__.py": {
+      "mode": "100644",
+      "oid": "ee3b396d4fed58239ba07fa085c9b2670010c2e0"
+    },
+    "server/persistence/repositories/access_repository.py": {
+      "mode": "100644",
+      "oid": "d71e04ec1a508b8931c7c0277434ecb195e29687"
+    },
+    "server/persistence/repositories/analysis_partition_repository.py": {
+      "mode": "100644",
+      "oid": "081647338e98196cb682129d00514e9c74d8964d"
+    },
+    "server/persistence/repositories/analytics_repository.py": {
+      "mode": "100644",
+      "oid": "ce2b164d6990b3e900ddb761f747d45c6a4b1c58"
+    },
+    "server/persistence/repositories/audit_repository.py": {
+      "mode": "100644",
+      "oid": "bb3fe9e26332d4b422c66d6a350ae2d9107cb5f8"
+    },
+    "server/persistence/repositories/base_repository.py": {
+      "mode": "100644",
+      "oid": "4b13ddd1d2a180591159a82610fa4cb1f40d18fe"
+    },
+    "server/persistence/repositories/collaboration_repository.py": {
+      "mode": "100644",
+      "oid": "9eaa05c8a9aef31a47627167133940a421d7a6c6"
+    },
+    "server/persistence/repositories/dataset_repository.py": {
+      "mode": "100644",
+      "oid": "783800f2f4367a21a081f6163b6d93566aaeab01"
+    },
+    "server/persistence/repositories/decision_journal_repository.py": {
+      "mode": "100644",
+      "oid": "08ec181e1611bb56ffac73a3ed83349c0ad824c4"
+    },
+    "server/persistence/repositories/demo_feedback_repository.py": {
+      "mode": "100644",
+      "oid": "8e6cb58f761960e6a72e4028ee612a20b0d4cd07"
+    },
+    "server/persistence/repositories/documentation_repository.py": {
+      "mode": "100644",
+      "oid": "c838a3584023ce7e217c328fc7df796bca965875"
+    },
+    "server/persistence/repositories/evidence_repository.py": {
+      "mode": "100644",
+      "oid": "11a7b5bbf76ebce9a22640cc77a791a40ea3ca0b"
+    },
+    "server/persistence/repositories/experimental_design_repository.py": {
+      "mode": "100644",
+      "oid": "ea80153feaf5ab7a78170413c731a1cf2cfd8360"
+    },
+    "server/persistence/repositories/export_repository.py": {
+      "mode": "100644",
+      "oid": "721fd63c6d55431dd54df6de3cb01d090326309d"
+    },
+    "server/persistence/repositories/holdout_governance_repository.py": {
+      "mode": "100644",
+      "oid": "7cc696b690d53ec5565957d55407faa66c836221"
+    },
+    "server/persistence/repositories/model_registry_repository.py": {
+      "mode": "100644",
+      "oid": "acd494105ba8019e39920f0e03777a7be34cbf66"
+    },
+    "server/persistence/repositories/monitoring_repository.py": {
+      "mode": "100644",
+      "oid": "46eea418e30a127cf824bb76d17af4daf167da0f"
+    },
+    "server/persistence/repositories/notification_repository.py": {
+      "mode": "100644",
+      "oid": "924539fdfd3281bc91429e2c7be2533d4ced17bc"
+    },
+    "server/persistence/repositories/predictor_authorization_repository.py": {
+      "mode": "100644",
+      "oid": "ffe83c7a83dc0fb525958c96ef9037bb43b8f978"
+    },
+    "server/persistence/repositories/project_dataset_activation_repository.py": {
+      "mode": "100644",
+      "oid": "24c9d40520bc810a442bda38fe4169571215cb2e"
+    },
+    "server/persistence/repositories/project_repository.py": {
+      "mode": "100644",
+      "oid": "a6126fd61a6da8e2b2f6070fcffd57b628687eb5"
+    },
+    "server/persistence/repositories/run_repository.py": {
+      "mode": "100644",
+      "oid": "36a6a31a08c81ec296934dbc83b3dab0e4a7b7f9"
+    },
+    "server/persistence/repositories/scoring_run_repository.py": {
+      "mode": "100644",
+      "oid": "014081c3521fe537d40845deb5269656910def22"
+    },
+    "server/persistence/repositories/sharing_repository.py": {
+      "mode": "100644",
+      "oid": "5681c0f5bb325284ba2200c5658d22c3cf37a50f"
+    },
+    "server/persistence/repositories/special_value_review_repository.py": {
+      "mode": "100644",
+      "oid": "32c687fa4cfd197f783dc6bd6ba77dedec2c1442"
+    },
+    "server/persistence/repositories/stage3_feature_set_repository.py": {
+      "mode": "100644",
+      "oid": "acdd0616109028b3c713d9e56647eefe370f0de3"
+    },
+    "server/persistence/repositories/stage3_split_contract_repository.py": {
+      "mode": "100644",
+      "oid": "2235d2c2a503681d4340f320d3e419fd74ff1286"
+    },
+    "server/persistence/repositories/stage3_treatment_repository.py": {
+      "mode": "100644",
+      "oid": "2f98668be448ad9c64056044b2d31ed018c0f5d6"
+    },
+    "server/persistence/repositories/target_finding_repository.py": {
+      "mode": "100644",
+      "oid": "60371650f9daa4beb21b2cf2a95806af55800106"
+    },
+    "server/persistence/repositories/user_repository.py": {
+      "mode": "100644",
+      "oid": "e25c7f7056ff12bc02e1a1fea20651477c4e76a5"
+    },
+    "server/persistence/repositories/validation_repository.py": {
+      "mode": "100644",
+      "oid": "668ff17dfd373748b251169dea9a65f8c1538666"
+    },
+    "server/persistence/service.py": {
+      "mode": "100644",
+      "oid": "a71a391c1cf2dea716ad729ba00ade16cce9bdf7"
+    },
+    "server/persistence/sports_forecast_contract.py": {
+      "mode": "100644",
+      "oid": "d083190f1fea49a813e87abff056f0658a905cd0"
+    },
+    "server/plots.py": {
+      "mode": "100644",
+      "oid": "f06ca03ac3f9b8f0a773f845f7651f7309281e9b"
+    },
+    "server/preprocessing/__init__.py": {
+      "mode": "100644",
+      "oid": "797cf027e371676b05ff25c207da31dee8700c3a"
+    },
+    "server/preprocessing/bureau_detection_router.py": {
+      "mode": "100644",
+      "oid": "68699c4ad84dbf8f2419ce1640c72777ed70b268"
+    },
+    "server/preprocessing/bureau_detection_service.py": {
+      "mode": "100644",
+      "oid": "3285c53cea7c26efdf3f8ba5072cf4b982b4dcfc"
+    },
+    "server/preprocessing/bureau_detection_types.py": {
+      "mode": "100644",
+      "oid": "be03680ab73fff8d097445dc3843d9f441d5afdd"
+    },
+    "server/preprocessing/bureau_registry.py": {
+      "mode": "100644",
+      "oid": "c9f3665c22282987c5cd7e484035e72fc4952993"
+    },
+    "server/preprocessing/data_profile_types.py": {
+      "mode": "100644",
+      "oid": "cf60b0ad45138c55557dd4d7fcd410228eb013d5"
+    },
+    "server/preprocessing/development_scope.py": {
+      "mode": "100644",
+      "oid": "3e62d7ed0d9ca442f524171b08dd36278a9a03b9"
+    },
+    "server/preprocessing/execution_contract.py": {
+      "mode": "100644",
+      "oid": "264a0bb6542b4bef07ba39ab38dabe7c197b05ad"
+    },
+    "server/preprocessing/feature_profile_router.py": {
+      "mode": "100644",
+      "oid": "504458278d5d534be3ff94f243663f23f21e1d8e"
+    },
+    "server/preprocessing/feature_profile_service.py": {
+      "mode": "100644",
+      "oid": "8c74916f2ed2e7ab55cc7e70a1da5486b4ecb1a3"
+    },
+    "server/preprocessing/governed_profile_router.py": {
+      "mode": "100644",
+      "oid": "422be8fa2395a0ec3db4ecda61f98648f7466324"
+    },
+    "server/preprocessing/governed_profile_service.py": {
+      "mode": "100644",
+      "oid": "709ed95ac44b29e13bcfffeb9b7881360e0d56a5"
+    },
+    "server/preprocessing/missing_router.py": {
+      "mode": "100644",
+      "oid": "2d88fe9827ee10ad0e041ae2ed8d9403bf7651f9"
+    },
+    "server/preprocessing/outlier_router.py": {
+      "mode": "100644",
+      "oid": "dbf73a5b625818bb949cf6feb25d6fea4940b0de"
+    },
+    "server/preprocessing/outlier_service.py": {
+      "mode": "100644",
+      "oid": "72b1a51b69ea6fb125ebe5e8eae48ba05bfc7e4e"
+    },
+    "server/preprocessing/predictor_authorization.py": {
+      "mode": "100644",
+      "oid": "6ea0093d35f1902d88c6e8991f0cf86f44615bf0"
+    },
+    "server/preprocessing/preparation_documentation_router.py": {
+      "mode": "100644",
+      "oid": "f25a30b818e8f8c20068d7348ca1ea5d3d45e410"
+    },
+    "server/preprocessing/preprocessing_contract.py": {
+      "mode": "100644",
+      "oid": "6a48a1d1a895933e5aa0da11b471b3f747132752"
+    },
+    "server/preprocessing/quality_profile_router.py": {
+      "mode": "100644",
+      "oid": "bcd4582adfc0ba1808c38e5cf69364a0b0e20790"
+    },
+    "server/preprocessing/quality_profile_service.py": {
+      "mode": "100644",
+      "oid": "c5691f1c849d4e6a6a09f329cc461b1ad6f97ebd"
+    },
+    "server/preprocessing/special_value_review_service.py": {
+      "mode": "100644",
+      "oid": "e6e263ad8dc8d654807e4ae9a17564f6a7c82639"
+    },
+    "server/projects/__init__.py": {
+      "mode": "100644",
+      "oid": "4db1cc2ccfe35b10f2372da49294793ba2bbbc0b"
+    },
+    "server/projects/project_registry.py": {
+      "mode": "100644",
+      "oid": "328536ec95e28e6dc72950e3ab6d74f4cd423cf8"
+    },
+    "server/projects/project_router.py": {
+      "mode": "100644",
+      "oid": "aee1ad6e6cdbae67325c45d6bb236579bcd83f13"
+    },
+    "server/python_execution.py": {
+      "mode": "100644",
+      "oid": "70a7c358161bf5e3e88a9d8b370d0e92b11f3cc7"
+    },
+    "server/registry/__init__.py": {
+      "mode": "100644",
+      "oid": "da7bd5cf10ad4857721c4a3ee7ffc3b5a34d5a47"
+    },
+    "server/registry/registry_service.py": {
+      "mode": "100644",
+      "oid": "6a29d0e8302457d1d88822a5f98708fdb2f26ead"
+    },
+    "server/registry/router.py": {
+      "mode": "100644",
+      "oid": "2df832e3bdb865f31eca8cc3c43159c2c5557986"
+    },
+    "server/registry/schemas.py": {
+      "mode": "100644",
+      "oid": "0b78cbc2f81498d3d7e6bf4510846e9a94fc6b94"
+    },
+    "server/scoring/__init__.py": {
+      "mode": "100644",
+      "oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+    },
+    "server/scoring/scoring_router.py": {
+      "mode": "100644",
+      "oid": "ad7f2a93f37f2626bf2885373b1c79e2c7d6fcf1"
+    },
+    "server/scoring_runs/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/scoring_runs/scoring_run_artifacts.py": {
+      "mode": "100644",
+      "oid": "c03a49d8afc5789c91747f817b7ca3c5dc10d064"
+    },
+    "server/scoring_runs/scoring_run_service.py": {
+      "mode": "100644",
+      "oid": "1b33956033fbb94845104627cd21d380c4658d57"
+    },
+    "server/scoring_runs/scoring_runs_router.py": {
+      "mode": "100644",
+      "oid": "fc1bcee5567a8e255e17492beb3b2d1d0bbe3494"
+    },
+    "server/scoring_runs/treatment_replay.py": {
+      "mode": "100644",
+      "oid": "26399ab816e5f5691a7664f434098616159b7594"
+    },
+    "server/security/__init__.py": {
+      "mode": "100644",
+      "oid": "026f5d8ffcb5a51ed2076e2bea098f80a524a3ea"
+    },
+    "server/security/security_router.py": {
+      "mode": "100644",
+      "oid": "ad77cd2ff45f0f76fcb466970676eb16966818e8"
+    },
+    "server/security/security_store.py": {
+      "mode": "100644",
+      "oid": "a1a670ce048fc0ae182a301c61ff63b92bbe826b"
+    },
+    "server/sharing/__init__.py": {
+      "mode": "100644",
+      "oid": "8cc646145c6a8117e6336d0f6fa8fb94c72e5c8f"
+    },
+    "server/sharing/router.py": {
+      "mode": "100644",
+      "oid": "4252668359732850858abf1df0442dedb9ddf230"
+    },
+    "server/sharing/schemas.py": {
+      "mode": "100644",
+      "oid": "fac73bb2b508e057869a5b73f6888969fd6f2f3c"
+    },
+    "server/sharing/sharing_service.py": {
+      "mode": "100644",
+      "oid": "5170e54487d46e3d08b899a02766452d8084241d"
+    },
+    "server/splitting/__init__.py": {
+      "mode": "100644",
+      "oid": "6661552d0b80bfef0c709cf1216f2fea036fd9a2"
+    },
+    "server/splitting/split_router.py": {
+      "mode": "100644",
+      "oid": "0ef7ff6655275e96d8311cbf27946969b54b8aaa"
+    },
+    "server/splitting/split_service.py": {
+      "mode": "100644",
+      "oid": "506d786e845cf7c1cf7ef7f804414cef3a4ce41f"
+    },
+    "server/sports_basketball/__init__.py": {
+      "mode": "100644",
+      "oid": "6f18879098b276aeaf907af7661b3ea4b17fcda1"
+    },
+    "server/sports_basketball/manifest.py": {
+      "mode": "100644",
+      "oid": "4b9ce74bafd13ea766053b6cedac5c459fe223fd"
+    },
+    "server/sports_cfb_gen1/__init__.py": {
+      "mode": "100644",
+      "oid": "803744d6df433ce6aa0f2e1a9a9e9883235d829d"
+    },
+    "server/sports_cfb_gen1/current.py": {
+      "mode": "100644",
+      "oid": "53a1379adf890c3cfbf65c6ac6d3a3a744a55b9f"
+    },
+    "server/sports_cfb_gen1/pipeline.py": {
+      "mode": "100644",
+      "oid": "6d2dd933112fe8816c085e7ecf60a0eaf60aa54b"
+    },
+    "server/sports_cockpit/__init__.py": {
+      "mode": "100644",
+      "oid": "c9f6483ed2bd81e5266a50fc46989584ff150d0b"
+    },
+    "server/sports_cockpit/cockpit_dtos.py": {
+      "mode": "100644",
+      "oid": "02ebb1caabdb9479465402614c3b0834ee7dbd12"
+    },
+    "server/sports_cockpit/engine.py": {
+      "mode": "100644",
+      "oid": "e58fb6785da6cbbb0a92531bc5dc40cadd459ee4"
+    },
+    "server/sports_cockpit/features_builder.py": {
+      "mode": "100644",
+      "oid": "74875299d0d74da2b5290842660c4619fbb91cb0"
+    },
+    "server/sports_cockpit/game_preps.py": {
+      "mode": "100644",
+      "oid": "4b6b2a5cf1b039cf36381aad24e48772e64555ad"
+    },
+    "server/sports_cockpit/gen3_authority.py": {
+      "mode": "100644",
+      "oid": "e5105782953e3ac3ff2ec0887ad8b46193081d42"
+    },
+    "server/sports_cockpit/interprocess_lock.py": {
+      "mode": "100644",
+      "oid": "4815fd0a6790d9351192573b2d8d93aaf17bbecf"
+    },
+    "server/sports_cockpit/modeling.py": {
+      "mode": "100644",
+      "oid": "fc899a419d63654cad750db31e55babc31eed07a"
+    },
+    "server/sports_cockpit/path_containment.py": {
+      "mode": "100644",
+      "oid": "3eee506566f3d7fb2de3873e35541c2e1c9e2660"
+    },
+    "server/sports_cockpit/provider.py": {
+      "mode": "100644",
+      "oid": "09be9a3cdd4014278bb3d6c07a7ed29393c429e4"
+    },
+    "server/sports_cockpit/router.py": {
+      "mode": "100644",
+      "oid": "473db49289053592c579b778995543a9112e271f"
+    },
+    "server/sports_cockpit/segmentation.py": {
+      "mode": "100644",
+      "oid": "cd89c5278ddc609fbbb864426d46a41970eec38b"
+    },
+    "server/sports_cockpit/simulation.py": {
+      "mode": "100644",
+      "oid": "3556d11b783f4831d9cbac324ef5c185f5aff22c"
+    },
+    "server/sports_current_statcast/__init__.py": {
+      "mode": "100644",
+      "oid": "fb9b5756632056ff26195f959376fcd79f92beec"
+    },
+    "server/sports_current_statcast/contextual_features.py": {
+      "mode": "100644",
+      "oid": "6a00e9f68c6cc9767738a3cdd7ee17086f66501e"
+    },
+    "server/sports_current_statcast/contextual_gold.py": {
+      "mode": "100644",
+      "oid": "817906c62a14356af2037498cc25e83607cf977e"
+    },
+    "server/sports_current_statcast/contextual_sources.py": {
+      "mode": "100644",
+      "oid": "f623188827bfabb962971987c4e4204b14b7c666"
+    },
+    "server/sports_current_statcast/gold.py": {
+      "mode": "100644",
+      "oid": "0ce5e815280cbffa18ba14233460381050c24c9e"
+    },
+    "server/sports_current_statcast/incremental.py": {
+      "mode": "100644",
+      "oid": "9c04dbe734fe86e56d638ddef4ad3b1daa28ce38"
+    },
+    "server/sports_current_statcast/incremental_runtime.py": {
+      "mode": "100644",
+      "oid": "7d0939cf4f8221b412d317540b6658c8b2f765fd"
+    },
+    "server/sports_current_statcast/mlb_bet_readiness_cohort.py": {
+      "mode": "100644",
+      "oid": "92c3139b904c59087de8d227250af0a8aa374bd4"
+    },
+    "server/sports_current_statcast/mlb_context_authorities_v1.json": {
+      "mode": "100644",
+      "oid": "65795572c76ff367247e58837b307896335335fc"
+    },
+    "server/sports_current_statcast/mlb_core_challenger_decision_v1.json": {
+      "mode": "100644",
+      "oid": "10c204a6c07721ee634cebb159192175fb430945"
+    },
+    "server/sports_current_statcast/mlb_core_challenger_tuning.py": {
+      "mode": "100644",
+      "oid": "308174f60a592a3e2097d97001a8c44ac63100cc"
+    },
+    "server/sports_current_statcast/mlb_core_challenger_tuning_decision_v1.json": {
+      "mode": "100644",
+      "oid": "0a55f4c65df4f3f52d5416b974fef4163d236d88"
+    },
+    "server/sports_current_statcast/mlb_corrected_hgb_study.py": {
+      "mode": "100644",
+      "oid": "6ca0507269ac2575229d178406c1edd31940d5ad"
+    },
+    "server/sports_current_statcast/mlb_corrected_treatment_decision_v1.json": {
+      "mode": "100644",
+      "oid": "ca8cfc1f93712de2d01c4d461fb9b7ebdabcd232"
+    },
+    "server/sports_current_statcast/mlb_duration_research_adapter.py": {
+      "mode": "100644",
+      "oid": "44cdfa7c2893caaa7c2b029cbfe14adf30e23d73"
+    },
+    "server/sports_current_statcast/mlb_feature_treatment_spec_v1.json": {
+      "mode": "100644",
+      "oid": "69669246c88aabdd9f68a57b4bb8f1046c44e775"
+    },
+    "server/sports_current_statcast/mlb_hgb_recovery_telemetry.py": {
+      "mode": "100644",
+      "oid": "3a25f32989edcc2d8adb0790942016cfb024bb36"
+    },
+    "server/sports_current_statcast/mlb_pa_hierarchy_research.py": {
+      "mode": "100644",
+      "oid": "79c5775ed7b16933ef922ec15be5d76929196e0a"
+    },
+    "server/sports_current_statcast/mlb_pitcher_archetype_survival.py": {
+      "mode": "100644",
+      "oid": "cb43d322eaf37724edfebe5c07d4b2aa55f467b1"
+    },
+    "server/sports_current_statcast/mlb_pitcher_style_profiles.py": {
+      "mode": "100644",
+      "oid": "9998f0f081ab15deee63202fd508e4ae202eaecb"
+    },
+    "server/sports_current_statcast/mlb_regime_baseline.py": {
+      "mode": "100644",
+      "oid": "24b07cb853a948987a493182a74485ecd3282533"
+    },
+    "server/sports_current_statcast/mlb_regime_clusters.py": {
+      "mode": "100644",
+      "oid": "9095f07d51d6f96ea598f858336c8dfc6808a76a"
+    },
+    "server/sports_current_statcast/mlb_regime_game_sources.py": {
+      "mode": "100644",
+      "oid": "75c011e09af82d577dd84924560b4a2f95f511cb"
+    },
+    "server/sports_current_statcast/mlb_regime_metrics.py": {
+      "mode": "100644",
+      "oid": "eb444a1372f89512fab395253f6961e4ab1274f5"
+    },
+    "server/sports_current_statcast/mlb_regime_models.py": {
+      "mode": "100644",
+      "oid": "d5d9ad5e19527509c6b6adcfaeccc0a03623c782"
+    },
+    "server/sports_current_statcast/mlb_regime_simulation.py": {
+      "mode": "100644",
+      "oid": "ed141ce9f68aafc6c15b47edf0bb7094af22c300"
+    },
+    "server/sports_current_statcast/mlb_regime_study_registration.py": {
+      "mode": "100644",
+      "oid": "01ba5e2ae364d32344039e0141fc9fa783fd2715"
+    },
+    "server/sports_current_statcast/mlb_regime_study_ui.py": {
+      "mode": "100644",
+      "oid": "6560c807adda7820e76bbee58c64089d1ea5127a"
+    },
+    "server/sports_current_statcast/mlb_rf_operationalization.py": {
+      "mode": "100644",
+      "oid": "3605e1b3130f5367a34b94f268bd23d8506a5f9e"
+    },
+    "server/sports_current_statcast/mlb_rf_prospective_support.py": {
+      "mode": "100644",
+      "oid": "8dbae5f8aeed27ab238cdc8507a93b0a55dbbc00"
+    },
+    "server/sports_current_statcast/mlb_selection_policy_study.py": {
+      "mode": "100644",
+      "oid": "31ce0e1f4ec757b7ce07501336dec5252a9b472a"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_current_inputs.py": {
+      "mode": "100644",
+      "oid": "7157f8fce8deab9ffa31162ffe7fd1f5126dcccc"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_history.py": {
+      "mode": "100644",
+      "oid": "a3c96fea28a28d4d8b1883575be53ffb91504ea3"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_paired_publication.py": {
+      "mode": "100644",
+      "oid": "6668c55f3be92099ad6ea340a916ad09c67766c6"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_paired_scoring.py": {
+      "mode": "100644",
+      "oid": "c2a9cab28198fa4f0fc88cc664bf02c9915519f4"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_paired_simulation.py": {
+      "mode": "100644",
+      "oid": "9e809272ca8a322e22246d34684daf9dd3b14796"
+    },
+    "server/sports_current_statcast/mlb_starter_duration_quarantine.py": {
+      "mode": "100644",
+      "oid": "e8be45a782c75391caf988c62776e12788c43902"
+    },
+    "server/sports_current_statcast/mlb_starter_survival_data.py": {
+      "mode": "100644",
+      "oid": "cc69e569ff9ae9c59987b4f7273a6ceeb303d41f"
+    },
+    "server/sports_current_statcast/mlb_starter_survival_models.py": {
+      "mode": "100644",
+      "oid": "1ca4c6b0dc8fbdfc52568cfceae889642a077f47"
+    },
+    "server/sports_current_statcast/mlb_v18_acceptance_protocol.py": {
+      "mode": "100644",
+      "oid": "26baef945bf3f9eecc89da95ed61329a06c5527b"
+    },
+    "server/sports_current_statcast/mlb_v18_acceptance_protocol_v2.py": {
+      "mode": "100644",
+      "oid": "4f139be60c94b8b14d0b3519dd17dcc1c1ebac14"
+    },
+    "server/sports_current_statcast/mlb_v18_current_exposure.py": {
+      "mode": "100644",
+      "oid": "7c2f5767800ef5ca2243764720655988c29b6bd0"
+    },
+    "server/sports_current_statcast/mlb_v18_current_features.py": {
+      "mode": "100644",
+      "oid": "37478d4fcef94d85ea535f38d07adba3372b66ff"
+    },
+    "server/sports_current_statcast/mlb_v18_current_identity.py": {
+      "mode": "100644",
+      "oid": "06314587a442e907cda60b58e91f4f23054efce2"
+    },
+    "server/sports_current_statcast/mlb_v18_current_inputs.py": {
+      "mode": "100644",
+      "oid": "51c4c24234ec0cbec52642fc18020a7fe6ba607c"
+    },
+    "server/sports_current_statcast/mlb_v18_current_publication.py": {
+      "mode": "100644",
+      "oid": "29ad20b7d2cd8a9cb5ee49bc6f32c1ab3a3b480f"
+    },
+    "server/sports_current_statcast/mlb_v18_current_slate.py": {
+      "mode": "100644",
+      "oid": "4ad80cfbbfc14e132d6a58e6db283f75e13b13fe"
+    },
+    "server/sports_current_statcast/mlb_v18_current_sources.py": {
+      "mode": "100644",
+      "oid": "a8f121570a1513fdba956a0313001840ada7cdd2"
+    },
+    "server/sports_current_statcast/mlb_v18_daily_slate.py": {
+      "mode": "100644",
+      "oid": "e111ac87ed2899f4773551f981103d831958f110"
+    },
+    "server/sports_current_statcast/mlb_v18_daily_views.py": {
+      "mode": "100644",
+      "oid": "5f3e360e0e4688d8ed383665c19d4528581f3243"
+    },
+    "server/sports_current_statcast/mlb_v18_development_timing.py": {
+      "mode": "100644",
+      "oid": "1219ccb56c7e6881cc16d94d943a660560b26f2c"
+    },
+    "server/sports_current_statcast/mlb_v18_exchange.py": {
+      "mode": "100644",
+      "oid": "5f8a42cc3d04f47cd8a9b57430c594313ac48b09"
+    },
+    "server/sports_current_statcast/mlb_v18_forecast_clock.py": {
+      "mode": "100644",
+      "oid": "5f460e0298f19072e160e830b60470b6265166d8"
+    },
+    "server/sports_current_statcast/mlb_v18_game_baseline.py": {
+      "mode": "100644",
+      "oid": "6038c0012d896c648b37034503b781d28a532bb2"
+    },
+    "server/sports_current_statcast/mlb_v18_play_geometry.py": {
+      "mode": "100644",
+      "oid": "5f8c757549cd86947765174e78aae0bd27c492df"
+    },
+    "server/sports_current_statcast/mlb_v18_play_geometry_trace.py": {
+      "mode": "100644",
+      "oid": "e4f0e48288a2435cd04567cce88cc63708273a11"
+    },
+    "server/sports_current_statcast/mlb_v18_population_boundaries.py": {
+      "mode": "100644",
+      "oid": "796f8a3b278d3a09c7a886c15dd7baa51029454a"
+    },
+    "server/sports_current_statcast/mlb_v18_population_diagnostics.py": {
+      "mode": "100644",
+      "oid": "86e430edaa420cc953493bc8689cfc8f49e6c7cc"
+    },
+    "server/sports_current_statcast/mlb_v18_population_geometry.py": {
+      "mode": "100644",
+      "oid": "06315c70a8d1b27ec837487e0f394f6d06cedb86"
+    },
+    "server/sports_current_statcast/mlb_v18_prospective_transform.py": {
+      "mode": "100644",
+      "oid": "22727567739d5de49dd13f85a7544951a406530b"
+    },
+    "server/sports_current_statcast/mlb_v18_score_limited.py": {
+      "mode": "100644",
+      "oid": "a2d7074035e1ec0a377680be587033d5b5ee6643"
+    },
+    "server/sports_current_statcast/mlb_v18_totals_probabilities.py": {
+      "mode": "100644",
+      "oid": "ee4f5ae0943b8fbda80c16b0a702dd65323666b3"
+    },
+    "server/sports_current_statcast/mlb_v18_unattended.py": {
+      "mode": "100644",
+      "oid": "cc7934d3745457d9f5b359b7356ef434ae99bca9"
+    },
+    "server/sports_current_statcast/mlb_v18_whole_game_challenger.py": {
+      "mode": "100644",
+      "oid": "509588d1d44fb848a2084500e61834ee9ebc6fcf"
+    },
+    "server/sports_current_statcast/mlb_v19_evaluation.py": {
+      "mode": "100644",
+      "oid": "00fd7dfc2978d96dd5ac287ce5852cd37ef0686d"
+    },
+    "server/sports_current_statcast/mlb_v19_executable.py": {
+      "mode": "100644",
+      "oid": "9b068aea7f82aad6350116ca6e26a8d7c81b4508"
+    },
+    "server/sports_current_statcast/mlb_v19_launch_guard.py": {
+      "mode": "100644",
+      "oid": "e5ad4c03064cd0759cd1c50a0144a03801cbb9fb"
+    },
+    "server/sports_current_statcast/mlb_v19_meta.py": {
+      "mode": "100644",
+      "oid": "9bc1faeed1c848f6d9811253ced4ef2786a42991"
+    },
+    "server/sports_current_statcast/mlb_v19_models.py": {
+      "mode": "100644",
+      "oid": "33e6a5eab5440e2620de99bd4f92925065d00c34"
+    },
+    "server/sports_current_statcast/mlb_v19_source_evidence.py": {
+      "mode": "100644",
+      "oid": "a10934b111507fe21a3f2d0663b08c2e9afcc688"
+    },
+    "server/sports_current_statcast/pipeline.py": {
+      "mode": "100644",
+      "oid": "46b876c2c548dd84c15aee38311841cf558de9be"
+    },
+    "server/sports_current_statcast/stage2_review.py": {
+      "mode": "100644",
+      "oid": "629c5e3ad7583a07b41f872895eb2157dc9381a7"
+    },
+    "server/sports_current_statcast/stage3_candidate_evaluation.py": {
+      "mode": "100644",
+      "oid": "1bdfef9823fa6f7e141aef4323099dffba2819f5"
+    },
+    "server/sports_current_statcast/stage3_corrected_eligibility.py": {
+      "mode": "100644",
+      "oid": "40000600d3de9b9dbe4963b5660e53c0ed6c9c7a"
+    },
+    "server/sports_current_statcast/stage3_corrected_preprocessing_artifacts.py": {
+      "mode": "100644",
+      "oid": "2116581f6e9ca49f19fbfdde41f0a36a2ab53c32"
+    },
+    "server/sports_current_statcast/stage3_corrected_prior_treatment.py": {
+      "mode": "100644",
+      "oid": "d02a39c18e4b281335c1f582e2da0886481fb029"
+    },
+    "server/sports_current_statcast/stage3_corrected_treatment_spec.py": {
+      "mode": "100644",
+      "oid": "01484a363a9616ae7445bbc3e0df14d6aa746540"
+    },
+    "server/sports_current_statcast/stage3_eda.py": {
+      "mode": "100644",
+      "oid": "7c0743ecfdcf6c493919b602db6512536d95fcf7"
+    },
+    "server/sports_current_statcast/stage3_exclusion_membership_v1.json": {
+      "mode": "100644",
+      "oid": "0c7e01801fcde9c2fd1b0da6b64b57afd7d1e7be"
+    },
+    "server/sports_current_statcast/stage3_executable_artifact.py": {
+      "mode": "100644",
+      "oid": "bfe0a8470b23bc0a5c188e60d08ff7fa867de9cf"
+    },
+    "server/sports_current_statcast/stage3_feature_engineering.py": {
+      "mode": "100644",
+      "oid": "56fa8db121490da964132f9dfbf13bb33dd8a320"
+    },
+    "server/sports_current_statcast/stage3_feature_treatment_spec.py": {
+      "mode": "100644",
+      "oid": "cae3921d104a6dadf3a88ea61736e5e13defd2d7"
+    },
+    "server/sports_current_statcast/stage3_game_inputs.py": {
+      "mode": "100644",
+      "oid": "bcad762465390688591e5f64002bdacfa45cd0c4"
+    },
+    "server/sports_current_statcast/stage3_game_probability_adapter.py": {
+      "mode": "100644",
+      "oid": "c33d3631c8e51fe3c99892e4cd1fb27b3d26a1eb"
+    },
+    "server/sports_current_statcast/stage3_game_scoring.py": {
+      "mode": "100644",
+      "oid": "887a8265e3653af0f3088824877f30a2febd55c9"
+    },
+    "server/sports_current_statcast/stage3_interaction_recomputation_authority.py": {
+      "mode": "100644",
+      "oid": "367af79390ba933b42cc70c6e4fecacc56858891"
+    },
+    "server/sports_current_statcast/stage3_model_catalog.py": {
+      "mode": "100644",
+      "oid": "95749e262b72be2829cee5fc95bd496cf4a59ed5"
+    },
+    "server/sports_current_statcast/stage3_model_eligibility.py": {
+      "mode": "100644",
+      "oid": "add4c7c5cd6ce2bf4c0e5356e1f74ed48e41df76"
+    },
+    "server/sports_current_statcast/stage3_model_jobs.py": {
+      "mode": "100644",
+      "oid": "4af1d41e7f80ec33aec9375d599ae85ed8fc17dc"
+    },
+    "server/sports_current_statcast/stage3_model_laboratory.py": {
+      "mode": "100644",
+      "oid": "cb1f61c5023222229f6900a5ea1ede3c5759e57f"
+    },
+    "server/sports_current_statcast/stage3_player_prior_artifact_store_v2.py": {
+      "mode": "100644",
+      "oid": "dff3b2e1648e3b9bdc2a6da5ffb58e9f48c0e475"
+    },
+    "server/sports_current_statcast/stage3_player_prior_authority.py": {
+      "mode": "100644",
+      "oid": "a11c2dd3cd7bbc19b93b753d7865da7d6d6a13b4"
+    },
+    "server/sports_current_statcast/stage3_player_prior_authority_v2.py": {
+      "mode": "100644",
+      "oid": "03c939714f0d7e74e13737c1d0179d4d9db90ecd"
+    },
+    "server/sports_current_statcast/stage3_player_prior_resolution_v2.py": {
+      "mode": "100644",
+      "oid": "bddce33bee45e9932228d9706650e49785767a66"
+    },
+    "server/sports_current_statcast/stage3_prior_estimators_v2.py": {
+      "mode": "100644",
+      "oid": "d303cd20b4ef3b11af232d1fe2f98af67e6338a5"
+    },
+    "server/sports_current_statcast/stage3_prior_publication_v2.py": {
+      "mode": "100644",
+      "oid": "eb58337fd9ef9bf557f857cbd810e3b2779c137d"
+    },
+    "server/sports_current_statcast/stage3_semantic_treatment.py": {
+      "mode": "100644",
+      "oid": "fc31b5bd0bf70cb6d7a735d98e6ec8eea5b5b02f"
+    },
+    "server/sports_current_statcast/stage3_split_balance.py": {
+      "mode": "100644",
+      "oid": "c7b38cf649b66a56b779fbaeb55a50bab74b68ad"
+    },
+    "server/sports_current_statcast/stage3_treatments.py": {
+      "mode": "100644",
+      "oid": "d4dc1840cc704aba6817a80719db45a473f3e840"
+    },
+    "server/sports_current_statcast/sufficient_stats.py": {
+      "mode": "100644",
+      "oid": "e2b6eb708e5909cd9e24870215cc550ae4ef1863"
+    },
+    "server/sports_datasets/__init__.py": {
+      "mode": "100644",
+      "oid": "b20854df3ab2471f249eeb65cf4cec062c9db690"
+    },
+    "server/sports_datasets/access.py": {
+      "mode": "100644",
+      "oid": "4d067528395fd9df93365ca4c4209dcf0186574a"
+    },
+    "server/sports_datasets/constants.py": {
+      "mode": "100644",
+      "oid": "c3152f8702807d3972e97362d891822ddad69171"
+    },
+    "server/sports_datasets/consumer.py": {
+      "mode": "100644",
+      "oid": "7f98f201d67c97178d56dd0b1b2a3a9d0ba33fcc"
+    },
+    "server/sports_datasets/current_statcast.py": {
+      "mode": "100644",
+      "oid": "4546663ec708912a15573f10691e84ccd87e51ed"
+    },
+    "server/sports_datasets/feature_audit.py": {
+      "mode": "100644",
+      "oid": "947a92e9704e518482494dc0f10981012bc1feb2"
+    },
+    "server/sports_datasets/registry.py": {
+      "mode": "100644",
+      "oid": "a84a01e38b2f4f590bb83e1c03fe13282de4dbed"
+    },
+    "server/sports_datasets/router.py": {
+      "mode": "100644",
+      "oid": "b50edfb77fa86858c2a9d9e3de99b01ad8683823"
+    },
+    "server/sports_gold/__init__.py": {
+      "mode": "100644",
+      "oid": "9668378e9a819ab2563aab749c7a7ff5c43c8032"
+    },
+    "server/sports_gold/aisp_export_contracts.py": {
+      "mode": "100644",
+      "oid": "6e3e8c8934b3894f62277ae2b4347a74961c4352"
+    },
+    "server/sports_gold/aisp_export_example.py": {
+      "mode": "100644",
+      "oid": "3fc59a24d9aec6aa608a37a5294b010327522858"
+    },
+    "server/sports_gold/binary_hierarchical.py": {
+      "mode": "100644",
+      "oid": "cd9d33486b8df1fc461b8ad19a5624a4991979bc"
+    },
+    "server/sports_gold/contracts.py": {
+      "mode": "100644",
+      "oid": "f8f7d375f1ed5430d6ba2e8d3a82de707ba87d73"
+    },
+    "server/sports_gold/features.py": {
+      "mode": "100644",
+      "oid": "53baf7ad1a91e2e8b0c12af3b4a49e28121dc9f5"
+    },
+    "server/sports_gold/game_market_mvp.py": {
+      "mode": "100644",
+      "oid": "8d4ac9547b006b9417615bcb99e287edd3ba2b28"
+    },
+    "server/sports_gold/game_probability_adapter.py": {
+      "mode": "100644",
+      "oid": "a22154b56b0037c7669c82bc8dc7f6b19277f283"
+    },
+    "server/sports_gold/game_simulation_inputs.py": {
+      "mode": "100644",
+      "oid": "0adac49191310e4516b653526498ed0091b380fb"
+    },
+    "server/sports_gold/game_simulation_market_study.py": {
+      "mode": "100644",
+      "oid": "b2c21e3eaca7f1598a8b047ea9f664e0c54728a8"
+    },
+    "server/sports_gold/hierarchical_robustness.py": {
+      "mode": "100644",
+      "oid": "ecf4c09148cb551d00faf3e03e7740b4913b1a1b"
+    },
+    "server/sports_gold/models.py": {
+      "mode": "100644",
+      "oid": "f42d7597891aea0c587011cad0ced2f76088ec6c"
+    },
+    "server/sports_gold/nfl_shadow_exchange.py": {
+      "mode": "100644",
+      "oid": "7fe1a469f325cc67a2a6f5185d5a2441828b4cf0"
+    },
+    "server/sports_gold/pa_bridge.py": {
+      "mode": "100644",
+      "oid": "b39a1fd6a58261131a009f90c8b497826411b6be"
+    },
+    "server/sports_gold/pipeline.py": {
+      "mode": "100644",
+      "oid": "5e4789c4503ba80c88b8962e7d8914260f65756d"
+    },
+    "server/sports_gold/publication.py": {
+      "mode": "100644",
+      "oid": "bd9af9467f4c4aecb16f13055f946e145f7509f1"
+    },
+    "server/sports_gold/recent_data_walk_forward.py": {
+      "mode": "100644",
+      "oid": "32ca0d6e013a7cda3d0621f14f8a8045afa9bb9c"
+    },
+    "server/sports_gold/recent_state_charts.py": {
+      "mode": "100644",
+      "oid": "86e1ade458fbed23a56ac12e454bf8fcaaefe56d"
+    },
+    "server/sports_gold/recent_state_components.py": {
+      "mode": "100644",
+      "oid": "e17f0a96c91d037dad5c9b0f0b1b1a5c6c217632"
+    },
+    "server/sports_gold/recent_state_ensemble.py": {
+      "mode": "100644",
+      "oid": "15de2164f6077410898a7d67e0f6ba2c80dfd89d"
+    },
+    "server/sports_gold/recent_state_study.py": {
+      "mode": "100644",
+      "oid": "dbccc9d5685dac2c1d9b46cd9915e2f765d002e9"
+    },
+    "server/sports_gold/silver_inputs.py": {
+      "mode": "100644",
+      "oid": "f9c8f5068f2a1acbc9aa54723065f2725fff6dbe"
+    },
+    "server/sports_gold/walk_forward_charts.py": {
+      "mode": "100644",
+      "oid": "ec23de2adf900c78bf8c9538a676f7c008b525c6"
+    },
+    "server/sports_gold/walk_forward_ensemble.py": {
+      "mode": "100644",
+      "oid": "309340f51cb685e01aa66ba2a3a9a41687d105b7"
+    },
+    "server/sports_gold/walk_forward_state.py": {
+      "mode": "100644",
+      "oid": "a980ff985e609e4df010e91de83817b82bf3e27e"
+    },
+    "server/sports_identity_bridges/__init__.py": {
+      "mode": "100644",
+      "oid": "2d05592e6910b43b1a0a226d407a52c2b6834fa4"
+    },
+    "server/sports_identity_bridges/constants.py": {
+      "mode": "100644",
+      "oid": "a364e8b616e4388c80d1663f2d0b370d93407de2"
+    },
+    "server/sports_identity_bridges/consumer.py": {
+      "mode": "100644",
+      "oid": "12be872307f1a5d821b33d03ff9cb52623713112"
+    },
+    "server/sports_identity_bridges/mlb_adapter.py": {
+      "mode": "100644",
+      "oid": "2473a0fff7f0ad5f555002226176187456bc905a"
+    },
+    "server/sports_identity_bridges/registry.py": {
+      "mode": "100644",
+      "oid": "7cb51a41727082ab5f3d95212d488fbaab0b2937"
+    },
+    "server/sports_identity_bridges/router.py": {
+      "mode": "100644",
+      "oid": "4755e6ce5ba4211f9c36f32162010cca9360a43a"
+    },
+    "server/sports_mlb/__init__.py": {
+      "mode": "100644",
+      "oid": "adde16fd9c2228674df6b47fe86542168a28c550"
+    },
+    "server/sports_mlb/manifest.py": {
+      "mode": "100644",
+      "oid": "1cd0e80bb7bca7ef973a3d4aca17d28abc303dce"
+    },
+    "server/sports_mma/__init__.py": {
+      "mode": "100644",
+      "oid": "cd060f3bef6570eee9fe559fc32f1e519b3f988f"
+    },
+    "server/sports_mma/manifest.py": {
+      "mode": "100644",
+      "oid": "35a7cdcebf7e62c7df32e3cb8da0d06339ac6583"
+    },
+    "server/sports_modeling/__init__.py": {
+      "mode": "100644",
+      "oid": "6473d526455fb9fd066b556ddb75245c743fbcb6"
+    },
+    "server/sports_modeling/bootstrap.py": {
+      "mode": "100644",
+      "oid": "0b753ccb4f578d76e2eb68c1710dae7d45239113"
+    },
+    "server/sports_modeling/calibration.py": {
+      "mode": "100644",
+      "oid": "a544bbaeb39ef51f150181afa49cd50e0058b9bf"
+    },
+    "server/sports_modeling/feature_contract.py": {
+      "mode": "100644",
+      "oid": "0878192394c17f4033edd1419b3c42d2ef56091a"
+    },
+    "server/sports_modeling/feature_semantics.py": {
+      "mode": "100644",
+      "oid": "481d63288d7318a3c87ea613050b642b7614082d"
+    },
+    "server/sports_modeling/feature_view.py": {
+      "mode": "100644",
+      "oid": "2a65f4af69428b1a9607279e64ad085b502c7d98"
+    },
+    "server/sports_modeling/feature_view_gen3.py": {
+      "mode": "100644",
+      "oid": "bca84de9b4d88d8d57fc9ea3dbf216dc37bb3653"
+    },
+    "server/sports_modeling/gen3_contracts.py": {
+      "mode": "100644",
+      "oid": "55207df36240f2297c60194e7b702f0c87256497"
+    },
+    "server/sports_modeling/gen3_publish.py": {
+      "mode": "100644",
+      "oid": "d98d53ec4592f53dd5b065863c998ec246d7d0f1"
+    },
+    "server/sports_modeling/metrics.py": {
+      "mode": "100644",
+      "oid": "125f04e2113812e705e803ae1f009a491c538793"
+    },
+    "server/sports_modeling/registry.py": {
+      "mode": "100644",
+      "oid": "df13ff9704fac8c0fdcf7d0c0190a026e8921fa4"
+    },
+    "server/sports_modeling/runner.py": {
+      "mode": "100644",
+      "oid": "385f8833ecf2361efa3daef1219fbba8034b0c04"
+    },
+    "server/sports_modeling/silver_publish.py": {
+      "mode": "100644",
+      "oid": "bede19f0830f38312c566a3f660119f78c21db7e"
+    },
+    "server/sports_modeling/silver_transform.py": {
+      "mode": "100644",
+      "oid": "060bfc549b41f31ff2a6b3245c0d3914cb4b2cf1"
+    },
+    "server/sports_modeling/source_issuer.py": {
+      "mode": "100644",
+      "oid": "6bf11e78fc252a714a29937b48834e51e2e9be27"
+    },
+    "server/sports_modeling/training.py": {
+      "mode": "100644",
+      "oid": "49d3ff803aa5c677f6c2473e8d3225e1af4bf966"
+    },
+    "server/sports_nba_gen1/__init__.py": {
+      "mode": "100644",
+      "oid": "509d648be9c7abf141cbb7e8dfe97026598bddd3"
+    },
+    "server/sports_nba_gen1/assessment.py": {
+      "mode": "100644",
+      "oid": "9c13cec202a6d663762ae36cf152a880ac6cdf64"
+    },
+    "server/sports_nba_gen1/authority.py": {
+      "mode": "100644",
+      "oid": "f14da0b40d1865cad9bcb5c5269bccaa33544d06"
+    },
+    "server/sports_nba_gen1/close_score.py": {
+      "mode": "100644",
+      "oid": "0dd4530740f2b75f5420ed5fd2b53d1bc355f776"
+    },
+    "server/sports_nba_gen1/current_history_source.py": {
+      "mode": "100644",
+      "oid": "624244c8f69d0896b4c0e4444b20974404eb61a6"
+    },
+    "server/sports_nba_gen1/distribution.py": {
+      "mode": "100644",
+      "oid": "a1c62936bfffbe1103ab6db974812eb5b2c990dd"
+    },
+    "server/sports_nba_gen1/features.py": {
+      "mode": "100644",
+      "oid": "a7149303749e6acc70c9eedb30885fe6590fd47d"
+    },
+    "server/sports_nba_gen1/forecast.py": {
+      "mode": "100644",
+      "oid": "dfa858c4a2f0fe89f491a628f29e4a7f3d91ed5c"
+    },
+    "server/sports_nba_gen1/historical_features.py": {
+      "mode": "100644",
+      "oid": "30f45a6d2710850cc5f03678bc0aa40579cf35d8"
+    },
+    "server/sports_nba_gen1/historical_pilot.py": {
+      "mode": "100644",
+      "oid": "9eeed5a9f9fde3a4b1dea4cc8e060de446a6d0a0"
+    },
+    "server/sports_nba_gen1/historical_source.py": {
+      "mode": "100644",
+      "oid": "ab380e2ba9ea90d164ecacff184cb9c94c731190"
+    },
+    "server/sports_nba_gen1/joint_residual.py": {
+      "mode": "100644",
+      "oid": "4f53ea3e2ec9a5f84ee95a23c7339eab276c34c0"
+    },
+    "server/sports_nba_gen1/joint_residual_scoring.py": {
+      "mode": "100644",
+      "oid": "a0243618417caaf9e07ecf226ce08a5ec6bb0e9a"
+    },
+    "server/sports_nba_gen1/models.py": {
+      "mode": "100644",
+      "oid": "29eb51208b6781afaa4da067cc2f6d05d2414733"
+    },
+    "server/sports_nba_gen1/point_forecast.py": {
+      "mode": "100644",
+      "oid": "1daaba63a3c98c95ad67ce48bb119482c0195659"
+    },
+    "server/sports_nba_gen1/recent_features.py": {
+      "mode": "100644",
+      "oid": "6ba3218b4bd07291c6f164ecf2608e0ec2f07ba5"
+    },
+    "server/sports_nba_gen1/recent_models.py": {
+      "mode": "100644",
+      "oid": "732ab7ef346bc807342e37630dffd2f655a24cb9"
+    },
+    "server/sports_nba_gen1/recent_source.py": {
+      "mode": "100644",
+      "oid": "207b2b91dcda3bc231f1f9107a57a23e2cda99e3"
+    },
+    "server/sports_nba_gen1/recent_study.py": {
+      "mode": "100644",
+      "oid": "216bbf98eef83e95c82ea15bf44b45b136e958b0"
+    },
+    "server/sports_nba_gen1/rest_study.py": {
+      "mode": "100644",
+      "oid": "22a2e4c01084d1f5f8af9a1fdae99e6cf5853326"
+    },
+    "server/sports_nba_gen1/rest_support.py": {
+      "mode": "100644",
+      "oid": "c7ef3be2a644b79df79a237874155861ba79b18e"
+    },
+    "server/sports_nba_gen1/runner.py": {
+      "mode": "100644",
+      "oid": "3257c82218d7eb4827357e72c13a0b9356c291e9"
+    },
+    "server/sports_nfl/__init__.py": {
+      "mode": "100644",
+      "oid": "dfade55a7a997e74574c5e2fc6a1c1d7c41d22c1"
+    },
+    "server/sports_nfl/bronze_acquisition.py": {
+      "mode": "100644",
+      "oid": "2f485c85e6737b66e09914e5254f5bdb1b33b396"
+    },
+    "server/sports_nfl/canonical.py": {
+      "mode": "100644",
+      "oid": "503aaf0c058e5b37e4591e8ef8a9940c9a920c5b"
+    },
+    "server/sports_nfl/current_season_sync.py": {
+      "mode": "100644",
+      "oid": "afead78d12ba5ec562b930f4680784cbf0cffb58"
+    },
+    "server/sports_nfl/gold.py": {
+      "mode": "100644",
+      "oid": "db7ba681ce9e82293bae14eb8370c0e402c5162c"
+    },
+    "server/sports_nfl/manifest.py": {
+      "mode": "100644",
+      "oid": "ff8e426f8ce076952c874bbbf9d656edf8e4650e"
+    },
+    "server/sports_nfl/pipeline.py": {
+      "mode": "100644",
+      "oid": "e2ea57d2f5b85e884915d494ba809a9d510926db"
+    },
+    "server/sports_nfl/publication.py": {
+      "mode": "100644",
+      "oid": "9fc5a9412bd7bd6a4dbc257b078acb7e8bf7a971"
+    },
+    "server/sports_nfl/registry.py": {
+      "mode": "100644",
+      "oid": "e482bbb81af9bc7bf30ae500d9f8828481d7ff6a"
+    },
+    "server/sports_nfl/source_contracts.py": {
+      "mode": "100644",
+      "oid": "398f0c3e83ed1499e00d2eb28927c4a7b4e61445"
+    },
+    "server/sports_nfl_m1/__init__.py": {
+      "mode": "100644",
+      "oid": "79395d115fd8697bd39d08db7fbfae7a5a4a438f"
+    },
+    "server/sports_nfl_m1/artifacts.py": {
+      "mode": "100644",
+      "oid": "5a67e496fd091a1f83517d1fc9fb42ee263b4065"
+    },
+    "server/sports_nfl_m1/baselines.py": {
+      "mode": "100644",
+      "oid": "5ab20909b132c315614731529c97bea39bac70b1"
+    },
+    "server/sports_nfl_m1/benchmark.py": {
+      "mode": "100644",
+      "oid": "ebb408b16867ef28ae3e29ca9f7fd225aedcf503"
+    },
+    "server/sports_nfl_m1/contracts.py": {
+      "mode": "100644",
+      "oid": "dd3848177ddc15be5c37f7bddf7be7669cb476a3"
+    },
+    "server/sports_nfl_m1/current_shadow.py": {
+      "mode": "100644",
+      "oid": "77225631042ea07120189de3d4ec1f27aa6cbddf"
+    },
+    "server/sports_nfl_m1/current_state_admission.py": {
+      "mode": "100644",
+      "oid": "46d57e18e813bfe7af37261f17ffa6e6e270cb7b"
+    },
+    "server/sports_nfl_m1/current_state_features.py": {
+      "mode": "100644",
+      "oid": "a80fd927486a23a3c1e1ce371144bd7224c796cb"
+    },
+    "server/sports_nfl_m1/current_state_market_comparison.py": {
+      "mode": "100644",
+      "oid": "a2fb0153e3c6a4c883c05a52abe3f74841decadb"
+    },
+    "server/sports_nfl_m1/current_state_model.py": {
+      "mode": "100644",
+      "oid": "6254b4a42ab5e81752eba656c2faf7689edf814e"
+    },
+    "server/sports_nfl_m1/current_state_play_comparison.py": {
+      "mode": "100644",
+      "oid": "bd077c45aca2be9fd129aec3d5e1e7727c788d1f"
+    },
+    "server/sports_nfl_m1/current_state_publication.py": {
+      "mode": "100644",
+      "oid": "e03e05f033b8a9264fec2f1a1e47f6ccf0ef0d13"
+    },
+    "server/sports_nfl_m1/current_state_registration.py": {
+      "mode": "100644",
+      "oid": "b70dde9219776c892d9da0e5193e870b40a011c5"
+    },
+    "server/sports_nfl_m1/current_state_repair_study.py": {
+      "mode": "100644",
+      "oid": "a308cb62a77d065565ec38992b5542c2fa6019d9"
+    },
+    "server/sports_nfl_m1/current_state_repaired_model.py": {
+      "mode": "100644",
+      "oid": "51aa771b0b4daacdb6bb649d37be8053b8de1b9a"
+    },
+    "server/sports_nfl_m1/current_state_repaired_publication.py": {
+      "mode": "100644",
+      "oid": "6727eee76d649b2baeb5dc817252e2c29a85cc66"
+    },
+    "server/sports_nfl_m1/current_state_study.py": {
+      "mode": "100644",
+      "oid": "9e938da2811946e4b666a6499314d52ea189bd26"
+    },
+    "server/sports_nfl_m1/data_authority.py": {
+      "mode": "100644",
+      "oid": "bcb57d40bd4171d2b44777c1b87b5ac3a31e7e17"
+    },
+    "server/sports_nfl_m1/distributions.py": {
+      "mode": "100644",
+      "oid": "a53e9ae65a4dc5f81fd03272fc693d67c58c6440"
+    },
+    "server/sports_nfl_m1/ensemble.py": {
+      "mode": "100644",
+      "oid": "464698bd78a8be7a4981d879c73a0335e27147de"
+    },
+    "server/sports_nfl_m1/forward_vintages.py": {
+      "mode": "100644",
+      "oid": "518c7a4ef937b5117feab4a0ccd288f56a620940"
+    },
+    "server/sports_nfl_m1/lab_registration.py": {
+      "mode": "100644",
+      "oid": "8d68db60c80e8067374f6be3cfad3a978afbec6a"
+    },
+    "server/sports_nfl_m1/laboratory_ui.py": {
+      "mode": "100644",
+      "oid": "bed558fc6c5a98b35e5b2541ead002f10ff46a2c"
+    },
+    "server/sports_nfl_m1/labs_simulation.py": {
+      "mode": "100644",
+      "oid": "f5e017993b7a8a17426a19f2355ad026cabac649"
+    },
+    "server/sports_nfl_m1/labs_simulation_drives.py": {
+      "mode": "100644",
+      "oid": "87d4266cd07f83a084d07db6766b26c2a436ffb7"
+    },
+    "server/sports_nfl_m1/metrics.py": {
+      "mode": "100644",
+      "oid": "58adfe0b8c27c2c43bbcd5305b7df3f1933e3116"
+    },
+    "server/sports_nfl_m1/models.py": {
+      "mode": "100644",
+      "oid": "bde1f8bf1af98d522dae0afb5428800f9f4efe80"
+    },
+    "server/sports_nfl_m1/nfl_overnight_matrix_v1.json": {
+      "mode": "100644",
+      "oid": "28edbb0c0d71f437c3ee059e0740ad71624b1ee7"
+    },
+    "server/sports_nfl_m1/overnight_lab.py": {
+      "mode": "100644",
+      "oid": "cf0ac8f5167349e5966d715bdfbaccf0a4fee344"
+    },
+    "server/sports_nfl_m1/paper_research_eligibility.py": {
+      "mode": "100644",
+      "oid": "06ae7e42cd750e4c12d990ca22dc66801f4a4897"
+    },
+    "server/sports_nfl_m1/play_engine.py": {
+      "mode": "100644",
+      "oid": "cc1f2bfd81ca9d01af3590c222d38e8829d6b67e"
+    },
+    "server/sports_nfl_m1/play_evidence.py": {
+      "mode": "100644",
+      "oid": "6563b820be37f8e0d567610280029014279163c0"
+    },
+    "server/sports_nfl_m1/play_geometry.py": {
+      "mode": "100644",
+      "oid": "4d9403776178a2e6853e909e26fb8e0a867bc4cd"
+    },
+    "server/sports_nfl_m1/play_model.py": {
+      "mode": "100644",
+      "oid": "5f1081f718ed21884d5986aef24b1a05756a45f6"
+    },
+    "server/sports_nfl_m1/play_validation.py": {
+      "mode": "100644",
+      "oid": "2ba83baa60bb73fd4b48ce07573940a1ce8eb0d2"
+    },
+    "server/sports_nfl_m1/prediction.py": {
+      "mode": "100644",
+      "oid": "97737f9d66a990c437bc4d83a4fbb3e0f14c8693"
+    },
+    "server/sports_nfl_m1/preprocessing.py": {
+      "mode": "100644",
+      "oid": "b783e3d3785d36f870e2d6b58dfe11b56fdb5de3"
+    },
+    "server/sports_nfl_m1/prospective_shadow.py": {
+      "mode": "100644",
+      "oid": "015934d95640c2fcaec4e090186d570f099ca953"
+    },
+    "server/sports_nfl_m1/qb_context_residual_sampler.py": {
+      "mode": "100644",
+      "oid": "8879c24d71ad524d392fba0df635990e14c7fb32"
+    },
+    "server/sports_nfl_m1/qb_usage_context.py": {
+      "mode": "100644",
+      "oid": "016da8ebe5da96e47b5af364ac8643f18d2eec19"
+    },
+    "server/sports_nfl_m1/recency.py": {
+      "mode": "100644",
+      "oid": "56985fc2451c343248b15413e8f7a9c0525bbf64"
+    },
+    "server/sports_nfl_m1/reporting.py": {
+      "mode": "100644",
+      "oid": "fd842c5e1c735253e641ecee27281ce4ca2e1457"
+    },
+    "server/sports_nfl_m1/research_benchmarks.py": {
+      "mode": "100644",
+      "oid": "ac597472f7c8b7f7837f7623cdcfe01d3cf458ec"
+    },
+    "server/sports_nfl_m1/rolling_publication.py": {
+      "mode": "100644",
+      "oid": "11c00be21dafda4c7ccabc42c913497907c22aac"
+    },
+    "server/sports_nfl_m1/semantic_features.py": {
+      "mode": "100644",
+      "oid": "1c6187ceb0a0b8046fa4024ea552950d753ff362"
+    },
+    "server/sports_nfl_m1/semantic_lab.py": {
+      "mode": "100644",
+      "oid": "204bb25fab59d6fd6bc925272ade384fbbab7d18"
+    },
+    "server/sports_nfl_m1/semantic_policy_supplement.py": {
+      "mode": "100644",
+      "oid": "1356e5970b362d2611e9dfb463cfb2a80cdfd771"
+    },
+    "server/sports_nfl_m1/semantic_publisher.py": {
+      "mode": "100644",
+      "oid": "f0c92dd4e7dd4cce4f7a946dbfa8b8363df62bbf"
+    },
+    "server/sports_nfl_m1/semantic_reporting.py": {
+      "mode": "100644",
+      "oid": "b5661b15866883744038ef45d3fc00364a163ade"
+    },
+    "server/sports_nfl_m1/temporal.py": {
+      "mode": "100644",
+      "oid": "b31fa555bb694940ce709d8457a34d90e9f8e011"
+    },
+    "server/sports_phase4/catcher_readiness.py": {
+      "mode": "100644",
+      "oid": "0586ccbd5a82ae765ac34bdf49a060b7dd0328f2"
+    },
+    "server/sports_phase4/catcher_readiness_run.py": {
+      "mode": "100644",
+      "oid": "a6e98119b3a1b47fa9d3a79e0d92eabd3b1d578c"
+    },
+    "server/sports_phase4/dynamic_contract.py": {
+      "mode": "100644",
+      "oid": "d7c18823eae3351a919ad55649b84a7180dec99d"
+    },
+    "server/sports_phase4/dynamic_runner.py": {
+      "mode": "100644",
+      "oid": "65cda8a33bbbe1d24107e5588dfcba28a67cae9d"
+    },
+    "server/sports_phase4/dynamic_state.py": {
+      "mode": "100644",
+      "oid": "8004e0c340a739f56a23cdf35f1ead566aed8269"
+    },
+    "server/sports_phase4/dynamic_training.py": {
+      "mode": "100644",
+      "oid": "6c720a4165b7231698d8b684fead1dc124254d30"
+    },
+    "server/sports_phase4/forensic_severe_miss.py": {
+      "mode": "100644",
+      "oid": "37d6478cf38aadcacd0a3a6dc3c13302a5cb2d98"
+    },
+    "server/sports_phase4/incremental_signal_study.py": {
+      "mode": "100644",
+      "oid": "937c4ce2828f8484ca565a920d949bd4dcf03e1f"
+    },
+    "server/sports_phase4/participation_contract.py": {
+      "mode": "100644",
+      "oid": "8e84548046e631f2173bc166aeeb9d5ff75c5836"
+    },
+    "server/sports_phase4/participation_features.py": {
+      "mode": "100644",
+      "oid": "fb0335a9a2f971238bf3eca08963bb59ca00b2f9"
+    },
+    "server/sports_phase4/participation_metrics.py": {
+      "mode": "100644",
+      "oid": "f9161f0ca5ac5b9c279783f998b46d0d8f8a702b"
+    },
+    "server/sports_phase4/participation_runner.py": {
+      "mode": "100644",
+      "oid": "da27819a109882e365edc2cb1934b5d60a7df004"
+    },
+    "server/sports_phase4/participation_training.py": {
+      "mode": "100644",
+      "oid": "7af951ba31f09b2ed3a1896a5c66c7765089e39f"
+    },
+    "server/sports_phase4/pitch_sequence_features.py": {
+      "mode": "100644",
+      "oid": "ca878427e54bb3c76d2abc0aa15a218abd40d3f5"
+    },
+    "server/sports_phase4/pitch_sequence_run.py": {
+      "mode": "100644",
+      "oid": "2ec150f8a304aba4aea45732bea17fbcb569916d"
+    },
+    "server/sports_phase4/process_interactions_run.py": {
+      "mode": "100644",
+      "oid": "29d68be4b615d9fb30a2bf297af20a218350dd17"
+    },
+    "server/sports_phase4/registry.py": {
+      "mode": "100644",
+      "oid": "38a4d08aa090eb494dbc563275c19b86d4806709"
+    },
+    "server/sports_phase4/supervision.py": {
+      "mode": "100644",
+      "oid": "545c2e478b9bad788ff4ec602ca3bae6f7dd80a8"
+    },
+    "server/sports_phase5/__init__.py": {
+      "mode": "100644",
+      "oid": "4bb8f44d97cf6ac0d1d44fe0fcf7806f837b4415"
+    },
+    "server/sports_phase5/base_out_transition.py": {
+      "mode": "100644",
+      "oid": "f854123172e6573de1614390a467be1c21e20bf4"
+    },
+    "server/sports_phase5/game_initialization.py": {
+      "mode": "100644",
+      "oid": "af48db2937272c37ea1e64d4eb181bab1135b80d"
+    },
+    "server/sports_phase5/game_replay.py": {
+      "mode": "100644",
+      "oid": "70394691636d53812b900a93b8d3c64842e034a9"
+    },
+    "server/sports_phase5/hierarchical_transition.py": {
+      "mode": "100644",
+      "oid": "abd3230d6443783fc96ecbe473528d556dc771af"
+    },
+    "server/sports_phase5/pa_provider.py": {
+      "mode": "100644",
+      "oid": "525d706f2dbc8d34f4ab9d93856bdad58f1e78e9"
+    },
+    "server/sports_phase5/participant_replay.py": {
+      "mode": "100644",
+      "oid": "4fe7274a7dab852d6675db1de6a91e76f3a17803"
+    },
+    "server/sports_phase5/participation_projection.py": {
+      "mode": "100644",
+      "oid": "9ce5a227f757db14fa8467f033295ce63a13d609"
+    },
+    "server/sports_phase5/short_sequence.py": {
+      "mode": "100644",
+      "oid": "3efc38cf9098b0ca7bc28afbe17d56fcf579e8d1"
+    },
+    "server/sports_phase5/starter_identity.py": {
+      "mode": "100644",
+      "oid": "1cdddf2bf8b32ccc2086e457e67f9ce792d68e40"
+    },
+    "server/sports_phase5/whole_game_monte_carlo.py": {
+      "mode": "100644",
+      "oid": "353161e5cd3005749b18ca272167d230f9127aa0"
+    },
+    "server/sports_shared/__init__.py": {
+      "mode": "100644",
+      "oid": "79966a0093fb224a37c271de11f6e6c8bf506d91"
+    },
+    "server/sports_shared/content_addressed_package.py": {
+      "mode": "100644",
+      "oid": "8ed4fd9a464667faf8aca07ac29538629e46b5aa"
+    },
+    "server/sports_shared/contracts.py": {
+      "mode": "100644",
+      "oid": "24daeffb3fb9422911cc80d1713af9e3cbd044fd"
+    },
+    "server/sports_shared/registry.py": {
+      "mode": "100644",
+      "oid": "ef87281170412a8368487089821caa6a7c4369f9"
+    },
+    "server/sports_shared/router.py": {
+      "mode": "100644",
+      "oid": "7de617fb1f2a224067a15611d4d144f362e98a62"
+    },
+    "server/sports_silver/__init__.py": {
+      "mode": "100644",
+      "oid": "c0957c5e23b48574d397f0c2368eee89edf5c14e"
+    },
+    "server/sports_silver/bronze_authority.py": {
+      "mode": "100644",
+      "oid": "1535f157a26d8d1dbbd7a94d8d0798328ddcddf2"
+    },
+    "server/sports_silver/canonical_ids.py": {
+      "mode": "100644",
+      "oid": "385a26985fba34f1e03e3abb10246a5d366e7f06"
+    },
+    "server/sports_silver/contracts.py": {
+      "mode": "100644",
+      "oid": "c844ab4218af8aa0d6baffc17e88a83e876af36e"
+    },
+    "server/sports_silver/current_statcast_pa.py": {
+      "mode": "100644",
+      "oid": "9eaf3bd81cefeab443193fa0c01b68280d02df14"
+    },
+    "server/sports_silver/game_identity.py": {
+      "mode": "100644",
+      "oid": "6b6547ba8061b8fc0e828aa2e342376be26c8b84"
+    },
+    "server/sports_silver/lineage_regen.py": {
+      "mode": "100644",
+      "oid": "3b8a1727b978305360f41c8bd2cb1e0a4cb3d157"
+    },
+    "server/sports_silver/pipeline.py": {
+      "mode": "100644",
+      "oid": "8c9429a20a4075741b24cd7c654d4872ea761cf9"
+    },
+    "server/sports_silver/player_identity.py": {
+      "mode": "100644",
+      "oid": "a25dc3c439151d5d0d0ca15f56ac1d002c61fd69"
+    },
+    "server/sports_silver/retrosheet_parse.py": {
+      "mode": "100644",
+      "oid": "b917c5a89fa5c9b5a554fb04d35e3a32840255d0"
+    },
+    "server/sports_silver/silver_publication.py": {
+      "mode": "100644",
+      "oid": "2f88dae42439de8561be9be463acb06ce4c78adf"
+    },
+    "server/sports_silver/statcast_normalize.py": {
+      "mode": "100644",
+      "oid": "4fe00df4c1ad484e9395de04ca5c6aa245f26fc5"
+    },
+    "server/sports_silver/team_authority.py": {
+      "mode": "100644",
+      "oid": "d8bbd586ccae52177af04fb35072f7bc4c766264"
+    },
+    "server/sql_studio/__init__.py": {
+      "mode": "100644",
+      "oid": "a5b2d58baa6f58384b7e5020b688fbcff4e580b5"
+    },
+    "server/sql_studio/sql_engine.py": {
+      "mode": "100644",
+      "oid": "e524dec9fe15af686e0b71c4410b42837990f838"
+    },
+    "server/sql_studio/sql_router.py": {
+      "mode": "100644",
+      "oid": "773303ff5f004cf90fc2794ea430e4e74412c73a"
+    },
+    "server/sql_studio/sql_store.py": {
+      "mode": "100644",
+      "oid": "953704a3590511bbc2296e574624bac0c522f141"
+    },
+    "server/stela_router.py": {
+      "mode": "100644",
+      "oid": "20142c6053ccb845945e90efc152fd4cf60c8091"
+    },
+    "server/training/__init__.py": {
+      "mode": "100644",
+      "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    "server/training/candidate_contract.py": {
+      "mode": "100644",
+      "oid": "92313f8feddb9564b34c76f5830df09b8d98420e"
+    },
+    "server/training/trainer.py": {
+      "mode": "100644",
+      "oid": "73674a3b4efb45f2081f704bc3695b66a34a4ceb"
+    },
+    "server/training/trainer_router.py": {
+      "mode": "100644",
+      "oid": "c67713a4651dcdbb390961721694effdcae474d7"
+    },
+    "server/training/trainer_service.py": {
+      "mode": "100644",
+      "oid": "08e9834b32ac3e10bfa3f8721e52e3850596a85a"
+    },
+    "server/training/training_job_service.py": {
+      "mode": "100644",
+      "oid": "74e8cdcf58760009abec9d1b9cf4aa4496cf6c10"
+    },
+    "server/training/training_job_types.py": {
+      "mode": "100644",
+      "oid": "753d423f5850d4bb815b7f164e92a2c7757509d6"
+    },
+    "server/training/training_preflight_service.py": {
+      "mode": "100644",
+      "oid": "57ea4f5dbed9c12a7d2902399059faa97621cbdd"
+    },
+    "server/validation/__init__.py": {
+      "mode": "100644",
+      "oid": "3c00efdd419c5f77e2d31ec190c1beddc2d05cb1"
+    },
+    "server/validation/router.py": {
+      "mode": "100644",
+      "oid": "7c21efda1b22988fb1ac34bd3b17f9f7efbbfbb7"
+    },
+    "server/validation/schemas.py": {
+      "mode": "100644",
+      "oid": "9b542234b0db61f45dff064ed6ff15325a7f4a8f"
+    },
+    "server/validation/validation_service.py": {
+      "mode": "100644",
+      "oid": "76597233f0387aad2475368395157bb6eb09b030"
+    },
+    "server/validation/validation_templates.py": {
+      "mode": "100644",
+      "oid": "d5bbf4a2d1536eaba91dfb439f87392733fc04ba"
+    },
+    "server/viz_endpoints.py": {
+      "mode": "100644",
+      "oid": "f4d4447047acd7cb6a29eb5f972ee5d41b58f47a"
+    },
+    "tools/bronze_acquisition/__init__.py": {
+      "mode": "100644",
+      "oid": "c859b8dc904347dcbd20b68bcc4563e8b120f351"
+    },
+    "tools/bronze_acquisition/safety.py": {
+      "mode": "100644",
+      "oid": "ad6bddfe72f936cdcdf675fcfb304ddf538fe931"
+    },
+    "tools/bronze_acquisition/sources.py": {
+      "mode": "100644",
+      "oid": "e35dc4735dc67e23b6f9b81ce291acafc41925c7"
+    }
+  },
+  "originalHistoryIncluded": false,
+  "modelArtifactsIncluded": false,
+  "deploymentAuthority": false
+}

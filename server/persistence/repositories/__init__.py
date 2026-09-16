@@ -41,6 +41,10 @@ from .special_value_review_repository import (
     SpecialValueReviewRepository,
     SpecialValueReviewStateError,
 )
+from .stage3_treatment_repository import (
+    Stage3TreatmentPersistenceError,
+    Stage3TreatmentRepository,
+)
 
 __all__ = [
     "AccessRepository",
@@ -78,4 +82,6 @@ __all__ = [
     "SpecialValueReviewConflictError",
     "SpecialValueReviewRepository",
     "SpecialValueReviewStateError",
+    "Stage3TreatmentPersistenceError",
+    "Stage3TreatmentRepository",
 ]

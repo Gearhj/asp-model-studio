@@ -15,9 +15,11 @@ loaded once and cached; every transform is vectorized NumPy/pandas.
 from __future__ import annotations
 
 import glob
+import contextvars
 import hashlib
 import json
 import math
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -52,7 +54,36 @@ IV_WEAK_THRESHOLD = 0.02
 CORRELATION_STRONG_THRESHOLD = 0.8
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_ROOT = REPO_ROOT / ".runtime" / "asp-model-studio"
+
+
+def _resolve_runtime_root() -> Path:
+    """The single mutable runtime data root. Defaults to the fixed in-repo ``.runtime/asp-model-studio`` so
+    production containment is unchanged. An operator/test may relocate the ENTIRE runtime tree by setting the
+    ``ASP_MODEL_STUDIO_RUNTIME_ROOT`` environment variable to an ABSOLUTE path — used ONLY to run the governed
+    subprocess/HTTP acceptance batteries and the isolated-root inventory against a temporary throwaway root so
+    the shared development ``.runtime`` is never mutated (Gate 14/15/16). This is a process-level DEPLOYMENT
+    control, not a request/caller-supplied path: the per-project + object-root containment checks in
+    gen3_authority still apply strictly beneath whatever root this resolves, so it introduces no runtime path
+    escape. A relative override is rejected (fail-closed)."""
+    default_root = REPO_ROOT / ".runtime" / "asp-model-studio"
+    require_isolated = os.environ.get("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes")
+    override = os.environ.get("ASP_MODEL_STUDIO_RUNTIME_ROOT")
+    if override:
+        p = Path(override)
+        if not p.is_absolute():
+            raise ValueError("ASP_MODEL_STUDIO_RUNTIME_ROOT must be an absolute path")
+        resolved = p.resolve()
+        if require_isolated and resolved == default_root.resolve():
+            # the isolated gate MUST NOT be pointed back at the shared development .runtime
+            raise ValueError("ASP_REQUIRE_ISOLATED_RUNTIME=1 forbids resolving to the shared development runtime root")
+        return resolved
+    if require_isolated:
+        # fail-closed: the isolated gate demands an explicit throwaway root, never the shared .runtime default
+        raise ValueError("ASP_REQUIRE_ISOLATED_RUNTIME=1 requires an explicit ASP_MODEL_STUDIO_RUNTIME_ROOT override")
+    return default_root
+
+
+RUNTIME_ROOT = _resolve_runtime_root()
 COCKPIT_ROOT = RUNTIME_ROOT / "sports-cockpit"
 FEATURE_VIEW_GLOB = str(
     RUNTIME_ROOT
@@ -66,10 +97,19 @@ FEATURE_VIEW_GLOB = str(
 
 DEV_SEASON = 2023
 VAL_SEASON = 2024
-FROZEN_SEASON = 2025
-# Phase 7C: the ordinary engine frame is research-only (2023 dev + 2024 val). 2025 is sealed and is never
-# a target season for any legacy in-process route (no target distribution, preview, or scoring).
-TARGET_SEASONS = (DEV_SEASON, VAL_SEASON)
+FROZEN_SEASON = 2025  # physically SEALED out-of-time evidence — NEVER an ordinary modeling/scoring season
+
+# Phase 7D.5A.1 — EXPLICIT season-role authority (replaces the ambiguous ``TARGET_SEASONS`` name, which read
+# like "all target seasons" but meant only the ordinary modeling window). Ordinary cockpit modeling fits on
+# DEVELOPMENT and validates on VALIDATION; the frozen 2025 season is sealed evidence and is never an ordinary
+# modeling/scoring/selection season. ALL_GOVERNED_SEASONS is the full physical inventory (INCLUDING sealed 2025)
+# and must NEVER be used to authorize an ordinary model path — no fallback may substitute it for a missing
+# ordinary-season definition.
+DEVELOPMENT_SEASONS = (DEV_SEASON,)
+VALIDATION_SEASONS = (VAL_SEASON,)
+SEALED_EVIDENCE_SEASONS = (FROZEN_SEASON,)
+MODELING_SEASONS = (DEV_SEASON, VAL_SEASON)  # ordinary fit + validate window; EXCLUDES sealed 2025
+ALL_GOVERNED_SEASONS = (DEV_SEASON, VAL_SEASON, FROZEN_SEASON)  # full physical inventory (incl. sealed)
 
 # Phase 6E.1 — full registered source-evidence authority. Counts and season roles are read from the
 # governed FD1 dataset manifest `seasons` block (2021-2022 = PRIOR_ONLY_HISTORY, 2023-2025 =
@@ -163,6 +203,21 @@ class CockpitError(RuntimeError):
 # ----------------------------------------------------------------------------------------
 _FRAME_LOCK = threading.Lock()
 _FRAME_CACHE: dict[str, Any] = {}
+RESEARCH_REQUEST_SCOPE: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "cockpit_research_request_scope", default=None
+)
+
+
+def _research_cache_scope() -> str:
+    scope = RESEARCH_REQUEST_SCOPE.get()
+    if scope is None:
+        return "internal"  # Offline governed tools have no HTTP response cache.
+    return hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
+
+
+def _frame_cache_key(key: str) -> str:
+    return f"{_research_cache_scope()}:{key}"
+
 
 
 # Phase 7C Gate 7/23 — the legacy in-process engine reads the PHYSICALLY SEPARATED Gen-2 RESEARCH object
@@ -183,7 +238,19 @@ def _feature_view_path() -> Path:
     from . import gen3_authority as _G3A  # lazy import avoids the engine<->authority import cycle
 
     try:
-        return _G3A.verified_research_object("GEN2")["path"]
+        verified = _G3A.verified_research_object("GEN2")
+        scope = RESEARCH_REQUEST_SCOPE.get()
+        if scope is not None and any(
+            verified.get(field) != scope.get(scope_field)
+            for field, scope_field in (
+                ("datasetVersionId", "datasetVersionId"),
+                ("logicalContentSha256", "datasetContentSha256"),
+                ("physicalParquetSha256", "physicalParquetSha256"),
+                ("contractBundleSha256", "contractBundleSha256"),
+            )
+        ):
+            raise CockpitError("Project research authority changed before the data read.")
+        return verified["path"]
     except _G3A.AuthorityError as exc:
         raise CockpitError(
             f"Gen-2 research object is not resolvable/verifiable through the canonical registry: {exc}. "
@@ -194,7 +261,7 @@ def _feature_view_path() -> Path:
 def load_frame() -> pd.DataFrame:
     """Load the materialized D3 feature view once and cache it (numeric-coerced features)."""
     with _FRAME_LOCK:
-        cached = _FRAME_CACHE.get("frame")
+        cached = _FRAME_CACHE.get(_frame_cache_key("frame"))
         if cached is not None:
             return cached
         import pyarrow.parquet as pq
@@ -217,15 +284,15 @@ def load_frame() -> pd.DataFrame:
         frame["season"] = pd.to_numeric(frame["season"], errors="coerce").astype(np.int64)
         # Cache the source content sha for content-addressed profile caching.
         content_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        _FRAME_CACHE["frame"] = frame
-        _FRAME_CACHE["path"] = str(path)
-        _FRAME_CACHE["content_sha"] = content_sha
+        _FRAME_CACHE[_frame_cache_key("frame")] = frame
+        _FRAME_CACHE[_frame_cache_key("path")] = str(path)
+        _FRAME_CACHE[_frame_cache_key("content_sha")] = content_sha
         return frame
 
 
 def data_content_sha() -> str:
     load_frame()
-    return _FRAME_CACHE["content_sha"]
+    return _FRAME_CACHE[_frame_cache_key("content_sha")]
 
 
 def _season_mask(frame: pd.DataFrame, season: int) -> np.ndarray:
@@ -254,44 +321,29 @@ def feature_role(name: str) -> str:
 # ----------------------------------------------------------------------------------------
 # Objective + population
 # ----------------------------------------------------------------------------------------
+CHAMPION_2024_REFERENCE_GLOB = str(
+    RUNTIME_ROOT / "sports-modeling" / "champion-2024-reference" / "reference-sha256-*.json")
+
+
 def _champion_reference() -> dict[str, Any]:
-    """Read the registered C4 champion frozen evidence from the experiment-metrics artifact."""
+    """Return the C4 champion's 2024-VALIDATION-ONLY reference.
+
+    Phase 7D.5A (Workstream H): the ordinary path NEVER opens the combined legacy metrics artifact (which carries
+    a sealed out-of-time section). It reads a 2024-only, content-addressed reference artifact produced by the
+    explicit ``scripts/migrate_champion_2024_reference`` migration; if that artifact is absent, it uses the
+    documented 2024-only fallback constant. No sealed out-of-time metric is ever opened, read, or exposed."""
     try:
-        matches = sorted(
-            glob.glob(
-                str(
-                    RUNTIME_ROOT
-                    / "sports-modeling"
-                    / "mlb-pa-v1"
-                    / "objects"
-                    / "sha256"
-                    / "**"
-                    / "experiment-metrics.json"
-                ),
-                recursive=True,
-            )
-        )
-        for path in matches:
-            payload = json.loads(Path(path).read_text(encoding="utf-8"))
-            candidates = payload.get("payload", {}).get("candidates", [])
-            for cand in candidates:
-                if cand.get("candidateId") == "C4":
-                    agg = cand.get("aggregateMetrics", {})
-                    val = agg.get("validation2024") or agg.get("selection2024") or {}
-                    # Phase 7D.1 Gate 12 — the champion's sealed-2025 metric (agg["final2025"]) is NEVER read
-                    # here, not even into a discarded local. The ordinary objective loads only the 2024 field.
-                    if val.get("logLoss") is not None:
-                        # the ordinary objective NEVER exposes the champion's sealed-2025 metrics — only the
-                        # 2024 validation reference is shown in the model-development workflow.
-                        return {
-                            "candidateId": "C4",
-                            "val2024": {
-                                "logLoss": val.get("logLoss"),
-                                "brierScore": val.get("brierScore"),
-                                "topLabelEce": val.get("topLabelEce"),
-                            },
-                            "sealed2025": "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE",
-                        }
+        matches = sorted(glob.glob(CHAMPION_2024_REFERENCE_GLOB))
+        if matches:
+            payload = json.loads(Path(matches[-1]).read_text(encoding="utf-8"))
+            val = payload.get("val2024") or {}
+            if val.get("logLoss") is not None:
+                return {
+                    "candidateId": "C4",
+                    "val2024": {"logLoss": val.get("logLoss"), "brierScore": val.get("brierScore"),
+                                "topLabelEce": val.get("topLabelEce")},
+                    "sealed2025": "RESTRICTED_ARCHIVAL_AUDIT_EVIDENCE",
+                }
     except Exception:
         pass
     ref = dict(CHAMPION_REFERENCE_FALLBACK)
@@ -317,7 +369,7 @@ def objective_payload() -> dict[str, Any]:
         "targetColumn": "outcome",
         "targetDistribution": distribution,
         "totalRows": total,
-        "seasons": list(TARGET_SEASONS),
+        "seasons": list(MODELING_SEASONS),
         "champion": {
             "modelId": "D3 (candidate C4)",
             "family": "Logistic Regression (multinomial)",
@@ -337,7 +389,7 @@ def objective_payload() -> dict[str, Any]:
 def population_payload() -> dict[str, Any]:
     frame = load_frame()
     per_season = []
-    for season in TARGET_SEASONS:
+    for season in MODELING_SEASONS:
         mask = _season_mask(frame, season)
         sub = frame.loc[mask]
         per_season.append(
@@ -467,10 +519,10 @@ PROFILE_CACHE_VERSION = "v2"  # bump when the profile payload schema changes (ad
 def feature_profile(force: bool = False) -> dict[str, Any]:
     """Profile every candidate predictor. Cached content-addressed to disk + memory."""
     sha = data_content_sha()
-    cache_key = f"profile-{PROFILE_CACHE_VERSION}-{sha}"
+    cache_key = f"profile-{_research_cache_scope()}-{PROFILE_CACHE_VERSION}-{sha}"
     if not force and cache_key in _PROFILE_CACHE:
         return _PROFILE_CACHE[cache_key]
-    cache_path = COCKPIT_ROOT / "profiles" / f"{sha}-{PROFILE_CACHE_VERSION}.json"
+    cache_path = COCKPIT_ROOT / "profiles" / _research_cache_scope() / f"{sha}-{PROFILE_CACHE_VERSION}.json"
     if not force and cache_path.is_file():
         payload = json.loads(cache_path.read_text(encoding="utf-8"))
         _PROFILE_CACHE[cache_key] = payload
@@ -520,7 +572,7 @@ def feature_profile(force: bool = False) -> dict[str, Any]:
             outlier_count = int(((finite_vals < lo) | (finite_vals > hi)).sum())
         # Drift: mean per season
         season_means = {}
-        for season in TARGET_SEASONS:
+        for season in MODELING_SEASONS:
             sc = col[_season_mask(frame, season)]
             scf = sc[np.isfinite(sc)]
             season_means[str(season)] = float(scf.mean()) if scf.size else None
@@ -691,7 +743,7 @@ def target_analysis() -> dict[str, Any]:
     counts = frame["outcome"].value_counts()
     overall = [{"class": c, "count": int(counts.get(c, 0)), "share": float(counts.get(c, 0) / total)} for c in PA_CLASS_ORDER]
     per_season = []
-    for s in TARGET_SEASONS:
+    for s in MODELING_SEASONS:
         sub = frame.loc[_season_mask(frame, s), "outcome"]
         n = int(len(sub))
         vc = sub.value_counts()
@@ -716,8 +768,8 @@ def target_analysis() -> dict[str, Any]:
         "dominantClass": {"class": dominant["class"], "share": dominant["share"]},
         "rarestClass": {"class": rarest["class"], "share": rarest["share"]},
         "imbalanceRatio": float(dominant["share"] / rarest["share"]) if rarest["share"] > 0 else None,
-        "modelingSeasons": list(TARGET_SEASONS),
-        "note": "Class distribution over the modeling target rows (2023-2025). 2021-2022 are prior-only history and are not target rows; their raw outcomes live in the Data Warehouse, not the modeling matrix.",
+        "modelingSeasons": list(MODELING_SEASONS),
+        "note": "Class distribution over the ordinary modeling target rows (2023 development + 2024 validation). 2025 is sealed out-of-time evidence and is not an ordinary modeling season; 2021-2022 are prior-only history and are not target rows; their raw outcomes live in the Data Warehouse, not the modeling matrix.",
     }
 
 
@@ -796,7 +848,7 @@ def correlation_summary(threshold: float | None = None) -> dict[str, Any]:
     Validation (2024) and frozen (2025) rows are not used — this is a development-fold screen."""
     thr = float(CORRELATION_STRONG_THRESHOLD if threshold is None else threshold)
     sha = data_content_sha()
-    key = f"corr-{sha}-{thr}"
+    key = f"corr-{_research_cache_scope()}-{sha}-{thr}"
     if key in _CORR_CACHE:
         return _CORR_CACHE[key]
     frame = load_frame()
@@ -865,7 +917,7 @@ def feature_detail(name: str) -> dict[str, Any]:
             {"lo": float(edges[i]), "hi": float(edges[i + 1]), "count": int(counts[i])}
             for i in range(len(counts))
         ]
-        for season in TARGET_SEASONS:
+        for season in MODELING_SEASONS:
             sc = col[_season_mask(frame, season)]
             scf = sc[np.isfinite(sc)]
             c, _ = np.histogram(np.clip(scf, lo, hi), bins=edges) if scf.size else (np.zeros(30), None)

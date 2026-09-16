@@ -6,8 +6,9 @@ authorize_modeling_scope, exactly like scoring_run_service.py and every other
 ATLAS modeling endpoint -- a model's projectId is never trusted as its own
 authorization signal.
 
-A ModelVersion is immutable once created (Phase B requirement): create_model_
-version() is the only path that INSERTs a model_versions row, and
+A ModelVersion is immutable once created (Phase B requirement). Generic fitted
+publication and the explicit reference-only conditional V18 decision are separate
+authorized paths; neither may rewrite an existing version. The
 ModelVersionRepository has no update-content method -- only
 set_governance_status() (approval/validation/documentation stage transitions,
 not content) and archive() exist as post-creation mutations.
@@ -1299,6 +1300,12 @@ def _verify_recoverable_version(
     Authorization must happen before this helper is called by a request path.
     Publication calls have already authorized the exact project before staging.
     """
+    from .mlb_v18_conditional import FORMAT, verify_record
+    if record.get("artifact_format") == FORMAT:
+        try:
+            return verify_record(service, record, deserialize=deserialize)
+        except (ValueError, OSError, KeyError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     reason = ""
     if record.get("archived_at"):
         reason = "Archived model versions cannot be recovered."
@@ -2107,6 +2114,9 @@ def load_version_artifact(
         deserialize=True,
     )
     executable = verification["object"]
+    from .mlb_v18_conditional import FORMAT
+    if row.get("artifact_format") == FORMAT:
+        return executable
     model_contract = row.get("model_contract_json")
     model_contract = model_contract if isinstance(model_contract, dict) else {}
     candidate_contract = model_contract.get("candidateContract")
@@ -2165,7 +2175,7 @@ def get_recovery_status(
     service = get_persistence_service()
     verification = _verify_recoverable_version(service, row)
     return {
-        "status": "ready",
+        "status": verification.get("status", "ready"),
         "projectId": project_id,
         "modelId": row["model_id"],
         "modelVersionId": row["model_version_id"],
@@ -2174,6 +2184,7 @@ def get_recovery_status(
         "artifactVerified": True,
         "checksum": verification["checksum"],
         "artifactFormat": row["artifact_format"],
+        "historicalValidation": verification.get("historicalValidation"),
     }
 
 
@@ -2249,7 +2260,7 @@ def resolve_current_version_by_exact_context(
         or ""
     ).strip()
     return {
-        "status": "ready",
+        "status": verification.get("status", "ready"),
         **context,
         "modelId": row["model_id"],
         "modelName": model_name,
@@ -2260,7 +2271,15 @@ def resolve_current_version_by_exact_context(
         "checksum": verification["checksum"],
         "artifactFormat": row["artifact_format"],
         "modelVersion": _to_api(row),
+        "historicalValidation": verification.get("historicalValidation"),
     }
+
+
+def register_mlb_v18_conditional_champion(user, manifest_path, manifest_sha256):
+    """James's frozen V18 prospective decision; no generic promotion-gate bypass."""
+    from .mlb_v18_conditional import PROJECT, register_authorized
+    authorize_modeling_scope(user, PROJECT, "edit")
+    return register_authorized(get_persistence_service(), user, manifest_path, manifest_sha256)
 
 
 def promote_champion(
@@ -2286,6 +2305,9 @@ def promote_champion(
     model = _get_model_authorized(user, model_id)
     authorize_modeling_scope(user, model["project_id"], "edit")
     version = _get_version_authorized(user, model_version_id)
+    from .mlb_v18_conditional import FORMAT
+    if version.get("artifact_format") == FORMAT:
+        raise HTTPException(status_code=409, detail="Conditional V18 authority requires its separately versioned decision; generic promotion cannot remove the historical limitation.")
     if version.get("model_id") != model_id:
         raise HTTPException(
             status_code=409,
@@ -2366,6 +2388,9 @@ def set_governance_status(
 ) -> Dict[str, Any]:
     row = _get_version_authorized(user, model_version_id)
     authorize_modeling_scope(user, row["project_id"], "edit")
+    from .mlb_v18_conditional import FORMAT
+    if row.get("artifact_format") == FORMAT:
+        raise HTTPException(status_code=409, detail="Conditional V18 governance is frozen in its decision manifest; publish a separately authorized successor.")
     service = get_persistence_service()
     updated = service.model_versions.set_governance_status(
         model_version_id, approval_status=approval_status, validation_status=validation_status, documentation_status=documentation_status,

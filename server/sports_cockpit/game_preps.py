@@ -11,20 +11,40 @@ once and cached in-process; prep construction for a requested game sample is vec
 from __future__ import annotations
 
 import glob
+import os
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from . import engine as E
-from .engine import CockpitError, load_frame
+from .engine import CockpitError, RUNTIME_ROOT, load_frame
 
 MANIFEST = "1b58d5d1def2c9b79041472974e93bc9a0f4c5317210099c1b1ee531fbfe8b49"
-PLAY_TRANSITION_GLOB = (
-    f"C:/Users/james/asp-model-exchange/datasets/mlb-fd1/sha256-{MANIFEST}/parquet/play_transition/**/*.parquet"
-)
+_DEFAULT_EXCHANGE_ROOT = r"C:/Users/james/asp-model-exchange"
+
+
+def resolve_play_transition_glob() -> str:
+    """The governed play_transition parquet glob. The exchange root comes from ASP_MODEL_EXCHANGE_ROOT (an
+    explicitly-declared capability). Under the isolated gate (ASP_REQUIRE_ISOLATED_RUNTIME=1) the EXTERNAL exchange
+    corpus is out of bounds: if it does not live under the isolated runtime root, this resolves to a path beneath
+    the isolated root (which will not exist), so no external parquet is ever globbed or opened — the dependent
+    simulation tests then skip rather than reaching outside the sandbox."""
+    exch = os.getenv("ASP_MODEL_EXCHANGE_ROOT", "").strip() or _DEFAULT_EXCHANGE_ROOT
+    external = f"{exch}/datasets/mlb-fd1/sha256-{MANIFEST}/parquet/play_transition/**/*.parquet"
+    if os.getenv("ASP_REQUIRE_ISOLATED_RUNTIME", "").strip().lower() in ("1", "true", "yes"):
+        try:
+            if not str(Path(exch).resolve()).startswith(str(Path(RUNTIME_ROOT).resolve())):
+                return str(RUNTIME_ROOT / "sports-phase5" / "play_transition-ISOLATED-UNAVAILABLE" / "**" / "*.parquet")
+        except OSError:
+            return str(RUNTIME_ROOT / "sports-phase5" / "play_transition-ISOLATED-UNAVAILABLE" / "**" / "*.parquet")
+    return external
+
+
+PLAY_TRANSITION_GLOB = resolve_play_transition_glob()
 
 _PT_CACHE: dict[str, Any] = {}
 

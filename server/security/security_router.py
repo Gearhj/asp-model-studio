@@ -263,15 +263,13 @@ def admin_role_user(user_id: str, payload: RoleRequest, user: Dict[str, Any] = D
 
 @router.get("/projects/{project_id}/access")
 def get_project_access(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    return {"ok": True, "access": list_project_access(project_id)}
+    return {"ok": True, "access": list_project_access(project_id, user)}
 
 
 @router.post("/projects/{project_id}/access/grant")
 def grant_project(project_id: str, payload: ProjectGrantRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    # Authorization (owner/admin-only, with a first-owner bootstrap exception for
-    # a brand-new project) is now enforced inside grant_project_access() itself,
-    # via SharingService.assert_can_manage -- the single authoritative check for
-    # project access (FND-002). It raises HTTPException(403) on denial.
+    # The authenticated actor and canonical owner-of-record check are enforced
+    # inside the service; request-body identity names only the target grantee.
     return {"ok": True, "grant": grant_project_access(project_id, payload.userId, payload.permission, user)}
 
 

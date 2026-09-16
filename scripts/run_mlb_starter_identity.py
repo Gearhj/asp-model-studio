@@ -42,6 +42,7 @@ from server.sports_phase5.participation_projection import build_branch_pa_uuids 
 from server.sports_phase5.game_initialization import RngLineage  # noqa: E402
 from server.sports_phase4.dynamic_contract import PHASE3_FEATURE_CONTRACT_SHA, dynamic_state_contract_sha  # noqa: E402
 from server.sports_phase5.pa_provider import D3_STATE_TABLE_SHA  # noqa: E402
+from scripts._retired_2025_guard import retire_2025  # Phase 7D.4 Gate 12 (B8)
 
 # Reuse Phase 5E CLI (which itself reuses Phase 5D eval helpers).
 _spec = importlib.util.spec_from_file_location("p5e_cli", REPOSITORY_ROOT / "scripts" / "run_mlb_projected_participation_ablation.py")
@@ -205,6 +206,7 @@ def _write(payload, run_id) -> dict[str, Any]:
 
 
 def main() -> int:
+    retire_2025("server.sports_cockpit.gen3_authority.run_feature_family_ablation (canonical 2024-only research)")
     ap = argparse.ArgumentParser(description="Phase 5F starter identity + Q0/Q1 ablation")
     ap.add_argument("--exchange-root", default=str(DEFAULT_EXCHANGE_ROOT))
     ap.add_argument("--status", action="store_true")
