@@ -1,39 +1,18 @@
 {
-  "kind": "unfinished-source-checkpoint",
+  "kind": "repository-publication-documentation",
   "originalDevelopment": "0c786297534c1ffc9892fbcd199d7d7af5ec8bae",
-  "unfinishedPaths": [
-    "docs/ASP_MODEL_STUDIO_PROJECT_MANAGEMENT_HANDOFF_2026-09-11.md",
-    "scripts/build_mlb_v18_diagnosis_report_v1.py",
-    "scripts/build_mlb_v18_ensemble_release_candidate_v1.py",
-    "scripts/build_mlb_v18_population_observed_v1.py",
-    "scripts/build_mlb_v18_transition_shrinkage_v1.py",
-    "scripts/consume_mlb_v18_simulator_evidence_v1.py",
-    "scripts/diagnose_mlb_v18_calibration_leads_v1.py",
-    "scripts/diagnose_mlb_v18_doubles_innings_v1.py",
-    "scripts/diagnose_mlb_v18_pa_v1.py",
-    "scripts/diagnose_mlb_v18_whole_game_v1.py",
-    "scripts/enrich_mlb_v18_pa_cases_v1.py",
-    "scripts/export_mlb_v18_ensemble_release_candidate_v1.py",
-    "scripts/export_mlb_v18_transition_shrinkage_v1.py",
-    "scripts/followup_mlb_v18_doubles_v1.py",
-    "scripts/freeze_mlb_v18_transition_shadow_v1.py",
-    "scripts/manifest_mlb_v18_diagnosis_v1.py",
-    "scripts/package_mlb_v18_transition_adapter_v2.py",
-    "scripts/package_mlb_v18_transition_shrinkage_v1.py",
-    "scripts/render_mlb_v18_diagnostic_tables_v1.py",
-    "scripts/run_mlb_v18_empirical_diagnosis_v1.py",
-    "scripts/run_mlb_v18_ensemble_release_candidate_v1.py",
-    "scripts/verify_mlb_v18_ensemble_release_candidate_v1.py",
-    "scripts/verify_mlb_v18_transition_delivery_v1.py",
-    "server/sports_current_statcast/mlb_v18_ensemble_candidate.py",
-    "server/sports_current_statcast/mlb_v18_prospective_transform.py",
-    "outputs/project-management-handoff-20260915-v1/HANDOFF.md",
-    "outputs/project-management-handoff-20260915-v1/prepare_report.py",
-    "outputs/project-management-handoff-20260915-v1/README.md",
-    "outputs/project-management-handoff-20260915-v1/REPORT.md",
-    "outputs/project-management-handoff-20260915-v1/SOURCES.md"
+  "unfinishedSourceParent": "34ef33401ba838e6e8740cbc43044b5d8ffb66f5",
+  "cleanupPaths": [
+    ".gitignore",
+    "docs/REPOSITORY_WORKFLOW.md",
+    "scripts/repository_publication_audit.py",
+    "scripts/publish_reviewed_repository_refs.py",
+    "scripts/preserve_reviewed_source_checkpoints.py",
+    "docs/repository-publication/2026-09-16/BRANCH_MAPPING.csv",
+    "docs/repository-publication/2026-09-16/deployment-verification.json",
+    "docs/repository-publication/2026-09-16/inventory-summary.json",
+    "docs/repository-publication/2026-09-16/publication-review.json"
   ],
-  "validation": "not run; preservation only",
   "files": {
     ".env.modeling": {
       "mode": "100644",
@@ -53,7 +32,7 @@
     },
     ".gitignore": {
       "mode": "100644",
-      "oid": "e49181c7c7fe904075b80c2dcc2e6565796ec687"
+      "oid": "0503e3dd104a1cc6aa95519e11128264efd89ea8"
     },
     "AGENTS.md": {
       "mode": "100644",
@@ -10478,6 +10457,38 @@
     "outputs/project-management-handoff-20260915-v1/SOURCES.md": {
       "mode": "100644",
       "oid": "f3724aa18d5b8c699a740b06df0f7f8afba83d1f"
+    },
+    "docs/REPOSITORY_WORKFLOW.md": {
+      "mode": "100644",
+      "oid": "73e32893912cf9000303513994f6cf9dcd8af45f"
+    },
+    "scripts/repository_publication_audit.py": {
+      "mode": "100644",
+      "oid": "f4b7d09f31ad7a791689ed9ac59687af68b7b3c7"
+    },
+    "scripts/publish_reviewed_repository_refs.py": {
+      "mode": "100644",
+      "oid": "9024ed8a4cf19842b0ed16fc56f4892eeabfa8b7"
+    },
+    "scripts/preserve_reviewed_source_checkpoints.py": {
+      "mode": "100644",
+      "oid": "83ca0e7ae2c3f4974bd8982dec06938e4ac9cda7"
+    },
+    "docs/repository-publication/2026-09-16/BRANCH_MAPPING.csv": {
+      "mode": "100644",
+      "oid": "c1a68c4bf877e9a9d6b0a207e11881698ced3f74"
+    },
+    "docs/repository-publication/2026-09-16/deployment-verification.json": {
+      "mode": "100644",
+      "oid": "3fa5191bb22b3630687bedff94d0ff3829161670"
+    },
+    "docs/repository-publication/2026-09-16/inventory-summary.json": {
+      "mode": "100644",
+      "oid": "641e1fdd3306d2684b433801af855401b01ff8e1"
+    },
+    "docs/repository-publication/2026-09-16/publication-review.json": {
+      "mode": "100644",
+      "oid": "6bc9b8670781f4199ec7a018928fece96452c514"
     }
   },
   "originalHistoryIncluded": false,

@@ -58,3 +58,17 @@ outputs/cfb-gen1-current-v1/private-sources/
 # Preview unit fixtures and local integration copies are not published forecasts.
 /outputs/show-preview-focused-tests/
 /outputs/multisport-show-preview-producer-v1/verification-exchange/
+
+# Repository hygiene: local test copies are not immutable research deliverables.
+/.pytest-*/
+/tmp/
+/outputs/synthetic-tests-*/
+/outputs/synthetic-recovery-*/
+/outputs/**/dry-exchange*/
+/outputs/**/dry-output*/
+
+# New raw protected sources and large fitted binaries require separate backup review.
+# These rules do not remove or rewrite any already-tracked historical objects.
+/outputs/**/prospective-only-source-quarantine/
+/outputs/**/private-sources/
+/outputs/**/model.joblib

@@ -1,0 +1,254 @@
+{
+  "localBranches": 67,
+  "tags": 0,
+  "stashes": 1,
+  "worktrees": 9,
+  "trackedChanges": 8,
+  "untrackedFiles": 15403,
+  "untrackedBytes": 4688656051,
+  "untrackedCategories": {
+    "source_text": 258,
+    "data_or_binary_metadata_only": 100,
+    "evidence_json_metadata_only": 14967,
+    "unknown_metadata_only": 78
+  },
+  "reachableObjects": 18252,
+  "blobCount": 11936,
+  "blobBytes": 3084842527,
+  "blobCategories": {
+    "evidence_json_metadata_only": 4949,
+    "source_text": 5009,
+    "unknown_metadata_only": 51,
+    "data_or_binary_metadata_only": 1867,
+    "protected_payload_not_opened": 60
+  },
+  "newBlobs": 7672,
+  "newOver100MiB": [
+    {
+      "oid": "2b26617263fda09f34b7ee58293a26c211f584ae",
+      "path": "outputs/nfl-play-level-engine-v1/fits/22f685294f0b15aaa65ceb5f5e2f7d5eee19202a3396a0868d42e743db740032/model.joblib",
+      "type": "blob",
+      "bytes": 114762617,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "69d503a511007a6282a7cdde0cc5efbe6e6ac70e",
+      "path": "outputs/nfl-play-level-engine-v1/fits/4680f832fb9453878c2c0ec64685675425824d3f1d4bc3d859c14d0e9ac0529b/model.joblib",
+      "type": "blob",
+      "bytes": 131976505,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "d9fcba88a997b6228a28226b36d44ba1a00a5751",
+      "path": "outputs/nfl-play-level-engine-v1/fits/bb19bf9c9a030067d434c18c01b7f09a5ebdef0f2088410e4e9149378dddc53f/model.joblib",
+      "type": "blob",
+      "bytes": 114712969,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    }
+  ],
+  "largestNewBlobs": [
+    {
+      "oid": "69d503a511007a6282a7cdde0cc5efbe6e6ac70e",
+      "path": "outputs/nfl-play-level-engine-v1/fits/4680f832fb9453878c2c0ec64685675425824d3f1d4bc3d859c14d0e9ac0529b/model.joblib",
+      "type": "blob",
+      "bytes": 131976505,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "2b26617263fda09f34b7ee58293a26c211f584ae",
+      "path": "outputs/nfl-play-level-engine-v1/fits/22f685294f0b15aaa65ceb5f5e2f7d5eee19202a3396a0868d42e743db740032/model.joblib",
+      "type": "blob",
+      "bytes": 114762617,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "d9fcba88a997b6228a28226b36d44ba1a00a5751",
+      "path": "outputs/nfl-play-level-engine-v1/fits/bb19bf9c9a030067d434c18c01b7f09a5ebdef0f2088410e4e9149378dddc53f/model.joblib",
+      "type": "blob",
+      "bytes": 114712969,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "2415e5cd685739068546feab721d1cf494f15585",
+      "path": "outputs/mlb-v19-current-state-specialists-v1/review/MLB_V19_Research_Review.xlsx.inspect.ndjson",
+      "type": "blob",
+      "bytes": 66011048,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "8345488302747d6932acd1d860cef8a5992404c8",
+      "path": "outputs/mlb-v19-current-state-specialists-v1/folds/fold-1/SEMANTIC_EXTRA_TREES.joblib",
+      "type": "blob",
+      "bytes": 62817873,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "d50ca64e306ff68dec43606d1775b42ca19376be",
+      "path": "outputs/nfl-semantic-lab-v1/runs/4fda808e99d1404e6eab1acc7c31933d51e7533e223c1b2c114235a203f8c2c5/pregame_feature_states.parquet",
+      "type": "blob",
+      "bytes": 25092601,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "c8c4f699cc6ced962c7b8c9449aa484c6653a540",
+      "path": "outputs/market-intelligence-rff-v1/source/sha256/df6ded6fa0356ff12c6e1d33dcb816cff12660c4f627b733a9336e04caefaa27/prediction_markets.json.gz",
+      "type": "blob",
+      "bytes": 22328849,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "d14a06d19c5cd02c5f295aea105d8a6800496bce",
+      "path": "outputs/market-intelligence-rff-v1/source/sha256/df6ded6fa0356ff12c6e1d33dcb816cff12660c4f627b733a9336e04caefaa27/quotes.json.gz",
+      "type": "blob",
+      "bytes": 21814505,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "91313b34207e8bf331d253dc1e115209661c2b8a",
+      "path": "outputs/nfl-drive-competing-risks-v1/models/baseline-through-2022.joblib",
+      "type": "blob",
+      "bytes": 19339897,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "6d6ccd07151aed322e1a77c57ea83b8ea58c5523",
+      "path": "outputs/nba-gen1-historical-pilot-v1/source/sha256/d46ed3540ee8d9eca31b3e94cc8c777e0be5156173d814ebf65b8195e8d616bc/nbaallelo.csv",
+      "type": "blob",
+      "bytes": 18173265,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "4752ac88d1d5e62c430914767e4e56d91560a5df",
+      "path": "outputs/nba-gen1-recent-v1/source/sha256/a0d7d27e829ed73d5c132d86ee6e41d4fd07c684c3d23c9c8a8d42f2de9924a5/NBA-Elo-2025-nba-elo.csv",
+      "type": "blob",
+      "bytes": 15487867,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "a947960ea24b465e1a90866606fbda2d9f8cc311",
+      "path": "outputs/nfl-drive-competing-risks-v1/models/baseline-through-2021.joblib",
+      "type": "blob",
+      "bytes": 14517795,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "bb6a9086d5432f14e2b9fb095ee7fb6636b5ca61",
+      "path": "outputs/market-intelligence-rff-v1/research/sha256/2784286e2a65e12bcec1ad7f1ee79675bfa39ec1998c9ab386fe28a4e1cee828/pairs.json.gz",
+      "type": "blob",
+      "bytes": 13564054,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "0816bbd4966b01b0bff83f5b00be8cd87e1d9ae1",
+      "path": "outputs/mlb-starter-survival-hierarchical-pa-v1/duration-study/objects/sha256/cbe7458d2812e27b9483e65aceb089bc8fd80c8e201c3d2902ec3c88c52b154a/heldout-risk-predictions.parquet",
+      "type": "blob",
+      "bytes": 13312632,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "79c5c043a2ea4667beb9d3ac175449355d408ae1",
+      "path": "outputs/mlb-v18-unattended-v1/evidence/sha256/2bcf37de2fd76316ec850ebec2f06c7383fcd7c5afa275071ea21f8aafc95e29/sept10-operational-evidence.json",
+      "type": "blob",
+      "bytes": 12167507,
+      "category": "evidence_json_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "c0ed1c1cf79af0e16ba106d588bb5e0e1f1c0b65",
+      "path": "outputs/nfl-current-state-cold-start-v2/uncertainty-repair-v1/runs/b64fe738b9774e4559f9f15184f81d978a864d27c0a103fe7e8e6e54f6e0795e/final-through2024-lag48/full-training-states.parquet",
+      "type": "blob",
+      "bytes": 11731459,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "9b16e561d37ed7697168266212cc12cf1d1dda47",
+      "path": "outputs/mlb-pitcher-archetype-survival-v1/objects/sha256/fb963be3c667c9ea89c2f2155eb4263055270d0856f160cf738ebd708996902d/profiles.parquet",
+      "type": "blob",
+      "bytes": 11507803,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "48696f917b693e920225e0cba297ecdb9d633e73",
+      "path": "outputs/mlb-v19-current-state-specialists-v1/feature-quality/sha256/18171d5414989a12ebfba8ed1916112ac047ef78f62c7a793b65d1d4923aabc0/feature-quality.json",
+      "type": "blob",
+      "bytes": 11318337,
+      "category": "evidence_json_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "e022df97f0936884fbdb7e4db7ce211178857dfe",
+      "path": "outputs/mlb-v19-current-state-specialists-v1/feature-quality/sha256/f5954c6c4a8a5690e845019b4c888a849470767ad02139055017632b8902653b/feature-quality.json",
+      "type": "blob",
+      "bytes": 11298242,
+      "category": "evidence_json_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "ee5342bb81e8d58b0a75cacae006633904cc0ca5",
+      "path": "outputs/nfl-current-state-cold-start-v2/uncertainty-repair-v1/runs/b64fe738b9774e4559f9f15184f81d978a864d27c0a103fe7e8e6e54f6e0795e/lag48-season2024/full-training-states.parquet",
+      "type": "blob",
+      "bytes": 11268772,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "f1576e87e6af17d94036472319ed465a5d49686e",
+      "path": "outputs/nfl-current-state-cold-start-v2/uncertainty-repair-v1/runs/b64fe738b9774e4559f9f15184f81d978a864d27c0a103fe7e8e6e54f6e0795e/final-through2024-lag48/inner-training-states.parquet",
+      "type": "blob",
+      "bytes": 11267374,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "a96ca9cda26a7032150eb4af6789f35600874a49",
+      "path": "outputs/nfl-current-state-cold-start-v2/uncertainty-repair-v1/runs/b64fe738b9774e4559f9f15184f81d978a864d27c0a103fe7e8e6e54f6e0795e/lag72-season2024/full-training-states.parquet",
+      "type": "blob",
+      "bytes": 11101221,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "ec68fbb04dad9d123107d99b310fb1a1a5995ef9",
+      "path": "outputs/nfl-m1-qb-context-residual-v1/objects/sha256/14f3b6dca0c5b328bcd82a040553d743b4d02fd7271082f069dca794a6a4527a/paired-populations-2024.npz",
+      "type": "blob",
+      "bytes": 11045915,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "7f0bea8722772eba69e91891f298cd0518d742de",
+      "path": "outputs/nfl-m1-qb-context-residual-v1/objects/sha256/c460ce631b2aadb858e0110753813a90bb54e2e5bb94581a9df720b5ad14c7bf/paired-populations-2023.npz",
+      "type": "blob",
+      "bytes": 11023334,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    },
+    {
+      "oid": "ef3120cd948fc7115078448927bd9e2c18d53fa0",
+      "path": "outputs/nfl-current-state-cold-start-v2/uncertainty-repair-v1/runs/b64fe738b9774e4559f9f15184f81d978a864d27c0a103fe7e8e6e54f6e0795e/lag48-season2023/full-training-states.parquet",
+      "type": "blob",
+      "bytes": 10802875,
+      "category": "data_or_binary_metadata_only",
+      "alreadyOnRemote": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "review": "2026-09-16 private repository publication",
+  "authenticatedConnectorLogin": "Gearhj",
+  "repository": "Gearhj/asp-model-studio",
+  "visibility": "private",
+  "permissions": "admin/push/pull verified using GitHub connector; native authenticated fetch succeeded",
+  "sourceTextAndPermittedJsonBlobsScanned": 6468,
+  "secretPatternFindings": 39,
+  "findingDisposition": "Existing fixed local-development password and disposable test credentials/URLs; all matched value fingerprints already represented in the remote ancestry. Values withheld. No new provider-token/private-key signature found in scanned content. This is not proof that opaque binaries contain no sensitive data.",
+  "trackedEnvironmentFiles": {
+    ".env.modeling": "UI target, localhost API and local exchange-path settings; no credential-named variable",
+    ".env.scheduling": "UI target selection; no credential-named variable"
+  },
+  "inheritedAtlas": "36 root reports and existing framework history retained in place. Not treated as disposable or as inherently secret. No path moves or credential rotation.",
+  "opaqueArtifacts": "Classified by Git path/type/size and recorded provenance; no pickle execution, model load, or sealed outcome opening. Existing admitted internal artifacts remain restricted to the same authorized private repository.",
+  "nameOnlyProtectedHitsOnPublishableBranches": "2024 completed historical study chart/table and a scientific-boundary accounting receipt, not sealed 2026 outcomes. 18 prospective-only-source-quarantine source objects remain on a withheld descendant branch.",
+  "withheldBranches": 12,
+  "oversizedObjects": 3,
+  "safeExistingBranches": 55,
+  "publicationPolicy": "54 explicit non-force refspecs plus one already-published branch. No tags exist. No history rewriting."
+}
