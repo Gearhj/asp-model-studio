@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asp.local/schemas/ASP_PROSPECTIVE_FORECAST_EVIDENCE_V1.json",
+  "title": "ASP prospective forecast evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceSeriesId", "sport", "season", "slateDate", "canonicalGameId", "participants", "scheduledStart", "forecastId", "forecastRevision", "forecastHorizon", "model", "authority", "integrity", "timing", "supersedes", "supportedMarkets", "calibrationCertificate", "dependencies", "captureReceipt", "limitations"],
+  "properties": {
+    "schemaVersion": {"const": "ASP_PROSPECTIVE_FORECAST_EVIDENCE_V1"},
+    "evidenceSeriesId": {"type": "string", "minLength": 1},
+    "sport": {"enum": ["MLB", "NFL", "NBA", "CFB", "MMA"]},
+    "season": {"type": "string", "minLength": 1},
+    "slateDate": {"type": "string", "format": "date"},
+    "canonicalGameId": {"type": "string", "minLength": 1},
+    "participants": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/participant"}},
+    "scheduledStart": {"$ref": "#/$defs/timestamp"},
+    "forecastId": {"type": "string", "minLength": 1},
+    "forecastRevision": {"type": "integer", "minimum": 1},
+    "forecastHorizon": {"type": "string", "minLength": 1},
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["modelId", "modelVersion", "configurationId"],
+      "properties": {"modelId": {"type": "string", "minLength": 1}, "modelVersion": {"type": "string", "minLength": 1}, "configurationId": {"type": "string", "minLength": 1}}
+    },
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["forecastAuthority", "researchOnlyEvidence", "decisionAuthority", "positionAuthority", "stakeAuthority", "modelPromotionAuthority"],
+      "properties": {
+        "forecastAuthority": {"enum": ["PRODUCTION_CHAMPION", "RESEARCH_ONLY"]},
+        "researchOnlyEvidence": {"const": true}, "decisionAuthority": {"const": false},
+        "positionAuthority": {"const": false}, "stakeAuthority": {"const": false},
+        "modelPromotionAuthority": {"const": false}
+      }
+    },
+    "integrity": {
+      "type": "object", "additionalProperties": false, "required": ["packageSha256", "populationSha256", "drawCount"],
+      "properties": {"packageSha256": {"$ref": "#/$defs/sha256"}, "populationSha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "drawCount": {"type": "integer", "minimum": 0}}
+    },
+    "timing": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceCutoff", "forecastCreatedAt", "producerPublishedAt", "exchangeDiscoveredAt", "consumerAcknowledgedAt", "decisionWindowAvailableAt"],
+      "properties": {
+        "sourceCutoff": {"$ref": "#/$defs/timestamp"}, "forecastCreatedAt": {"$ref": "#/$defs/timestamp"},
+        "producerPublishedAt": {"$ref": "#/$defs/timestamp"}, "exchangeDiscoveredAt": {"$ref": "#/$defs/nullableTimestamp"},
+        "consumerAcknowledgedAt": {"$ref": "#/$defs/nullableTimestamp"}, "decisionWindowAvailableAt": {"$ref": "#/$defs/nullableTimestamp"}
+      }
+    },
+    "supersedes": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/supersession"}]},
+    "supportedMarkets": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "calibrationCertificate": {
+      "type": "object", "additionalProperties": false, "required": ["certificateId", "certificateSha256", "status"],
+      "properties": {"certificateId": {"type": "string", "minLength": 1}, "certificateSha256": {"$ref": "#/$defs/sha256"}, "status": {"enum": ["CERTIFIED", "UNCERTIFIED"]}}
+    },
+    "dependencies": {
+      "type": "object", "additionalProperties": false,
+      "required": ["SHARED_PARTICIPANT", "DOUBLEHEADER", "SHARED_VENUE", "GEOGRAPHIC_WEATHER_SYSTEM", "SHARED_WEATHER_INPUT_REVISION", "SHARED_PLAYER_ROSTER_UNCERTAINTY", "SHARED_INJURY_SOURCE_UNCERTAINTY", "TOURNAMENT_POSTSEASON_LINKAGE", "SEQUENTIAL_INCENTIVE", "STANDINGS_QUALIFICATION", "SHARED_SOURCE_INCIDENT", "SHARED_FEATURE_PIPELINE_INCIDENT", "AMBIGUOUS_REVISION", "PARTICIPANT_REPLACEMENT", "UNSUPPORTED_DEPENDENCY_STATE"],
+      "properties": {
+        "SHARED_PARTICIPANT": {"$ref": "#/$defs/dependency"}, "DOUBLEHEADER": {"$ref": "#/$defs/dependency"},
+        "SHARED_VENUE": {"$ref": "#/$defs/dependency"}, "GEOGRAPHIC_WEATHER_SYSTEM": {"$ref": "#/$defs/dependency"},
+        "SHARED_WEATHER_INPUT_REVISION": {"$ref": "#/$defs/dependency"}, "SHARED_PLAYER_ROSTER_UNCERTAINTY": {"$ref": "#/$defs/dependency"},
+        "SHARED_INJURY_SOURCE_UNCERTAINTY": {"$ref": "#/$defs/dependency"}, "TOURNAMENT_POSTSEASON_LINKAGE": {"$ref": "#/$defs/dependency"},
+        "SEQUENTIAL_INCENTIVE": {"$ref": "#/$defs/dependency"}, "STANDINGS_QUALIFICATION": {"$ref": "#/$defs/dependency"},
+        "SHARED_SOURCE_INCIDENT": {"$ref": "#/$defs/dependency"}, "SHARED_FEATURE_PIPELINE_INCIDENT": {"$ref": "#/$defs/dependency"},
+        "AMBIGUOUS_REVISION": {"$ref": "#/$defs/dependency"}, "PARTICIPANT_REPLACEMENT": {"$ref": "#/$defs/dependency"},
+        "UNSUPPORTED_DEPENDENCY_STATE": {"$ref": "#/$defs/dependency"}
+      }
+    },
+    "captureReceipt": {
+      "type": "object", "additionalProperties": false, "required": ["receiptId", "receiptSha256", "capturedAt"],
+      "properties": {"receiptId": {"type": "string", "minLength": 1}, "receiptSha256": {"$ref": "#/$defs/sha256"}, "capturedAt": {"$ref": "#/$defs/timestamp"}}
+    },
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "nullableTimestamp": {"oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]},
+    "participant": {"type": "object", "additionalProperties": false, "required": ["canonicalParticipantId", "displayName", "role"], "properties": {"canonicalParticipantId": {"type": "string", "minLength": 1}, "displayName": {"type": "string", "minLength": 1}, "role": {"type": "string", "minLength": 1}}},
+    "supersession": {"type": "object", "additionalProperties": false, "required": ["forecastId", "forecastRevision", "packageSha256", "evidenceSha256"], "properties": {"forecastId": {"type": "string", "minLength": 1}, "forecastRevision": {"type": "integer", "minimum": 1}, "packageSha256": {"$ref": "#/$defs/sha256"}, "evidenceSha256": {"$ref": "#/$defs/sha256"}}},
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "evidenceSource", "observedAt", "ruleOrReviewer", "confidence", "reviewState", "relatedGameIds"],
+      "properties": {"state": {"enum": ["CONFIRMED", "RULED_OUT", "UNKNOWN"]}, "evidenceSource": {"type": "string", "minLength": 1}, "observedAt": {"$ref": "#/$defs/timestamp"}, "ruleOrReviewer": {"type": "string", "minLength": 1}, "confidence": {"enum": ["HIGH", "MEDIUM", "LOW", "NOT_ESTABLISHED"]}, "reviewState": {"enum": ["AUTOMATED_RULE", "HUMAN_REVIEWED", "UNREVIEWED"]}, "relatedGameIds": {"type": "array", "items": {"type": "string", "minLength": 1}}}
+    }
+  }
+}

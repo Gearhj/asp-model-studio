@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "ASP_PROSPECTIVE_EVIDENCE_SYNTHETIC_FIXTURE_INDEX_V1",
+  "classification": "SYNTHETIC_NON_PROVIDER_NO_OPERATIONAL_AUTHORITY",
+  "files": [
+    {"path": "fixtures/availability-receipt.json", "bytes": 380, "sha256": "a311a3a74fb000501c03164e4c49e637f407c58f55d6ae929cfed078cf8e5dec"},
+    {"path": "fixtures/calibration-uncertified.json", "bytes": 857, "sha256": "72e2fb036d0088d1f3607166fa2e5aeafec281255703046317de31a6e95e12ae"},
+    {"path": "fixtures/post-outcome.json", "bytes": 1139, "sha256": "404c3ca9e2c41aed939681bae1708c2b59fac3891bed8d5bf66cb851a203d27e"},
+    {"path": "fixtures/pre-outcome-successor.json", "bytes": 5968, "sha256": "38491b7009323f439086aca04c5620d6dfdb029a48efe0106aecf4933f141eda"},
+    {"path": "fixtures/pre-outcome.json", "bytes": 5746, "sha256": "19a20c9d3b453f1bce73f0bcc5d3a56f6bdc0e88de86653d93d3400696a67180"},
+    {"path": "fixtures/readiness-state.json", "bytes": 833, "sha256": "f4371ceae5def8091fd16d403dc6d0b5a571a4344e326d9c275c071275c33a8c"},
+    {"path": "fixtures/sidecar-binding.json", "bytes": 503, "sha256": "d4ab86e45703c76e6e60391e6a5b25b0206833b9388cbcf7746381a231d78b81"}
+  ],
+  "providerCalls": 0,
+  "costUsd": 0
+}

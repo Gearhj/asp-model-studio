@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asp.local/schemas/ASP_PROSPECTIVE_AVAILABILITY_RECEIPT_V1.json",
+  "title": "ASP prospective availability receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "receiptId", "preOutcomeEvidenceSha256", "stage", "observedAt", "evidenceSource", "capturedAt", "pregameAvailable"],
+  "properties": {
+    "schemaVersion": {"const": "ASP_PROSPECTIVE_AVAILABILITY_RECEIPT_V1"},
+    "receiptId": {"type": "string", "minLength": 1},
+    "preOutcomeEvidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "stage": {"enum": ["EXCHANGE_DISCOVERY", "CONSUMER_ACKNOWLEDGEMENT", "DECISION_WINDOW_AVAILABILITY"]},
+    "observedAt": {"type": "string", "format": "date-time", "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "evidenceSource": {"type": "string", "minLength": 1},
+    "capturedAt": {"type": "string", "format": "date-time", "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"},
+    "pregameAvailable": {"type": "boolean"}
+  }
+}

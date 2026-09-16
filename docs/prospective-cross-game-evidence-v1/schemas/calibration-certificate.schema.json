@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asp.local/schemas/ASP_PROSPECTIVE_CALIBRATION_CERTIFICATE_V1.json",
+  "title": "ASP prospective calibration certificate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "certificateId", "status", "sport", "modelId", "configurationId", "probabilityChannel", "trainingPopulation", "evaluationPopulation", "evaluationDates", "sampleSize", "calibrationMethod", "metrics", "certifiedAt", "expirationRule", "artifacts", "authority", "missingRequirements"],
+  "properties": {
+    "schemaVersion": {"const": "ASP_PROSPECTIVE_CALIBRATION_CERTIFICATE_V1"},
+    "certificateId": {"type": "string", "minLength": 1}, "status": {"enum": ["CERTIFIED", "UNCERTIFIED"]},
+    "sport": {"enum": ["MLB", "NFL", "NBA", "CFB", "MMA"]}, "modelId": {"type": "string", "minLength": 1},
+    "configurationId": {"type": "string", "minLength": 1}, "probabilityChannel": {"type": "string", "minLength": 1},
+    "trainingPopulation": {"type": "string", "minLength": 1}, "evaluationPopulation": {"type": "string", "minLength": 1},
+    "evaluationDates": {"type": "object", "additionalProperties": false, "required": ["start", "end"], "properties": {"start": {"type": "string", "format": "date"}, "end": {"type": "string", "format": "date"}}},
+    "sampleSize": {"type": "integer", "minimum": 0}, "calibrationMethod": {"type": "string", "minLength": 1},
+    "metrics": {"type": "object", "additionalProperties": false, "required": ["preCalibration", "postCalibration", "reliabilityBands", "brier", "logLoss", "calibrationIntercept", "calibrationSlope"], "properties": {"preCalibration": {}, "postCalibration": {}, "reliabilityBands": {}, "brier": {"type": ["number", "null"]}, "logLoss": {"type": ["number", "null"]}, "calibrationIntercept": {"type": ["number", "null"]}, "calibrationSlope": {"type": ["number", "null"]}}},
+    "certifiedAt": {"oneOf": [{"$ref": "#/$defs/timestamp"}, {"type": "null"}]}, "expirationRule": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["artifactId", "sha256", "bytes"], "properties": {"artifactId": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 1}}}},
+    "authority": {"enum": ["RESEARCH_ONLY", "OPERATIONAL_CONSTITUENT_PROBABILITY"]},
+    "missingRequirements": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "timestamp": {"type": "string", "format": "date-time", "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"}}
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "ASP_PROSPECTIVE_CALIBRATION_DISPOSITIONS_V1",
+  "asOfUtc": "2026-09-16T18:30:00Z",
+  "authority": "RESEARCH_ONLY_NO_PROMOTION",
+  "sports": {
+    "MLB": {
+      "modelOrConfiguration": "MLB_V18_CONTROLLING_CONFIGURATION",
+      "status": "UNCERTIFIED",
+      "missingRequirements": ["Timestamp-certified prospective evaluation population bound to exact controlling revisions", "Prospective reliability, Brier and log-loss artifact under the new certificate contract", "Separately authorized evaluation that preserves the permanent Final OOT quarantine"]
+    },
+    "NFL": {
+      "modelOrConfiguration": "NFL_M1_2026_RESEARCH_SHADOW_V1",
+      "status": "UNCERTIFIED",
+      "missingRequirements": ["Physical per-game forecast availability clocks for a prospective evaluation population", "Channel-specific reliability, Brier, log loss, intercept and slope artifact", "Explicit treatment of genuine tie probability in the certified channel"]
+    },
+    "NBA": {
+      "modelOrConfiguration": "NBA_GEN1_ELO_WIN_RIDGE_A100_ORDINARY_REST_V1",
+      "status": "UNCERTIFIED",
+      "missingRequirements": ["Prospective controlling forecast revisions with physical creation and availability clocks", "Chronological channel-specific calibration certificate artifact", "Operational authority remains research-only"]
+    },
+    "CFB": {
+      "modelOrConfiguration": "CFB_GEN1_RIDGE_A100_PAIRED_RESIDUAL_V1",
+      "status": "UNCERTIFIED",
+      "missingRequirements": ["Prospective timestamp-certified evaluation population", "Certificate artifact separated from reused historical Validation evidence", "Complete reliability and proper-score metrics under the new contract"]
+    },
+    "MMA": {
+      "modelOrConfiguration": "NONE",
+      "status": "UNCERTIFIED",
+      "missingRequirements": ["Authorized real-data population", "Fitted governing model and probability channel", "Chronological evaluation and calibration evidence", "Prospective publisher"]
+    }
+  },
+  "modelRuns": 0,
+  "modelPromotions": 0
+}

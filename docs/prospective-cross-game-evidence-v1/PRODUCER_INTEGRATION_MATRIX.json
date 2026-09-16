@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "ASP_PROSPECTIVE_EVIDENCE_INTEGRATION_MATRIX_V1",
+  "activationState": "INACTIVE",
+  "sharedLibrary": "server/sports_shared/prospective_cross_game_evidence.py",
+  "sidecarPattern": "prospective-cross-game-evidence-v1/objects/sha256/<evidence-sha256>/pre-outcome-evidence.json",
+  "sports": {
+    "MLB": {"owner": "server/sports_current_statcast/mlb_v18_current_publication.py", "hook": "POST_PACKAGE_VERIFY_PRE_DISCOVERY"},
+    "NFL": {"owner": "server/sports_nfl_m1/current_state_repaired_publication.py", "hook": "POST_PACKAGE_VERIFY_PRE_INDEX"},
+    "NBA": {"owner": "scripts/publish_nba_gen1_joint_prospective.py", "hook": "POST_PACKAGE_VERIFY_PRE_FUTURE_DISCOVERY"},
+    "CFB": {"owner": "scripts/publish_cfb_gen1_current_v1.py", "hook": "POST_PACKAGE_VERIFY_PRE_EXCHANGE_PUBLICATION"},
+    "MMA": {"owner": null, "hook": "FUTURE_POST_PACKAGE_VERIFY", "blocker": "NO_GOVERNING_PUBLISHER_OR_MODEL"}
+  },
+  "schedulerChanges": 0,
+  "publisherImportsAdded": 0,
+  "exchangeWrites": 0
+}

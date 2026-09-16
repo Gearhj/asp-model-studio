@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asp.local/schemas/ASP_CROSS_GAME_PROSPECTIVE_READINESS_V1.json",
+  "title": "ASP cross-game prospective readiness v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "categoryId", "frozenGateBinding", "thresholds", "coverage", "checks", "readiness", "assessmentAuthorized", "assessmentExecuted"],
+  "properties": {
+    "schemaVersion": {"const": "ASP_CROSS_GAME_PROSPECTIVE_READINESS_V1"}, "categoryId": {"type": "string", "minLength": 1},
+    "frozenGateBinding": {"type": "object", "additionalProperties": false, "required": ["designSha256", "resultsSha256"], "properties": {"designSha256": {"const": "5749b2457b52589a612b3a2597341185a5baf9b814d300715ec115a4c8dda87f"}, "resultsSha256": {"const": "fafc0b9bd9997e65fa6db209bceb6dacb91943528e136ed23603daf922ffef24"}}},
+    "thresholds": {"type": "object", "additionalProperties": false, "required": ["minimumGames", "minimumDates", "minimumUniqueUnorderedPairs", "minimumSupportedReliabilityBands", "minimumReliabilityBandPairs", "minimumReliabilityBandDates"], "properties": {"minimumGames": {"const": 500}, "minimumDates": {"const": 50}, "minimumUniqueUnorderedPairs": {"const": 1000}, "minimumSupportedReliabilityBands": {"const": 2}, "minimumReliabilityBandPairs": {"const": 200}, "minimumReliabilityBandDates": {"const": 20}}},
+    "coverage": {"type": "object", "required": ["games", "dates", "uniqueUnorderedPairs", "excludedPairs", "supportedReliabilityBands", "reliabilityBands"]},
+    "checks": {"type": "object", "additionalProperties": false, "required": ["games", "dates", "uniqueUnorderedPairs", "reliabilityBands"], "properties": {"games": {"type": "boolean"}, "dates": {"type": "boolean"}, "uniqueUnorderedPairs": {"type": "boolean"}, "reliabilityBands": {"type": "boolean"}}},
+    "readiness": {"enum": ["COLLECTING", "READY_FOR_FROZEN_ASSESSMENT"]}, "assessmentAuthorized": {"const": false}, "assessmentExecuted": {"const": false}
+  }
+}
