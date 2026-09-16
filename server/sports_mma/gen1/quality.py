@@ -90,7 +90,8 @@ def profile_source(source_root: Path) -> dict[str, Any]:
     event_pair_duplicates = bouts.loc[
         pd.DataFrame({"event": bouts["Event_Id"], "pair": pair}).duplicated(keep=False),
         ["Fight_Id", "Event_Id", "event_date", "Fighter_Id_1", "Fighter_Id_2", "Fighter_1", "Fighter_2"],
-    ]
+    ].copy()
+    event_pair_duplicates["event_date"] = event_pair_duplicates["event_date"].dt.strftime("%Y-%m-%d")
     normalized_names: dict[str, list[dict[str, str]]] = {}
     for _, row in fighters.iterrows():
         normalized_names.setdefault(_normalize_name(str(row["Full Name"])), []).append(
@@ -268,4 +269,3 @@ def profile_source(source_root: Path) -> dict[str, Any]:
         "failClosedErrors": fail_closed,
         "gate": "PASS" if not fail_closed else "FAIL",
     }
-

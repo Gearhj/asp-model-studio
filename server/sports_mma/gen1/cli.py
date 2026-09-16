@@ -5,12 +5,17 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import platform
 import shutil
 import subprocess
+import sys
 from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
+import scipy
+import sklearn
 
 from .core import (
     MODEL_ID,
@@ -45,7 +50,7 @@ def utc_now() -> str:
 
 def _args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("profile", "select", "oot", "verify"))
+    parser.add_argument("stage", choices=("profile", "select", "oot", "finalize", "verify"))
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument(
@@ -197,6 +202,10 @@ def _package(output_root: Path, assessment_path: Path, verdict: str) -> dict[str
         "FINAL_OOT.json": assessment_path,
         "model.joblib": output_root / "fitted" / "model.joblib",
     }
+    for optional in ("ENVIRONMENT.json", "REPRODUCTION.json"):
+        optional_path = output_root / optional
+        if optional_path.is_file():
+            source_members[optional] = optional_path
     staging = output_root / "package-staging"
     if staging.exists():
         shutil.rmtree(staging)
@@ -333,6 +342,78 @@ def stage_oot(source_root: Path, output_root: Path, design: Path) -> None:
     write_canonical_json(output_root / "CLOSEOUT.json", closeout)
 
 
+def stage_finalize(source_root: Path, output_root: Path, design: Path) -> None:
+    """Add environment/replay identity without reopening or rescoring Final OOT."""
+    design_sha = verify_frozen_design(design)
+    require_finalist_receipt(output_root / "FINALIST_RECEIPT.json", output_root / "FINALIST_RECEIPT.sha256")
+    assessment_path = output_root / "FINAL_OOT.json"
+    assessment = json.loads(assessment_path.read_text(encoding="utf-8"))
+    closeout_path = output_root / "CLOSEOUT.json"
+    closeout = json.loads(closeout_path.read_text(encoding="utf-8"))
+    predecessor = closeout["package"]
+    try:
+        source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        source_status = subprocess.check_output(["git", "status", "--porcelain"], text=True).splitlines()
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("SOURCE_IDENTITY_UNAVAILABLE") from exc
+    environment = {
+        "schemaVersion": "MMA_UFC_GEN1_ENVIRONMENT_V1",
+        "createdAt": utc_now(),
+        "python": sys.version,
+        "platform": platform.platform(),
+        "dependencies": {
+            "pandas": pd.__version__,
+            "numpy": np.__version__,
+            "scikitLearn": sklearn.__version__,
+            "scipy": scipy.__version__,
+            "joblib": joblib.__version__,
+        },
+        "sourceCommit": source_commit,
+        "sourceStatusAtPackaging": source_status,
+        "determinismEnvironment": {
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "LOKY_MAX_CPU_COUNT": "1",
+            "randomSeed": 20260916,
+        },
+        "requirementsDifference": "runtime pandas 2.2.1 differs from repository requirements.txt pandas 2.1.4; exact artifact is retained and environment is recorded",
+    }
+    write_canonical_json(output_root / "ENVIRONMENT.json", environment)
+    reproduction = {
+        "schemaVersion": "MMA_UFC_GEN1_REPRODUCTION_V1",
+        "designSha256": design_sha,
+        "sourceRootPlaceholder": "<external governed raw-v87 directory>",
+        "outputRootPlaceholder": "<external research artifact directory>",
+        "commands": [
+            "python -B -m server.sports_mma.gen1.cli profile --source-root <source> --output-root <output> --design docs/mma-gen1-research-model-v1/FROZEN_DESIGN.json",
+            "python -B -m server.sports_mma.gen1.cli select --source-root <source> --output-root <output> --design docs/mma-gen1-research-model-v1/FROZEN_DESIGN.json",
+            "python -B -m server.sports_mma.gen1.cli oot --source-root <source> --output-root <output> --design docs/mma-gen1-research-model-v1/FROZEN_DESIGN.json",
+            "python -B -m server.sports_mma.gen1.cli finalize --source-root <source> --output-root <output> --design docs/mma-gen1-research-model-v1/FROZEN_DESIGN.json",
+            "python -B -m server.sports_mma.gen1.cli verify --source-root <source> --output-root <output> --design docs/mma-gen1-research-model-v1/FROZEN_DESIGN.json",
+        ],
+        "warning": "The oot command is a one-time governed assessment stage. Reproduce in a fresh output root; never rerun it in the completed study root.",
+        "networkRequired": False,
+    }
+    write_canonical_json(output_root / "REPRODUCTION.json", reproduction)
+    successor = _package(output_root, assessment_path, assessment["verdict"])
+    write_canonical_json(
+        output_root / "PACKAGE_SUCCESSOR.json",
+        {
+            "createdAt": utc_now(),
+            "reason": "add exact environment and reproduction identity; no model execution or rescore",
+            "predecessor": predecessor,
+            "successor": successor,
+            "assessmentSha256Unchanged": sha256_file(assessment_path),
+        },
+    )
+    closeout["predecessorPackage"] = predecessor
+    closeout["package"] = successor
+    closeout["finalizedAt"] = utc_now()
+    closeout["finalizeReopenedOot"] = False
+    write_canonical_json(closeout_path, closeout)
+
+
 def stage_verify(source_root: Path, output_root: Path, design: Path) -> None:
     verify_frozen_design(design)
     closeout = json.loads((output_root / "CLOSEOUT.json").read_text(encoding="utf-8"))
@@ -360,6 +441,14 @@ def stage_verify(source_root: Path, output_root: Path, design: Path) -> None:
     )
     row = table.tail(1)
     artifact = load_artifact(output_root / "fitted" / "model.joblib")
+    oot = table[table["event_date"] >= pd.Timestamp("2025-01-01")].copy()
+    retained = pd.read_csv(output_root / "FINAL_OOT_PREDICTIONS.csv")
+    replay = predict_selected(artifact, oot)
+    if retained["fight_id"].astype(str).tolist() != oot["fight_id"].astype(str).tolist():
+        raise RuntimeError("REPLAY_IDENTITY_ORDER_MISMATCH")
+    max_replay_error = float(np.max(np.abs(replay - retained["p_selected"].to_numpy(dtype=float))))
+    if max_replay_error > 1e-15:
+        raise RuntimeError("DETERMINISTIC_REPLAY_MISMATCH")
     p_a = reversal_probability(artifact, row, str(row.iloc[0]["fighter_a_id"]))
     p_b = reversal_probability(artifact, row, str(row.iloc[0]["fighter_b_id"]))
     if abs((p_a + p_b) - 1.0) > 1e-12:
@@ -376,6 +465,8 @@ def stage_verify(source_root: Path, output_root: Path, design: Path) -> None:
         "packageIdentity": manifest["packageIdentity"],
         "members": len(manifest["members"]),
         "reversalComplementError": abs((p_a + p_b) - 1.0),
+        "deterministicReplayMaxProbabilityError": max_replay_error,
+        "deterministicReplayRows": int(len(oot)),
         "rawDatasetTracked": False,
         "providerCallsDuringVerification": 0,
         "aispWrites": 0,
@@ -394,10 +485,11 @@ def main() -> None:
         stage_select(args.source_root, args.output_root, args.design)
     elif args.stage == "oot":
         stage_oot(args.source_root, args.output_root, args.design)
+    elif args.stage == "finalize":
+        stage_finalize(args.source_root, args.output_root, args.design)
     else:
         stage_verify(args.source_root, args.output_root, args.design)
 
 
 if __name__ == "__main__":
     main()
-
