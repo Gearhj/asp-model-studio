@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "ASP_MARKET_PROBABILITY_SOURCE_AUDIT_V1",
+  "auditedAtUtc": "2026-09-16T17:12:26.0537656Z",
+  "sourceBase": "a7ee3d40283fa735f0ae25c790895378954bfa6d",
+  "sports": [
+    {
+      "sport": "MLB",
+      "gameId": "5dc9aa85-3f85-4a91-874a-a3194d9179c8",
+      "forecastId": "mlb-v18-daily-game-2f07648c51e830736d65ff37",
+      "drawCount": 5000,
+      "populationSha256": "a302b39e17922a208ac90b14310d82fefa60451734704a45e26d4f34f7282faa",
+      "sourcePhysicalSha256": "73a5c6a456e52be5facc014a2a03a033b3a04f43314c6da2dfd8a437895d306f",
+      "sourceBytes": 792490,
+      "probabilities": {"home": 0.6228, "away": 0.3772, "tie": 0.0},
+      "status": "VERIFIED_READ_ONLY"
+    },
+    {
+      "sport": "NFL",
+      "gameId": "2026_02_IND_KC",
+      "forecastId": "asp-sports-game-forecast:sha256:26204eb184de348c3f3256a2da2769550a3906392dca5de4aa6cd83357772d81",
+      "drawCount": 10000,
+      "populationSha256": "bbd41e37ec7576d9e407173f65385144bf4b7fbefde801cca360b42b9087d7eb",
+      "sourcePhysicalSha256": "5c45928219f5c893e0f2acb9572622ff93f0e57dc4c43a00de840ce92e2ff117",
+      "sourceBytes": 1683883,
+      "probabilities": {"home": 0.7022, "away": 0.269, "tie": 0.0288},
+      "status": "VERIFIED_READ_ONLY"
+    },
+    {
+      "sport": "NBA",
+      "gameId": "nba-espn:game:401909088",
+      "forecastId": "nba-joint:3ee2c1a130aa621a787b5094b990228d2c612f9fbeb9a3c22071c0b4a46828a0",
+      "drawCount": 10000,
+      "populationSha256": "6ed7ab4d05022103df689293ec6b03663a657167d091e621647b3418f31fd18c",
+      "forecastPhysicalSha256": "2fb6a1c382a3eda10633a067863745ecb8fbd3b6eec2f31659c9a583d8774d99",
+      "populationFilePhysicalSha256": "9e8b7be8b7081fb355812889ca991095fca2571877d712853e26443d2b57eb01",
+      "probabilities": {"home": 0.5619, "away": 0.4381, "tie": 0.0},
+      "status": "VERIFIED_READ_ONLY"
+    },
+    {
+      "sport": "CFB",
+      "gameId": "cfbd:401869940",
+      "forecastId": "cfb-gen1:06b73d838a1a21fae7fa1087954057df0c38ec522b84324924cb2bf706cc1f32",
+      "drawCount": 10000,
+      "populationSha256": "da5eab2d9d7186a55411b2fef3d8c6a9c1fe5a315e5f2b5026bdc17a6ce25d60",
+      "forecastPhysicalSha256": "ff631af85c0a9db21e87d706b86df9c53576c6dac3a3ca09dd363078d7391bf8",
+      "populationFilePhysicalSha256": "45abc6ca34d9bc83a2bbd782506592817053a0bf05d0cfb9c0549f61d6df9d5d",
+      "probabilities": {"home": 0.7315, "away": 0.2685, "tie": 0.0},
+      "status": "VERIFIED_READ_ONLY"
+    }
+  ],
+  "accounting": {"providerCalls": 0, "providerBytes": 0, "modelRuns": 0, "aispWrites": 0, "exchangeWrites": 0, "outcomeReads": 0, "sealedPayloadReads": 0}
+}
