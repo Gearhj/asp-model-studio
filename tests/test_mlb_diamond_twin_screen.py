@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from server.sports_current_statcast.mlb_diamond_twin_screen import (
     POSITION_GROUPS,
@@ -10,6 +11,7 @@ from server.sports_current_statcast.mlb_v19_structural_defense import (
     BIP_INDICES,
     UNCHANGED_INDICES,
 )
+from scripts.run_mlb_diamond_twin_screen import add_carry_forward, pa_loss_differences
 
 
 def synthetic_lineups():
@@ -46,3 +48,31 @@ def test_probability_adjustment_preserves_v18_contract():
     assert np.array_equal(candidate[:, UNCHANGED_INDICES], baseline[:, UNCHANGED_INDICES])
     assert np.allclose(candidate[:, BIP_INDICES].sum(axis=1), baseline[:, BIP_INDICES].sum(axis=1))
     assert np.allclose(candidate.sum(axis=1), 1.0)
+
+
+def test_carry_forward_uses_only_a_strictly_earlier_calendar_date():
+    players = {f"player_{position}": [f"old-{position}", f"same-{position}", f"next-{position}"] for position in range(2, 10)}
+    rows = pd.DataFrame({
+        "canonicalGameId": ["g1", "g2", "g3"],
+        "homeAway": ["home", "away", "home"],
+        "canonicalTeamId": ["team", "team", "team"],
+        "gameDate": pd.to_datetime(["2024-05-01", "2024-05-01", "2024-05-02"]),
+        "availabilityDate": pd.to_datetime(["2024-05-01", "2024-05-01", "2024-05-02"]),
+        "completeStartingDefense": [True, True, True],
+        **players,
+    })
+    carried = add_carry_forward(rows)
+    assert not carried.loc[carried["canonicalGameId"].isin(["g1", "g2"]), "completeCarryDefense"].any()
+    next_game = carried.loc[carried["canonicalGameId"] == "g3"].iloc[0]
+    assert next_game["carry_player_6"] in {"old-6", "same-6"}
+
+
+def test_non_bip_rows_do_not_enter_conditional_bip_loss_difference():
+    baseline = np.asarray([[0.25, 0.10, 0.05, 0.18, 0.06, 0.01, 0.33, 0.02]])
+    candidate = baseline.copy()
+    candidate[0, 3] += 0.02
+    candidate[0, 6] -= 0.02
+    differences = pa_loss_differences(np.asarray([0]), baseline, candidate)
+    assert differences[0, 0] == 0.0
+    assert differences[0, 1] == 0.0
+    assert differences[0, 4] == 0.0
