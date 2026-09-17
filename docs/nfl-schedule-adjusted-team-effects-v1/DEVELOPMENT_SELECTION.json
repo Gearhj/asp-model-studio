@@ -1,0 +1,406 @@
+{
+  "developmentScoreDiagnostics": [
+    {
+      "AUCNonTie": 0.6878998765293524,
+      "awayScoreMAE": 7.174343823506823,
+      "binaryBrierNonTie": 0.22163832378194134,
+      "binaryLogLossNonTie": 0.6344736203204223,
+      "calibration": {
+        "intercept": 0.061257961394432,
+        "reliability": [
+          {
+            "bin": 1,
+            "meanPrediction": 0.18667001504728628,
+            "n": 3,
+            "observed": 0.3333333333333333
+          },
+          {
+            "bin": 2,
+            "meanPrediction": 0.2707507215264881,
+            "n": 10,
+            "observed": 0.4
+          },
+          {
+            "bin": 3,
+            "meanPrediction": 0.34860540391880807,
+            "n": 37,
+            "observed": 0.32432432432432434
+          },
+          {
+            "bin": 4,
+            "meanPrediction": 0.4489244621605693,
+            "n": 57,
+            "observed": 0.38596491228070173
+          },
+          {
+            "bin": 5,
+            "meanPrediction": 0.5497951414152655,
+            "n": 52,
+            "observed": 0.5769230769230769
+          },
+          {
+            "bin": 6,
+            "meanPrediction": 0.6424162203708169,
+            "n": 60,
+            "observed": 0.7666666666666667
+          },
+          {
+            "bin": 7,
+            "meanPrediction": 0.7429135583079628,
+            "n": 40,
+            "observed": 0.675
+          },
+          {
+            "bin": 8,
+            "meanPrediction": 0.8413164078439163,
+            "n": 10,
+            "observed": 0.9
+          }
+        ],
+        "slope": 1.0316252195301316
+      },
+      "excludedTies": 2,
+      "featureCount": 197,
+      "games": 271,
+      "homeScoreMAE": 6.928060601998079,
+      "marginMAE": 8.866313614088671,
+      "nonTieGames": 269,
+      "pooledScoreMAE": 7.051202212752451,
+      "role": "Development",
+      "season": 2022,
+      "totalMAE": 10.715664905815547,
+      "trainGames": 5632,
+      "variant": "BASELINE",
+      "winnerAccuracy": 0.6691449814126395
+    },
+    {
+      "AUCNonTie": 0.6799865304748007,
+      "awayScoreMAE": 7.184722488656695,
+      "binaryBrierNonTie": 0.22350479104421964,
+      "binaryLogLossNonTie": 0.6388340540911285,
+      "calibration": {
+        "intercept": 0.02771328671179344,
+        "reliability": [
+          {
+            "bin": 1,
+            "meanPrediction": 0.19272675504191503,
+            "n": 2,
+            "observed": 0.5
+          },
+          {
+            "bin": 2,
+            "meanPrediction": 0.2687148145819276,
+            "n": 9,
+            "observed": 0.3333333333333333
+          },
+          {
+            "bin": 3,
+            "meanPrediction": 0.3570740636635524,
+            "n": 42,
+            "observed": 0.30952380952380953
+          },
+          {
+            "bin": 4,
+            "meanPrediction": 0.44620307496198636,
+            "n": 39,
+            "observed": 0.4358974358974359
+          },
+          {
+            "bin": 5,
+            "meanPrediction": 0.5489971022914332,
+            "n": 65,
+            "observed": 0.5384615384615384
+          },
+          {
+            "bin": 6,
+            "meanPrediction": 0.6471437222348675,
+            "n": 58,
+            "observed": 0.7413793103448276
+          },
+          {
+            "bin": 7,
+            "meanPrediction": 0.7429462076306794,
+            "n": 44,
+            "observed": 0.6590909090909091
+          },
+          {
+            "bin": 8,
+            "meanPrediction": 0.8361185880094144,
+            "n": 10,
+            "observed": 1.0
+          }
+        ],
+        "slope": 0.9885534126509132
+      },
+      "excludedTies": 2,
+      "featureCount": 217,
+      "games": 271,
+      "homeScoreMAE": 7.001586752184203,
+      "marginMAE": 8.918075515775223,
+      "nonTieGames": 269,
+      "pooledScoreMAE": 7.0931546204204485,
+      "role": "Development",
+      "season": 2022,
+      "totalMAE": 10.604308571762704,
+      "trainGames": 5632,
+      "variant": "BASELINE_PLUS_PASS",
+      "winnerAccuracy": 0.6505576208178439
+    },
+    {
+      "AUCNonTie": 0.6803793916264451,
+      "awayScoreMAE": 7.150002328232206,
+      "binaryBrierNonTie": 0.22338414174234258,
+      "binaryLogLossNonTie": 0.6382023584643635,
+      "calibration": {
+        "intercept": 0.06006556761513593,
+        "reliability": [
+          {
+            "bin": 1,
+            "meanPrediction": 0.18582554345872393,
+            "n": 2,
+            "observed": 0.5
+          },
+          {
+            "bin": 2,
+            "meanPrediction": 0.2655661386453749,
+            "n": 14,
+            "observed": 0.35714285714285715
+          },
+          {
+            "bin": 3,
+            "meanPrediction": 0.35615989557292677,
+            "n": 35,
+            "observed": 0.3142857142857143
+          },
+          {
+            "bin": 4,
+            "meanPrediction": 0.4577092362900751,
+            "n": 55,
+            "observed": 0.45454545454545453
+          },
+          {
+            "bin": 5,
+            "meanPrediction": 0.5510118831507647,
+            "n": 56,
+            "observed": 0.5178571428571429
+          },
+          {
+            "bin": 6,
+            "meanPrediction": 0.6439705278573762,
+            "n": 57,
+            "observed": 0.7719298245614035
+          },
+          {
+            "bin": 7,
+            "meanPrediction": 0.7485794841662621,
+            "n": 43,
+            "observed": 0.6744186046511628
+          },
+          {
+            "bin": 8,
+            "meanPrediction": 0.8501273577014239,
+            "n": 7,
+            "observed": 1.0
+          }
+        ],
+        "slope": 0.9949568114322835
+      },
+      "excludedTies": 2,
+      "featureCount": 217,
+      "games": 271,
+      "homeScoreMAE": 7.023370918752523,
+      "marginMAE": 8.956121606580446,
+      "nonTieGames": 269,
+      "pooledScoreMAE": 7.086686623492364,
+      "role": "Development",
+      "season": 2022,
+      "totalMAE": 10.672682667130474,
+      "trainGames": 5632,
+      "variant": "BASELINE_PLUS_RUSH",
+      "winnerAccuracy": 0.6431226765799256
+    },
+    {
+      "AUCNonTie": 0.6752160736334044,
+      "awayScoreMAE": 7.145264453113739,
+      "binaryBrierNonTie": 0.22523835677991852,
+      "binaryLogLossNonTie": 0.6423955483042564,
+      "calibration": {
+        "intercept": 0.053856342040591386,
+        "reliability": [
+          {
+            "bin": 1,
+            "meanPrediction": 0.18242333267715005,
+            "n": 1,
+            "observed": 0.0
+          },
+          {
+            "bin": 2,
+            "meanPrediction": 0.26588701440488227,
+            "n": 13,
+            "observed": 0.38461538461538464
+          },
+          {
+            "bin": 3,
+            "meanPrediction": 0.3467185949490599,
+            "n": 36,
+            "observed": 0.3888888888888889
+          },
+          {
+            "bin": 4,
+            "meanPrediction": 0.4478375193384087,
+            "n": 47,
+            "observed": 0.3617021276595745
+          },
+          {
+            "bin": 5,
+            "meanPrediction": 0.54894780363121,
+            "n": 60,
+            "observed": 0.55
+          },
+          {
+            "bin": 6,
+            "meanPrediction": 0.6441686833208842,
+            "n": 60,
+            "observed": 0.7333333333333333
+          },
+          {
+            "bin": 7,
+            "meanPrediction": 0.7496488643905755,
+            "n": 43,
+            "observed": 0.6744186046511628
+          },
+          {
+            "bin": 8,
+            "meanPrediction": 0.8399900442333266,
+            "n": 9,
+            "observed": 1.0
+          }
+        ],
+        "slope": 0.9292068546636303
+      },
+      "excludedTies": 2,
+      "featureCount": 237,
+      "games": 271,
+      "homeScoreMAE": 7.058336905447759,
+      "marginMAE": 9.010843635925069,
+      "nonTieGames": 269,
+      "pooledScoreMAE": 7.101800679280749,
+      "role": "Development",
+      "season": 2022,
+      "totalMAE": 10.578845886286775,
+      "trainGames": 5632,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH",
+      "winnerAccuracy": 0.654275092936803
+    }
+  ],
+  "diagnosticThresholds": {
+    "baselineProjectedTotalP33": 43.30496788024902,
+    "baselineProjectedTotalP67": 46.22074890136719,
+    "largeScheduleMismatchP80": 0.18164016840413266
+  },
+  "identity": "NFL_SCHEDULE_ADJUSTED_EFFECTS_DEVELOPMENT_SELECTION_V1",
+  "modelRuntimeSeconds": 28.374241599987727,
+  "outcomeAccess": {
+    "calendar2026Loaded": false,
+    "maximumSeasonLoaded": 2022,
+    "reused2023And2024Loaded": false
+  },
+  "runtimeSeconds": 266.994560799998,
+  "selectedConfiguration": {
+    "configurationId": "nfl-team-effects:341b40b581359f04b67e2fbcfcd2ade6254fac58986559e41e3f8e471b7fc17e",
+    "ridgeAlpha": 10.0,
+    "seasonDecay": 0.5,
+    "supportPriorGames": 8.0
+  },
+  "sidecar": {
+    "bytes": 1685484,
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-schedule-adjusted-team-effects-v1\\schedule-adjusted-features.parquet",
+    "predictorColumns": [
+      "home_pass_offense_effect",
+      "away_pass_defense_effect",
+      "away_pass_offense_effect",
+      "home_pass_defense_effect",
+      "pass_season_environment",
+      "pass_home_venue_effect",
+      "home_pass_matchup_estimate",
+      "away_pass_matchup_estimate",
+      "home_pass_matchup_advantage",
+      "away_pass_matchup_advantage",
+      "pass_matchup_difference",
+      "pass_residual_scale",
+      "home_pass_current_support",
+      "away_pass_current_support",
+      "home_pass_weighted_support",
+      "away_pass_weighted_support",
+      "home_pass_shrinkage_weight",
+      "away_pass_shrinkage_weight",
+      "home_pass_uncertainty_proxy",
+      "away_pass_uncertainty_proxy",
+      "home_rush_offense_effect",
+      "away_rush_defense_effect",
+      "away_rush_offense_effect",
+      "home_rush_defense_effect",
+      "rush_season_environment",
+      "rush_home_venue_effect",
+      "home_rush_matchup_estimate",
+      "away_rush_matchup_estimate",
+      "home_rush_matchup_advantage",
+      "away_rush_matchup_advantage",
+      "rush_matchup_difference",
+      "rush_residual_scale",
+      "home_rush_current_support",
+      "away_rush_current_support",
+      "home_rush_weighted_support",
+      "away_rush_weighted_support",
+      "home_rush_shrinkage_weight",
+      "away_rush_shrinkage_weight",
+      "home_rush_uncertainty_proxy",
+      "away_rush_uncertainty_proxy"
+    ],
+    "rows": 6447,
+    "sha256": "c77cfe435832656892eddbd63230639cfb317e010ff32d4c1dff815c7bd160e8"
+  },
+  "status": "FROZEN_BEFORE_2023_2024_SCORE_OUTCOME_ACCESS",
+  "unitSelectionCandidates": [
+    {
+      "configurationId": "nfl-team-effects:341b40b581359f04b67e2fbcfcd2ade6254fac58986559e41e3f8e471b7fc17e",
+      "meanUnitRmse": 0.2552172754293947,
+      "passRmse": 0.30282975872491535,
+      "passTeamGameObservations": 1598,
+      "ridgeAlpha": 10.0,
+      "rushRmse": 0.20760479213387403,
+      "rushTeamGameObservations": 1598,
+      "seasonDecay": 0.5
+    },
+    {
+      "configurationId": "nfl-team-effects:4b3b7faeaa79f0c23c67033cfe39f68ca66e18b69f2a858fef2052cb8a6811b5",
+      "meanUnitRmse": 0.25776815638370204,
+      "passRmse": 0.30662257211240296,
+      "passTeamGameObservations": 1598,
+      "ridgeAlpha": 10.0,
+      "rushRmse": 0.20891374065500115,
+      "rushTeamGameObservations": 1598,
+      "seasonDecay": 0.75
+    },
+    {
+      "configurationId": "nfl-team-effects:face26dc23315db9fce03bfd3f6880c6c29b17a1b17208543be1438f315ef8be",
+      "meanUnitRmse": 0.25726141307462314,
+      "passRmse": 0.3058536976753251,
+      "passTeamGameObservations": 1598,
+      "ridgeAlpha": 50.0,
+      "rushRmse": 0.2086691284739211,
+      "rushTeamGameObservations": 1598,
+      "seasonDecay": 0.5
+    },
+    {
+      "configurationId": "nfl-team-effects:5e3d35f6a45f851a495cc3545a65a43ae530624e010d6bbdcb7cf7851fcb9982",
+      "meanUnitRmse": 0.2580243368532341,
+      "passRmse": 0.30696750335845446,
+      "passTeamGameObservations": 1598,
+      "ridgeAlpha": 50.0,
+      "rushRmse": 0.2090811703480138,
+      "rushTeamGameObservations": 1598,
+      "seasonDecay": 0.75
+    }
+  ]
+}

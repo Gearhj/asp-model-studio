@@ -1,0 +1,100 @@
+{
+  "configuration": {
+    "configurationId": "nfl-team-effects:341b40b581359f04b67e2fbcfcd2ade6254fac58986559e41e3f8e471b7fc17e",
+    "ridgeAlpha": 10.0,
+    "seasonDecay": 0.5,
+    "supportPriorGames": 8.0
+  },
+  "coverage": {
+    "games": 6447,
+    "predictorMissingCells": 0,
+    "seasons": [
+      2000,
+      2024
+    ]
+  },
+  "identity": "NFL_SCHEDULE_ADJUSTED_EFFECT_FEATURE_LINEAGE_V1",
+  "originContract": {
+    "eligibleSource": "source season precedes target season, or source season equals target season and source week precedes target week; source game_date must also precede the earliest target date in the origin",
+    "granularity": "season-week atomic",
+    "missingUnitStatistic": "excluded from that unit fit; never replaced with zero",
+    "sameWeekEvidence": "excluded conservatively even when a Thursday game precedes a Sunday game",
+    "targetExclusion": "required",
+    "unknownTeamOrNoHistory": "zero latent deviation from league environment plus explicit zero support and fallback status"
+  },
+  "sidecar": {
+    "bytes": 1685484,
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-schedule-adjusted-team-effects-v1\\schedule-adjusted-features.parquet",
+    "predictorColumns": [
+      "home_pass_offense_effect",
+      "away_pass_defense_effect",
+      "away_pass_offense_effect",
+      "home_pass_defense_effect",
+      "pass_season_environment",
+      "pass_home_venue_effect",
+      "home_pass_matchup_estimate",
+      "away_pass_matchup_estimate",
+      "home_pass_matchup_advantage",
+      "away_pass_matchup_advantage",
+      "pass_matchup_difference",
+      "pass_residual_scale",
+      "home_pass_current_support",
+      "away_pass_current_support",
+      "home_pass_weighted_support",
+      "away_pass_weighted_support",
+      "home_pass_shrinkage_weight",
+      "away_pass_shrinkage_weight",
+      "home_pass_uncertainty_proxy",
+      "away_pass_uncertainty_proxy",
+      "home_rush_offense_effect",
+      "away_rush_defense_effect",
+      "away_rush_offense_effect",
+      "home_rush_defense_effect",
+      "rush_season_environment",
+      "rush_home_venue_effect",
+      "home_rush_matchup_estimate",
+      "away_rush_matchup_estimate",
+      "home_rush_matchup_advantage",
+      "away_rush_matchup_advantage",
+      "rush_matchup_difference",
+      "rush_residual_scale",
+      "home_rush_current_support",
+      "away_rush_current_support",
+      "home_rush_weighted_support",
+      "away_rush_weighted_support",
+      "home_rush_shrinkage_weight",
+      "away_rush_shrinkage_weight",
+      "home_rush_uncertainty_proxy",
+      "away_rush_uncertainty_proxy"
+    ],
+    "rows": 6447,
+    "sha256": "c77cfe435832656892eddbd63230639cfb317e010ff32d4c1dff815c7bd160e8"
+  },
+  "sourceObjects": {
+    "foundationManifest": {
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/manifests/sha256/c265041976e119fab5497f5b4f48a3cefe2db354af91f7144ede25065881d2bb/foundation-manifest.json",
+      "physicalSha256": "85bef1b0423b1a51049781b4868ccf6ccdf38f8b2c469c7b65aa74160b6adcbf",
+      "sourceManifestSha256": "c37ffbcebab5f758c9376c4553ec46931141c415e2b36ebe3b4b7bf063f38ec7"
+    },
+    "pregameProjection": {
+      "path": "C:/Users/james/asp-model-studio/outputs/multisport-feature-engineering-audit-v1/permitted-input-projections/NFL.parquet",
+      "rows": 6695,
+      "seasons": [
+        1999,
+        2024
+      ],
+      "sha256": "30737340c0b75d2c39ccd64a08137fbc77f766753cabbdc669902117df229427"
+    },
+    "teamGame": {
+      "objectManifestSha256": "4e4f6ec9b2efacc68fa3d8994673f615829f688a0e77d78d32f2970e3ecb58ea",
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/objects/sha256/4e4f6ec9b2efacc68fa3d8994673f615829f688a0e77d78d32f2970e3ecb58ea/object.parquet",
+      "physicalSha256": "11631f1cc5e74252f011aa553b84b84035272ea9f433ed057fc342427686e362",
+      "readFilter": "season <= 2024 before conversion to pandas"
+    },
+    "teamIdentity": {
+      "objectManifestSha256": "62e7e484d52c5e2509141433202960fa2a5631e81cd72a461cbe96c4a00c49fd",
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/objects/sha256/62e7e484d52c5e2509141433202960fa2a5631e81cd72a461cbe96c4a00c49fd/object.parquet",
+      "physicalSha256": "671a17e5d4fc288806f5b1207be9227734d898750cb7a7e9cc6034c584f91ded"
+    }
+  }
+}
