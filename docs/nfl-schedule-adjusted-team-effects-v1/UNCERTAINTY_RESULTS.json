@@ -1,0 +1,195 @@
+{
+  "cluster": "season-calendar-week",
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_CLUSTERED_UNCERTAINTY_V1",
+  "replicates": 2000,
+  "results": [
+    {
+      "clustered95_binaryBrier": [
+        0.0,
+        0.0
+      ],
+      "clustered95_logLoss": [
+        0.0,
+        0.0
+      ],
+      "clustered95_marginAE": [
+        0.0,
+        0.0
+      ],
+      "clustered95_pooledScoreAE": [
+        0.0,
+        0.0
+      ],
+      "clustered95_totalAE": [
+        0.0,
+        0.0
+      ],
+      "delta_binaryBrier": 0.0,
+      "delta_logLoss": 0.0,
+      "delta_marginAE": 0.0,
+      "delta_pooledScoreAE": 0.0,
+      "delta_totalAE": 0.0,
+      "games": 544,
+      "seasonDeltas": [
+        {
+          "delta_binaryBrier": 0.0,
+          "delta_logLoss": 0.0,
+          "delta_marginAE": 0.0,
+          "delta_pooledScoreAE": 0.0,
+          "delta_totalAE": 0.0,
+          "season": 2023
+        },
+        {
+          "delta_binaryBrier": 0.0,
+          "delta_logLoss": 0.0,
+          "delta_marginAE": 0.0,
+          "delta_pooledScoreAE": 0.0,
+          "delta_totalAE": 0.0,
+          "season": 2024
+        }
+      ],
+      "variant": "BASELINE"
+    },
+    {
+      "clustered95_binaryBrier": [
+        -0.0033745288467588986,
+        0.002502605471303399
+      ],
+      "clustered95_logLoss": [
+        -0.007880054540119951,
+        0.005118390566895716
+      ],
+      "clustered95_marginAE": [
+        -0.08136249728260722,
+        0.07992185908474092
+      ],
+      "clustered95_pooledScoreAE": [
+        -0.030010971082960535,
+        0.05811592359076044
+      ],
+      "clustered95_totalAE": [
+        -0.022517606280852816,
+        0.1366650159478417
+      ],
+      "delta_binaryBrier": -0.0004737031920318847,
+      "delta_logLoss": -0.0014557270592437171,
+      "delta_marginAE": -0.0021198602283702176,
+      "delta_pooledScoreAE": 0.012350727530086742,
+      "delta_totalAE": 0.05581886628094841,
+      "games": 544,
+      "seasonDeltas": [
+        {
+          "delta_binaryBrier": -0.0003256552887382868,
+          "delta_logLoss": -0.0015063973275290896,
+          "delta_marginAE": 0.0032794931355644673,
+          "delta_pooledScoreAE": 0.009775727987289429,
+          "delta_totalAE": 0.04335904472014483,
+          "season": 2023
+        },
+        {
+          "delta_binaryBrier": -0.0006217510953254827,
+          "delta_logLoss": -0.0014050567909583446,
+          "delta_marginAE": -0.007519213592304903,
+          "delta_pooledScoreAE": 0.014925727072884054,
+          "delta_totalAE": 0.06827868784175199,
+          "season": 2024
+        }
+      ],
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "clustered95_binaryBrier": [
+        -0.0023581765480617223,
+        0.0017449456208422367
+      ],
+      "clustered95_logLoss": [
+        -0.00512486463096723,
+        0.0037851381114728322
+      ],
+      "clustered95_marginAE": [
+        -0.011700123515656921,
+        0.10719708514732865
+      ],
+      "clustered95_pooledScoreAE": [
+        4.943512818392608e-05,
+        0.06344558051177264
+      ],
+      "clustered95_totalAE": [
+        -0.07250647545091096,
+        0.05786409045246329
+      ],
+      "delta_binaryBrier": -0.00023059760749782703,
+      "delta_logLoss": -0.0005217247791284848,
+      "delta_marginAE": 0.049401374424205106,
+      "delta_pooledScoreAE": 0.03175058259683497,
+      "delta_totalAE": -0.00507422405130723,
+      "games": 544,
+      "seasonDeltas": [
+        {
+          "delta_binaryBrier": -0.0009294166194173749,
+          "delta_logLoss": -0.0017277919279731465,
+          "delta_marginAE": 0.019240358296562645,
+          "delta_pooledScoreAE": 0.018455179298625272,
+          "delta_totalAE": -0.03149142686058493,
+          "season": 2023
+        },
+        {
+          "delta_binaryBrier": 0.0004682214044217209,
+          "delta_logLoss": 0.0006843423697161767,
+          "delta_marginAE": 0.07956239055184756,
+          "delta_pooledScoreAE": 0.04504598589504466,
+          "delta_totalAE": 0.021342978757970473,
+          "season": 2024
+        }
+      ],
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "clustered95_binaryBrier": [
+        -0.002789403293337904,
+        0.004445300931520207
+      ],
+      "clustered95_logLoss": [
+        -0.006221391610516899,
+        0.009429650201127463
+      ],
+      "clustered95_marginAE": [
+        -0.023123660952808673,
+        0.1686079875549391
+      ],
+      "clustered95_pooledScoreAE": [
+        -0.004903847116710981,
+        0.10113280761148105
+      ],
+      "clustered95_totalAE": [
+        -0.041493480439724256,
+        0.13194386688571397
+      ],
+      "delta_binaryBrier": 0.0007930025151895298,
+      "delta_logLoss": 0.001540605839136228,
+      "delta_marginAE": 0.07335285754764781,
+      "delta_pooledScoreAE": 0.048860691049519706,
+      "delta_totalAE": 0.04752682061756358,
+      "games": 544,
+      "seasonDeltas": [
+        {
+          "delta_binaryBrier": 0.0018986818349041752,
+          "delta_logLoss": 0.003950782389735352,
+          "delta_marginAE": 0.10901747731601491,
+          "delta_pooledScoreAE": 0.060960699530208814,
+          "delta_totalAE": 0.02626362267662497,
+          "season": 2023
+        },
+        {
+          "delta_binaryBrier": -0.00031267680452511576,
+          "delta_logLoss": -0.0008695707114628968,
+          "delta_marginAE": 0.037688237779280716,
+          "delta_pooledScoreAE": 0.036760682568830604,
+          "delta_totalAE": 0.0687900185585022,
+          "season": 2024
+        }
+      ],
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_EXTERNAL_ACTIVITY_V1",
+  "authenticatedProviderCalls": 0,
+  "networkCalls": 0,
+  "sportsbookCalls": 0,
+  "costUsd": 0.0,
+  "aispWrites": 0,
+  "exchangeWrites": 0,
+  "schedulerChanges": 0,
+  "productionOwnerChanges": 0,
+  "forecastPublications": 0
+}

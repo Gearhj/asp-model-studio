@@ -1,0 +1,162 @@
+{
+  "disposition": "NO_INCREMENTAL_VALUE",
+  "externalArtifacts": {
+    "predictions": {
+      "bytes": 293164,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-schedule-adjusted-team-effects-v1\\assessment-predictions.parquet",
+      "rows": 3260,
+      "sha256": "2cd80180cee4cb9fffdf5a516cdd6d9682a99beca988a6761e396d83b89442db"
+    },
+    "sidecar": {
+      "bytes": 1685484,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nfl-schedule-adjusted-team-effects-v1\\schedule-adjusted-features.parquet",
+      "predictorColumns": [
+        "home_pass_offense_effect",
+        "away_pass_defense_effect",
+        "away_pass_offense_effect",
+        "home_pass_defense_effect",
+        "pass_season_environment",
+        "pass_home_venue_effect",
+        "home_pass_matchup_estimate",
+        "away_pass_matchup_estimate",
+        "home_pass_matchup_advantage",
+        "away_pass_matchup_advantage",
+        "pass_matchup_difference",
+        "pass_residual_scale",
+        "home_pass_current_support",
+        "away_pass_current_support",
+        "home_pass_weighted_support",
+        "away_pass_weighted_support",
+        "home_pass_shrinkage_weight",
+        "away_pass_shrinkage_weight",
+        "home_pass_uncertainty_proxy",
+        "away_pass_uncertainty_proxy",
+        "home_rush_offense_effect",
+        "away_rush_defense_effect",
+        "away_rush_offense_effect",
+        "home_rush_defense_effect",
+        "rush_season_environment",
+        "rush_home_venue_effect",
+        "home_rush_matchup_estimate",
+        "away_rush_matchup_estimate",
+        "home_rush_matchup_advantage",
+        "away_rush_matchup_advantage",
+        "rush_matchup_difference",
+        "rush_residual_scale",
+        "home_rush_current_support",
+        "away_rush_current_support",
+        "home_rush_weighted_support",
+        "away_rush_weighted_support",
+        "home_rush_shrinkage_weight",
+        "away_rush_shrinkage_weight",
+        "home_rush_uncertainty_proxy",
+        "away_rush_uncertainty_proxy"
+      ],
+      "rows": 6447,
+      "sha256": "c77cfe435832656892eddbd63230639cfb317e010ff32d4c1dff815c7bd160e8"
+    }
+  },
+  "files": [
+    {
+      "bytes": 1381,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/ASSESSMENT.json",
+      "sha256": "07c49491f2756678806a82f03f8fbb7fe2a7239fecffc05d7d46ca2f2935e095"
+    },
+    {
+      "bytes": 2191,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/BASELINE_RECONCILIATION.md",
+      "sha256": "be595aa95519d5a7b37542e3cf928a62e0d9d0264e038bd089f037e3c0d63aeb"
+    },
+    {
+      "bytes": 1320,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/CLAUDE_HANDOFF.md",
+      "sha256": "318988b1a5b8bcfeb6577b5fcfa19d8fa15136ca15f8bbecd07b235bd5659a2b"
+    },
+    {
+      "bytes": 12919,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/DEVELOPMENT_SELECTION.json",
+      "sha256": "bdd3dcf2e4f2b38871cc2bab845bc454526ee403c256eb1fd30c1eaa77333c97"
+    },
+    {
+      "bytes": 35995,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/EXPERIMENT_RESULTS.json",
+      "sha256": "034f4afb68e3333e10b7cc094b2a62dd6fe95f5af8c3dd6a30c74c734963042c"
+    },
+    {
+      "bytes": 302,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/EXTERNAL_ACTIVITY.json",
+      "sha256": "7b8fb1681064a35181e4dee354106d7f5032b1736e5729b49593fcd4558bfd75"
+    },
+    {
+      "bytes": 2034,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/EXTERNAL_ARTIFACTS.json",
+      "sha256": "1952cd53a064587324c4a278e0cf98fe20ee9e795ef41427bb6e5f13933d91ca"
+    },
+    {
+      "bytes": 4398,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/FEATURE_LINEAGE.json",
+      "sha256": "febdabfd98b96625ce548b70ea6d79787c3081125028486e005812e1a36810ad"
+    },
+    {
+      "bytes": 1878,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/FEATURE_SCHEMA.md",
+      "sha256": "96b3e6f9a6b060ad804798e0b5020f32390abcaf2c51d9b8d553b9c41010db06"
+    },
+    {
+      "bytes": 444,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/FIGURE_INDEX.json",
+      "sha256": "0a7f5c15e53bfa189235a450ef6c32acb112c2a4adcef61ad4b86908b809fa94"
+    },
+    {
+      "bytes": 216006,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/figures/effects_shrinkage_and_stability.png",
+      "sha256": "22cebb9834ea269b3c72c8b36c41685cdf2c41db0d5e6ca776b1761266b0ca45"
+    },
+    {
+      "bytes": 148290,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/figures/performance_calibration_and_changes.png",
+      "sha256": "b3b08c96b36d15c938a9bb9c8c41d6086714ee85be8bf2250183a111a566de2d"
+    },
+    {
+      "bytes": 1905,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/METHODOLOGY.md",
+      "sha256": "f7db6cb116945deed521c693b1530089e1e63debff0b7100c05fb3fff328dc81"
+    },
+    {
+      "bytes": 7227,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/REPORT.md",
+      "sha256": "9f05cf6204a7ea1ab5d38eac8d96c5a0942084c9e51bd65407f2f1dc4e3ba3a5"
+    },
+    {
+      "bytes": 1377,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/REPRODUCTION.md",
+      "sha256": "48e5865c2e5e496eb4b6b3867468ddcc6285b967b1488db7c019d12ef0133452"
+    },
+    {
+      "bytes": 20281,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/SEGMENT_RESULTS.json",
+      "sha256": "e354016804ad76a48c73d4aa81016bb1e4348681d9f4d90a226b6d3aa278227e"
+    },
+    {
+      "bytes": 5975,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/STUDY_DESIGN.json",
+      "sha256": "e8773cd3ad4ffdbaf52472a118a81885e605f1c9ad5e1160cd13d902e6cc7657"
+    },
+    {
+      "bytes": 1589,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/STUDY_DESIGN.md",
+      "sha256": "8350fa9d9232a4fb8d16027cf01dfe7c3b2897747c8ba2f5354794e82aff1ddd"
+    },
+    {
+      "bytes": 5750,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/UNCERTAINTY_RESULTS.json",
+      "sha256": "92caefd340e8045052f7db9dc7463f4a84743cfc5a008123bc7233632da1eace"
+    },
+    {
+      "bytes": 1146,
+      "path": "docs/nfl-schedule-adjusted-team-effects-v1/VERIFICATION.json",
+      "sha256": "02d811efc8d34f1f658b5586eeb8c5a6424ffc612beeb07369f454000bdc1e57"
+    }
+  ],
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_ARTIFACT_INDEX_V1"
+}

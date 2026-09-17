@@ -1,0 +1,47 @@
+{
+  "disposition": "NO_INCREMENTAL_VALUE",
+  "figures": [
+    {
+      "path": "docs\\nfl-schedule-adjusted-team-effects-v1\\figures\\effects_shrinkage_and_stability.png",
+      "sha256": "22cebb9834ea269b3c72c8b36c41685cdf2c41db0d5e6ca776b1761266b0ca45"
+    },
+    {
+      "path": "docs\\nfl-schedule-adjusted-team-effects-v1\\figures\\performance_calibration_and_changes.png",
+      "sha256": "b3b08c96b36d15c938a9bb9c8c41d6086714ee85be8bf2250183a111a566de2d"
+    }
+  ],
+  "gateChecks": [
+    {
+      "coverage": 1.0,
+      "passesFrozenGate": false,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "coverage": 1.0,
+      "passesFrozenGate": false,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "coverage": 1.0,
+      "passesFrozenGate": false,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    }
+  ],
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_ASSESSMENT_V1",
+  "population": {
+    "calendar2026OutcomeRowsRead": 0,
+    "developmentBaselineSeason": 2022,
+    "reusedDiagnosticSeasons": [
+      2023,
+      2024
+    ],
+    "reusedGames": 544
+  },
+  "runtimeSeconds": 73.5398511000094,
+  "selectedConfiguration": {
+    "configurationId": "nfl-team-effects:341b40b581359f04b67e2fbcfcd2ade6254fac58986559e41e3f8e471b7fc17e",
+    "ridgeAlpha": 10.0,
+    "seasonDecay": 0.5,
+    "supportPriorGames": 8.0
+  }
+}

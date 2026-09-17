@@ -1,0 +1,24 @@
+{
+  "checks": {
+    "assessmentPredictionsGeneratedRepeatedlySameSha256": "2cd80180cee4cb9fffdf5a516cdd6d9682a99beca988a6761e396d83b89442db",
+    "deterministicSampleSha256": "4073ac94dd076fb81ef703bd0294d3ded3da2f3eb1413dd60deb3e0163318e00",
+    "effectsFigureReplaySha256": "22cebb9834ea269b3c72c8b36c41685cdf2c41db0d5e6ca776b1761266b0ca45",
+    "externalCalls": 0,
+    "focusedTests": {
+      "failed": 0,
+      "passed": 4
+    },
+    "franchiseAliasesCanonicalizedUpstream": true,
+    "gameCoverage": true,
+    "metricsExcludingRuntimeSha256": "78ad99f8888709df1478d060cd54d9457f5e4f461ef9bd905f937d86a41b1ca7",
+    "noCalendar2026OutcomeRead": true,
+    "performanceFigureReplaySha256": "b3b08c96b36d15c938a9bb9c8c41d6086714ee85be8bf2250183a111a566de2d",
+    "predictorCompleteness": true,
+    "productionAndAispUnchanged": true,
+    "providerCostUsd": 0.0,
+    "sidecarDigest": true,
+    "sidecarGeneratedTwiceSameSha256": "c77cfe435832656892eddbd63230639cfb317e010ff32d4c1dff815c7bd160e8",
+    "targetExclusionEnforcedByOriginBuilder": true
+  },
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_VERIFICATION_V1"
+}

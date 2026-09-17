@@ -1,0 +1,616 @@
+{
+  "diagnosticOnly": true,
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_SEGMENTS_V1",
+  "segments": [
+    {
+      "binaryBrierNonTie": 0.23761941215232327,
+      "binaryLogLossNonTie": 0.6677818119152488,
+      "games": 128,
+      "marginMAE": 11.012661598622799,
+      "pooledScoreMAE": 7.381074797362089,
+      "segment": "WEEKS_1_4",
+      "totalMAE": 9.575855381786823,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.23820490251553528,
+      "binaryLogLossNonTie": 0.6690489291784256,
+      "games": 128,
+      "marginMAE": 11.02577020227909,
+      "pooledScoreMAE": 7.40225425362587,
+      "segment": "WEEKS_1_4",
+      "totalMAE": 9.646437183022499,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.23313221730642825,
+      "binaryLogLossNonTie": 0.65784747084856,
+      "games": 128,
+      "marginMAE": 10.900925301015377,
+      "pooledScoreMAE": 7.405711729079485,
+      "segment": "WEEKS_1_4",
+      "totalMAE": 9.633101172745228,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2364741277054017,
+      "binaryLogLossNonTie": 0.6646661432244612,
+      "games": 128,
+      "marginMAE": 11.008055225014687,
+      "pooledScoreMAE": 7.391707748174667,
+      "segment": "WEEKS_1_4",
+      "totalMAE": 9.519058585166931,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22095515975029706,
+      "binaryLogLossNonTie": 0.6321989947877831,
+      "games": 146,
+      "marginMAE": 9.999673549443076,
+      "pooledScoreMAE": 7.083477650603203,
+      "segment": "WEEKS_5_9",
+      "totalMAE": 9.65066188002286,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.2269561904032264,
+      "binaryLogLossNonTie": 0.6451830830310631,
+      "games": 146,
+      "marginMAE": 10.105675958607295,
+      "pooledScoreMAE": 7.172350746311554,
+      "segment": "WEEKS_5_9",
+      "totalMAE": 9.713836003656256,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.23084769855127632,
+      "binaryLogLossNonTie": 0.6537014612276726,
+      "games": 146,
+      "marginMAE": 10.31036535027909,
+      "pooledScoreMAE": 7.211397066508254,
+      "segment": "WEEKS_5_9",
+      "totalMAE": 9.675780217941494,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22513576232578128,
+      "binaryLogLossNonTie": 0.6417451184941724,
+      "games": 146,
+      "marginMAE": 10.152067243236385,
+      "pooledScoreMAE": 7.168281813190408,
+      "segment": "WEEKS_5_9",
+      "totalMAE": 9.58590517305348,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.21719698221914327,
+      "binaryLogLossNonTie": 0.6249871113598684,
+      "games": 270,
+      "marginMAE": 9.948305737530744,
+      "pooledScoreMAE": 7.586514970991346,
+      "segment": "WEEKS_10_PLUS",
+      "totalMAE": 10.994064641881872,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.21271999044772041,
+      "binaryLogLossNonTie": 0.614432357976779,
+      "games": 270,
+      "marginMAE": 9.880500341344762,
+      "pooledScoreMAE": 7.553301465069806,
+      "segment": "WEEKS_10_PLUS",
+      "totalMAE": 11.03890749613444,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.21557269941764215,
+      "binaryLogLossNonTie": 0.6211735007406183,
+      "games": 270,
+      "marginMAE": 9.981065728929307,
+      "pooledScoreMAE": 7.604109244876438,
+      "segment": "WEEKS_10_PLUS",
+      "totalMAE": 11.049101130167644,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2150146982736116,
+      "binaryLogLossNonTie": 0.6202510122911353,
+      "games": 270,
+      "marginMAE": 9.967618642029938,
+      "pooledScoreMAE": 7.59958864318,
+      "segment": "WEEKS_10_PLUS",
+      "totalMAE": 11.04578349855211,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.24241400791494028,
+      "binaryLogLossNonTie": 0.678117456288384,
+      "games": 164,
+      "marginMAE": 10.913315970723222,
+      "pooledScoreMAE": 7.38273832856155,
+      "segment": "LOW_CURRENT_SUPPORT_LT5",
+      "totalMAE": 9.560133096648425,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.24334932426239939,
+      "binaryLogLossNonTie": 0.6801731210309131,
+      "games": 164,
+      "marginMAE": 10.925935210251227,
+      "pooledScoreMAE": 7.405531365696977,
+      "segment": "LOW_CURRENT_SUPPORT_LT5",
+      "totalMAE": 9.645747301055163,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.24096274277160237,
+      "binaryLogLossNonTie": 0.6749223032135098,
+      "games": 164,
+      "marginMAE": 10.874164354510423,
+      "pooledScoreMAE": 7.414646122513748,
+      "segment": "LOW_CURRENT_SUPPORT_LT5",
+      "totalMAE": 9.616519584888366,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2424907521857312,
+      "binaryLogLossNonTie": 0.677934450183088,
+      "games": 164,
+      "marginMAE": 10.9309482981519,
+      "pooledScoreMAE": 7.407349170708075,
+      "segment": "LOW_CURRENT_SUPPORT_LT5",
+      "totalMAE": 9.515601163957177,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.21463691047410322,
+      "binaryLogLossNonTie": 0.6192431115790465,
+      "games": 380,
+      "marginMAE": 9.910083559939736,
+      "pooledScoreMAE": 7.411987545615748,
+      "segment": "ESTABLISHED_CURRENT_SUPPORT_GE5",
+      "totalMAE": 10.619057233710038,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.21355510411239625,
+      "binaryLogLossNonTie": 0.6162719417421956,
+      "games": 380,
+      "marginMAE": 9.901602614553351,
+      "pooledScoreMAE": 7.419831592158268,
+      "segment": "ESTABLISHED_CURRENT_SUPPORT_GE5",
+      "totalMAE": 10.662017059326171,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.21639849166297304,
+      "binaryLogLossNonTie": 0.622827571265282,
+      "games": 380,
+      "marginMAE": 10.031990979847155,
+      "pooledScoreMAE": 7.468164750149375,
+      "segment": "ESTABLISHED_CURRENT_SUPPORT_GE5",
+      "totalMAE": 10.662760408301102,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2142736705822913,
+      "binaryLogLossNonTie": 0.6185752029512114,
+      "games": 380,
+      "marginMAE": 9.973195786225169,
+      "pooledScoreMAE": 7.446819489880612,
+      "segment": "ESTABLISHED_CURRENT_SUPPORT_GE5",
+      "totalMAE": 10.631012126019126,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.18513941763225822,
+      "binaryLogLossNonTie": 0.5541444916093003,
+      "games": 100,
+      "marginMAE": 11.131888046264649,
+      "pooledScoreMAE": 6.973795442581177,
+      "segment": "LARGE_SCHEDULE_MISMATCH",
+      "totalMAE": 8.886381282806397,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.182926605742929,
+      "binaryLogLossNonTie": 0.5484981718504893,
+      "games": 100,
+      "marginMAE": 11.024540462493896,
+      "pooledScoreMAE": 6.971549463272095,
+      "segment": "LARGE_SCHEDULE_MISMATCH",
+      "totalMAE": 8.919224472045899,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.1860713612417432,
+      "binaryLogLossNonTie": 0.5570061551664811,
+      "games": 100,
+      "marginMAE": 11.25631236076355,
+      "pooledScoreMAE": 7.041258788108825,
+      "segment": "LARGE_SCHEDULE_MISMATCH",
+      "totalMAE": 8.881155443191528,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.18508393638945494,
+      "binaryLogLossNonTie": 0.5538883981424084,
+      "games": 100,
+      "marginMAE": 11.247147626876831,
+      "pooledScoreMAE": 6.983536152839661,
+      "segment": "LARGE_SCHEDULE_MISMATCH",
+      "totalMAE": 8.771878213882447,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2056648818892314,
+      "binaryLogLossNonTie": 0.5985110004537941,
+      "games": 160,
+      "marginMAE": 9.947473603487015,
+      "pooledScoreMAE": 7.376971969008446,
+      "segment": "INTERCONFERENCE",
+      "totalMAE": 9.945194107294082,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.20883274306483512,
+      "binaryLogLossNonTie": 0.6051939915678369,
+      "games": 160,
+      "marginMAE": 10.050744444131851,
+      "pooledScoreMAE": 7.418959906697273,
+      "segment": "INTERCONFERENCE",
+      "totalMAE": 9.869222778081895,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.2108614632795852,
+      "binaryLogLossNonTie": 0.609532749570202,
+      "games": 160,
+      "marginMAE": 10.195624810457229,
+      "pooledScoreMAE": 7.509660336375236,
+      "segment": "INTERCONFERENCE",
+      "totalMAE": 9.927560204267502,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.20670541553455285,
+      "binaryLogLossNonTie": 0.6015212607689018,
+      "games": 160,
+      "marginMAE": 10.013992428779602,
+      "pooledScoreMAE": 7.40762260556221,
+      "segment": "INTERCONFERENCE",
+      "totalMAE": 9.821565234661103,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.23023839108315733,
+      "binaryLogLossNonTie": 0.6530257426008479,
+      "games": 384,
+      "marginMAE": 10.322968217233816,
+      "pooledScoreMAE": 7.414085516085227,
+      "segment": "INTRACONFERENCE",
+      "totalMAE": 10.447584686179956,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.22824736940461057,
+      "binaryLogLossNonTie": 0.6481788829694014,
+      "games": 384,
+      "marginMAE": 10.276935564974943,
+      "pooledScoreMAE": 7.414087406049172,
+      "segment": "INTRACONFERENCE",
+      "totalMAE": 10.558316133916378,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.22919656906702843,
+      "binaryLogLossNonTie": 0.6506158720744543,
+      "games": 384,
+      "marginMAE": 10.323488429188728,
+      "pooledScoreMAE": 7.428018008669217,
+      "segment": "INTRACONFERENCE",
+      "totalMAE": 10.522261808315912,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22947815545365144,
+      "binaryLogLossNonTie": 0.6510323573657876,
+      "games": 384,
+      "marginMAE": 10.365237320462862,
+      "pooledScoreMAE": 7.446294409533341,
+      "segment": "INTRACONFERENCE",
+      "totalMAE": 10.491908232371012,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.19311038246713105,
+      "binaryLogLossNonTie": 0.5669761628816754,
+      "games": 38,
+      "marginMAE": 10.910400265141538,
+      "pooledScoreMAE": 7.625142812728882,
+      "segment": "SHORT_REST_EITHER_TEAM",
+      "totalMAE": 10.737852473008004,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.1933942155059143,
+      "binaryLogLossNonTie": 0.5681044402968528,
+      "games": 38,
+      "marginMAE": 10.90838128642032,
+      "pooledScoreMAE": 7.592985441810207,
+      "segment": "SHORT_REST_EITHER_TEAM",
+      "totalMAE": 10.66622465535214,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.19149445769203666,
+      "binaryLogLossNonTie": 0.562699216901939,
+      "games": 38,
+      "marginMAE": 10.948615149447793,
+      "pooledScoreMAE": 7.645561456680298,
+      "segment": "SHORT_REST_EITHER_TEAM",
+      "totalMAE": 10.647704601287842,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.19718195869598967,
+      "binaryLogLossNonTie": 0.5758145587501333,
+      "games": 38,
+      "marginMAE": 11.11369474310624,
+      "pooledScoreMAE": 7.7540483474731445,
+      "segment": "SHORT_REST_EITHER_TEAM",
+      "totalMAE": 10.827344794022409,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22525638091790207,
+      "binaryLogLossNonTie": 0.6422501008731798,
+      "games": 506,
+      "marginMAE": 10.16011929229314,
+      "pooledScoreMAE": 7.3864998544157725,
+      "segment": "ORDINARY_REST",
+      "totalMAE": 10.26692723850959,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.2247257876532003,
+      "binaryLogLossNonTie": 0.6406003181419441,
+      "games": 506,
+      "marginMAE": 10.157991855983207,
+      "pooledScoreMAE": 7.40219308736296,
+      "segment": "ORDINARY_REST",
+      "totalMAE": 10.332317199631643,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.2262302910161564,
+      "binaryLogLossNonTie": 0.6442275979556306,
+      "games": 506,
+      "marginMAE": 10.236110969965637,
+      "pooledScoreMAE": 7.437496509476612,
+      "segment": "ORDINARY_REST",
+      "totalMAE": 10.324793265271092,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22470269515668578,
+      "binaryLogLossNonTie": 0.641025442132375,
+      "games": 506,
+      "marginMAE": 10.197963477123396,
+      "pooledScoreMAE": 7.410954215309837,
+      "segment": "ORDINARY_REST",
+      "totalMAE": 10.25475117905809,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.21732264774077487,
+      "binaryLogLossNonTie": 0.624073131238934,
+      "games": 348,
+      "marginMAE": 10.223283126436431,
+      "pooledScoreMAE": 7.178500803037622,
+      "segment": "BASELINE_HOME_FAVORITE",
+      "totalMAE": 10.072678840023348,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.21613911329680255,
+      "binaryLogLossNonTie": 0.6213066041852779,
+      "games": 348,
+      "marginMAE": 10.211059625121369,
+      "pooledScoreMAE": 7.185219131667038,
+      "segment": "BASELINE_HOME_FAVORITE",
+      "totalMAE": 10.093973028248755,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.21578259500614771,
+      "binaryLogLossNonTie": 0.6207975491478809,
+      "games": 348,
+      "marginMAE": 10.2651577461725,
+      "pooledScoreMAE": 7.214389528351268,
+      "segment": "BASELINE_HOME_FAVORITE",
+      "totalMAE": 10.108925153469217,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.21601872130656646,
+      "binaryLogLossNonTie": 0.6212600351639881,
+      "games": 348,
+      "marginMAE": 10.240658340782955,
+      "pooledScoreMAE": 7.1852353153557615,
+      "segment": "BASELINE_HOME_FAVORITE",
+      "totalMAE": 10.067738815285693,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.23311041767561114,
+      "binaryLogLossNonTie": 0.6599295691846101,
+      "games": 196,
+      "marginMAE": 10.193433897835869,
+      "pooledScoreMAE": 7.802071804902991,
+      "segment": "BASELINE_AWAY_FAVORITE",
+      "totalMAE": 10.70311908332669,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.23389702711457555,
+      "binaryLogLossNonTie": 0.6608011808909559,
+      "games": 196,
+      "marginMAE": 10.209253155455297,
+      "pooledScoreMAE": 7.824422914154676,
+      "segment": "BASELINE_AWAY_FAVORITE",
+      "totalMAE": 10.820236867787887,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.23804578359353634,
+      "binaryLogLossNonTie": 0.6700213658385725,
+      "games": 196,
+      "marginMAE": 10.322676687824483,
+      "pooledScoreMAE": 7.873964353483551,
+      "segment": "BASELINE_AWAY_FAVORITE",
+      "totalMAE": 10.770674559534813,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2347855263522729,
+      "binaryLogLossNonTie": 0.6634761975225453,
+      "games": 196,
+      "marginMAE": 10.299698046275548,
+      "pooledScoreMAE": 7.878238675545673,
+      "segment": "BASELINE_AWAY_FAVORITE",
+      "totalMAE": 10.69780658702461,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.2273357747686161,
+      "binaryLogLossNonTie": 0.6460964247048449,
+      "games": 257,
+      "marginMAE": 9.788007131346468,
+      "pooledScoreMAE": 7.310876573570043,
+      "segment": "LOW_PROJECTED_TOTAL",
+      "totalMAE": 10.49901892146248,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.22467324397084967,
+      "binaryLogLossNonTie": 0.6401684553578909,
+      "games": 257,
+      "marginMAE": 9.781495587835051,
+      "pooledScoreMAE": 7.319040380099405,
+      "segment": "LOW_PROJECTED_TOTAL",
+      "totalMAE": 10.541593054389212,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.22605299408454846,
+      "binaryLogLossNonTie": 0.6428162007375202,
+      "games": 257,
+      "marginMAE": 9.831887564306593,
+      "pooledScoreMAE": 7.371342605190055,
+      "segment": "LOW_PROJECTED_TOTAL",
+      "totalMAE": 10.541518834778307,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.22745832343057745,
+      "binaryLogLossNonTie": 0.6462462014213587,
+      "games": 257,
+      "marginMAE": 9.849473522794849,
+      "pooledScoreMAE": 7.360840775159546,
+      "segment": "LOW_PROJECTED_TOTAL",
+      "totalMAE": 10.519671080177396,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.20969357749907974,
+      "binaryLogLossNonTie": 0.6087101382335031,
+      "games": 146,
+      "marginMAE": 10.15493868475091,
+      "pooledScoreMAE": 7.694695538037444,
+      "segment": "HIGH_PROJECTED_TOTAL",
+      "totalMAE": 11.248555666779819,
+      "variant": "BASELINE"
+    },
+    {
+      "binaryBrierNonTie": 0.21517596648557286,
+      "binaryLogLossNonTie": 0.6204423595351309,
+      "games": 146,
+      "marginMAE": 10.285841602168672,
+      "pooledScoreMAE": 7.803318552774925,
+      "segment": "HIGH_PROJECTED_TOTAL",
+      "totalMAE": 11.44527522831747,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "binaryBrierNonTie": 0.21414548192434682,
+      "binaryLogLossNonTie": 0.6183257359216041,
+      "games": 146,
+      "marginMAE": 10.311353435255077,
+      "pooledScoreMAE": 7.79187370326421,
+      "segment": "HIGH_PROJECTED_TOTAL",
+      "totalMAE": 11.454610759264803,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "binaryBrierNonTie": 0.20990826648344268,
+      "binaryLogLossNonTie": 0.6094764086798449,
+      "games": 146,
+      "marginMAE": 10.232406746851256,
+      "pooledScoreMAE": 7.727218836954195,
+      "segment": "HIGH_PROJECTED_TOTAL",
+      "totalMAE": 11.229305972791698,
+      "variant": "BASELINE_PLUS_RUSH"
+    }
+  ],
+  "sideSegments": [
+    {
+      "segment": "BASELINE_FAVORITE_SIDE",
+      "sideScoreMAE": 7.398307035951054,
+      "teamGameSides": 544,
+      "variant": "BASELINE"
+    },
+    {
+      "segment": "BASELINE_UNDERDOG_SIDE",
+      "sideScoreMAE": 7.408032497938941,
+      "teamGameSides": 544,
+      "variant": "BASELINE"
+    },
+    {
+      "segment": "BASELINE_FAVORITE_SIDE",
+      "sideScoreMAE": 7.455076010788188,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "segment": "BASELINE_UNDERDOG_SIDE",
+      "sideScoreMAE": 7.3759649781619805,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_PASS"
+    },
+    {
+      "segment": "BASELINE_FAVORITE_SIDE",
+      "sideScoreMAE": 7.489208189880147,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "segment": "BASELINE_UNDERDOG_SIDE",
+      "sideScoreMAE": 7.4148527261088875,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_PASS_AND_RUSH"
+    },
+    {
+      "segment": "BASELINE_FAVORITE_SIDE",
+      "sideScoreMAE": 7.422906181391547,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_RUSH"
+    },
+    {
+      "segment": "BASELINE_UNDERDOG_SIDE",
+      "sideScoreMAE": 7.446934517692117,
+      "teamGameSides": 544,
+      "variant": "BASELINE_PLUS_RUSH"
+    }
+  ]
+}
