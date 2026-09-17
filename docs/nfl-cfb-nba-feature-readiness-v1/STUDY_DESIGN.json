@@ -1,0 +1,32 @@
+{
+  "identity": "NFL_CFB_NBA_FEATURE_READINESS_STUDY_DESIGN_V1",
+  "status": "FROZEN_BEFORE_NEW_TARGET_ACCESS",
+  "seed": 9172601,
+  "calendarCutoffExclusiveUtc": "2026-01-01T00:00:00Z",
+  "inputs": {
+    "NFL": {"sha256": "30737340c0b75d2c39ccd64a08137fbc77f766753cabbdc669902117df229427", "rows": 6695, "maxAuditSeason": 2024},
+    "CFB": {"sha256": "03f33aee8e8882f71e87dd20267f51c339dce7bb91c1063290dc86e508d3458b", "rows": 7744, "maxAuditSeason": 2024},
+    "NBA": {"sha256": "680ffe438bed958456743993b9f20a05ac2f0b04a6d07bc235aa842a1a27277a", "rows": 6952, "maxAuditSeason": 2025}
+  },
+  "roles": {
+    "Development": {"NFL": [2022], "CFB": [2021, 2022], "NBA": [2021, 2022, 2023]},
+    "ReusedLaterDiagnostic": {"NFL": [2023, 2024], "CFB": [2023, 2024], "NBA": [2024, 2025]}
+  },
+  "candidates": {
+    "NFL": ["BASELINE", "MISSINGNESS", "COLD_START", "OPPONENT_ADJUSTED_EPA", "COMBINED"],
+    "CFB": ["BASELINE", "MISSINGNESS", "COLD_START", "OPPONENT_SCHEDULE_ADJUSTED", "COMBINED"],
+    "NBA": ["BASELINE", "MISSINGNESS", "COLD_START", "REST_DENSITY_INTERACTIONS", "COMBINED"]
+  },
+  "primaryMetrics": ["scoreMAE", "marginMAE", "totalMAE"],
+  "uncertainty": {"unit": "calendar_week", "method": "paired_block_bootstrap", "replicates": 2000},
+  "coldStartThresholdGames": 5,
+  "shrinkagePriorStrengthGames": 5,
+  "materialDegradationPoints": 0.15,
+  "authority": "RESEARCH_ONLY_NO_MODEL_PROMOTION",
+  "qualifications": [
+    "All assessment evidence was previously inspected and is not untouched OOT.",
+    "Historical finalized source revisions acquired later do not certify original publication timing.",
+    "No calendar-2026 outcome is eligible.",
+    "The earlier NFL discovery access exception remains disclosed; its rejected input is not used here."
+  ]
+}
