@@ -634,7 +634,7 @@ def assess(output: Path) -> None:
     }
     write_json(DOC / "EXPERIMENT_RESULTS.json", results)
     write_json(DOC / "UNCERTAINTY_RESULTS.json", {"identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_CLUSTERED_UNCERTAINTY_V1", "cluster": "season-calendar-week", "replicates": 2000, "results": deltas})
-    write_json(DOC / "SEGMENT_RESULTS.json", {"identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_SEGMENTS_V1", "diagnosticOnly": True, "segments": segments})
+    write_json(DOC / "SEGMENT_RESULTS.json", {"identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_SEGMENTS_V1", "diagnosticOnly": True, "segments": segments["gameSegments"], "sideSegments": segments["sideSegments"]})
     write_json(DOC / "ASSESSMENT.json", assessment)
     write_json(DOC / "FIGURE_INDEX.json", {"figures": figures})
     output.mkdir(parents=True, exist_ok=True)
@@ -666,7 +666,7 @@ def verify(output: Path) -> None:
             "gameCoverage": True,
             "predictorCompleteness": True,
             "noCalendar2026OutcomeRead": True,
-            "targetExclusionEnforcedByOriginBuilder": True,
+            "targetExclusionEnforcedByOriginBuilder": True,`n            "franchiseAliasesCanonicalizedUpstream": not bool(set(sidecar.home_team) | set(sidecar.away_team) & {"OAK", "SD", "STL", "LA"}),
             "deterministicSampleSha256": deterministic,
             "externalCalls": 0,
             "providerCostUsd": 0.0,
@@ -690,4 +690,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
