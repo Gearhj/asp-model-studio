@@ -97,6 +97,13 @@ class PlayerPropCollector:
         self._class = {name: index for index, name in enumerate(PA_CLASS_ORDER)}
         self._finalized = False
 
+    def allocated_bytes(self) -> int:
+        """Exact NumPy storage allocated by the passive collector."""
+        return int(sum(value.nbytes for value in (
+            self.batters, self.starters, self.anonymous_relief,
+            self.outcomes, self._last_pa,
+        )))
+
     def __call__(self, simulation: int, event: Mapping[str, Any]) -> None:
         if self._finalized:
             raise PlayerPropSidecarError("COLLECTOR_FINALIZED", "events cannot follow finalization")

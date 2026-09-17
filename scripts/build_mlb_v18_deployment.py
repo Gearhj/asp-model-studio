@@ -141,9 +141,10 @@ def ensure_junction(link: Path, target: Path):
         raise ValueError(f"Windows did not create the intended deployment junction: {link}")
 
 
-def build(repository: Path, *, plan_only: bool = False) -> dict:
+def build(repository: Path, *, commit: str | None = None, plan_only: bool = False) -> dict:
     repository = repository.resolve(strict=True)
-    commit = git_bytes(repository, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+    requested_commit = commit or "HEAD"
+    commit = git_bytes(repository, "rev-parse", "--verify", requested_commit + "^{commit}").decode().strip()
     selected = select_committed_files(repository, commit)
     code_root = repository / ".deployments" / "mlb-v18-unattended" / commit
     ancestor = repository
@@ -206,9 +207,10 @@ def build(repository: Path, *, plan_only: bool = False) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--commit", help="Reviewed commit/ref to snapshot without changing the working checkout")
     parser.add_argument("--plan-only", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(build(args.repository_root, plan_only=args.plan_only), indent=2))
+    print(json.dumps(build(args.repository_root, commit=args.commit, plan_only=args.plan_only), indent=2))
 
 
 if __name__ == "__main__":

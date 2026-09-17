@@ -26,6 +26,15 @@ from .mlb_v18_current_slate import ROOT, load_contract, reference, sha_file, utc
 from .mlb_v18_whole_game_challenger import (
     V18StateProbabilityProvider, compose_raw_template, simulate_prospective_game,
 )
+from .mlb_v18_player_prop_sidecar import PlayerPropCollector
+from .mlb_v18_player_prop_prospective_capture import (
+    FailOpenPlayerPropObserver,
+    OUTPUT_NAME as PLAYER_PROP_CAPTURE_OUTPUT_NAME,
+    existing_capture as existing_player_prop_capture,
+    finalize_and_register as finalize_player_prop_capture,
+    planned_forecast_manifest,
+    write_failure_receipt as write_player_prop_capture_failure,
+)
 
 OUTPUT = (ROOT / "outputs/mlb-v18-current-state-pipeline-v1").resolve()
 RESEARCH = {**daily.RESEARCH_FLAGS, "status": "RESEARCH_SHADOW"}
@@ -496,7 +505,13 @@ class CurrentV18Engine:
         args = dict(game_id=str(snapshot["game"]["game_id"]), provider=provider,
             transition_model=self.transition, master_seed=daily.MASTER_SEED,
             regulation=int(snapshot["game"].get("scheduled_innings") or 9), trace_count=1)
-        population = simulate_prospective_game(**args, n_sims=daily.SIMULATION_COUNT)
+        player_prop_collector = PlayerPropCollector(daily.SIMULATION_COUNT)
+        player_prop_observer = FailOpenPlayerPropObserver(player_prop_collector)
+        observer_started = time.perf_counter()
+        population = simulate_prospective_game(
+            **args, n_sims=daily.SIMULATION_COUNT, event_observer=player_prop_observer,
+        )
+        observer_seconds = time.perf_counter() - observer_started
         progress("ACCEPTED_5000_GAME_SIMULATION_COMPLETED")
         a = simulate_prospective_game(**args, n_sims=64)
         b = simulate_prospective_game(**args, n_sims=64)
@@ -557,10 +572,26 @@ class CurrentV18Engine:
             "representativePath": {"schemaVersion": "MLB_V18_DAILY_REPRESENTATIVE_PATH_V1",
                 "gameId": forecast["gameId"], "simulationIndex": 0, "events": population["traces"][0]}})
         daily.validate_forecast_payload(snapshot, payload)
+        # Private in-process transport only.  The caller removes this object
+        # before computing or writing any immutable forecast member.
+        payload["_playerPropCapture"] = {
+            "collector": player_prop_collector,
+            "observerFailureCategory": player_prop_observer.failure_category,
+            "observerSeconds": observer_seconds,
+        }
         return payload
 
 
-def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=None):
+def _player_prop_capture_root(forecast_root, override=None):
+    if override is not None:
+        return Path(override)
+    root = Path(forecast_root)
+    if root.name == OUTPUT.name:
+        return root.parent / PLAYER_PROP_CAPTURE_OUTPUT_NAME
+    return root / "_player-prop-prospective-capture"
+
+
+def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=None, player_prop_capture_root=None):
     """Always retain raw246 and reason evidence; never execute an unsupported row."""
     root = Path(output_root)
     if composition.get("canSimulate") and not composition.get("blockers"):
@@ -591,15 +622,27 @@ def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=N
     existing = _reuse_numerical_forecast(root, numeric, snapshot, contract)
     if existing:
         pointer, forecast = existing
+        try:
+            capture = existing_player_prop_capture(
+                _player_prop_capture_root(root, player_prop_capture_root), pointer["objectSha256"]
+            )
+            capture_status = ({"status": "EXISTING_PROSPECTIVE_CAPTURE_REUSED",
+                "package": capture["package"]} if capture else
+                {"status": "NO_PROSPECTIVE_CAPTURE_NO_REPLAY_AUTHORIZED"})
+        except Exception as exc:
+            capture_status = {"status": "EXISTING_CAPTURE_LOOKUP_FAILED_FORECAST_REUSE_CONTINUES",
+                "category": getattr(exc, "code", type(exc).__name__)}
         return {**result, **pointer, "status": "UNCHANGED_NUMERICAL_FORECAST_REUSED", "newInference": False,
                 "forecastCreatedAt": forecast["forecastCreatedAt"], "capturedAt": forecast["capturedAt"],
                 "evidenceCutoff": _forecast_evidence_cutoff(forecast),
-                "scheduledStart": forecast["scheduledStart"]}
+                "scheduledStart": forecast["scheduledStart"],
+                "playerPropCapture": capture_status}
     _require_publication_window(snapshot)
     active_engine = engine or CurrentV18Engine()
     enriched_snapshot = {**snapshot, "currentStateEvidenceIdentity": identity}
     enriched_snapshot["contentSha256"] = daily.sha_json(daily.json_safe({k:v for k,v in enriched_snapshot.items() if k != "contentSha256"}))
     payload = active_engine.forecast(enriched_snapshot, composition, record)
+    private_capture = payload.pop("_playerPropCapture", None)
     # Enforce the publication deadline again at the immutable-write boundary,
     # even when a caller supplies an engine implementation.
     forecast = payload["forecast"]
@@ -607,7 +650,42 @@ def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=N
             or not utc(snapshot["capturedAt"]) <= utc(forecast["forecastCreatedAt"]) < utc(snapshot["game"]["starts_at"])):
         raise daily.DailySlateError("GAME_STARTED_DURING_EXECUTION", "No retroactive pregame publication is authorized")
     _require_publication_window(snapshot)
+    planned_manifest = planned_forecast_manifest(enriched_snapshot, payload)
+    capture_root = _player_prop_capture_root(root, player_prop_capture_root)
+    capture_result, capture_failure = None, None
+    if private_capture is not None:
+        try:
+            if private_capture.get("observerFailureCategory") is not None:
+                raise ValueError("PLAYER_PROP_OBSERVER_FAILED_" + str(private_capture["observerFailureCategory"]))
+            capture_result = finalize_player_prop_capture(
+                collector=private_capture["collector"],
+                forecast_manifest=planned_manifest,
+                payload=payload,
+                output_root=capture_root,
+                observer_seconds=private_capture.get("observerSeconds"),
+            )
+        except Exception as exc:
+            capture_failure = getattr(exc, "code", type(exc).__name__)
+    if datetime.now(timezone.utc) >= utc(snapshot["game"]["starts_at"]):
+        raise daily.DailySlateError("GAME_STARTED_DURING_EXECUTION", "No retroactive pregame publication is authorized")
     pointer = daily._publish_game(root, enriched_snapshot, payload)
+    if pointer["objectSha256"] != planned_manifest["objectSha256"]:
+        raise daily.DailySlateError("PERSISTENCE_PUBLICATION_FAILURE",
+            "published object identity differs from the pre-write forecast identity")
+    if capture_failure is not None:
+        try:
+            capture_result = write_player_prop_capture_failure(
+                output_root=capture_root,
+                game_id=str(snapshot["game"]["game_id"]),
+                forecast_object_sha256=pointer["objectSha256"],
+                category=str(capture_failure),
+            )
+        except Exception as failure_exc:
+            capture_result = {"status": "PLAYER_PROP_CAPTURE_AND_FAILURE_RECEIPT_FAILED_FORECAST_CONTINUES",
+                "category": str(capture_failure),
+                "failureReceiptCategory": getattr(failure_exc, "code", type(failure_exc).__name__)}
+    elif private_capture is None:
+        capture_result = {"status": "ENGINE_DID_NOT_ATTACH_PLAYER_PROP_OBSERVER"}
     pointer_path = root / "numerical-keys-v2" / f"{numeric}.json"
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     with pointer_path.open("x", encoding="utf-8") as stream:
@@ -615,7 +693,7 @@ def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=N
     return {**result, **pointer, "newInference": pointer["status"] == "PUBLISHED", "blockers": [],
             "forecastCreatedAt": forecast["forecastCreatedAt"], "capturedAt": forecast["capturedAt"],
             "evidenceCutoff": _forecast_evidence_cutoff(forecast),
-            "scheduledStart": forecast["scheduledStart"]}
+            "scheduledStart": forecast["scheduledStart"], "playerPropCapture": capture_result}
 
 
 def current_handoff(root, slate_date, forecasts, *, games=None):
