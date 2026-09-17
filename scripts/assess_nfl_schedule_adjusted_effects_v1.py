@@ -487,7 +487,7 @@ def freeze_development(output: Path) -> None:
     sidecar_path = output / "schedule-adjusted-features.parquet"
     sidecar.to_parquet(sidecar_path, index=False)
     # Only Development and earlier scores are read in this stage.
-    frame = assessment_frame(2022).merge(sidecar, on=["game_id", "season", "week", "home_team", "away_team"], validate="one_to_one")
+    frame = assessment_frame(2022).merge(sidecar, on=["game_id", "season", "week", "home_team", "away_team"], validate="one_to_one").sort_values(["game_date", "game_id"]).reset_index(drop=True)
     summaries, rows, model_runtime = run_seasons(frame, [2022])
     baseline = rows[rows.variant.eq("BASELINE")]
     dev_features = sidecar[sidecar.season.astype(int).isin([2020, 2021, 2022])]
@@ -597,7 +597,7 @@ def assess(output: Path) -> None:
     sidecar_path = Path(receipt["sidecar"]["path"])
     verify_file(sidecar_path, receipt["sidecar"]["sha256"])
     sidecar = pd.read_parquet(sidecar_path)
-    frame = assessment_frame(2024).merge(sidecar, on=["game_id", "season", "week", "home_team", "away_team"], validate="one_to_one")
+    frame = assessment_frame(2024).merge(sidecar, on=["game_id", "season", "week", "home_team", "away_team"], validate="one_to_one").sort_values(["game_date", "game_id"]).reset_index(drop=True)
     conferences = read_conferences()
     frame["interconference"] = frame.home_team.map(conferences).ne(frame.away_team.map(conferences))
     summaries, rows, runtime = run_seasons(frame, [2022, 2023, 2024])
@@ -690,3 +690,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
