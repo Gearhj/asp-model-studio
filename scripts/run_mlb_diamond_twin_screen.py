@@ -342,6 +342,18 @@ def game_proxy(dev: pd.DataFrame, assess: pd.DataFrame, baseline: np.ndarray, ca
     delta_win = games["candidateHomeWinProbability"] - games["baselineHomeWinProbability"]
     delta_away = games["candidateExpectedAway"] - games["baselineExpectedAway"]
     delta_home = games["candidateExpectedHome"] - games["baselineExpectedHome"]
+    base_p = games["baselineHomeWinProbability"].to_numpy()
+    candidate_p = games["candidateHomeWinProbability"].to_numpy()
+    game_differences = np.column_stack([
+        -(actual_home_win * np.log(np.clip(candidate_p, 1e-15, 1)) + (1 - actual_home_win) * np.log(np.clip(1 - candidate_p, 1e-15, 1)))
+        + (actual_home_win * np.log(np.clip(base_p, 1e-15, 1)) + (1 - actual_home_win) * np.log(np.clip(1 - base_p, 1e-15, 1))),
+        np.square(candidate_p - actual_home_win) - np.square(base_p - actual_home_win),
+        np.abs(games["candidateExpectedHome"].to_numpy() - games["actualHome"].to_numpy()) - np.abs(games["baselineExpectedHome"].to_numpy() - games["actualHome"].to_numpy()),
+        np.abs(games["candidateExpectedAway"].to_numpy() - games["actualAway"].to_numpy()) - np.abs(games["baselineExpectedAway"].to_numpy() - games["actualAway"].to_numpy()),
+        np.abs(games["candidateExpectedTotal"].to_numpy() - actual_total) - np.abs(games["baselineExpectedTotal"].to_numpy() - actual_total),
+        np.abs(games["candidateExpectedMargin"].to_numpy() - actual_margin) - np.abs(games["baselineExpectedMargin"].to_numpy() - actual_margin),
+    ])
+    game_dates = games["canonicalGameId"].map(assess.groupby("canonicalGameId")["game_date"].first())
     result = {
         "status": "RETROSPECTIVE_FIXED_REALIZED_PA_EXPOSURE_PROXY_NOT_PREGAME_FORECAST",
         "developmentGamesForMapping": int(len(dev_games)),
@@ -349,6 +361,13 @@ def game_proxy(dev: pd.DataFrame, assess: pd.DataFrame, baseline: np.ndarray, ca
         "homeWinMapping": {"intercept": float(win_map[0]), "slope": float(win_map[1])},
         "baseline": metrics("baseline"),
         "candidate": metrics("candidate"),
+        "pairedUncertainty": bootstrap_dates(
+            game_dates.to_numpy(),
+            game_differences,
+            ["winnerLogLoss", "winnerBrier", "homeScoreMae", "awayScoreMae", "totalMae", "marginMae"],
+            2000,
+            20260927,
+        ),
         "materiality": {
             "meanAbsoluteTeamExpectedRunChange": float(np.mean(np.abs(np.concatenate([delta_away, delta_home])))),
             "meanAbsoluteGameExpectedTotalChange": float(np.abs(delta_away + delta_home).mean()),
@@ -364,7 +383,7 @@ def game_proxy(dev: pd.DataFrame, assess: pd.DataFrame, baseline: np.ndarray, ca
         },
         "jointDistributionMetrics": None,
     }
-    games["gameDate"] = games["canonicalGameId"].map(assess.groupby("canonicalGameId")["game_date"].first())
+    games["gameDate"] = game_dates
     return games, result
 
 
