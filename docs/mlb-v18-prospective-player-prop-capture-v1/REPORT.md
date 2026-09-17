@@ -2,15 +2,15 @@
 
 ## Disposition
 
-`IMPLEMENTED_AND_VERIFIED_AWAITING_PRODUCTION_ACTIVATION`
+`ACTIVATED_AWAITING_FIRST_ELIGIBLE_CAPTURE`
 
 The passive named-player observer is implemented on the actual MLB V18 owner
-lineage, packaged as a content-addressed deployment, and verified against a
-retained immutable 5,000-draw V18 forecast. Activation was not completed in
-this session: automatic approval review rejected the persistent scheduled-task
-and runtime-manifest replacement. The live owner therefore remains deployment
-`77d39e1ae08e05be82e19bdb0bab21999fba1d3b`; no claim is made that prospective
-capture is operational yet.
+lineage, packaged as a content-addressed deployment, verified against a
+retained immutable 5,000-draw V18 forecast, and activated through the supported
+installer after explicit authorization. The live owner is deployment
+`b8cae23dde745d0d5f5cf4d160b4970d2892c38b`. Deployment
+`77d39e1ae08e05be82e19bdb0bab21999fba1d3b` and its manifest remain the verified
+rollback target.
 
 ## Owner reconciliation
 
@@ -33,8 +33,16 @@ C:\Users\james\asp-model-studio\.deployments\mlb-v18-unattended\b8cae23dde745d0d
 
 The supported installer's Plan mode passed with one existing canonical owner,
 920 hashed code files, the expected S4U identity, and the same five-minute
-schedule. Install mode made no changes because automatic approval review
-rejected the persistent owner update.
+schedule. The first guarded install request correctly demanded `-Force`; the
+non-administrator attempt then failed closed and restored 77d. The explicitly
+authorized Administrator `Install -Force` invocation completed with exit code
+0 at manifest preparation time `2026-09-17T02:12:03.3202457Z`.
+
+Post-install verification found exactly one owner. The task action and runtime
+manifest both bind b8cae23, manifest SHA-256
+`3018217630357316ce2069ec57ed76be836dc02bc9756cd2e39ee5c4bde7798c`.
+S4U, least privilege, two triggers, `StartWhenAvailable`, `IgnoreNew`, and the
+T-60/T-45/T-30/T-15/T-5 timing contract are preserved.
 
 ## Capture path
 
@@ -138,7 +146,7 @@ earlier rerun occurred before test execution and were corrected.
 - Forecast publications caused by this work: `0`.
 
 Natural invocations of the pre-existing 77d owner continued independently and
-completed with task result 0 while this work was staged. The post-attempt tick
+completed with task result 0 while this work was staged. The pre-activation tick
 from `2026-09-17T01:43:56.464505Z` through `01:44:07.005493Z` is
 `BOUNDED_TICK_COMPLETED`, SHA-256
 `4d788ce1719908f5513100093a4ac91c4b72c80fb89d68911195786a3d9bd7d1`.
@@ -146,12 +154,24 @@ It records one `SCHEDULE_IDENTITIES_ONLY` request, zero paid-provider calls,
 zero cost, and zero AISP writes; response bytes are not reported in that
 receipt. It binds 77d and is not evidence that the successor observer ran.
 
+Two b8cae23 invocations then ran naturally at `02:13:13Z` and `02:18:18Z`.
+Windows task result and the immutable launcher receipt both report exit code 0.
+The launcher receipt SHA-256 is
+`2bdf4f0a907a63550d82a28b4cc69ac95108bbf73a0d96369cb66a4bd1f6e4d9`.
+Both ticks authenticated the successor manifest and returned
+`NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY`; their tick SHA-256 values are
+`a9a1fd2a64a2820af980e135094f57388d9f02aa8c4b42e9dd8887ffd5b74014`
+and `3cc12f14a535e01ae79467bf42c03b864a31f97dfa395e9ae096c7d70feaee95`.
+This is the correct successful terminal state outside the T-60 window, so a
+successor `BOUNDED_TICK_COMPLETED` receipt was not available during this bounded
+observation. Neither tick made provider calls, published a forecast, created a
+capture, or exercised the observer. No observer failure occurred.
+
 ## Remaining dependency
 
-One explicit authorization is required to run the supported installer in
-`Install` mode for deployment `b8cae23...`. After that change, the next natural
-scheduled invocation must be observed without manual start. Success requires
-the exact successor manifest, one canonical owner, launcher
-`python_exit_code=0`, `BOUNDED_TICK_COMPLETED`, and no observer failure. The
-first real capture then remains dependent on a future eligible new V18 forecast
-with complete pregame evidence before first pitch.
+Activation is complete. The first real capture remains dependent on a future
+eligible new V18 forecast with complete pregame evidence before first pitch.
+The first natural tick inside a governed window should be checked for
+`BOUNDED_TICK_COMPLETED`; this observation must not be manufactured by a manual
+start. A no-due tick or unchanged pre-activation forecast remains a valid
+zero-capture state and is not a rollback condition.

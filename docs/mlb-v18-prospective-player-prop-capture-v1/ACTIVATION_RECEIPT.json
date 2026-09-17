@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "MLB_V18_PROSPECTIVE_PLAYER_PROP_CAPTURE_ACTIVATION_RECEIPT_V1",
+  "status": "ACTIVATED_AWAITING_FIRST_ELIGIBLE_CAPTURE",
+  "installedDeployment": "b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
+  "installedCodeRoot": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
+  "runtimeManifest": {
+    "path": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-unattended\\deployment.json",
+    "sha256": "3018217630357316ce2069ec57ed76be836dc02bc9756cd2e39ee5c4bde7798c",
+    "preparedAtUtc": "2026-09-17T02:12:03.3202457Z"
+  },
+  "task": {
+    "name": "ASP MLB V18 Research Publisher",
+    "ownerMarker": "ASP_MLB_V18_UNATTENDED_OWNER_V1",
+    "ownerCount": 1,
+    "logonType": "S4U",
+    "runLevel": "LeastPrivilege",
+    "multipleInstances": "IgnoreNew",
+    "startWhenAvailable": true,
+    "triggerCount": 2,
+    "schedule": "BOOT_PLUS_ONE_MINUTE_AND_EVERY_FIVE_MINUTES",
+    "manualStartUsed": false
+  },
+  "launcher": {
+    "readyReceiptPath": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-unattended\\launcher-receipts\\655979c9e81968a7aa53f060afa9314e86cb24e95a6c8435b0bd84467ec28ae3.json",
+    "readyReceiptSha256": "621f1c331e047bfc93c8060c2ba512e4dbe5ad6311c363686e6cb93e0bbf86e1",
+    "readyReceiptBytes": 1057,
+    "completedReceiptPath": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-unattended\\launcher-receipts\\f21c759d6cc857ba9059d841232541b7e7288cac7595e8f24ec6c9a276a6192e.json",
+    "completedReceiptSha256": "2bdf4f0a907a63550d82a28b4cc69ac95108bbf73a0d96369cb66a4bd1f6e4d9",
+    "completedReceiptBytes": 860,
+    "completedAtUtc": "2026-09-17T02:13:27.4829945Z",
+    "pythonExitCode": 0,
+    "codeValidated": true,
+    "processTreeGuarded": true,
+    "hashedCodeFiles": 920
+  },
+  "naturalInvocations": [
+    {
+      "tickPath": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-unattended-v1\\objects\\sha256\\a9a1fd2a64a2820af980e135094f57388d9f02aa8c4b42e9dd8887ffd5b74014\\tick.json",
+      "tickSha256": "a9a1fd2a64a2820af980e135094f57388d9f02aa8c4b42e9dd8887ffd5b74014",
+      "tickBytes": 2015,
+      "startedAt": "2026-09-17T02:13:26.787370+00:00",
+      "completedAt": "2026-09-17T02:13:26.917296+00:00",
+      "status": "NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY"
+    },
+    {
+      "tickPath": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-unattended-v1\\objects\\sha256\\3cc12f14a535e01ae79467bf42c03b864a31f97dfa395e9ae096c7d70feaee95\\tick.json",
+      "tickSha256": "3cc12f14a535e01ae79467bf42c03b864a31f97dfa395e9ae096c7d70feaee95",
+      "tickBytes": 2015,
+      "startedAt": "2026-09-17T02:18:21.395065+00:00",
+      "completedAt": "2026-09-17T02:18:21.447930+00:00",
+      "status": "NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY"
+    }
+  ],
+  "observation": {
+    "disposition": "NO_ELIGIBLE_FORECAST_OUTSIDE_GOVERNED_WINDOW",
+    "boundedTickCompletedObserved": false,
+    "boundedTickQualification": "NO_DUE_PATH_USES_A_DISTINCT_SUCCESSFUL_TERMINAL_STATUS",
+    "prospectiveCaptureCount": 0,
+    "captureRootCreated": false,
+    "observerFailureCount": 0,
+    "ordinaryForecastPath": "NOT_EXERCISED_NO_ELIGIBLE_FORECAST",
+    "forecastPublicationFailureCount": 0
+  },
+  "operationsAcrossObservedSuccessorTicks": {
+    "providerCalls": 0,
+    "paidProviderCalls": 0,
+    "providerBytes": 0,
+    "providerCostUsd": 0,
+    "aispWrites": 0,
+    "exchangeWrites": 0,
+    "outcomeReads": 0,
+    "sealedReads": 0,
+    "modelFits": 0,
+    "forecastPublications": 0
+  },
+  "timingContractMinutesBeforeStart": {
+    "producerChecksBegin": 60,
+    "producerDeliveryTarget": 45,
+    "consumerFinalPregameWindowOpens": 30,
+    "consumerDecisionCutoff": 15,
+    "producerResearchPublicationCutoff": 5
+  },
+  "rollback": {
+    "deployment": "77d39e1ae08e05be82e19bdb0bab21999fba1d3b",
+    "preservedManifestPath": "C:\\Users\\james\\asp-model-studio\\.runtime\\mlb-v18-unattended\\deployment.previous-20260917T0212050542973Z.json",
+    "manifestSha256": "8bf005eeff64388cefa356e55815c4f24f938a22d66a27339b074cb79e7d3a6e",
+    "requiredNow": false,
+    "reason": "INSTALL_AND_NATURAL_NO_DUE_INVOCATIONS_SUCCEEDED"
+  },
+  "authority": {
+    "researchOnly": true,
+    "outcomeAccess": false,
+    "sealedAccess": false,
+    "aispWrite": false,
+    "exchangePublication": false,
+    "calibrationFit": false,
+    "modelPromotion": false,
+    "wagering": false
+  }
+}

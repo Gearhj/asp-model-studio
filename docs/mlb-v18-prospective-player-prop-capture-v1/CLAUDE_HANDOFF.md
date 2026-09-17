@@ -2,15 +2,14 @@
 
 ## Current consumer disposition
 
-No AISP import or display action is authorized. The producer increment is a
-private, outcome-free prospective evidence observer. It does not publish a
-player-prop probability, fair price, edge, decision, position, or exchange
+No AISP import or display action is authorized. The producer increment is an
+active private, outcome-free prospective evidence observer. It does not publish
+a player-prop probability, fair price, edge, decision, position, or exchange
 package.
 
-The source and inactive deployment are verified, but production activation is
-still pending explicit approval after automatic approval review rejected the
-persistent scheduled-task update. The live owner remains deployment
-`77d39e1...`; therefore AISP must not infer that captures exist.
+The live owner now binds deployment `b8cae23...`. Two successful natural ticks
+were outside the governed forecast window, so no capture exists yet. AISP must
+not infer that activation itself produced evidence.
 
 ## What may be stated
 
@@ -36,8 +35,8 @@ an AISP probability or downstream decision authority from this capture work.
 
 ## Future producer reference
 
-After authorized activation and a natural successful tick, private producer
-objects will be discoverable under:
+When the first eligible new forecast is produced, private producer objects will
+be discoverable under:
 
 ```
 C:\Users\james\asp-model-studio\outputs\mlb-v18-player-prop-prospective-v1

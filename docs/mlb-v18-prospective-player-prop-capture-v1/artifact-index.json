@@ -1,6 +1,6 @@
 {
   "schemaVersion": "MLB_V18_PROSPECTIVE_PLAYER_PROP_CAPTURE_ARTIFACT_INDEX_V1",
-  "status": "IMPLEMENTED_AND_VERIFIED_AWAITING_PRODUCTION_ACTIVATION",
+  "status": "ACTIVATED_AWAITING_FIRST_ELIGIBLE_CAPTURE",
   "branch": "codex/mlb-v18-prospective-player-prop-capture-v1",
   "sourceBaseCommit": "9dd26941241a9beb1146c2c77a43a066b8199281",
   "deploymentCodeCommit": "b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
@@ -36,10 +36,21 @@
     "accountingAllPassed": true
   },
   "activation": {
+    "activationReceipt": {
+      "path": "docs/mlb-v18-prospective-player-prop-capture-v1/ACTIVATION_RECEIPT.json",
+      "sha256": "59c89f0d8248c00f87726e83c011d131ff819106d86d88bd6cf7626457899a46",
+      "bytes": 4388
+    },
     "planPassed": true,
-    "installCompleted": false,
-    "blocker": "AUTOMATIC_APPROVAL_REVIEW_REJECTED_PERSISTENT_TASK_AND_MANIFEST_REPLACEMENT",
-    "naturalSuccessorInvocationObserved": false,
+    "installCompleted": true,
+    "installedAtManifestClock": "2026-09-17T02:12:03.3202457Z",
+    "installedManifestSha256": "3018217630357316ce2069ec57ed76be836dc02bc9756cd2e39ee5c4bde7798c",
+    "explicitForceReplacementAuthorized": true,
+    "naturalSuccessorInvocationObserved": true,
+    "launcherReceiptSha256": "2bdf4f0a907a63550d82a28b4cc69ac95108bbf73a0d96369cb66a4bd1f6e4d9",
+    "pythonExitCode": 0,
+    "successorBoundedTickCompletedObserved": false,
+    "boundedTickQualification": "TWO_NATURAL_INVOCATIONS_WERE_OUTSIDE_GOVERNED_WINDOW_AND_RETURNED_NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY",
     "prospectiveCaptureCount": 0
   },
   "postAttemptOwnerVerification": {
@@ -75,5 +86,21 @@
     "sealedReads": 0,
     "modelFits": 0,
     "forecastPublications": 0
-  }
+  },
+  "successorNaturalInvocations": [
+    {
+      "startedAt": "2026-09-17T02:13:26.787370+00:00",
+      "completedAt": "2026-09-17T02:13:26.917296+00:00",
+      "tickSha256": "a9a1fd2a64a2820af980e135094f57388d9f02aa8c4b42e9dd8887ffd5b74014",
+      "tickBytes": 2015,
+      "status": "NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY"
+    },
+    {
+      "startedAt": "2026-09-17T02:18:21.395065+00:00",
+      "completedAt": "2026-09-17T02:18:21.447930+00:00",
+      "tickSha256": "3cc12f14a535e01ae79467bf42c03b864a31f97dfa395e9ae096c7d70feaee95",
+      "tickBytes": 2015,
+      "status": "NOT_DUE_NO_PROVIDER_OR_MODEL_ACTIVITY"
+    }
+  ]
 }

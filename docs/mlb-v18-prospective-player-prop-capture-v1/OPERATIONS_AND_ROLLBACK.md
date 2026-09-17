@@ -13,18 +13,20 @@ Plan must report exactly one canonical task, S4U, least privilege, the five-
 minute trigger, `IgnoreNew`, and the b8cae23 code root. Wait for task state
 `Ready`; never interrupt or manually start the task.
 
-## Activate after explicit approval
+## Activated owner
 
-Run the same supported script with `-Mode Install`. Do not create another task.
-The installer preserves a predecessor manifest and updates only the canonical
-task and shared deployment manifest. Then wait for a natural trigger.
+The supported installer completed with `-Mode Install -Force` after explicit
+authorization and Administrator elevation. It preserved a predecessor manifest
+and updated only the canonical task and shared deployment manifest. Do not
+repeat installation merely to refresh clocks or receipts.
 
-Verify all of the following before calling the observer operational:
+The following activation checks passed:
 
 - deployment manifest and task action bind b8cae23 exactly;
 - only `ASP MLB V18 Research Publisher` owns this workflow;
 - the natural launcher receipt reports `python_exit_code=0`;
-- the tick receipt reports `BOUNDED_TICK_COMPLETED` and the successor identity;
+- two natural no-due ticks bind the successor identity; a normal
+  `BOUNDED_TICK_COMPLETED` remains pending the first governed window;
 - the existing T-60/T-45/T-30/T-15/T-5 contract remains present;
 - no duplicate 5,000-draw inference was run for unchanged inputs;
 - ordinary forecast artifacts remain immutable;
