@@ -136,8 +136,9 @@ def test_capture_is_dry_by_default_and_synthetic_execution_is_idempotent(tmp_pat
         execute_capture(plan, output_root=tmp_path)
 
     calls = []
-    def fetch(asset, conditional):
+    def fetch(asset, conditional, maximum_bytes):
         calls.append(asset.asset_name)
+        assert maximum_bytes > 0
         if conditional:
             return None, {"ETag": "fixture"}
         return (f"synthetic:{asset.asset_name}".encode(), {"ETag": "fixture", "Ignored": "x"})

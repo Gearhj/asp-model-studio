@@ -20,21 +20,33 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def _fetch(asset, conditional_headers):
+def _fetch(asset, conditional_headers, maximum_bytes):
     headers = {"User-Agent": "asp-model-studio-nfl-personnel-capture-v1", **conditional_headers}
     request = Request(asset.url, headers=headers)
     try:
         with urlopen(request, timeout=120) as response:
-            return response.read(), dict(response.headers.items())
+            chunks = []
+            total = 0
+            while True:
+                chunk = response.read(min(1024 * 1024, maximum_bytes - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > maximum_bytes:
+                    raise RuntimeError("streamed response exceeds remaining capture byte ceiling")
+                chunks.append(chunk)
+            return b"".join(chunks), {**dict(response.headers.items()), "X-ASP-HTTP-Status": str(response.status)}
     except HTTPError as error:
         if error.code == 304:
-            return None, dict(error.headers.items())
+            return None, {**dict(error.headers.items()), "X-ASP-HTTP-Status": "304"}
+        if error.code == 404:
+            return None, {"X-ASP-HTTP-Status": "404"}
         raise
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    plan = build_capture_plan(args.season)
+    plan = build_capture_plan(args.season, include_schedule=False)
     if not args.execute:
         print(json.dumps({**plan.content(), "status": "DRY_RUN_NO_NETWORK",
                           "outputRoot": str(args.output_root.resolve()),

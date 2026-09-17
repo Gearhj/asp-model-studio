@@ -18,6 +18,7 @@ from .personnel_evidence import canonical_json_bytes, sha256_json
 CONTRACT = "NFL_PERSONNEL_PROSPECTIVE_CAPTURE_V1"
 DEFAULT_ROOT = Path(r"C:\Users\james\asp-data-staging\nfl\personnel-captures-v1")
 MAX_REQUESTS_PER_CAPTURE = 7
+MAX_REQUESTS_PER_UTC_DAY = 28
 MAX_RESPONSE_BYTES_PER_CAPTURE = 64 * 1024 * 1024
 MAX_RETAINED_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -54,12 +55,11 @@ class CapturePlan:
         }
 
 
-def build_capture_plan(season: int = 2026) -> CapturePlan:
+def build_capture_plan(season: int = 2026, *, include_schedule: bool = True) -> CapturePlan:
     if season < 2026:
         raise ValueError("V1 capture is prospective from 2026; historical replay is forbidden")
     base = "https://github.com/nflverse/nflverse-data/releases/download"
     assets = (
-        CaptureAsset("schedules", "schedules", "games.parquet", f"{base}/schedules/games.parquet", "game identity and kickoff"),
         CaptureAsset("injuries", "injuries", f"injuries_{season}.parquet", f"{base}/injuries/injuries_{season}.parquet", "practice/game status"),
         CaptureAsset("weekly_rosters", "weekly_rosters", f"roster_weekly_{season}.parquet", f"{base}/weekly_rosters/roster_weekly_{season}.parquet", "roster identity/status"),
         CaptureAsset("depth_charts", "depth_charts", f"depth_charts_{season}.parquet", f"{base}/depth_charts/depth_charts_{season}.parquet", "expected role; source semantics must be reverified"),
@@ -67,6 +67,8 @@ def build_capture_plan(season: int = 2026) -> CapturePlan:
         CaptureAsset("players", "players", "players.parquet", f"{base}/players/players.parquet", "identity crosswalk"),
         CaptureAsset("draft_picks", "draft_picks", "draft_picks.parquet", f"{base}/draft_picks/draft_picks.parquet", "draft identity and pre-career facts only"),
     )
+    if include_schedule:
+        assets = (CaptureAsset("schedules", "schedules", "games.parquet", f"{base}/schedules/games.parquet", "game identity and kickoff"),) + assets
     return CapturePlan(season=season, assets=assets)
 
 
@@ -77,7 +79,7 @@ def _retained_bytes(root: Path) -> int:
 
 def execute_capture(plan: CapturePlan, *, output_root: Path = DEFAULT_ROOT, allow_network: bool = False,
                     rights_approved: bool = False,
-                    fetcher: Callable[[CaptureAsset, Mapping[str, str]], tuple[bytes | None, Mapping[str, str]]] | None = None,
+                    fetcher: Callable[[CaptureAsset, Mapping[str, str], int], tuple[bytes | None, Mapping[str, str]]] | None = None,
                     captured_at_utc: str | None = None) -> dict[str, object]:
     """Capture exact bytes via an injected transport after explicit approval.
 
@@ -107,8 +109,16 @@ def execute_capture(plan: CapturePlan, *, output_root: Path = DEFAULT_ROOT, allo
             conditional["If-None-Match"] = str(prior["etag"])
         if prior and prior.get("lastModified"):
             conditional["If-Modified-Since"] = str(prior["lastModified"])
-        payload, headers = fetcher(asset, conditional)
+        payload, headers = fetcher(asset, conditional, plan.maximum_response_bytes - response_bytes)
         normalized_headers = {str(k).lower(): str(v) for k, v in headers.items()}
+        http_status = int(normalized_headers.get("x-asp-http-status", "200"))
+        if http_status == 404:
+            rows.append({"familyId": asset.family_id, "releaseTag": asset.release_tag,
+                         "assetName": asset.asset_name, "sourceUrl": asset.url,
+                         "responseHeaders": {}, "retrievedAtUtc": captured_at,
+                         "physicalSha256": None, "byteCount": 0, "objectPath": None,
+                         "disposition": "SOURCE_NOT_PUBLISHED", "licenseId": asset.license_id})
+            continue
         if payload is None:
             if not prior:
                 raise RuntimeError("not-modified response has no retained predecessor")
@@ -134,6 +144,10 @@ def execute_capture(plan: CapturePlan, *, output_root: Path = DEFAULT_ROOT, allo
                 raise RuntimeError("retained evidence would exceed the storage ceiling")
             temporary = destination.with_suffix(destination.suffix + ".tmp")
             temporary.write_bytes(payload)
+            reread = temporary.read_bytes()
+            if len(reread) != byte_count or hashlib.sha256(reread).hexdigest() != digest:
+                temporary.unlink(missing_ok=True)
+                raise RuntimeError("staged provider bytes failed physical verification")
             temporary.replace(destination)
             new_retained_bytes += len(payload)
         state = {"sourceUrl": asset.url, "releaseTag": asset.release_tag, "assetName": asset.asset_name,
@@ -184,4 +198,4 @@ def execute_capture(plan: CapturePlan, *, output_root: Path = DEFAULT_ROOT, allo
             "newObjects": sum(row["disposition"] == "WRITTEN_NEW_OBJECT" for row in rows)}
 
 
-__all__ = ["CaptureAsset", "CapturePlan", "CONTRACT", "DEFAULT_ROOT", "build_capture_plan", "execute_capture"]
+__all__ = ["CaptureAsset", "CapturePlan", "CONTRACT", "DEFAULT_ROOT", "MAX_REQUESTS_PER_UTC_DAY", "build_capture_plan", "execute_capture"]
