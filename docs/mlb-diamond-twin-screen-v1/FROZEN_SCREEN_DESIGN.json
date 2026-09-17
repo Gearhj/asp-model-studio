@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "MLB_DIAMOND_TWIN_INCREMENTAL_VALUE_SCREEN_V1",
+  "frozenAtUtc": "2026-09-17T19:10:00Z",
+  "decisionQuestion": "Does named defensive identity have enough upper-bound value beyond exact V18 probabilities to justify a larger Diamond Twin build?",
+  "authority": {
+    "researchOnly": true,
+    "productionAuthority": false,
+    "aispWrites": false,
+    "exchangeWrites": false,
+    "providerCalls": false,
+    "finalOotAccess": false,
+    "seasons2025And2026Access": false
+  },
+  "closedExperiment": {
+    "identity": "MLB_V19_TEAM_DEFENSE_BIP_EB_V1",
+    "status": "NO_INCREMENTAL_VALUE",
+    "rerunPermitted": false
+  },
+  "chronology": {
+    "baselineIdentity": "FROZEN_V18_MATCHED_OOF_NUMERICAL_POPULATION",
+    "baselinePhysicalSha256": "3e816c20f6276837062b97aaa5398984ac0b3660731cc086dfae4aef04f2c8ba",
+    "baselineQualification": "Exact numerical V18 fold-1 probabilities retain the inherited 2023 suspended-game rolling-history defect; no deployable challenger claim is permitted.",
+    "developmentStart": "2024-03-20",
+    "developmentEnd": "2024-05-19",
+    "assessmentStart": "2024-05-20",
+    "assessmentEnd": "2024-07-06",
+    "assessmentStatus": "REUSED_HISTORICAL_DIAGNOSTIC_NOT_FRESH_VALIDATION",
+    "knownDelayedTargetGamesExcluded": true,
+    "unknownFinalizationGamesExcluded": true,
+    "sameDateOutcomesExcludedFromPriorFeatures": true
+  },
+  "evidence": {
+    "rawDevelopmentPhysicalSha256": "d5fdb7bcbe058f34334483a21b14e83129d19c1727d20eddb469c18668ff3b82",
+    "gameContextPhysicalSha256": "9a642b0f373ef27bb684f46304661929843e9d60bef8188d2341c6373790296d",
+    "timingLedgerPhysicalSha256": "5bbcdf6c7cae0332b903db18b410a6bae2da05da6871e2125688c6e8394b0e6b",
+    "lineup2024PhysicalSha256": "6ff93c27639cfc5cf5a61be9681b395583e77a6aebc420a5456c2c980ad21200",
+    "teamGame2024PhysicalSha256": "d40baea90636a4e5644a22d6445c3d7986d3cb1003ad517cbb98fbee9481b9ff",
+    "lineupAuthorityStatus": "QUARANTINED_NOT_MODEL_ELIGIBLE_ORACLE_AND_RESEARCH_PROXY_ONLY",
+    "teamGameAuthorityStatus": "QUARANTINED_NOT_MODEL_ELIGIBLE_REUSED_DIAGNOSTIC_ONLY"
+  },
+  "candidate": {
+    "identity": "MLB_DIAMOND_TWIN_NAMED_POSITIONAL_DEFENSE_SCREEN_V1",
+    "architectures": 1,
+    "target": "HIT_VS_OUT_CONDITIONAL_ON_BALL_IN_PLAY",
+    "participants": ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"],
+    "fit": "L2_PENALIZED_LOGISTIC_RESIDUAL_WITH_EXACT_V18_CONDITIONAL_BIP_LOGIT_OFFSET",
+    "ridgePenalty": 50.0,
+    "maximumAbsoluteLineupShift": 0.35,
+    "minimumDevelopmentPlayerBipExposure": 1,
+    "variants": [
+      "ACTUAL_TARGET_STARTERS_RETROSPECTIVE_ORACLE",
+      "PRIOR_GAME_STARTERS_CARRY_FORWARD_RESEARCH_PROXY",
+      "ORACLE_CATCHER_ONLY_ABLATION",
+      "ORACLE_INFIELD_ONLY_ABLATION",
+      "ORACLE_OUTFIELD_ONLY_ABLATION"
+    ],
+    "unchangedClasses": ["STRIKEOUT", "WALK_HBP_CI", "HOME_RUN", "OTHER_REACH"],
+    "preserveTotalBipMass": true,
+    "preserveV18HitTypeMix": true
+  },
+  "gameProxy": {
+    "status": "RETROSPECTIVE_FIXED_REALIZED_PA_EXPOSURE_PROXY_NOT_PREGAME_FORECAST",
+    "linearRunWeights": {
+      "STRIKEOUT": -0.27,
+      "WALK_HBP_CI": 0.33,
+      "HOME_RUN": 1.40,
+      "SINGLE": 0.47,
+      "DOUBLE": 0.78,
+      "TRIPLE": 1.09,
+      "BIP_OUT": -0.27,
+      "OTHER_REACH": 0.47
+    },
+    "developmentOnlyMappings": ["AFFINE_TEAM_RUN_PROXY", "LOGISTIC_HOME_WIN_PROXY"],
+    "jointDistributionMetricsAvailable": false
+  },
+  "metrics": {
+    "primary": "conditional_bip_binary_log_loss",
+    "secondary": [
+      "conditional_bip_brier",
+      "eight_class_log_loss",
+      "summed_eight_class_brier",
+      "home_win_log_loss_proxy",
+      "home_win_brier_proxy",
+      "away_home_run_mae_proxy",
+      "margin_mae_proxy",
+      "total_mae_proxy"
+    ],
+    "bootstrapUnit": "calendar_date",
+    "bootstrapReplicates": 2000,
+    "bootstrapSeed": 20260917,
+    "materialityThresholdsWinProbabilityPoints": [0.005, 0.01, 0.02]
+  },
+  "decisionRules": {
+    "oracleProperScoreGate": "candidate_minus_baseline conditional BIP log loss upper95 < 0",
+    "oraclePracticalGate": "at least 10 percent of games move by 0.5 percentage points OR mean absolute expected-run change is at least 0.05",
+    "deployableProxyCoverageMinimum": 0.80,
+    "deployableProxyGate": "carry-forward upper95 conditional BIP log loss < 0 with no material game-proxy proper-score harm",
+    "noMaterialValueRule": "oracle fails the proper-score gate and fewer than 5 percent of games move by 0.5 percentage points",
+    "dataCaptureRule": "oracle passes or is material while the carry-forward proxy fails or authority remains quarantined",
+    "fullTwinRule": "unavailable in this one-fold chronology-qualified screen"
+  },
+  "unsupportedScreens": {
+    "pitcherGroundBallFlyBallInteraction": "No governed prior GB/FB feature in the exact V18 population",
+    "batterDirectionalInteraction": "No governed prior spray feature in the exact V18 population",
+    "spatialDefense": "No governed measured contact coordinates or fielder positioning",
+    "catcherFramingBlockingThrowing": "No point-in-time catcher quality contract",
+    "namedBullpenManager": "No point-in-time named reliever availability/role/workload population",
+    "archetypeClaims": "Blocked by inherited baseline chronology defect",
+    "jointDistributionScoring": "No matched frozen historical V18 game-draw population"
+  }
+}
