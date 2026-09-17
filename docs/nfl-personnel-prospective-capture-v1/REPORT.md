@@ -35,3 +35,9 @@ Complete captured weeks are Development only. No outcome fields, model fitting, 
 ## Remaining activation step
 
 The owner must repeat the supported Install command after explicit authorization is supplied in a visible user message. Then run one bounded `--initial-authorized` capture and observe the next natural scheduled tick. Installation success requires exactly one owner, matching task/runtime deployment IDs, S4U/Limited/IgnoreNew, and launcher exit code 0. Capture success additionally requires a content receipt, projection receipt, and unchanged MLB/forecast-owner state.
+
+## Post-install correction
+
+After visible authorization, Windows installed deployment `cbf3686a0c8ceb22dd135b5af9f3fb4738a8114a2e7ac969712992292404d20d`. The initial capture and first natural invocation both failed before provider access because its isolated deployment copied the repository's broad `server.sports_nfl_m1` initializer, which imported omitted modeling modules. Provider calls and retained bytes remained zero. The task recorded `LastTaskResult=1`; no capture receipt was created.
+
+The builder now maps a dedicated minimal package initializer into the isolated deployment. Fifteen focused tests pass, including an explicit mapping test. The corrected content identity is `3139cff08216d9e16fcaa5d012a23738605e14f66c3fffc4687f73ecda7f7dcf`. Replacing the installed exact deployment requires separate visible authorization; the current task must not be silently rebound.

@@ -15,15 +15,16 @@ if str(REPO_ROOT) not in sys.path:
 from server.sports_nfl_m1.personnel_evidence import canonical_json_bytes
 
 
-FILES = (
-    "scripts/run_nfl_personnel_prospective_capture.py",
-    "scripts/status_nfl_personnel_capture.py",
-    "scripts/invoke_nfl_personnel_capture.ps1",
-    "scripts/install_nfl_personnel_capture.ps1",
-    "server/__init__.py", "server/sports_nfl_m1/__init__.py",
-    "server/sports_nfl_m1/personnel_capture.py",
-    "server/sports_nfl_m1/personnel_evidence.py",
-    "server/sports_nfl_m1/personnel_prospective.py",
+DEPLOYMENT_MEMBERS = (
+    ("scripts/run_nfl_personnel_prospective_capture.py", "scripts/run_nfl_personnel_prospective_capture.py"),
+    ("scripts/status_nfl_personnel_capture.py", "scripts/status_nfl_personnel_capture.py"),
+    ("scripts/invoke_nfl_personnel_capture.ps1", "scripts/invoke_nfl_personnel_capture.ps1"),
+    ("scripts/install_nfl_personnel_capture.ps1", "scripts/install_nfl_personnel_capture.ps1"),
+    ("server/__init__.py", "server/__init__.py"),
+    ("server/sports_nfl_m1/personnel_deployment_init.py", "server/sports_nfl_m1/__init__.py"),
+    ("server/sports_nfl_m1/personnel_capture.py", "server/sports_nfl_m1/personnel_capture.py"),
+    ("server/sports_nfl_m1/personnel_evidence.py", "server/sports_nfl_m1/personnel_evidence.py"),
+    ("server/sports_nfl_m1/personnel_prospective.py", "server/sports_nfl_m1/personnel_prospective.py"),
 )
 
 
@@ -41,11 +42,12 @@ def main() -> int:
         raise RuntimeError("deployment source worktree must be clean")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     members = []
-    for rel in FILES:
-        path = source / rel
+    for source_rel, target_rel in DEPLOYMENT_MEMBERS:
+        path = source / source_rel
         if not path.is_file():
-            raise RuntimeError(f"missing deployment member: {rel}")
-        members.append({"path": rel.replace("\\", "/"), "sha256": sha(path), "byteCount": path.stat().st_size})
+            raise RuntimeError(f"missing deployment member: {source_rel}")
+        members.append({"path": target_rel.replace("\\", "/"), "sourcePath": source_rel.replace("\\", "/"),
+                        "sha256": sha(path), "byteCount": path.stat().st_size})
     identity_content = {"schemaVersion": "NFL_PERSONNEL_CAPTURE_DEPLOYMENT_IDENTITY_V1",
                         "members": members, "taskName": "ASP NFL Personnel Evidence Capture",
                         "ownerMarker": "ASP_NFL_PERSONNEL_EVIDENCE_OWNER_V1"}
@@ -59,7 +61,7 @@ def main() -> int:
         for item in members:
             destination = target / item["path"]
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source / item["path"], destination)
+            shutil.copy2(source / item["sourcePath"], destination)
         manifest = {**identity_content, "identitySha256": deployment_id, "sourceCommit": commit,
                     "authority": "data capture only; no model, forecast, AISP, exchange, decision, position, or outcome authority"}
         (target / "deployment-manifest.json").write_bytes(canonical_json_bytes(manifest))

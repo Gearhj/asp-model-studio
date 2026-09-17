@@ -40,6 +40,13 @@ def test_live_plan_omits_schedule_and_stays_within_budget() -> None:
     assert "schedules" not in {item.family_id for item in plan.assets}
 
 
+def test_isolated_deployment_uses_minimal_package_initializer() -> None:
+    from scripts.build_nfl_personnel_capture_deployment import DEPLOYMENT_MEMBERS
+    mapping = dict(DEPLOYMENT_MEMBERS)
+    assert mapping["server/sports_nfl_m1/personnel_deployment_init.py"] == "server/sports_nfl_m1/__init__.py"
+    assert "server/sports_nfl_m1/__init__.py" not in mapping
+
+
 def test_slot_gate_is_timezone_aware_and_idempotent() -> None:
     now = datetime(2026, 9, 17, 11, 20, tzinfo=timezone.utc)  # 07:20 EDT Thursday
     key = due_slot(now, [])
