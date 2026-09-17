@@ -41,7 +41,9 @@ DESIGN = ROOT / "docs/mlb-v19-structural-innovation-v1/FROZEN_STUDY_DESIGN.json"
 EXPECTED = {
     "raw-development.parquet": "d5fdb7bcbe058f34334483a21b14e83129d19c1727d20eddb469c18668ff3b82",
     "matched-oof.parquet": "3e816c20f6276837062b97aaa5398984ac0b3660731cc086dfae4aef04f2c8ba",
-    "game-context.parquet": "b94fa31772a6d79e5f8b80ec414e0ec8b41a2dcf36b65c3fae9dba0e47bcfd9a",
+    # The containing b94fa... directory is the logical object identity. This is
+    # the SHA-256 of the physical Parquet member verified by the runner.
+    "game-context.parquet": "9a642b0f373ef27bb684f46304661929843e9d60bef8188d2341c6373790296d",
     "timing-evidence.json": "5bbcdf6c7cae0332b903db18b410a6bae2da05da6871e2125688c6e8394b0e6b",
 }
 
