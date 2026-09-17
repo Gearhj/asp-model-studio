@@ -66,5 +66,3 @@ The effect is too small and uncertain to justify a game-simulation challenger, a
 - Production owners, V18 artifacts, and the deployed checkout were not modified.
 
 The next justified dependency is a completion-aware rebuild of the baseline rolling histories, followed by a frozen common-population comparison. After that, the highest-value structural data increment is timestamped pregame named-reliever availability and workload, not another aggregate defense adjustment.
-
-\n

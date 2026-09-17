@@ -11,5 +11,3 @@
 No new provider acquisition occurred. The team-defense model uses only fielding-team identity, completion-aware dates, and four governed BIP outcome classes. It does not consume names, locations, descriptions, or protected payloads.
 
 The permanent Final OOT quarantine remains binding. No Final OOT report was attempted, so `final_oot_eligible_key_mask` and `require_reduced_final_oot_report` were not invoked and the sealed payload remained unopened.
-
-\n

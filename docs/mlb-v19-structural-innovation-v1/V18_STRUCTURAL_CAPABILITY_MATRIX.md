@@ -35,5 +35,3 @@ The labels distinguish what V18 actually uses from data merely present elsewhere
 | Extra innings | Fully modeled mechanically | Automatic runner on second and continued innings until a winner/watchdog. |
 
 Key implementation anchors are `stage3_game_inputs.py`, `stage3_game_probability_adapter.py`, `whole_game_monte_carlo.py`, `base_out_transition.py`, and `participant_replay.py`.
-
-\n

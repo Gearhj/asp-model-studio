@@ -23,5 +23,3 @@ The interval crossing zero is the direct reason for `NO_INCREMENTAL_VALUE`.
 Matched coverage was 100% after the frozen delayed-game exclusions. No intended-region segment was registered because the candidate applies to every PA with nonzero BIP mass. Post-assessment team, park, handedness, or contact-heavy slices were not searched. Season stability is not estimable from the single reused 2024 assessment fold. Game-level winner, score, margin, total, CRPS, and energy metrics were not run after the PA module failed its advancement gate.
 
 The missing segment and game-level metrics are unavailable results, not zero effects.
-
-\n

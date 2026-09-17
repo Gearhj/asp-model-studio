@@ -9,5 +9,3 @@
 All figures are under `C:\Users\james\asp-data-staging\mlb\structural-innovation-v1\figures` and remain outside Git.
 
 Archetype maps, matchup heatmaps, bullpen-policy plots, mixture routing/lift, and coverage-versus-improvement plots were not generated because those modules did not reach a valid fitted assessment. Empty or synthetic figures would misstate the evidence.
-
-\n

@@ -19,5 +19,3 @@ The adjustment operated on 64,232 BIP PAs within a 99,646-PA assessment. It redu
 No post-assessment cap, window, class, or team slice search was run. The tiny monotonic Development preference for more shrinkage and the uncertain assessment effect argue against expanding this architecture.
 
 Figures are retained outside Git under `C:\Users\james\asp-data-staging\mlb\structural-innovation-v1\figures` and hash-bound in `ARTIFACT_INDEX.json`.
-
-\n
