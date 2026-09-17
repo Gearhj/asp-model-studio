@@ -452,7 +452,16 @@ def make_segments(rows: pd.DataFrame, games: pd.DataFrame, dev: dict[str, Any]) 
                 "binaryLogLossNonTie": float(part.logLoss.mean()),
                 "binaryBrierNonTie": float(part.binaryBrier.mean()),
             })
-    return output
+    side_output = []
+    for variant, part in enriched.groupby("variant"):
+        home_favorite = part.base_home >= part.base_away
+        favorite_error = np.where(home_favorite, part.homeScoreAE, part.awayScoreAE)
+        underdog_error = np.where(home_favorite, part.awayScoreAE, part.homeScoreAE)
+        side_output.extend([
+            {"segment": "BASELINE_FAVORITE_SIDE", "variant": variant, "teamGameSides": len(part), "sideScoreMAE": float(np.mean(favorite_error))},
+            {"segment": "BASELINE_UNDERDOG_SIDE", "variant": variant, "teamGameSides": len(part), "sideScoreMAE": float(np.mean(underdog_error))},
+        ])
+    return {"gameSegments": output, "sideSegments": side_output}
 
 
 def advancement(deltas: list[dict[str, Any]], summaries: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -666,7 +675,8 @@ def verify(output: Path) -> None:
             "gameCoverage": True,
             "predictorCompleteness": True,
             "noCalendar2026OutcomeRead": True,
-            "targetExclusionEnforcedByOriginBuilder": True,`n            "franchiseAliasesCanonicalizedUpstream": not bool(set(sidecar.home_team) | set(sidecar.away_team) & {"OAK", "SD", "STL", "LA"}),
+            "targetExclusionEnforcedByOriginBuilder": True,
+            "franchiseAliasesCanonicalizedUpstream": not bool((set(sidecar.home_team) | set(sidecar.away_team)) & {"OAK", "SD", "STL", "LA"}),
             "deterministicSampleSha256": deterministic,
             "externalCalls": 0,
             "providerCostUsd": 0.0,
@@ -690,5 +700,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 
