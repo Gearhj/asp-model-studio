@@ -119,6 +119,8 @@ def multiclass_metrics(y: np.ndarray, probabilities: np.ndarray) -> dict[str, fl
 
 
 def lineup_table(lineup: pd.DataFrame, team_games: pd.DataFrame, timing: dict[str, Any]) -> tuple[pd.DataFrame, dict[str, int]]:
+    lineup = lineup.copy()
+    lineup["fieldPosition"] = pd.to_numeric(lineup["fieldPosition"], errors="coerce")
     rows = lineup.loc[(lineup["recordType"] == "start") & lineup["fieldPosition"].isin(POSITIONS)].copy()
     rows = rows.loc[rows["playerCanonicalPlayerId"].notna() & (rows["playerCanonicalPlayerId"].astype(str).str.len() > 0)]
     duplicates = rows.duplicated(["canonicalGameId", "homeAway", "fieldPosition"], keep=False)
@@ -391,7 +393,7 @@ def run(output: Path) -> dict[str, Any]:
 
     lineup = pd.read_parquet(LINEUP)
     team_games = pd.read_parquet(TEAM_GAME)
-    if set(lineup["season"].unique()) != {2024} or set(team_games["season"].unique()) != {2024}:
+    if set(lineup["season"].astype(str).unique()) != {"2024"} or set(team_games["season"].astype(str).unique()) != {"2024"}:
         raise RuntimeError("participant/result read escaped the frozen 2024 partition")
     lineups, lineup_audit = lineup_table(lineup, team_games, timing)
     lineups = add_carry_forward(lineups)
