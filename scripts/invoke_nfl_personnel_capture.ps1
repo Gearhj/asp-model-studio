@@ -33,7 +33,9 @@ $receipt = [ordered]@{
 }
 $json = $receipt | ConvertTo-Json -Compress
 $bytes = [Text.Encoding]::UTF8.GetBytes($json)
-$digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+$hasher = [Security.Cryptography.SHA256]::Create()
+try { $digestBytes = $hasher.ComputeHash($bytes) } finally { $hasher.Dispose() }
+$digest = -join ($digestBytes | ForEach-Object { $_.ToString('x2') })
 $receiptDir = Join-Path $RuntimeRoot ("launcher-receipts\sha256\" + $digest)
 New-Item -ItemType Directory -Force -Path $receiptDir | Out-Null
 [IO.File]::WriteAllBytes((Join-Path $receiptDir 'receipt.json'), $bytes)
