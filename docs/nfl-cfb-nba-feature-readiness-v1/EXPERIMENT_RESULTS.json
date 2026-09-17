@@ -1,0 +1,5070 @@
+{
+  "CFB": {
+    "pooledReusedLater": [
+      {
+        "candidate": "BASELINE",
+        "delta_marginMAE": 0.0,
+        "delta_scoreMAE": 0.0,
+        "delta_totalMAE": 0.0,
+        "games": 1491,
+        "interval95_marginMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_scoreMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_totalMAE": [
+          0.0,
+          0.0
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "MISSINGNESS",
+        "delta_marginMAE": 0.0,
+        "delta_scoreMAE": 0.0,
+        "delta_totalMAE": 0.0,
+        "games": 1491,
+        "interval95_marginMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_scoreMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_totalMAE": [
+          0.0,
+          0.0
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "COLD_START",
+        "delta_marginMAE": -0.006786935275930086,
+        "delta_scoreMAE": -0.010094813825178626,
+        "delta_totalMAE": 0.0011945619186755458,
+        "games": 1491,
+        "interval95_marginMAE": [
+          -0.07411048612308345,
+          0.06900481350714312
+        ],
+        "interval95_scoreMAE": [
+          -0.032358783411886256,
+          0.011191314480197364
+        ],
+        "interval95_totalMAE": [
+          -0.04238698877252835,
+          0.045422085341658
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.003803723332277187,
+            "delta_scoreMAE": -0.00626057046075168,
+            "delta_totalMAE": -0.045816203820704615,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": -0.009798290728484815,
+            "delta_scoreMAE": -0.013965229296815096,
+            "delta_totalMAE": 0.048648825448053046,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "OPPONENT_SCHEDULE_ADJUSTED",
+        "delta_marginMAE": 0.000209146386799078,
+        "delta_scoreMAE": 0.00022215913816343882,
+        "delta_totalMAE": 0.00028911020862554243,
+        "games": 1491,
+        "interval95_marginMAE": [
+          -0.00033196553124143857,
+          0.0007101177520350614
+        ],
+        "interval95_scoreMAE": [
+          -9.353260056378465e-05,
+          0.0005077451072274673
+        ],
+        "interval95_totalMAE": [
+          -0.00018803603930124554,
+          0.0007327026599660373
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.00017732433607697828,
+            "delta_scoreMAE": 6.884439980048285e-05,
+            "delta_totalMAE": 0.0006481629492327556,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.000599263059893218,
+            "delta_scoreMAE": 0.0003769202419849904,
+            "delta_totalMAE": -7.332982198349214e-05,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "COMBINED",
+        "delta_marginMAE": -0.00672080862437758,
+        "delta_scoreMAE": -0.00995970049223348,
+        "delta_totalMAE": 0.0010940844233247409,
+        "games": 1491,
+        "interval95_marginMAE": [
+          -0.07427921717608645,
+          0.06913193708072643
+        ],
+        "interval95_scoreMAE": [
+          -0.03213344847523884,
+          0.011385664438277564
+        ],
+        "interval95_totalMAE": [
+          -0.042423866081106106,
+          0.04524120064105754
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.004074932191427294,
+            "delta_scoreMAE": -0.006332094146987544,
+            "delta_totalMAE": -0.045970230214647856,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": -0.009391646155751943,
+            "delta_scoreMAE": -0.0136215295388471,
+            "delta_totalMAE": 0.04860240202958366,
+            "season": 2024
+          }
+        ]
+      }
+    ],
+    "seasonal": [
+      {
+        "assessmentGames": 731,
+        "awayMAE": 9.281948069976936,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-36.355999999999995, -6.885]",
+              "meanMarginResidual": -0.28747140092041973,
+              "meanPredictedMargin": -13.72613404125645,
+              "meanTotalResidual": -1.9153818640000395,
+              "n": 147
+            },
+            {
+              "bin": "(-6.885, 0.845]",
+              "meanMarginResidual": -0.6143542549034781,
+              "meanPredictedMargin": -2.7692073889321387,
+              "meanTotalResidual": -0.2972280185112993,
+              "n": 146
+            },
+            {
+              "bin": "(0.845, 6.831]",
+              "meanMarginResidual": -0.9335465182870228,
+              "meanPredictedMargin": 3.9129985730815435,
+              "meanTotalResidual": -0.5300304214381715,
+              "n": 146
+            },
+            {
+              "bin": "(6.831, 14.831]",
+              "meanMarginResidual": 0.30617618938464464,
+              "meanPredictedMargin": 10.365056687327684,
+              "meanTotalResidual": -0.19656454799775744,
+              "n": 146
+            },
+            {
+              "bin": "(14.831, 44.114]",
+              "meanMarginResidual": -1.288229808162083,
+              "meanPredictedMargin": 22.486859945148385,
+              "meanTotalResidual": 1.7087830942526234,
+              "n": 146
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 13.341839620581217,
+              "n": 274,
+              "scoreMAE": 9.208391602720173,
+              "totalMAE": 12.168386421826959
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 13.156893413103,
+              "n": 449,
+              "scoreMAE": 9.166740847214516,
+              "totalMAE": 12.506851889323407
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 13.437793888721458,
+              "n": 244,
+              "scoreMAE": 9.644967153490471,
+              "totalMAE": 13.936888966367283
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 13.903830707077192,
+              "n": 457,
+              "scoreMAE": 9.449573360535556,
+              "totalMAE": 12.986296990154324
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 14.620998052136857,
+              "n": 244,
+              "scoreMAE": 9.361904652951173,
+              "totalMAE": 11.483901172443797
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 14.547055130107385,
+              "n": 282,
+              "scoreMAE": 9.665559164931768,
+              "totalMAE": 12.954961367996109
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 13.70859162135785,
+              "n": 730,
+              "scoreMAE": 9.366234869810791,
+              "totalMAE": 12.685575156417416
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 2.4428055822993215,
+              "n": 1,
+              "scoreMAE": 4.202869948200021,
+              "totalMAE": 8.405739896400043
+            }
+          }
+        },
+        "features": 35,
+        "homeMAE": 9.436394816233943,
+        "marginMAE": 13.693180149348194,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.35917144310544,
+        "season": 2021,
+        "sport": "CFB",
+        "totalMAE": 12.679720388619854,
+        "trainGames": 4789,
+        "winnerAccuracyFromExpectedScores": 0.7045143638850889
+      },
+      {
+        "assessmentGames": 731,
+        "awayMAE": 9.281948069976936,
+        "candidate": "MISSINGNESS",
+        "features": 35,
+        "homeMAE": 9.436394816233943,
+        "marginMAE": 13.693180149348194,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.35917144310544,
+        "season": 2021,
+        "sport": "CFB",
+        "totalMAE": 12.679720388619854,
+        "trainGames": 4789,
+        "winnerAccuracyFromExpectedScores": 0.7045143638850889
+      },
+      {
+        "assessmentGames": 731,
+        "awayMAE": 9.29381080026347,
+        "candidate": "COLD_START",
+        "features": 41,
+        "homeMAE": 9.471561982881898,
+        "marginMAE": 13.71370633147965,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.382686391572685,
+        "season": 2021,
+        "sport": "CFB",
+        "totalMAE": 12.665232489047513,
+        "trainGames": 4789,
+        "winnerAccuracyFromExpectedScores": 0.7045143638850889
+      },
+      {
+        "assessmentGames": 731,
+        "awayMAE": 9.28224565422176,
+        "candidate": "OPPONENT_SCHEDULE_ADJUSTED",
+        "features": 39,
+        "homeMAE": 9.436301616774067,
+        "marginMAE": 13.692870020736372,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.359273635497914,
+        "season": 2021,
+        "sport": "CFB",
+        "totalMAE": 12.68024102898231,
+        "trainGames": 4789,
+        "winnerAccuracyFromExpectedScores": 0.7045143638850889
+      },
+      {
+        "assessmentGames": 731,
+        "awayMAE": 9.294542623257048,
+        "candidate": "COMBINED",
+        "features": 45,
+        "homeMAE": 9.471458186186059,
+        "marginMAE": 13.71396396840508,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.383000404721553,
+        "season": 2021,
+        "sport": "CFB",
+        "totalMAE": 12.665960231370754,
+        "trainGames": 4789,
+        "winnerAccuracyFromExpectedScores": 0.7045143638850889
+      },
+      {
+        "assessmentGames": 733,
+        "awayMAE": 8.92091995622011,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-35.32, -5.615]",
+              "meanMarginResidual": 1.4495840622803327,
+              "meanPredictedMargin": -12.606046647314345,
+              "meanTotalResidual": 2.521706041426331,
+              "n": 147
+            },
+            {
+              "bin": "(-5.615, 1.495]",
+              "meanMarginResidual": 0.7618700215262371,
+              "meanPredictedMargin": -1.8303631722111686,
+              "meanTotalResidual": 0.5408998895656101,
+              "n": 146
+            },
+            {
+              "bin": "(1.495, 7.332]",
+              "meanMarginResidual": -1.224143586839452,
+              "meanPredictedMargin": 4.19693270248571,
+              "meanTotalResidual": -3.8708792456081476,
+              "n": 147
+            },
+            {
+              "bin": "(7.332, 15.313]",
+              "meanMarginResidual": 0.18337935901340094,
+              "meanPredictedMargin": 11.45360694235646,
+              "meanTotalResidual": -0.6091914609834054,
+              "n": 146
+            },
+            {
+              "bin": "(15.313, 41.701]",
+              "meanMarginResidual": -4.868857225669792,
+              "meanPredictedMargin": 22.48110212362898,
+              "meanTotalResidual": 2.458891615502673,
+              "n": 147
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 12.80033574409972,
+              "n": 253,
+              "scoreMAE": 9.568197685923133,
+              "totalMAE": 13.246748556994651
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 12.53303415685318,
+              "n": 451,
+              "scoreMAE": 9.287879525969604,
+              "totalMAE": 13.053123553803317
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 13.74365562249244,
+              "n": 245,
+              "scoreMAE": 9.706815749118167,
+              "totalMAE": 12.331153478684895
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 13.333833353053231,
+              "n": 480,
+              "scoreMAE": 9.118842789944699,
+              "totalMAE": 11.917954525956796
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 12.688087321423971,
+              "n": 245,
+              "scoreMAE": 8.69172833080664,
+              "totalMAE": 11.76374037507926
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 14.13590974461701,
+              "n": 282,
+              "scoreMAE": 9.251648537233038,
+              "totalMAE": 11.294634165296504
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 13.149692977793697,
+              "n": 733,
+              "scoreMAE": 9.273940728120067,
+              "totalMAE": 12.376596940489646
+            }
+          }
+        },
+        "features": 35,
+        "homeMAE": 9.626961500020023,
+        "marginMAE": 13.149692977793697,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.273940728120067,
+        "season": 2022,
+        "sport": "CFB",
+        "totalMAE": 12.376596940489646,
+        "trainGames": 5520,
+        "winnerAccuracyFromExpectedScores": 0.6889495225102319
+      },
+      {
+        "assessmentGames": 733,
+        "awayMAE": 8.92091995622011,
+        "candidate": "MISSINGNESS",
+        "features": 35,
+        "homeMAE": 9.626961500020023,
+        "marginMAE": 13.149692977793697,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.273940728120067,
+        "season": 2022,
+        "sport": "CFB",
+        "totalMAE": 12.376596940489646,
+        "trainGames": 5520,
+        "winnerAccuracyFromExpectedScores": 0.6889495225102319
+      },
+      {
+        "assessmentGames": 733,
+        "awayMAE": 8.912603019538183,
+        "candidate": "COLD_START",
+        "features": 41,
+        "homeMAE": 9.576004396685846,
+        "marginMAE": 13.133008363178076,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.244303708112014,
+        "season": 2022,
+        "sport": "CFB",
+        "totalMAE": 12.38616753005835,
+        "trainGames": 5520,
+        "winnerAccuracyFromExpectedScores": 0.6889495225102319
+      },
+      {
+        "assessmentGames": 733,
+        "awayMAE": 8.921037223518432,
+        "candidate": "OPPONENT_SCHEDULE_ADJUSTED",
+        "features": 39,
+        "homeMAE": 9.627331190812106,
+        "marginMAE": 13.148869579800657,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.274184207165268,
+        "season": 2022,
+        "sport": "CFB",
+        "totalMAE": 12.37739956110314,
+        "trainGames": 5520,
+        "winnerAccuracyFromExpectedScores": 0.6889495225102319
+      },
+      {
+        "assessmentGames": 733,
+        "awayMAE": 8.913184812077402,
+        "candidate": "COMBINED",
+        "features": 45,
+        "homeMAE": 9.575960419778209,
+        "marginMAE": 13.13283204639405,
+        "probability": null,
+        "role": "Development",
+        "scoreMAE": 9.244572615927806,
+        "season": 2022,
+        "sport": "CFB",
+        "totalMAE": 12.386793312707029,
+        "trainGames": 5520,
+        "winnerAccuracyFromExpectedScores": 0.6889495225102319
+      },
+      {
+        "assessmentGames": 749,
+        "awayMAE": 8.954027528857717,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-33.701, -6.554]",
+              "meanMarginResidual": 1.380648705848165,
+              "meanPredictedMargin": -13.080648705848164,
+              "meanTotalResidual": 2.091358615917346,
+              "n": 150
+            },
+            {
+              "bin": "(-6.554, 0.367]",
+              "meanMarginResidual": -1.9719077264230607,
+              "meanPredictedMargin": -2.6214256069102735,
+              "meanTotalResidual": 0.794631896203799,
+              "n": 150
+            },
+            {
+              "bin": "(0.367, 6.883]",
+              "meanMarginResidual": 0.2537600121451465,
+              "meanPredictedMargin": 3.8066426724186124,
+              "meanTotalResidual": -0.9978956285294476,
+              "n": 149
+            },
+            {
+              "bin": "(6.883, 14.332]",
+              "meanMarginResidual": 1.0864008065681432,
+              "meanPredictedMargin": 10.680265860098523,
+              "meanTotalResidual": -0.743736177136859,
+              "n": 150
+            },
+            {
+              "bin": "(14.332, 44.148]",
+              "meanMarginResidual": -0.5683692664065305,
+              "meanPredictedMargin": 21.16170259973986,
+              "meanTotalResidual": 2.3081255851785127,
+              "n": 150
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 12.86239762897358,
+              "n": 292,
+              "scoreMAE": 9.493825130716786,
+              "totalMAE": 13.50631396130327
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 13.02005404343662,
+              "n": 462,
+              "scoreMAE": 9.118555388592057,
+              "totalMAE": 12.615432362921279
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 13.364813188869379,
+              "n": 250,
+              "scoreMAE": 9.80210404646912,
+              "totalMAE": 13.515491859738564
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 13.14556911875395,
+              "n": 457,
+              "scoreMAE": 9.16340714243897,
+              "totalMAE": 12.941171834465202
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 13.339253423370305,
+              "n": 250,
+              "scoreMAE": 9.058119098817453,
+              "totalMAE": 12.816778482634101
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 13.059512985585796,
+              "n": 287,
+              "scoreMAE": 9.571781925903762,
+              "totalMAE": 14.040520743489614
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 13.035173825007798,
+              "n": 749,
+              "scoreMAE": 9.292221631861029,
+              "totalMAE": 13.161494265755874
+            }
+          }
+        },
+        "features": 35,
+        "homeMAE": 9.630415734864341,
+        "marginMAE": 13.035173825007798,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.292221631861029,
+        "season": 2023,
+        "sport": "CFB",
+        "totalMAE": 13.161494265755874,
+        "trainGames": 6253,
+        "winnerAccuracyFromExpectedScores": 0.7343124165554072
+      },
+      {
+        "assessmentGames": 749,
+        "awayMAE": 8.954027528857717,
+        "candidate": "MISSINGNESS",
+        "features": 35,
+        "homeMAE": 9.630415734864341,
+        "marginMAE": 13.035173825007798,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.292221631861029,
+        "season": 2023,
+        "sport": "CFB",
+        "totalMAE": 13.161494265755874,
+        "trainGames": 6253,
+        "winnerAccuracyFromExpectedScores": 0.7343124165554072
+      },
+      {
+        "assessmentGames": 749,
+        "awayMAE": 8.916881056946854,
+        "candidate": "COLD_START",
+        "features": 41,
+        "homeMAE": 9.6550410658537,
+        "marginMAE": 13.03137010167552,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.285961061400277,
+        "season": 2023,
+        "sport": "CFB",
+        "totalMAE": 13.115678061935169,
+        "trainGames": 6253,
+        "winnerAccuracyFromExpectedScores": 0.7289719626168224
+      },
+      {
+        "assessmentGames": 749,
+        "awayMAE": 8.954012132096079,
+        "candidate": "OPPONENT_SCHEDULE_ADJUSTED",
+        "features": 39,
+        "homeMAE": 9.63056882042558,
+        "marginMAE": 13.03499650067172,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.29229047626083,
+        "season": 2023,
+        "sport": "CFB",
+        "totalMAE": 13.162142428705106,
+        "trainGames": 6253,
+        "winnerAccuracyFromExpectedScores": 0.7343124165554072
+      },
+      {
+        "assessmentGames": 749,
+        "awayMAE": 8.916757075254072,
+        "candidate": "COMBINED",
+        "features": 45,
+        "homeMAE": 9.655022000174007,
+        "marginMAE": 13.03109889281637,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.285889537714041,
+        "season": 2023,
+        "sport": "CFB",
+        "totalMAE": 13.115524035541226,
+        "trainGames": 6253,
+        "winnerAccuracyFromExpectedScores": 0.7289719626168224
+      },
+      {
+        "assessmentGames": 742,
+        "awayMAE": 8.706849411678434,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-31.964000000000002, -6.012]",
+              "meanMarginResidual": 3.3644721611471824,
+              "meanPredictedMargin": -12.042324510140473,
+              "meanTotalResidual": 0.7801489251592004,
+              "n": 149
+            },
+            {
+              "bin": "(-6.012, 0.833]",
+              "meanMarginResidual": 0.2611569740236631,
+              "meanPredictedMargin": -2.2881840010506895,
+              "meanTotalResidual": 1.4712465511993225,
+              "n": 148
+            },
+            {
+              "bin": "(0.833, 6.709]",
+              "meanMarginResidual": -0.718386042981121,
+              "meanPredictedMargin": 3.758926583521661,
+              "meanTotalResidual": 0.8641898144597551,
+              "n": 148
+            },
+            {
+              "bin": "(6.709, 14.638]",
+              "meanMarginResidual": 0.9314434201360039,
+              "meanPredictedMargin": 10.318556579863996,
+              "meanTotalResidual": 0.9005687614513009,
+              "n": 148
+            },
+            {
+              "bin": "(14.638, 42.729]",
+              "meanMarginResidual": -0.6071384681216622,
+              "meanPredictedMargin": 22.070225716443808,
+              "meanTotalResidual": 2.0659419793141196,
+              "n": 149
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 12.96254113614623,
+              "n": 281,
+              "scoreMAE": 9.224219361748936,
+              "totalMAE": 12.903688509339936
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 12.654130833209084,
+              "n": 449,
+              "scoreMAE": 8.951430017440694,
+              "totalMAE": 12.669698217072757
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 13.617336979850034,
+              "n": 248,
+              "scoreMAE": 9.726326605234828,
+              "totalMAE": 13.679885941099004
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 13.84442673599357,
+              "n": 461,
+              "scoreMAE": 9.302433947231473,
+              "totalMAE": 12.516252471235155
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 13.453705875781926,
+              "n": 248,
+              "scoreMAE": 8.880769410726522,
+              "totalMAE": 11.654227509999652
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 14.822696383751703,
+              "n": 293,
+              "scoreMAE": 9.765309257659684,
+              "totalMAE": 12.652676999652767
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 13.510451192116074,
+              "n": 742,
+              "scoreMAE": 9.272813598820969,
+              "totalMAE": 12.662976900760011
+            }
+          }
+        },
+        "features": 35,
+        "homeMAE": 9.838777785963506,
+        "marginMAE": 13.510451192116074,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.272813598820969,
+        "season": 2024,
+        "sport": "CFB",
+        "totalMAE": 12.662976900760011,
+        "trainGames": 7002,
+        "winnerAccuracyFromExpectedScores": 0.6873315363881402
+      },
+      {
+        "assessmentGames": 742,
+        "awayMAE": 8.706849411678434,
+        "candidate": "MISSINGNESS",
+        "features": 35,
+        "homeMAE": 9.838777785963506,
+        "marginMAE": 13.510451192116074,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.272813598820969,
+        "season": 2024,
+        "sport": "CFB",
+        "totalMAE": 12.662976900760011,
+        "trainGames": 7002,
+        "winnerAccuracyFromExpectedScores": 0.6873315363881402
+      },
+      {
+        "assessmentGames": 742,
+        "awayMAE": 8.660359503591406,
+        "candidate": "COLD_START",
+        "features": 41,
+        "homeMAE": 9.8573372354569,
+        "marginMAE": 13.500652901387589,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.258848369524154,
+        "season": 2024,
+        "sport": "CFB",
+        "totalMAE": 12.711625726208064,
+        "trainGames": 7002,
+        "winnerAccuracyFromExpectedScores": 0.7035040431266847
+      },
+      {
+        "assessmentGames": 742,
+        "awayMAE": 8.706844089475997,
+        "candidate": "OPPONENT_SCHEDULE_ADJUSTED",
+        "features": 39,
+        "homeMAE": 9.83953694864991,
+        "marginMAE": 13.511050455175967,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.273190519062954,
+        "season": 2024,
+        "sport": "CFB",
+        "totalMAE": 12.662903570938028,
+        "trainGames": 7002,
+        "winnerAccuracyFromExpectedScores": 0.6873315363881402
+      },
+      {
+        "assessmentGames": 742,
+        "awayMAE": 8.660515214274188,
+        "candidate": "COMBINED",
+        "features": 45,
+        "homeMAE": 9.857868924290058,
+        "marginMAE": 13.501059545960322,
+        "probability": null,
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.259192069282122,
+        "season": 2024,
+        "sport": "CFB",
+        "totalMAE": 12.711579302789595,
+        "trainGames": 7002,
+        "winnerAccuracyFromExpectedScores": 0.7035040431266847
+      }
+    ]
+  },
+  "NBA": {
+    "pooledReusedLater": [
+      {
+        "candidate": "BASELINE",
+        "delta_marginMAE": 0.0,
+        "delta_scoreMAE": 0.0,
+        "delta_totalMAE": 0.0,
+        "games": 2446,
+        "interval95_marginMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_scoreMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_totalMAE": [
+          0.0,
+          0.0
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2024
+          },
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2025
+          }
+        ]
+      },
+      {
+        "candidate": "MISSINGNESS",
+        "delta_marginMAE": -0.004733886147606378,
+        "delta_scoreMAE": 0.001194507402319946,
+        "delta_totalMAE": 0.018137343088096163,
+        "games": 2446,
+        "interval95_marginMAE": [
+          -0.017473082860516218,
+          0.006250239676080264
+        ],
+        "interval95_scoreMAE": [
+          -0.0067780165898486105,
+          0.011385995710630464
+        ],
+        "interval95_totalMAE": [
+          -0.007633648550736983,
+          0.05776025480388478
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.016809898940072898,
+            "delta_scoreMAE": 0.008539235968543224,
+            "delta_totalMAE": 0.040859482291054405,
+            "season": 2024
+          },
+          {
+            "delta_marginMAE": 0.007381687702329387,
+            "delta_scoreMAE": -0.006174282518749408,
+            "delta_totalMAE": -0.004659233917330141,
+            "season": 2025
+          }
+        ]
+      },
+      {
+        "candidate": "COLD_START",
+        "delta_marginMAE": 0.003611060038813552,
+        "delta_scoreMAE": -0.002852613804661615,
+        "delta_totalMAE": -0.007650006636282929,
+        "games": 2446,
+        "interval95_marginMAE": [
+          -0.0013430193620954597,
+          0.008707608423788184
+        ],
+        "interval95_scoreMAE": [
+          -0.006828311638430001,
+          0.0008993842702767571
+        ],
+        "interval95_totalMAE": [
+          -0.01874341324955922,
+          0.003998725658618716
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.004951159474277489,
+            "delta_scoreMAE": -0.0017464319494973068,
+            "delta_totalMAE": -0.01571528003884204,
+            "season": 2024
+          },
+          {
+            "delta_marginMAE": 0.0022665704332123227,
+            "delta_scoreMAE": -0.003962419515209703,
+            "delta_totalMAE": 0.0004416886283653554,
+            "season": 2025
+          }
+        ]
+      },
+      {
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "delta_marginMAE": 0.011847842658995349,
+        "delta_scoreMAE": 0.003435275795531439,
+        "delta_totalMAE": 0.006145395440937578,
+        "games": 2446,
+        "interval95_marginMAE": [
+          -0.012964005502390356,
+          0.0503300832557123
+        ],
+        "interval95_scoreMAE": [
+          -0.00707444273133551,
+          0.017932195407288447
+        ],
+        "interval95_totalMAE": [
+          -0.00479346940643667,
+          0.01779799982860516
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.004455327276765786,
+            "delta_scoreMAE": -0.001736201420055039,
+            "delta_totalMAE": 0.012878292468130326,
+            "season": 2024
+          },
+          {
+            "delta_marginMAE": 0.02820442183287497,
+            "delta_scoreMAE": 0.008623694787413427,
+            "delta_totalMAE": -0.0006095585789740454,
+            "season": 2025
+          }
+        ]
+      },
+      {
+        "candidate": "COMBINED",
+        "delta_marginMAE": 0.017123706855873427,
+        "delta_scoreMAE": 0.004776899496738501,
+        "delta_totalMAE": 0.016984138369561252,
+        "games": 2446,
+        "interval95_marginMAE": [
+          -0.023867043091056393,
+          0.08243030626308136
+        ],
+        "interval95_scoreMAE": [
+          -0.011511206629352153,
+          0.025289588246316424
+        ],
+        "interval95_totalMAE": [
+          -0.013903803094039088,
+          0.06177694293997209
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.01465177646345417,
+            "delta_scoreMAE": 0.004119217634503514,
+            "delta_totalMAE": 0.038498786195884094,
+            "season": 2024
+          },
+          {
+            "delta_marginMAE": 0.049003286762651754,
+            "delta_scoreMAE": 0.005436735926906522,
+            "delta_totalMAE": -0.004600991513523667,
+            "season": 2025
+          }
+        ]
+      }
+    ],
+    "seasonal": [
+      {
+        "assessmentGames": 1080,
+        "awayMAE": 10.288057488379424,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-233.665, -3.27]",
+              "meanMarginResidual": 8.868734344638316,
+              "meanPredictedMargin": -14.762252863156835,
+              "meanTotalResidual": 7.715056888520785,
+              "n": 216
+            },
+            {
+              "bin": "(-3.27, 0.824]",
+              "meanMarginResidual": -1.6801119715835482,
+              "meanPredictedMargin": -1.0189621024905258,
+              "meanTotalResidual": 0.5049280387186499,
+              "n": 216
+            },
+            {
+              "bin": "(0.824, 4.329]",
+              "meanMarginResidual": -2.0903963165439556,
+              "meanPredictedMargin": 2.706137057284696,
+              "meanTotalResidual": 2.555193203892225,
+              "n": 216
+            },
+            {
+              "bin": "(4.329, 8.178]",
+              "meanMarginResidual": -1.9250752423164055,
+              "meanPredictedMargin": 6.165815983057145,
+              "meanTotalResidual": 0.7289202800689031,
+              "n": 216
+            },
+            {
+              "bin": "(8.178, 35.021]",
+              "meanMarginResidual": -2.9827036814968872,
+              "meanPredictedMargin": 11.436407385200592,
+              "meanTotalResidual": -1.13598016415821,
+              "n": 216
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 16.509817163735487,
+              "n": 377,
+              "scoreMAE": 12.625352245440032,
+              "totalMAE": 20.584767077384967
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 11.183859234055102,
+              "n": 1000,
+              "scoreMAE": 9.940484798593628,
+              "totalMAE": 16.272539661153296
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 11.090557469132479,
+              "n": 360,
+              "scoreMAE": 10.24479566059975,
+              "totalMAE": 17.088240674570645
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 10.901760035993712,
+              "n": 703,
+              "scoreMAE": 9.967610908670963,
+              "totalMAE": 16.57490492029445
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 16.400757966883155,
+              "n": 360,
+              "scoreMAE": 12.831464294908539,
+              "totalMAE": 21.365532974492538
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 33.80348927470947,
+              "n": 80,
+              "scoreMAE": 22.831293334161863,
+              "totalMAE": 39.250946074847946
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 13.506488771573466,
+              "n": 690,
+              "scoreMAE": 11.145650183840582,
+              "totalMAE": 18.496065726420877
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 11.714515701656843,
+              "n": 390,
+              "scoreMAE": 10.452537534555324,
+              "totalMAE": 17.052128194642894
+            }
+          }
+        },
+        "features": 78,
+        "homeMAE": 11.50266152148461,
+        "marginMAE": 12.859387385214685,
+        "probability": {
+          "AUC": 0.6708086982663592,
+          "accuracy": 0.6037037037037037,
+          "binaryBrier": 0.22927405251465988,
+          "calibrationBias": 0.04057686992968702,
+          "excludedTies": 0,
+          "logLoss": 0.649485588741331,
+          "n": 1080,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19343096525844272,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25765501506793825,
+              "n": 31,
+              "observed": 0.3225806451612903
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35779217351069525,
+              "n": 99,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45316020314386407,
+              "n": 173,
+              "observed": 0.41040462427745666
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5514201152209928,
+              "n": 254,
+              "observed": 0.468503937007874
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6503553988671551,
+              "n": 260,
+              "observed": 0.5653846153846154
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7460785536165804,
+              "n": 201,
+              "observed": 0.7661691542288557
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8460343487465447,
+              "n": 57,
+              "observed": 0.7894736842105263
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9049897473965782,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 10.895359504932017,
+        "season": 2021,
+        "sport": "NBA",
+        "totalMAE": 17.974643839945493,
+        "trainGames": 968,
+        "winnerAccuracyFromExpectedScores": 0.6129629629629629
+      },
+      {
+        "assessmentGames": 1080,
+        "awayMAE": 10.295384247093013,
+        "candidate": "MISSINGNESS",
+        "features": 123,
+        "homeMAE": 11.43061135695273,
+        "marginMAE": 12.791236081204978,
+        "probability": {
+          "AUC": 0.6708086982663592,
+          "accuracy": 0.6037037037037037,
+          "binaryBrier": 0.22927405251465988,
+          "calibrationBias": 0.04057686992968702,
+          "excludedTies": 0,
+          "logLoss": 0.649485588741331,
+          "n": 1080,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19343096525844272,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25765501506793825,
+              "n": 31,
+              "observed": 0.3225806451612903
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35779217351069525,
+              "n": 99,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45316020314386407,
+              "n": 173,
+              "observed": 0.41040462427745666
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5514201152209928,
+              "n": 254,
+              "observed": 0.468503937007874
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6503553988671551,
+              "n": 260,
+              "observed": 0.5653846153846154
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7460785536165804,
+              "n": 201,
+              "observed": 0.7661691542288557
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8460343487465447,
+              "n": 57,
+              "observed": 0.7894736842105263
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9049897473965782,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 10.862997802022871,
+        "season": 2021,
+        "sport": "NBA",
+        "totalMAE": 17.92334800721661,
+        "trainGames": 968,
+        "winnerAccuracyFromExpectedScores": 0.6222222222222222
+      },
+      {
+        "assessmentGames": 1080,
+        "awayMAE": 10.334707196096467,
+        "candidate": "COLD_START",
+        "features": 88,
+        "homeMAE": 11.504483200379473,
+        "marginMAE": 12.86376534042816,
+        "probability": {
+          "AUC": 0.6708086982663592,
+          "accuracy": 0.6037037037037037,
+          "binaryBrier": 0.22927405251465988,
+          "calibrationBias": 0.04057686992968702,
+          "excludedTies": 0,
+          "logLoss": 0.649485588741331,
+          "n": 1080,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19343096525844272,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25765501506793825,
+              "n": 31,
+              "observed": 0.3225806451612903
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35779217351069525,
+              "n": 99,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45316020314386407,
+              "n": 173,
+              "observed": 0.41040462427745666
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5514201152209928,
+              "n": 254,
+              "observed": 0.468503937007874
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6503553988671551,
+              "n": 260,
+              "observed": 0.5653846153846154
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7460785536165804,
+              "n": 201,
+              "observed": 0.7661691542288557
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8460343487465447,
+              "n": 57,
+              "observed": 0.7894736842105263
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9049897473965782,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 10.91959519823797,
+        "season": 2021,
+        "sport": "NBA",
+        "totalMAE": 18.018523851543083,
+        "trainGames": 968,
+        "winnerAccuracyFromExpectedScores": 0.6101851851851852
+      },
+      {
+        "assessmentGames": 1080,
+        "awayMAE": 10.211197812904487,
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "features": 82,
+        "homeMAE": 11.310715630868694,
+        "marginMAE": 12.783171568490436,
+        "probability": {
+          "AUC": 0.6708086982663592,
+          "accuracy": 0.6037037037037037,
+          "binaryBrier": 0.22927405251465988,
+          "calibrationBias": 0.04057686992968702,
+          "excludedTies": 0,
+          "logLoss": 0.649485588741331,
+          "n": 1080,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19343096525844272,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25765501506793825,
+              "n": 31,
+              "observed": 0.3225806451612903
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35779217351069525,
+              "n": 99,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45316020314386407,
+              "n": 173,
+              "observed": 0.41040462427745666
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5514201152209928,
+              "n": 254,
+              "observed": 0.468503937007874
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6503553988671551,
+              "n": 260,
+              "observed": 0.5653846153846154
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7460785536165804,
+              "n": 201,
+              "observed": 0.7661691542288557
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8460343487465447,
+              "n": 57,
+              "observed": 0.7894736842105263
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9049897473965782,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 10.760956721886592,
+        "season": 2021,
+        "sport": "NBA",
+        "totalMAE": 17.69287059840927,
+        "trainGames": 968,
+        "winnerAccuracyFromExpectedScores": 0.6111111111111112
+      },
+      {
+        "assessmentGames": 1080,
+        "awayMAE": 10.303849969538037,
+        "candidate": "COMBINED",
+        "features": 137,
+        "homeMAE": 11.251622206254112,
+        "marginMAE": 12.716852997391518,
+        "probability": {
+          "AUC": 0.6708086982663592,
+          "accuracy": 0.6037037037037037,
+          "binaryBrier": 0.22927405251465988,
+          "calibrationBias": 0.04057686992968702,
+          "excludedTies": 0,
+          "logLoss": 0.649485588741331,
+          "n": 1080,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19343096525844272,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25765501506793825,
+              "n": 31,
+              "observed": 0.3225806451612903
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35779217351069525,
+              "n": 99,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45316020314386407,
+              "n": 173,
+              "observed": 0.41040462427745666
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5514201152209928,
+              "n": 254,
+              "observed": 0.468503937007874
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6503553988671551,
+              "n": 260,
+              "observed": 0.5653846153846154
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7460785536165804,
+              "n": 201,
+              "observed": 0.7661691542288557
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8460343487465447,
+              "n": 57,
+              "observed": 0.7894736842105263
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9049897473965782,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 10.777736087896075,
+        "season": 2021,
+        "sport": "NBA",
+        "totalMAE": 17.687993099635047,
+        "trainGames": 968,
+        "winnerAccuracyFromExpectedScores": 0.612037037037037
+      },
+      {
+        "assessmentGames": 1230,
+        "awayMAE": 9.689575096273414,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-21.081, -5.765]",
+              "meanMarginResidual": 2.198113179505364,
+              "meanPredictedMargin": -9.177787976253331,
+              "meanTotalResidual": -1.9136354969442588,
+              "n": 246
+            },
+            {
+              "bin": "(-5.765, -1.714]",
+              "meanMarginResidual": 1.6503515514651648,
+              "meanPredictedMargin": -3.5771808197578476,
+              "meanTotalResidual": -3.2749966984051513,
+              "n": 246
+            },
+            {
+              "bin": "(-1.714, 1.509]",
+              "meanMarginResidual": 3.760586910807726,
+              "meanPredictedMargin": 0.0036407314686966365,
+              "meanTotalResidual": -2.283640488292417,
+              "n": 246
+            },
+            {
+              "bin": "(1.509, 5.233]",
+              "meanMarginResidual": 1.7816251716171239,
+              "meanPredictedMargin": 3.2590252348869413,
+              "meanTotalResidual": -2.2096048075453405,
+              "n": 246
+            },
+            {
+              "bin": "(5.233, 17.418]",
+              "meanMarginResidual": 0.42291931261143106,
+              "meanPredictedMargin": 8.292527841860114,
+              "meanTotalResidual": -1.8289742298503604,
+              "n": 246
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 11.13237033688209,
+              "n": 610,
+              "scoreMAE": 9.469893772575265,
+              "totalMAE": 14.92223879352029
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 11.20850302611055,
+              "n": 1152,
+              "scoreMAE": 9.383649378795276,
+              "totalMAE": 14.831807646560558
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 11.712000212649126,
+              "n": 410,
+              "scoreMAE": 9.420202987162385,
+              "totalMAE": 14.723568196537673
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 11.332005039404903,
+              "n": 620,
+              "scoreMAE": 9.453415227747744,
+              "totalMAE": 15.05072841841642
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 10.613988357795012,
+              "n": 410,
+              "scoreMAE": 9.200466027740696,
+              "totalMAE": 14.521917625648802
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 11.594789023714876,
+              "n": 78,
+              "scoreMAE": 10.612673821825021,
+              "totalMAE": 17.2791650593307
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 11.378587715167283,
+              "n": 853,
+              "scoreMAE": 9.44423269465621,
+              "totalMAE": 14.702462254125146
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 10.903590739765047,
+              "n": 377,
+              "scoreMAE": 9.500854519715558,
+              "totalMAE": 15.630814272405324
+            }
+          }
+        },
+        "features": 78,
+        "homeMAE": 9.233599932140425,
+        "marginMAE": 11.232999211324485,
+        "probability": {
+          "AUC": 0.6872443772997717,
+          "accuracy": 0.6552845528455284,
+          "binaryBrier": 0.2236659493140696,
+          "calibrationBias": 0.040617250952751906,
+          "excludedTies": 0,
+          "logLoss": 0.638951650715421,
+          "n": 1230,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1677451473948582,
+              "n": 9,
+              "observed": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2613476799948375,
+              "n": 52,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3528308289547715,
+              "n": 122,
+              "observed": 0.30327868852459017
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45191910585292006,
+              "n": 190,
+              "observed": 0.3526315789473684
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5491628767495683,
+              "n": 250,
+              "observed": 0.56
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.650260184999523,
+              "n": 274,
+              "observed": 0.6094890510948905
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746438045627103,
+              "n": 215,
+              "observed": 0.7023255813953488
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8367362296005674,
+              "n": 115,
+              "observed": 0.782608695652174
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.926195216636286,
+              "n": 3,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.46158751420692,
+        "season": 2022,
+        "sport": "NBA",
+        "totalMAE": 14.98700592151671,
+        "trainGames": 2048,
+        "winnerAccuracyFromExpectedScores": 0.6430894308943089
+      },
+      {
+        "assessmentGames": 1230,
+        "awayMAE": 9.664758972685648,
+        "candidate": "MISSINGNESS",
+        "features": 123,
+        "homeMAE": 9.233710422684974,
+        "marginMAE": 11.220243269592183,
+        "probability": {
+          "AUC": 0.6872443772997717,
+          "accuracy": 0.6552845528455284,
+          "binaryBrier": 0.2236659493140696,
+          "calibrationBias": 0.040617250952751906,
+          "excludedTies": 0,
+          "logLoss": 0.638951650715421,
+          "n": 1230,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1677451473948582,
+              "n": 9,
+              "observed": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2613476799948375,
+              "n": 52,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3528308289547715,
+              "n": 122,
+              "observed": 0.30327868852459017
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45191910585292006,
+              "n": 190,
+              "observed": 0.3526315789473684
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5491628767495683,
+              "n": 250,
+              "observed": 0.56
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.650260184999523,
+              "n": 274,
+              "observed": 0.6094890510948905
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746438045627103,
+              "n": 215,
+              "observed": 0.7023255813953488
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8367362296005674,
+              "n": 115,
+              "observed": 0.782608695652174
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.926195216636286,
+              "n": 3,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.44923469768531,
+        "season": 2022,
+        "sport": "NBA",
+        "totalMAE": 14.941665227982464,
+        "trainGames": 2048,
+        "winnerAccuracyFromExpectedScores": 0.6422764227642277
+      },
+      {
+        "assessmentGames": 1230,
+        "awayMAE": 9.678035776703693,
+        "candidate": "COLD_START",
+        "features": 88,
+        "homeMAE": 9.225183936586278,
+        "marginMAE": 11.198098622271045,
+        "probability": {
+          "AUC": 0.6872443772997717,
+          "accuracy": 0.6552845528455284,
+          "binaryBrier": 0.2236659493140696,
+          "calibrationBias": 0.040617250952751906,
+          "excludedTies": 0,
+          "logLoss": 0.638951650715421,
+          "n": 1230,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1677451473948582,
+              "n": 9,
+              "observed": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2613476799948375,
+              "n": 52,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3528308289547715,
+              "n": 122,
+              "observed": 0.30327868852459017
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45191910585292006,
+              "n": 190,
+              "observed": 0.3526315789473684
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5491628767495683,
+              "n": 250,
+              "observed": 0.56
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.650260184999523,
+              "n": 274,
+              "observed": 0.6094890510948905
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746438045627103,
+              "n": 215,
+              "observed": 0.7023255813953488
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8367362296005674,
+              "n": 115,
+              "observed": 0.782608695652174
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.926195216636286,
+              "n": 3,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.451609856644984,
+        "season": 2022,
+        "sport": "NBA",
+        "totalMAE": 14.979952250380075,
+        "trainGames": 2048,
+        "winnerAccuracyFromExpectedScores": 0.6463414634146342
+      },
+      {
+        "assessmentGames": 1230,
+        "awayMAE": 9.70652178262549,
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "features": 82,
+        "homeMAE": 9.249820950470468,
+        "marginMAE": 11.240926519892321,
+        "probability": {
+          "AUC": 0.6872443772997717,
+          "accuracy": 0.6552845528455284,
+          "binaryBrier": 0.2236659493140696,
+          "calibrationBias": 0.040617250952751906,
+          "excludedTies": 0,
+          "logLoss": 0.638951650715421,
+          "n": 1230,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1677451473948582,
+              "n": 9,
+              "observed": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2613476799948375,
+              "n": 52,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3528308289547715,
+              "n": 122,
+              "observed": 0.30327868852459017
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45191910585292006,
+              "n": 190,
+              "observed": 0.3526315789473684
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5491628767495683,
+              "n": 250,
+              "observed": 0.56
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.650260184999523,
+              "n": 274,
+              "observed": 0.6094890510948905
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746438045627103,
+              "n": 215,
+              "observed": 0.7023255813953488
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8367362296005674,
+              "n": 115,
+              "observed": 0.782608695652174
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.926195216636286,
+              "n": 3,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.47817136654798,
+        "season": 2022,
+        "sport": "NBA",
+        "totalMAE": 15.009090036761581,
+        "trainGames": 2048,
+        "winnerAccuracyFromExpectedScores": 0.6390243902439025
+      },
+      {
+        "assessmentGames": 1230,
+        "awayMAE": 9.671038239384698,
+        "candidate": "COMBINED",
+        "features": 137,
+        "homeMAE": 9.244321479684185,
+        "marginMAE": 11.195766268342414,
+        "probability": {
+          "AUC": 0.6872443772997717,
+          "accuracy": 0.6552845528455284,
+          "binaryBrier": 0.2236659493140696,
+          "calibrationBias": 0.040617250952751906,
+          "excludedTies": 0,
+          "logLoss": 0.638951650715421,
+          "n": 1230,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1677451473948582,
+              "n": 9,
+              "observed": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2613476799948375,
+              "n": 52,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3528308289547715,
+              "n": 122,
+              "observed": 0.30327868852459017
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45191910585292006,
+              "n": 190,
+              "observed": 0.3526315789473684
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5491628767495683,
+              "n": 250,
+              "observed": 0.56
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.650260184999523,
+              "n": 274,
+              "observed": 0.6094890510948905
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746438045627103,
+              "n": 215,
+              "observed": 0.7023255813953488
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8367362296005674,
+              "n": 115,
+              "observed": 0.782608695652174
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.926195216636286,
+              "n": 3,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.45767985953444,
+        "season": 2022,
+        "sport": "NBA",
+        "totalMAE": 14.95971430854665,
+        "trainGames": 2048,
+        "winnerAccuracyFromExpectedScores": 0.6414634146341464
+      },
+      {
+        "assessmentGames": 1228,
+        "awayMAE": 9.003550327513105,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-15.229, -3.139]",
+              "meanMarginResidual": 2.4254035225184936,
+              "meanPredictedMargin": -6.299387262355892,
+              "meanTotalResidual": 6.533604761243278,
+              "n": 246
+            },
+            {
+              "bin": "(-3.139, 0.163]",
+              "meanMarginResidual": 2.0688624283652857,
+              "meanPredictedMargin": -1.3423318161203874,
+              "meanTotalResidual": 3.7372166227625727,
+              "n": 245
+            },
+            {
+              "bin": "(0.163, 2.62]",
+              "meanMarginResidual": 0.8661802757670795,
+              "meanPredictedMargin": 1.4265026510621888,
+              "meanTotalResidual": 4.41914354585119,
+              "n": 246
+            },
+            {
+              "bin": "(2.62, 5.726]",
+              "meanMarginResidual": 0.9901662059493359,
+              "meanPredictedMargin": 4.087384814458827,
+              "meanTotalResidual": 5.526393565917542,
+              "n": 245
+            },
+            {
+              "bin": "(5.726, 19.911]",
+              "meanMarginResidual": 0.02978121772269472,
+              "meanPredictedMargin": 8.38485292861877,
+              "meanTotalResidual": 3.780259122699146,
+              "n": 246
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 10.549955851525715,
+              "n": 478,
+              "scoreMAE": 9.524138322353654,
+              "totalMAE": 15.56189557157499
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 10.359156925615046,
+              "n": 1149,
+              "scoreMAE": 9.251498392321857,
+              "totalMAE": 15.146902932836706
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 10.611844656230907,
+              "n": 410,
+              "scoreMAE": 9.282204844728136,
+              "totalMAE": 15.0419346710219
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 10.142961044385682,
+              "n": 750,
+              "scoreMAE": 9.11289807109826,
+              "totalMAE": 14.984757640269102
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 9.766422911870935,
+              "n": 410,
+              "scoreMAE": 9.148892720481497,
+              "totalMAE": 15.344004833708885
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 9.46111864287173,
+              "n": 79,
+              "scoreMAE": 9.585316691530737,
+              "totalMAE": 16.118517007408805
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 10.300368502027638,
+              "n": 882,
+              "scoreMAE": 9.12660715164452,
+              "totalMAE": 14.987430396002903
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 10.303973010202823,
+              "n": 346,
+              "scoreMAE": 9.64608139785628,
+              "totalMAE": 15.775262150693964
+            }
+          }
+        },
+        "features": 78,
+        "homeMAE": 9.542397020058136,
+        "marginMAE": 10.301384104493936,
+        "probability": {
+          "AUC": 0.6499471383884293,
+          "accuracy": 0.6294788273615635,
+          "binaryBrier": 0.22746036089896698,
+          "calibrationBias": 0.002185986088472932,
+          "excludedTies": 0,
+          "logLoss": 0.6472068463347983,
+          "n": 1228,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1683725374675379,
+              "n": 5,
+              "observed": 0.6
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2644369256092251,
+              "n": 35,
+              "observed": 0.2571428571428571
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3583014059466266,
+              "n": 115,
+              "observed": 0.3652173913043478
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.453968427530796,
+              "n": 190,
+              "observed": 0.46842105263157896
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5501006631143514,
+              "n": 281,
+              "observed": 0.5480427046263345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6456829994542282,
+              "n": 311,
+              "observed": 0.6591639871382636
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7414913219025061,
+              "n": 207,
+              "observed": 0.7246376811594203
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8345866623413511,
+              "n": 82,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9090319035317819,
+              "n": 2,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.272973673785621,
+        "season": 2023,
+        "sport": "NBA",
+        "totalMAE": 15.20940905001195,
+        "trainGames": 3278,
+        "winnerAccuracyFromExpectedScores": 0.6091205211726385
+      },
+      {
+        "assessmentGames": 1228,
+        "awayMAE": 8.996828041848152,
+        "candidate": "MISSINGNESS",
+        "features": 123,
+        "homeMAE": 9.5325157369013,
+        "marginMAE": 10.312321268209741,
+        "probability": {
+          "AUC": 0.6499471383884293,
+          "accuracy": 0.6294788273615635,
+          "binaryBrier": 0.22746036089896698,
+          "calibrationBias": 0.002185986088472932,
+          "excludedTies": 0,
+          "logLoss": 0.6472068463347983,
+          "n": 1228,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1683725374675379,
+              "n": 5,
+              "observed": 0.6
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2644369256092251,
+              "n": 35,
+              "observed": 0.2571428571428571
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3583014059466266,
+              "n": 115,
+              "observed": 0.3652173913043478
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.453968427530796,
+              "n": 190,
+              "observed": 0.46842105263157896
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5501006631143514,
+              "n": 281,
+              "observed": 0.5480427046263345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6456829994542282,
+              "n": 311,
+              "observed": 0.6591639871382636
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7414913219025061,
+              "n": 207,
+              "observed": 0.7246376811594203
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8345866623413511,
+              "n": 82,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9090319035317819,
+              "n": 2,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.264671889374727,
+        "season": 2023,
+        "sport": "NBA",
+        "totalMAE": 15.179590971136006,
+        "trainGames": 3278,
+        "winnerAccuracyFromExpectedScores": 0.6074918566775245
+      },
+      {
+        "assessmentGames": 1228,
+        "awayMAE": 8.998790515733532,
+        "candidate": "COLD_START",
+        "features": 88,
+        "homeMAE": 9.541615970067879,
+        "marginMAE": 10.30456533179432,
+        "probability": {
+          "AUC": 0.6499471383884293,
+          "accuracy": 0.6294788273615635,
+          "binaryBrier": 0.22746036089896698,
+          "calibrationBias": 0.002185986088472932,
+          "excludedTies": 0,
+          "logLoss": 0.6472068463347983,
+          "n": 1228,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1683725374675379,
+              "n": 5,
+              "observed": 0.6
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2644369256092251,
+              "n": 35,
+              "observed": 0.2571428571428571
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3583014059466266,
+              "n": 115,
+              "observed": 0.3652173913043478
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.453968427530796,
+              "n": 190,
+              "observed": 0.46842105263157896
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5501006631143514,
+              "n": 281,
+              "observed": 0.5480427046263345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6456829994542282,
+              "n": 311,
+              "observed": 0.6591639871382636
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7414913219025061,
+              "n": 207,
+              "observed": 0.7246376811594203
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8345866623413511,
+              "n": 82,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9090319035317819,
+              "n": 2,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.270203242900706,
+        "season": 2023,
+        "sport": "NBA",
+        "totalMAE": 15.186309411642341,
+        "trainGames": 3278,
+        "winnerAccuracyFromExpectedScores": 0.6148208469055375
+      },
+      {
+        "assessmentGames": 1228,
+        "awayMAE": 9.000839235809146,
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "features": 82,
+        "homeMAE": 9.55750962323862,
+        "marginMAE": 10.324917318929916,
+        "probability": {
+          "AUC": 0.6499471383884293,
+          "accuracy": 0.6294788273615635,
+          "binaryBrier": 0.22746036089896698,
+          "calibrationBias": 0.002185986088472932,
+          "excludedTies": 0,
+          "logLoss": 0.6472068463347983,
+          "n": 1228,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1683725374675379,
+              "n": 5,
+              "observed": 0.6
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2644369256092251,
+              "n": 35,
+              "observed": 0.2571428571428571
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3583014059466266,
+              "n": 115,
+              "observed": 0.3652173913043478
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.453968427530796,
+              "n": 190,
+              "observed": 0.46842105263157896
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5501006631143514,
+              "n": 281,
+              "observed": 0.5480427046263345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6456829994542282,
+              "n": 311,
+              "observed": 0.6591639871382636
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7414913219025061,
+              "n": 207,
+              "observed": 0.7246376811594203
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8345866623413511,
+              "n": 82,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9090319035317819,
+              "n": 2,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.279174429523882,
+        "season": 2023,
+        "sport": "NBA",
+        "totalMAE": 15.21756515952558,
+        "trainGames": 3278,
+        "winnerAccuracyFromExpectedScores": 0.6091205211726385
+      },
+      {
+        "assessmentGames": 1228,
+        "awayMAE": 8.985896451964432,
+        "candidate": "COMBINED",
+        "features": 137,
+        "homeMAE": 9.545447246866448,
+        "marginMAE": 10.341913797917742,
+        "probability": {
+          "AUC": 0.6499471383884293,
+          "accuracy": 0.6294788273615635,
+          "binaryBrier": 0.22746036089896698,
+          "calibrationBias": 0.002185986088472932,
+          "excludedTies": 0,
+          "logLoss": 0.6472068463347983,
+          "n": 1228,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1683725374675379,
+              "n": 5,
+              "observed": 0.6
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2644369256092251,
+              "n": 35,
+              "observed": 0.2571428571428571
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3583014059466266,
+              "n": 115,
+              "observed": 0.3652173913043478
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.453968427530796,
+              "n": 190,
+              "observed": 0.46842105263157896
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5501006631143514,
+              "n": 281,
+              "observed": 0.5480427046263345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6456829994542282,
+              "n": 311,
+              "observed": 0.6591639871382636
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7414913219025061,
+              "n": 207,
+              "observed": 0.7246376811594203
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8345866623413511,
+              "n": 82,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9090319035317819,
+              "n": 2,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 9.265671849415439,
+        "season": 2023,
+        "sport": "NBA",
+        "totalMAE": 15.163345189614748,
+        "trainGames": 3278,
+        "winnerAccuracyFromExpectedScores": 0.6140065146579805
+      },
+      {
+        "assessmentGames": 1225,
+        "awayMAE": 9.247372812700386,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-18.908, -1.987]",
+              "meanMarginResidual": -1.8508684984040287,
+              "meanPredictedMargin": -6.083825379146991,
+              "meanTotalResidual": -2.698423783807015,
+              "n": 245
+            },
+            {
+              "bin": "(-1.987, 2.071]",
+              "meanMarginResidual": -0.753742234999907,
+              "meanPredictedMargin": 0.333334071734601,
+              "meanTotalResidual": -2.3222885054234514,
+              "n": 245
+            },
+            {
+              "bin": "(2.071, 5.419]",
+              "meanMarginResidual": -3.84694262304582,
+              "meanPredictedMargin": 3.74898343937235,
+              "meanTotalResidual": -0.8155098726195485,
+              "n": 245
+            },
+            {
+              "bin": "(5.419, 9.201]",
+              "meanMarginResidual": 0.41622947368794194,
+              "meanPredictedMargin": 7.110301138556955,
+              "meanTotalResidual": -2.150973605846323,
+              "n": 245
+            },
+            {
+              "bin": "(9.201, 22.516]",
+              "meanMarginResidual": -1.0080067669661923,
+              "meanPredictedMargin": 12.505965950639661,
+              "meanTotalResidual": -1.6339414327934099,
+              "n": 245
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 9.742298408180849,
+              "n": 338,
+              "scoreMAE": 8.883050952052862,
+              "totalMAE": 14.740970179437808
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 11.093187256048685,
+              "n": 1144,
+              "scoreMAE": 9.340781257522963,
+              "totalMAE": 14.819630680305172
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 11.868221315036843,
+              "n": 409,
+              "scoreMAE": 9.911712407839964,
+              "totalMAE": 15.763771029630844
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 11.5815214181601,
+              "n": 887,
+              "scoreMAE": 9.478468711503115,
+              "totalMAE": 14.793818407569487
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 10.413651185868074,
+              "n": 409,
+              "scoreMAE": 8.738088684320731,
+              "totalMAE": 13.776909680407103
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 10.803705419178296,
+              "n": 81,
+              "scoreMAE": 8.938508769022983,
+              "totalMAE": 14.208732714753054
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 11.20139166107145,
+              "n": 861,
+              "scoreMAE": 9.361546476636516,
+              "totalMAE": 14.906981932322536
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 10.772824559589608,
+              "n": 364,
+              "scoreMAE": 9.202146847563434,
+              "totalMAE": 14.47706979240223
+            }
+          }
+        },
+        "features": 78,
+        "homeMAE": 9.380991218152072,
+        "marginMAE": 11.074046008059703,
+        "probability": {
+          "AUC": 0.7143823845327605,
+          "accuracy": 0.6448979591836734,
+          "binaryBrier": 0.2144299064008344,
+          "calibrationBias": 0.03757258866424771,
+          "excludedTies": 0,
+          "logLoss": 0.6158252187635581,
+          "n": 1225,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.09835031423146794,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.15903224361282264,
+              "n": 21,
+              "observed": 0.14285714285714285
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2560617364142125,
+              "n": 80,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35587708218621744,
+              "n": 103,
+              "observed": 0.2815533980582524
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4550685601699043,
+              "n": 170,
+              "observed": 0.45294117647058824
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5500490131109189,
+              "n": 257,
+              "observed": 0.5291828793774319
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6476751830895757,
+              "n": 260,
+              "observed": 0.5423076923076923
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7482975756745888,
+              "n": 202,
+              "observed": 0.7277227722772277
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8449245166909842,
+              "n": 112,
+              "observed": 0.8839285714285714
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9231926288393961,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.31418201542623,
+        "season": 2024,
+        "sport": "NBA",
+        "totalMAE": 14.779236610746215,
+        "trainGames": 4506,
+        "winnerAccuracyFromExpectedScores": 0.6506122448979592
+      },
+      {
+        "assessmentGames": 1225,
+        "awayMAE": 9.249472059539615,
+        "candidate": "MISSINGNESS",
+        "features": 123,
+        "homeMAE": 9.395970443249933,
+        "marginMAE": 11.05723610911963,
+        "probability": {
+          "AUC": 0.7143823845327605,
+          "accuracy": 0.6448979591836734,
+          "binaryBrier": 0.2144299064008344,
+          "calibrationBias": 0.03757258866424771,
+          "excludedTies": 0,
+          "logLoss": 0.6158252187635581,
+          "n": 1225,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.09835031423146794,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.15903224361282264,
+              "n": 21,
+              "observed": 0.14285714285714285
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2560617364142125,
+              "n": 80,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35587708218621744,
+              "n": 103,
+              "observed": 0.2815533980582524
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4550685601699043,
+              "n": 170,
+              "observed": 0.45294117647058824
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5500490131109189,
+              "n": 257,
+              "observed": 0.5291828793774319
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6476751830895757,
+              "n": 260,
+              "observed": 0.5423076923076923
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7482975756745888,
+              "n": 202,
+              "observed": 0.7277227722772277
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8449245166909842,
+              "n": 112,
+              "observed": 0.8839285714285714
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9231926288393961,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.322721251394773,
+        "season": 2024,
+        "sport": "NBA",
+        "totalMAE": 14.82009609303727,
+        "trainGames": 4506,
+        "winnerAccuracyFromExpectedScores": 0.6514285714285715
+      },
+      {
+        "assessmentGames": 1225,
+        "awayMAE": 9.250398545151326,
+        "candidate": "COLD_START",
+        "features": 88,
+        "homeMAE": 9.374472621802141,
+        "marginMAE": 11.07899716753398,
+        "probability": {
+          "AUC": 0.7143823845327605,
+          "accuracy": 0.6448979591836734,
+          "binaryBrier": 0.2144299064008344,
+          "calibrationBias": 0.03757258866424771,
+          "excludedTies": 0,
+          "logLoss": 0.6158252187635581,
+          "n": 1225,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.09835031423146794,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.15903224361282264,
+              "n": 21,
+              "observed": 0.14285714285714285
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2560617364142125,
+              "n": 80,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35587708218621744,
+              "n": 103,
+              "observed": 0.2815533980582524
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4550685601699043,
+              "n": 170,
+              "observed": 0.45294117647058824
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5500490131109189,
+              "n": 257,
+              "observed": 0.5291828793774319
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6476751830895757,
+              "n": 260,
+              "observed": 0.5423076923076923
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7482975756745888,
+              "n": 202,
+              "observed": 0.7277227722772277
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8449245166909842,
+              "n": 112,
+              "observed": 0.8839285714285714
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9231926288393961,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.312435583476733,
+        "season": 2024,
+        "sport": "NBA",
+        "totalMAE": 14.763521330707373,
+        "trainGames": 4506,
+        "winnerAccuracyFromExpectedScores": 0.6506122448979592
+      },
+      {
+        "assessmentGames": 1225,
+        "awayMAE": 9.24660012347311,
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "features": 82,
+        "homeMAE": 9.378291504539243,
+        "marginMAE": 11.069590680782937,
+        "probability": {
+          "AUC": 0.7143823845327605,
+          "accuracy": 0.6448979591836734,
+          "binaryBrier": 0.2144299064008344,
+          "calibrationBias": 0.03757258866424771,
+          "excludedTies": 0,
+          "logLoss": 0.6158252187635581,
+          "n": 1225,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.09835031423146794,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.15903224361282264,
+              "n": 21,
+              "observed": 0.14285714285714285
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2560617364142125,
+              "n": 80,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35587708218621744,
+              "n": 103,
+              "observed": 0.2815533980582524
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4550685601699043,
+              "n": 170,
+              "observed": 0.45294117647058824
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5500490131109189,
+              "n": 257,
+              "observed": 0.5291828793774319
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6476751830895757,
+              "n": 260,
+              "observed": 0.5423076923076923
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7482975756745888,
+              "n": 202,
+              "observed": 0.7277227722772277
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8449245166909842,
+              "n": 112,
+              "observed": 0.8839285714285714
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9231926288393961,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.312445814006175,
+        "season": 2024,
+        "sport": "NBA",
+        "totalMAE": 14.792114903214346,
+        "trainGames": 4506,
+        "winnerAccuracyFromExpectedScores": 0.649795918367347
+      },
+      {
+        "assessmentGames": 1225,
+        "awayMAE": 9.25103538049057,
+        "candidate": "COMBINED",
+        "features": 137,
+        "homeMAE": 9.385567085630894,
+        "marginMAE": 11.059394231596249,
+        "probability": {
+          "AUC": 0.7143823845327605,
+          "accuracy": 0.6448979591836734,
+          "binaryBrier": 0.2144299064008344,
+          "calibrationBias": 0.03757258866424771,
+          "excludedTies": 0,
+          "logLoss": 0.6158252187635581,
+          "n": 1225,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.09835031423146794,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.15903224361282264,
+              "n": 21,
+              "observed": 0.14285714285714285
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2560617364142125,
+              "n": 80,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35587708218621744,
+              "n": 103,
+              "observed": 0.2815533980582524
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4550685601699043,
+              "n": 170,
+              "observed": 0.45294117647058824
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5500490131109189,
+              "n": 257,
+              "observed": 0.5291828793774319
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6476751830895757,
+              "n": 260,
+              "observed": 0.5423076923076923
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7482975756745888,
+              "n": 202,
+              "observed": 0.7277227722772277
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8449245166909842,
+              "n": 112,
+              "observed": 0.8839285714285714
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9231926288393961,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.318301233060733,
+        "season": 2024,
+        "sport": "NBA",
+        "totalMAE": 14.8177353969421,
+        "trainGames": 4506,
+        "winnerAccuracyFromExpectedScores": 0.6530612244897959
+      },
+      {
+        "assessmentGames": 1221,
+        "awayMAE": 9.355818960055089,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-17.931, -2.909]",
+              "meanMarginResidual": -2.2915882116828525,
+              "meanPredictedMargin": -6.822697502602861,
+              "meanTotalResidual": 1.9002452849303684,
+              "n": 245
+            },
+            {
+              "bin": "(-2.909, 1.269]",
+              "meanMarginResidual": -1.2847720790320019,
+              "meanPredictedMargin": -0.5881787406401292,
+              "meanTotalResidual": 3.2363027305668943,
+              "n": 244
+            },
+            {
+              "bin": "(1.269, 4.953]",
+              "meanMarginResidual": -2.384029493396209,
+              "meanPredictedMargin": 3.117636050773258,
+              "meanTotalResidual": 2.1635213083162084,
+              "n": 244
+            },
+            {
+              "bin": "(4.953, 9.064]",
+              "meanMarginResidual": -0.5866858809343116,
+              "meanPredictedMargin": 6.807997356344147,
+              "meanTotalResidual": 1.9639935552206904,
+              "n": 244
+            },
+            {
+              "bin": "(9.064, 23.889]",
+              "meanMarginResidual": 0.05344791325217929,
+              "meanPredictedMargin": 12.495732414616672,
+              "meanTotalResidual": 1.7253472941764427,
+              "n": 244
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 11.277986240097615,
+              "n": 396,
+              "scoreMAE": 9.45778196577815,
+              "totalMAE": 14.88474274626767
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 10.97658836674906,
+              "n": 1144,
+              "scoreMAE": 9.288228271001499,
+              "totalMAE": 14.87824414953069
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 11.34932216474135,
+              "n": 407,
+              "scoreMAE": 9.403435647724988,
+              "totalMAE": 14.886934291872576
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 10.788315348405863,
+              "n": 825,
+              "scoreMAE": 9.201533660983154,
+              "totalMAE": 14.904558115873991
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 10.699920162874697,
+              "n": 407,
+              "scoreMAE": 9.100706272473916,
+              "totalMAE": 14.421406399618977
+            },
+            "LOW_SUPPORT_LT5": {
+              "marginMAE": 10.509423661721708,
+              "n": 77,
+              "scoreMAE": 9.231347879656285,
+              "totalMAE": 15.193600857856168
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 10.812726581927617,
+              "n": 843,
+              "scoreMAE": 9.149319195633016,
+              "totalMAE": 14.567817767419555
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 11.246862976054263,
+              "n": 378,
+              "scoreMAE": 9.586430811747661,
+              "totalMAE": 15.634783585141149
+            }
+          }
+        },
+        "features": 78,
+        "homeMAE": 9.213463478534996,
+        "marginMAE": 10.94712752949508,
+        "probability": {
+          "AUC": 0.7157543138421593,
+          "accuracy": 0.6511056511056511,
+          "binaryBrier": 0.2144364993261128,
+          "calibrationBias": 0.03682674485502871,
+          "excludedTies": 0,
+          "logLoss": 0.6167375639589241,
+          "n": 1221,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.08878374748812363,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.1581325897534666,
+              "n": 15,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2577041298005255,
+              "n": 66,
+              "observed": 0.21212121212121213
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3519898196701849,
+              "n": 145,
+              "observed": 0.3586206896551724
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4537709593863824,
+              "n": 165,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5522217909183812,
+              "n": 228,
+              "observed": 0.5
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.646085102196564,
+              "n": 249,
+              "observed": 0.6024096385542169
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7489939136669426,
+              "n": 211,
+              "observed": 0.7109004739336493
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.838563409215768,
+              "n": 122,
+              "observed": 0.8442622950819673
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9190140880027082,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.284641219295045,
+        "season": 2025,
+        "sport": "NBA",
+        "totalMAE": 14.898131509515183,
+        "trainGames": 5731,
+        "winnerAccuracyFromExpectedScores": 0.6642096642096642
+      },
+      {
+        "assessmentGames": 1221,
+        "awayMAE": 9.34471672727834,
+        "candidate": "MISSINGNESS",
+        "features": 123,
+        "homeMAE": 9.212217146274249,
+        "marginMAE": 10.95450921719741,
+        "probability": {
+          "AUC": 0.7157543138421593,
+          "accuracy": 0.6511056511056511,
+          "binaryBrier": 0.2144364993261128,
+          "calibrationBias": 0.03682674485502871,
+          "excludedTies": 0,
+          "logLoss": 0.6167375639589241,
+          "n": 1221,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.08878374748812363,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.1581325897534666,
+              "n": 15,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2577041298005255,
+              "n": 66,
+              "observed": 0.21212121212121213
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3519898196701849,
+              "n": 145,
+              "observed": 0.3586206896551724
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4537709593863824,
+              "n": 165,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5522217909183812,
+              "n": 228,
+              "observed": 0.5
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.646085102196564,
+              "n": 249,
+              "observed": 0.6024096385542169
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7489939136669426,
+              "n": 211,
+              "observed": 0.7109004739336493
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.838563409215768,
+              "n": 122,
+              "observed": 0.8442622950819673
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9190140880027082,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.278466936776296,
+        "season": 2025,
+        "sport": "NBA",
+        "totalMAE": 14.893472275597853,
+        "trainGames": 5731,
+        "winnerAccuracyFromExpectedScores": 0.6617526617526618
+      },
+      {
+        "assessmentGames": 1221,
+        "awayMAE": 9.353957869850962,
+        "candidate": "COLD_START",
+        "features": 88,
+        "homeMAE": 9.207399729708705,
+        "marginMAE": 10.949394099928293,
+        "probability": {
+          "AUC": 0.7157543138421593,
+          "accuracy": 0.6511056511056511,
+          "binaryBrier": 0.2144364993261128,
+          "calibrationBias": 0.03682674485502871,
+          "excludedTies": 0,
+          "logLoss": 0.6167375639589241,
+          "n": 1221,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.08878374748812363,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.1581325897534666,
+              "n": 15,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2577041298005255,
+              "n": 66,
+              "observed": 0.21212121212121213
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3519898196701849,
+              "n": 145,
+              "observed": 0.3586206896551724
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4537709593863824,
+              "n": 165,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5522217909183812,
+              "n": 228,
+              "observed": 0.5
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.646085102196564,
+              "n": 249,
+              "observed": 0.6024096385542169
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7489939136669426,
+              "n": 211,
+              "observed": 0.7109004739336493
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.838563409215768,
+              "n": 122,
+              "observed": 0.8442622950819673
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9190140880027082,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.280678799779835,
+        "season": 2025,
+        "sport": "NBA",
+        "totalMAE": 14.898573198143549,
+        "trainGames": 5731,
+        "winnerAccuracyFromExpectedScores": 0.6666666666666666
+      },
+      {
+        "assessmentGames": 1221,
+        "awayMAE": 9.371306681294618,
+        "candidate": "REST_DENSITY_INTERACTIONS",
+        "features": 82,
+        "homeMAE": 9.215223146870303,
+        "marginMAE": 10.975331951327956,
+        "probability": {
+          "AUC": 0.7157543138421593,
+          "accuracy": 0.6511056511056511,
+          "binaryBrier": 0.2144364993261128,
+          "calibrationBias": 0.03682674485502871,
+          "excludedTies": 0,
+          "logLoss": 0.6167375639589241,
+          "n": 1221,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.08878374748812363,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.1581325897534666,
+              "n": 15,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2577041298005255,
+              "n": 66,
+              "observed": 0.21212121212121213
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3519898196701849,
+              "n": 145,
+              "observed": 0.3586206896551724
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4537709593863824,
+              "n": 165,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5522217909183812,
+              "n": 228,
+              "observed": 0.5
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.646085102196564,
+              "n": 249,
+              "observed": 0.6024096385542169
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7489939136669426,
+              "n": 211,
+              "observed": 0.7109004739336493
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.838563409215768,
+              "n": 122,
+              "observed": 0.8442622950819673
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9190140880027082,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.293264914082458,
+        "season": 2025,
+        "sport": "NBA",
+        "totalMAE": 14.89752195093621,
+        "trainGames": 5731,
+        "winnerAccuracyFromExpectedScores": 0.6633906633906634
+      },
+      {
+        "assessmentGames": 1221,
+        "awayMAE": 9.367001147884572,
+        "candidate": "COMBINED",
+        "features": 137,
+        "homeMAE": 9.213154762559332,
+        "marginMAE": 10.996130816257732,
+        "probability": {
+          "AUC": 0.7157543138421593,
+          "accuracy": 0.6511056511056511,
+          "binaryBrier": 0.2144364993261128,
+          "calibrationBias": 0.03682674485502871,
+          "excludedTies": 0,
+          "logLoss": 0.6167375639589241,
+          "n": 1221,
+          "reliability": [
+            {
+              "bin": 0,
+              "meanPrediction": 0.08878374748812363,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 1,
+              "meanPrediction": 0.1581325897534666,
+              "n": 15,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2577041298005255,
+              "n": 66,
+              "observed": 0.21212121212121213
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3519898196701849,
+              "n": 145,
+              "observed": 0.3586206896551724
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4537709593863824,
+              "n": 165,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5522217909183812,
+              "n": 228,
+              "observed": 0.5
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.646085102196564,
+              "n": 249,
+              "observed": 0.6024096385542169
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7489939136669426,
+              "n": 211,
+              "observed": 0.7109004739336493
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.838563409215768,
+              "n": 122,
+              "observed": 0.8442622950819673
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9190140880027082,
+              "n": 19,
+              "observed": 0.8947368421052632
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 9.290077955221951,
+        "season": 2025,
+        "sport": "NBA",
+        "totalMAE": 14.89353051800166,
+        "trainGames": 5731,
+        "winnerAccuracyFromExpectedScores": 0.6617526617526618
+      }
+    ]
+  },
+  "NFL": {
+    "pooledReusedLater": [
+      {
+        "candidate": "BASELINE",
+        "delta_marginMAE": 0.0,
+        "delta_scoreMAE": 0.0,
+        "delta_totalMAE": 0.0,
+        "games": 544,
+        "interval95_marginMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_scoreMAE": [
+          0.0,
+          0.0
+        ],
+        "interval95_totalMAE": [
+          0.0,
+          0.0
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.0,
+            "delta_scoreMAE": 0.0,
+            "delta_totalMAE": 0.0,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "MISSINGNESS",
+        "delta_marginMAE": 0.01720699142007267,
+        "delta_scoreMAE": 0.015570540638530956,
+        "delta_totalMAE": 0.055599468595841355,
+        "games": 544,
+        "interval95_marginMAE": [
+          -0.030941439881473073,
+          0.0665082524627949
+        ],
+        "interval95_scoreMAE": [
+          -0.005790939539603854,
+          0.038269174607860904
+        ],
+        "interval95_totalMAE": [
+          0.007141106691748847,
+          0.10436648304907682
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.0009098088040069285,
+            "delta_scoreMAE": 0.01071068995139246,
+            "delta_totalMAE": 0.033295950468849256,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.03532379164415289,
+            "delta_scoreMAE": 0.020430391325669817,
+            "delta_totalMAE": 0.07790298672283491,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "COLD_START",
+        "delta_marginMAE": 0.018110634649501127,
+        "delta_scoreMAE": 0.009916702614111058,
+        "delta_totalMAE": 0.013435333967208862,
+        "games": 544,
+        "interval95_marginMAE": [
+          -0.04113627468183572,
+          0.07847018966456235
+        ],
+        "interval95_scoreMAE": [
+          -0.016355724084029293,
+          0.03564909970914873
+        ],
+        "interval95_totalMAE": [
+          -0.04712482065602056,
+          0.0664373669351143
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": -0.029058260076185505,
+            "delta_scoreMAE": -0.001196917365578365,
+            "delta_totalMAE": -0.005255839403938367,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.06527952937518933,
+            "delta_scoreMAE": 0.02103032259380111,
+            "delta_totalMAE": 0.03212650733835609,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "OPPONENT_ADJUSTED_EPA",
+        "delta_marginMAE": 0.026434044627582327,
+        "delta_scoreMAE": 0.02078770802301519,
+        "delta_totalMAE": 0.04842205082668977,
+        "games": 544,
+        "interval95_marginMAE": [
+          -0.02183212229906413,
+          0.07503158580375725
+        ],
+        "interval95_scoreMAE": [
+          -0.0018484914761174428,
+          0.042904380296682955
+        ],
+        "interval95_totalMAE": [
+          -0.0022321184618746804,
+          0.09890603459090244
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.013433803530300992,
+            "delta_scoreMAE": 0.012341322267757526,
+            "delta_totalMAE": 0.027116077787736614,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.03943428572486418,
+            "delta_scoreMAE": 0.029234093778273795,
+            "delta_totalMAE": 0.06972802386564325,
+            "season": 2024
+          }
+        ]
+      },
+      {
+        "candidate": "COMBINED",
+        "delta_marginMAE": 0.02505882697946885,
+        "delta_scoreMAE": 0.022619023042566636,
+        "delta_totalMAE": 0.026056380832896513,
+        "games": 544,
+        "interval95_marginMAE": [
+          -0.03711884052213961,
+          0.08390123654588177
+        ],
+        "interval95_scoreMAE": [
+          -0.002495320231848492,
+          0.04883204096617596
+        ],
+        "interval95_totalMAE": [
+          -0.011920323884264034,
+          0.06428789141236398
+        ],
+        "passesFrozenGate": false,
+        "seasonDeltas": [
+          {
+            "delta_marginMAE": 0.032848589560565244,
+            "delta_scoreMAE": 0.01949974017984779,
+            "delta_totalMAE": 0.02653697658987575,
+            "season": 2023
+          },
+          {
+            "delta_marginMAE": 0.0172690643983735,
+            "delta_scoreMAE": 0.025738305905285586,
+            "delta_totalMAE": 0.025575785075917068,
+            "season": 2024
+          }
+        ]
+      }
+    ],
+    "seasonal": [
+      {
+        "assessmentGames": 271,
+        "awayMAE": 7.144592133835233,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-11.401, -2.936]",
+              "meanMarginResidual": 2.9305714693936435,
+              "meanPredictedMargin": -5.621480560302734,
+              "meanTotalResidual": -3.331900787353516,
+              "n": 55
+            },
+            {
+              "bin": "(-2.936, 0.348]",
+              "meanMarginResidual": -1.1330688617847584,
+              "meanPredictedMargin": -1.2187829900670935,
+              "meanTotalResidual": 1.4773972122757524,
+              "n": 54
+            },
+            {
+              "bin": "(0.348, 3.408]",
+              "meanMarginResidual": -0.24882694526954932,
+              "meanPredictedMargin": 1.8229010193436235,
+              "meanTotalResidual": -1.995493182429561,
+              "n": 54
+            },
+            {
+              "bin": "(3.408, 6.624]",
+              "meanMarginResidual": 0.7059499952528212,
+              "meanPredictedMargin": 4.886642597339772,
+              "meanTotalResidual": -0.2927450250696253,
+              "n": 54
+            },
+            {
+              "bin": "(6.624, 17.225]",
+              "meanMarginResidual": -1.494043226595278,
+              "meanPredictedMargin": 9.34589507844713,
+              "meanTotalResidual": -1.1682785705283836,
+              "n": 54
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 8.87493658537912,
+              "n": 101,
+              "scoreMAE": 7.114600417637589,
+              "totalMAE": 11.450764646624574
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 8.90496687167685,
+              "n": 271,
+              "scoreMAE": 7.051182548058429,
+              "totalMAE": 10.687962475737962
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 9.680178086836259,
+              "n": 91,
+              "scoreMAE": 7.063719843770121,
+              "totalMAE": 10.422634543953361
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 8.922808394712561,
+              "n": 170,
+              "scoreMAE": 7.013504872602575,
+              "totalMAE": 10.234768244799445
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 8.458119958311647,
+              "n": 91,
+              "scoreMAE": 7.03019823870816,
+              "totalMAE": 10.686820449409904
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 9.028497264141173,
+              "n": 254,
+              "scoreMAE": 7.1107906750806675,
+              "totalMAE": 10.74405881551307
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 7.059277478386374,
+              "n": 17,
+              "scoreMAE": 6.160567003137925,
+              "totalMAE": 9.849817163803998
+            }
+          }
+        },
+        "features": 197,
+        "homeMAE": 6.9577729622816245,
+        "marginMAE": 8.90496687167685,
+        "probability": {
+          "AUC": 0.6850376024245146,
+          "accuracy": 0.6468401486988847,
+          "binaryBrier": 0.2219719966025492,
+          "calibrationBias": -0.007611107192080227,
+          "excludedTies": 2,
+          "logLoss": 0.635129007292336,
+          "n": 269,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.18921181165124693,
+              "n": 2,
+              "observed": 0.5
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.26439688301177616,
+              "n": 11,
+              "observed": 0.2727272727272727
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3461172906553763,
+              "n": 35,
+              "observed": 0.4
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4493002079250261,
+              "n": 51,
+              "observed": 0.39215686274509803
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.546602222694785,
+              "n": 58,
+              "observed": 0.5344827586206896
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6470759700638433,
+              "n": 58,
+              "observed": 0.7241379310344828
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7474265741681791,
+              "n": 43,
+              "observed": 0.7209302325581395
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8351148603368633,
+              "n": 10,
+              "observed": 0.8
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9135805791831215,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 7.051182548058429,
+        "season": 2022,
+        "sport": "NFL",
+        "totalMAE": 10.687962475737962,
+        "trainGames": 5632,
+        "winnerAccuracyFromExpectedScores": 0.6420664206642066
+      },
+      {
+        "assessmentGames": 271,
+        "awayMAE": 7.140720198515156,
+        "candidate": "MISSINGNESS",
+        "features": 310,
+        "homeMAE": 7.0030705849622885,
+        "marginMAE": 8.934575682636556,
+        "probability": {
+          "AUC": 0.6790324391065216,
+          "accuracy": 0.6579925650557621,
+          "binaryBrier": 0.2231595925878979,
+          "calibrationBias": -0.010217994664568743,
+          "excludedTies": 2,
+          "logLoss": 0.6374688016342418,
+          "n": 269,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.18249795206491748,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2677768109913747,
+              "n": 15,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35548119103157855,
+              "n": 33,
+              "observed": 0.3939393939393939
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4491708930532382,
+              "n": 53,
+              "observed": 0.37735849056603776
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.548942708428977,
+              "n": 58,
+              "observed": 0.5517241379310345
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6486239826532987,
+              "n": 57,
+              "observed": 0.7719298245614035
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.745346905920764,
+              "n": 42,
+              "observed": 0.6904761904761905
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8331822703731887,
+              "n": 9,
+              "observed": 0.7777777777777778
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9018181002822758,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 7.071895391738723,
+        "season": 2022,
+        "sport": "NFL",
+        "totalMAE": 10.703032504148588,
+        "trainGames": 5632,
+        "winnerAccuracyFromExpectedScores": 0.6531365313653137
+      },
+      {
+        "assessmentGames": 271,
+        "awayMAE": 7.144216284100859,
+        "candidate": "COLD_START",
+        "features": 207,
+        "homeMAE": 6.959432630081459,
+        "marginMAE": 8.908019611316414,
+        "probability": {
+          "AUC": 0.683129419687956,
+          "accuracy": 0.6654275092936803,
+          "binaryBrier": 0.22273767287557275,
+          "calibrationBias": -0.011156578819273674,
+          "excludedTies": 2,
+          "logLoss": 0.6365585964410799,
+          "n": 269,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.17717034102617218,
+              "n": 1,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.26002928861316177,
+              "n": 14,
+              "observed": 0.35714285714285715
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3490385225458946,
+              "n": 31,
+              "observed": 0.3870967741935484
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4516311024088205,
+              "n": 60,
+              "observed": 0.36666666666666664
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5540084149317404,
+              "n": 56,
+              "observed": 0.6071428571428571
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6518396514799965,
+              "n": 60,
+              "observed": 0.7166666666666667
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7529256726256645,
+              "n": 39,
+              "observed": 0.6923076923076923
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8455360018968516,
+              "n": 8,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 7.0518244570911595,
+        "season": 2022,
+        "sport": "NFL",
+        "totalMAE": 10.720040923115072,
+        "trainGames": 5632,
+        "winnerAccuracyFromExpectedScores": 0.6605166051660517
+      },
+      {
+        "assessmentGames": 271,
+        "awayMAE": 7.168856793224152,
+        "candidate": "OPPONENT_ADJUSTED_EPA",
+        "features": 213,
+        "homeMAE": 6.971204423376555,
+        "marginMAE": 8.903983763663092,
+        "probability": {
+          "AUC": 0.6857110786844763,
+          "accuracy": 0.6505576208178439,
+          "binaryBrier": 0.22174482069214613,
+          "calibrationBias": -0.009886656865626401,
+          "excludedTies": 2,
+          "logLoss": 0.63478421620796,
+          "n": 269,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.176423649618953,
+              "n": 2,
+              "observed": 0.5
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2668145515955819,
+              "n": 10,
+              "observed": 0.2
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3405562075032695,
+              "n": 33,
+              "observed": 0.36363636363636365
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4459197535538513,
+              "n": 59,
+              "observed": 0.423728813559322
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.548299444641541,
+              "n": 51,
+              "observed": 0.5686274509803921
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6442987328599559,
+              "n": 62,
+              "observed": 0.6935483870967742
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.746925682325415,
+              "n": 41,
+              "observed": 0.7317073170731707
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8398300082990705,
+              "n": 11,
+              "observed": 0.8181818181818182
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 7.070030608300353,
+        "season": 2022,
+        "sport": "NFL",
+        "totalMAE": 10.71889370921793,
+        "trainGames": 5632,
+        "winnerAccuracyFromExpectedScores": 0.6457564575645757
+      },
+      {
+        "assessmentGames": 271,
+        "awayMAE": 7.127720206426079,
+        "candidate": "COMBINED",
+        "features": 336,
+        "homeMAE": 6.975047910345436,
+        "marginMAE": 8.839367690561442,
+        "probability": {
+          "AUC": 0.6878998765293525,
+          "accuracy": 0.6617100371747212,
+          "binaryBrier": 0.22147686309916853,
+          "calibrationBias": -0.011887340095516155,
+          "excludedTies": 2,
+          "logLoss": 0.6338272258668854,
+          "n": 269,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1796250181892625,
+              "n": 2,
+              "observed": 0.5
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.26020259413007596,
+              "n": 8,
+              "observed": 0.25
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.34911996101624404,
+              "n": 37,
+              "observed": 0.3783783783783784
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4459845219550384,
+              "n": 56,
+              "observed": 0.375
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5539764948265825,
+              "n": 59,
+              "observed": 0.576271186440678
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6459062117165495,
+              "n": 58,
+              "observed": 0.7241379310344828
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7458532482978624,
+              "n": 42,
+              "observed": 0.7142857142857143
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8471615476812562,
+              "n": 6,
+              "observed": 1.0
+            },
+            {
+              "bin": 9,
+              "meanPrediction": 0.9128837488778336,
+              "n": 1,
+              "observed": 1.0
+            }
+          ]
+        },
+        "role": "Development",
+        "scoreMAE": 7.051384058385757,
+        "season": 2022,
+        "sport": "NFL",
+        "totalMAE": 10.63607051539685,
+        "trainGames": 5632,
+        "winnerAccuracyFromExpectedScores": 0.6568265682656826
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 7.594881709884195,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-13.379, -2.457]",
+              "meanMarginResidual": 3.5145762010054153,
+              "meanPredictedMargin": -5.405485291914506,
+              "meanTotalResidual": 0.14511999650435015,
+              "n": 55
+            },
+            {
+              "bin": "(-2.457, 0.677]",
+              "meanMarginResidual": -2.5211131837632923,
+              "meanPredictedMargin": -0.8122201495700412,
+              "meanTotalResidual": -2.7048379050360785,
+              "n": 54
+            },
+            {
+              "bin": "(0.677, 2.72]",
+              "meanMarginResidual": 1.8001511538470234,
+              "meanPredictedMargin": 1.5887377350418657,
+              "meanTotalResidual": 0.4067270844071,
+              "n": 54
+            },
+            {
+              "bin": "(2.72, 6.547]",
+              "meanMarginResidual": 0.18365429065845632,
+              "meanPredictedMargin": 4.557086450082284,
+              "meanTotalResidual": 0.6657305117006656,
+              "n": 54
+            },
+            {
+              "bin": "(6.547, 14.902]",
+              "meanMarginResidual": 0.7837801499800249,
+              "meanPredictedMargin": 9.67076530456543,
+              "meanTotalResidual": 2.1508337887850675,
+              "n": 55
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 10.993165621193507,
+              "n": 93,
+              "scoreMAE": 8.159005236882036,
+              "totalMAE": 10.829142047512915
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 10.396395003094392,
+              "n": 272,
+              "scoreMAE": 7.571448168333839,
+              "totalMAE": 10.600490366711336
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 10.879192163656047,
+              "n": 91,
+              "scoreMAE": 7.57625538962228,
+              "totalMAE": 10.178151287875332
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 10.08634099480826,
+              "n": 179,
+              "scoreMAE": 7.266181088026675,
+              "totalMAE": 10.481693683389844
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 9.810929392720316,
+              "n": 91,
+              "scoreMAE": 7.743870232131455,
+              "totalMAE": 11.69867664379078
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 10.303948454969511,
+              "n": 254,
+              "scoreMAE": 7.569751765784316,
+              "totalMAE": 10.580646252068947
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 11.700918515523275,
+              "n": 18,
+              "scoreMAE": 7.5953862931993275,
+              "totalMAE": 10.880512873331705
+            }
+          }
+        },
+        "features": 197,
+        "homeMAE": 7.548014626783483,
+        "marginMAE": 10.396395003094392,
+        "probability": {
+          "AUC": 0.6526189042745335,
+          "accuracy": 0.6323529411764706,
+          "binaryBrier": 0.231941965505871,
+          "calibrationBias": 0.0002917760789069595,
+          "excludedTies": 0,
+          "logLoss": 0.6560213514283476,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.16883651053397383,
+              "n": 3,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2527796245884728,
+              "n": 10,
+              "observed": 0.4
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35343953990262594,
+              "n": 31,
+              "observed": 0.45161290322580644
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4499773025415775,
+              "n": 49,
+              "observed": 0.3469387755102041
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5461252474696171,
+              "n": 78,
+              "observed": 0.5641025641025641
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6500403911144631,
+              "n": 47,
+              "observed": 0.6382978723404256
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7369888158872968,
+              "n": 33,
+              "observed": 0.696969696969697
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8366307211984116,
+              "n": 21,
+              "observed": 0.8571428571428571
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.571448168333839,
+        "season": 2023,
+        "sport": "NFL",
+        "totalMAE": 10.600490366711336,
+        "trainGames": 5903,
+        "winnerAccuracyFromExpectedScores": 0.6323529411764706
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 7.594864259747898,
+        "candidate": "MISSINGNESS",
+        "features": 310,
+        "homeMAE": 7.569453456822564,
+        "marginMAE": 10.395485194290385,
+        "probability": {
+          "AUC": 0.6509222264791199,
+          "accuracy": 0.625,
+          "binaryBrier": 0.23222342224525966,
+          "calibrationBias": -0.0020060762201079578,
+          "excludedTies": 0,
+          "logLoss": 0.6565854187923367,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.16019991743459808,
+              "n": 3,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.26237068530885477,
+              "n": 11,
+              "observed": 0.45454545454545453
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3529153622629073,
+              "n": 30,
+              "observed": 0.43333333333333335
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45234326418917015,
+              "n": 55,
+              "observed": 0.38181818181818183
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5488872386150161,
+              "n": 72,
+              "observed": 0.5555555555555556
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6481317369464275,
+              "n": 50,
+              "observed": 0.64
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7434284233592254,
+              "n": 32,
+              "observed": 0.71875
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8371132633705329,
+              "n": 19,
+              "observed": 0.8421052631578947
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.582158858285231,
+        "season": 2023,
+        "sport": "NFL",
+        "totalMAE": 10.633786317180185,
+        "trainGames": 5903,
+        "winnerAccuracyFromExpectedScores": 0.625
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 7.599457558463602,
+        "candidate": "COLD_START",
+        "features": 207,
+        "homeMAE": 7.541044943472919,
+        "marginMAE": 10.367336743018207,
+        "probability": {
+          "AUC": 0.6567237699085984,
+          "accuracy": 0.6397058823529411,
+          "binaryBrier": 0.23026685765114122,
+          "calibrationBias": 0.0009006193003233002,
+          "excludedTies": 0,
+          "logLoss": 0.6521274401277378,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1815245782752154,
+              "n": 4,
+              "observed": 0.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.25561678993172104,
+              "n": 9,
+              "observed": 0.4444444444444444
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35323739600528287,
+              "n": 32,
+              "observed": 0.46875
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4544320364510575,
+              "n": 52,
+              "observed": 0.34615384615384615
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5532537135198736,
+              "n": 74,
+              "observed": 0.581081081081081
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6446458003468817,
+              "n": 45,
+              "observed": 0.6222222222222222
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7413287634717601,
+              "n": 37,
+              "observed": 0.7297297297297297
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8371187576337952,
+              "n": 19,
+              "observed": 0.8421052631578947
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.57025125096826,
+        "season": 2023,
+        "sport": "NFL",
+        "totalMAE": 10.595234527307397,
+        "trainGames": 5903,
+        "winnerAccuracyFromExpectedScores": 0.6397058823529411
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 7.585652985993554,
+        "candidate": "OPPONENT_ADJUSTED_EPA",
+        "features": 213,
+        "homeMAE": 7.581925995209637,
+        "marginMAE": 10.409828806624693,
+        "probability": {
+          "AUC": 0.6501559848940944,
+          "accuracy": 0.625,
+          "binaryBrier": 0.23231832374836653,
+          "calibrationBias": 0.0027940848174229788,
+          "excludedTies": 0,
+          "logLoss": 0.6567524689198632,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1758540406248156,
+              "n": 3,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2639104891560266,
+              "n": 12,
+              "observed": 0.5
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3555104114448781,
+              "n": 28,
+              "observed": 0.5
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45234706789375984,
+              "n": 48,
+              "observed": 0.3125
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5445386172886524,
+              "n": 76,
+              "observed": 0.5394736842105263
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6425886283590314,
+              "n": 48,
+              "observed": 0.6666666666666666
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7396078106844715,
+              "n": 36,
+              "observed": 0.6666666666666666
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8354039066391976,
+              "n": 21,
+              "observed": 0.8571428571428571
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.583789490601596,
+        "season": 2023,
+        "sport": "NFL",
+        "totalMAE": 10.627606444499072,
+        "trainGames": 5903,
+        "winnerAccuracyFromExpectedScores": 0.625
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 7.58795288029839,
+        "candidate": "COMBINED",
+        "features": 336,
+        "homeMAE": 7.593942936728983,
+        "marginMAE": 10.429243592654958,
+        "probability": {
+          "AUC": 0.6485140386404685,
+          "accuracy": 0.6213235294117647,
+          "binaryBrier": 0.2324558469803255,
+          "calibrationBias": 0.002033813843771202,
+          "excludedTies": 0,
+          "logLoss": 0.6568517396102966,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.16342253951521635,
+              "n": 4,
+              "observed": 0.25
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2707814487908132,
+              "n": 10,
+              "observed": 0.4
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35082904548378585,
+              "n": 29,
+              "observed": 0.4482758620689655
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4490661131457071,
+              "n": 47,
+              "observed": 0.3829787234042553
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.545299317855737,
+              "n": 79,
+              "observed": 0.5316455696202531
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6479006456823904,
+              "n": 49,
+              "observed": 0.6530612244897959
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7428818980252156,
+              "n": 33,
+              "observed": 0.696969696969697
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8366982237517275,
+              "n": 21,
+              "observed": 0.8571428571428571
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.590947908513686,
+        "season": 2023,
+        "sport": "NFL",
+        "totalMAE": 10.627027343301211,
+        "trainGames": 5903,
+        "winnerAccuracyFromExpectedScores": 0.6213235294117647
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 6.8596099404727715,
+        "candidate": "BASELINE",
+        "diagnostics": {
+          "residualBins": [
+            {
+              "bin": "(-11.225, -3.09]",
+              "meanMarginResidual": -1.329655699296431,
+              "meanPredictedMargin": -5.743071573430842,
+              "meanTotalResidual": 1.4455049341375177,
+              "n": 55
+            },
+            {
+              "bin": "(-3.09, 0.494]",
+              "meanMarginResidual": -0.35221947564019096,
+              "meanPredictedMargin": -1.25889163547092,
+              "meanTotalResidual": -1.6196373833550348,
+              "n": 54
+            },
+            {
+              "bin": "(0.494, 3.215]",
+              "meanMarginResidual": 0.8566577699449327,
+              "meanPredictedMargin": 1.7729718596846968,
+              "meanTotalResidual": -0.1047290872644495,
+              "n": 54
+            },
+            {
+              "bin": "(3.215, 7.204]",
+              "meanMarginResidual": -1.8689114959151656,
+              "meanPredictedMargin": 4.591133718137388,
+              "meanTotalResidual": 2.3787441606874817,
+              "n": 54
+            },
+            {
+              "bin": "(7.204, 14.662]",
+              "meanMarginResidual": 3.1522821946577593,
+              "meanPredictedMargin": 9.484081441705877,
+              "meanTotalResidual": 4.520455065640536,
+              "n": 55
+            }
+          ],
+          "segments": {
+            "AWAY_EXPECTED_FAVORITE": {
+              "marginMAE": 9.471346031114892,
+              "n": 103,
+              "scoreMAE": 7.479792104184049,
+              "totalMAE": 10.589331358381845
+            },
+            "ESTABLISHED_SUPPORT_GE5": {
+              "marginMAE": 10.028662246816298,
+              "n": 272,
+              "scoreMAE": 7.234891365556156,
+              "totalMAE": 9.999155135715709
+            },
+            "HIGH_PREDICTED_TOTAL_TOP_THIRD": {
+              "marginMAE": 10.210409814184839,
+              "n": 91,
+              "scoreMAE": 7.684812797294868,
+              "totalMAE": 11.05655045561738
+            },
+            "HOME_EXPECTED_FAVORITE": {
+              "marginMAE": 10.368328342776326,
+              "n": 169,
+              "scoreMAE": 7.085632335504837,
+              "totalMAE": 9.639461934919188
+            },
+            "LOW_PREDICTED_TOTAL_BOTTOM_THIRD": {
+              "marginMAE": 9.175099467183207,
+              "n": 91,
+              "scoreMAE": 6.68030885549692,
+              "totalMAE": 9.77510135776394
+            },
+            "ORDINARY_REST": {
+              "marginMAE": 10.01514862832569,
+              "n": 252,
+              "scoreMAE": 7.201793562798273,
+              "totalMAE": 9.950718391509284
+            },
+            "REST_STRESS_OR_LONG_GAP": {
+              "marginMAE": 10.198933839797974,
+              "n": 20,
+              "scoreMAE": 7.651923680305481,
+              "totalMAE": 10.609458112716675
+            }
+          }
+        },
+        "features": 197,
+        "homeMAE": 7.610172790639541,
+        "marginMAE": 10.028662246816298,
+        "probability": {
+          "AUC": 0.721314146076568,
+          "accuracy": 0.6911764705882353,
+          "binaryBrier": 0.2140798112522519,
+          "calibrationBias": 0.017930005816023144,
+          "excludedTies": 0,
+          "logLoss": 0.6179626383927284,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1874721132402702,
+              "n": 1,
+              "observed": 1.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2556912237575845,
+              "n": 13,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.35056222383720537,
+              "n": 39,
+              "observed": 0.2564102564102564
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45256695295765076,
+              "n": 50,
+              "observed": 0.32
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5507174110912884,
+              "n": 60,
+              "observed": 0.6333333333333333
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6386930471059595,
+              "n": 52,
+              "observed": 0.5576923076923077
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7496798079844024,
+              "n": 44,
+              "observed": 0.8409090909090909
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.832633424310382,
+              "n": 13,
+              "observed": 0.8461538461538461
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.234891365556156,
+        "season": 2024,
+        "sport": "NFL",
+        "totalMAE": 9.999155135715709,
+        "trainGames": 6175,
+        "winnerAccuracyFromExpectedScores": 0.6911764705882353
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 6.870836296502282,
+        "candidate": "MISSINGNESS",
+        "features": 310,
+        "homeMAE": 7.639807217261371,
+        "marginMAE": 10.06398603846045,
+        "probability": {
+          "AUC": 0.7242465381482488,
+          "accuracy": 0.6875,
+          "binaryBrier": 0.2144142267077799,
+          "calibrationBias": 0.018491121748201875,
+          "excludedTies": 0,
+          "logLoss": 0.6186150063299509,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19339545029403898,
+              "n": 1,
+              "observed": 1.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2610748647387227,
+              "n": 14,
+              "observed": 0.21428571428571427
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3486658793157737,
+              "n": 34,
+              "observed": 0.2647058823529412
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4507247736951324,
+              "n": 53,
+              "observed": 0.32075471698113206
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5471440051848563,
+              "n": 61,
+              "observed": 0.639344262295082
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6410265476983488,
+              "n": 51,
+              "observed": 0.5686274509803921
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7479831473379828,
+              "n": 47,
+              "observed": 0.8085106382978723
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8377038620472033,
+              "n": 11,
+              "observed": 0.8181818181818182
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.255321756881826,
+        "season": 2024,
+        "sport": "NFL",
+        "totalMAE": 10.077058122438544,
+        "trainGames": 6175,
+        "winnerAccuracyFromExpectedScores": 0.6875
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 6.88912378689822,
+        "candidate": "COLD_START",
+        "features": 207,
+        "homeMAE": 7.622719589401694,
+        "marginMAE": 10.093941776191487,
+        "probability": {
+          "AUC": 0.7177301113222917,
+          "accuracy": 0.6875,
+          "binaryBrier": 0.21540391702927444,
+          "calibrationBias": 0.020168686600535807,
+          "excludedTies": 0,
+          "logLoss": 0.6210290779274306,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1755013133121811,
+              "n": 1,
+              "observed": 1.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2579821841516073,
+              "n": 12,
+              "observed": 0.25
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3517747975958263,
+              "n": 42,
+              "observed": 0.21428571428571427
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.45806858233529674,
+              "n": 49,
+              "observed": 0.3673469387755102
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5532934538700914,
+              "n": 61,
+              "observed": 0.6229508196721312
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6444150921886479,
+              "n": 49,
+              "observed": 0.5918367346938775
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7486467318107409,
+              "n": 44,
+              "observed": 0.7954545454545454
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.83764262826915,
+              "n": 14,
+              "observed": 0.8571428571428571
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.255921688149957,
+        "season": 2024,
+        "sport": "NFL",
+        "totalMAE": 10.031281643054065,
+        "trainGames": 6175,
+        "winnerAccuracyFromExpectedScores": 0.6875
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 6.872284279150121,
+        "candidate": "OPPONENT_ADJUSTED_EPA",
+        "features": 213,
+        "homeMAE": 7.655966639518738,
+        "marginMAE": 10.068096532541162,
+        "probability": {
+          "AUC": 0.7216942709747489,
+          "accuracy": 0.6911764705882353,
+          "binaryBrier": 0.2147331478179988,
+          "calibrationBias": 0.016741737140887926,
+          "excludedTies": 0,
+          "logLoss": 0.6194657303760092,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.19460668325004163,
+              "n": 3,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.26844845372523074,
+              "n": 13,
+              "observed": 0.23076923076923078
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.3535597205333167,
+              "n": 37,
+              "observed": 0.24324324324324326
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.4531078095285201,
+              "n": 48,
+              "observed": 0.3333333333333333
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5445150842301747,
+              "n": 63,
+              "observed": 0.6190476190476191
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6449461873967903,
+              "n": 53,
+              "observed": 0.5849056603773585
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7485078626719932,
+              "n": 44,
+              "observed": 0.8409090909090909
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8389339855402834,
+              "n": 11,
+              "observed": 0.8181818181818182
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.26412545933443,
+        "season": 2024,
+        "sport": "NFL",
+        "totalMAE": 10.068883159581352,
+        "trainGames": 6175,
+        "winnerAccuracyFromExpectedScores": 0.6911764705882353
+      },
+      {
+        "assessmentGames": 272,
+        "awayMAE": 6.90537977919859,
+        "candidate": "COMBINED",
+        "features": 336,
+        "homeMAE": 7.6158795637242935,
+        "marginMAE": 10.045931311214671,
+        "probability": {
+          "AUC": 0.7255498235134401,
+          "accuracy": 0.6948529411764706,
+          "binaryBrier": 0.21340066560302823,
+          "calibrationBias": 0.018850856492952393,
+          "excludedTies": 0,
+          "logLoss": 0.6164860351933138,
+          "n": 272,
+          "reliability": [
+            {
+              "bin": 1,
+              "meanPrediction": 0.1692763696575258,
+              "n": 1,
+              "observed": 1.0
+            },
+            {
+              "bin": 2,
+              "meanPrediction": 0.2648513725418155,
+              "n": 14,
+              "observed": 0.2857142857142857
+            },
+            {
+              "bin": 3,
+              "meanPrediction": 0.353121902016728,
+              "n": 38,
+              "observed": 0.21052631578947367
+            },
+            {
+              "bin": 4,
+              "meanPrediction": 0.450859670421586,
+              "n": 47,
+              "observed": 0.3191489361702128
+            },
+            {
+              "bin": 5,
+              "meanPrediction": 0.5472709303525037,
+              "n": 62,
+              "observed": 0.6451612903225806
+            },
+            {
+              "bin": 6,
+              "meanPrediction": 0.6420941236580339,
+              "n": 53,
+              "observed": 0.5471698113207547
+            },
+            {
+              "bin": 7,
+              "meanPrediction": 0.7487223473731813,
+              "n": 46,
+              "observed": 0.8478260869565217
+            },
+            {
+              "bin": 8,
+              "meanPrediction": 0.8398351254084129,
+              "n": 11,
+              "observed": 0.8181818181818182
+            }
+          ]
+        },
+        "role": "ReusedLaterDiagnostic",
+        "scoreMAE": 7.260629671461442,
+        "season": 2024,
+        "sport": "NFL",
+        "totalMAE": 10.024730920791626,
+        "trainGames": 6175,
+        "winnerAccuracyFromExpectedScores": 0.6948529411764706
+      }
+    ]
+  }
+}

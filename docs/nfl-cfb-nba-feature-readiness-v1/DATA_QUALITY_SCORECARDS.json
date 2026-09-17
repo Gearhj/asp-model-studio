@@ -1,0 +1,3382 @@
+{
+  "CFB": {
+    "duplicateGameIds": 0,
+    "featureMissingCells": 0,
+    "features": 35,
+    "games": 7744,
+    "impossibleValueCount": 0,
+    "missingTargetRows": 0,
+    "seasons": [
+      {
+        "dates": [
+          "2014-08-28 22:00:00+00:00",
+          "2014-11-30 03:30:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 706,
+        "lowSupportGamesLt5": 286,
+        "lowSupportRateLt5": 0.40509915014164305,
+        "role": "EarlierTrainingHistory",
+        "season": 2014,
+        "teams": 128
+      },
+      {
+        "dates": [
+          "2015-09-03 22:00:00+00:00",
+          "2015-12-06 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 723,
+        "lowSupportGamesLt5": 281,
+        "lowSupportRateLt5": 0.38865836791147995,
+        "role": "EarlierTrainingHistory",
+        "season": 2015,
+        "teams": 128
+      },
+      {
+        "dates": [
+          "2016-08-27 02:00:00+00:00",
+          "2016-12-04 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 718,
+        "lowSupportGamesLt5": 282,
+        "lowSupportRateLt5": 0.39275766016713093,
+        "role": "EarlierTrainingHistory",
+        "season": 2016,
+        "teams": 128
+      },
+      {
+        "dates": [
+          "2017-08-26 18:30:00+00:00",
+          "2017-12-03 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 735,
+        "lowSupportGamesLt5": 296,
+        "lowSupportRateLt5": 0.40272108843537413,
+        "role": "EarlierTrainingHistory",
+        "season": 2017,
+        "teams": 130
+      },
+      {
+        "dates": [
+          "2018-08-25 23:30:00+00:00",
+          "2018-12-02 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 732,
+        "lowSupportGamesLt5": 289,
+        "lowSupportRateLt5": 0.3948087431693989,
+        "role": "EarlierTrainingHistory",
+        "season": 2018,
+        "teams": 130
+      },
+      {
+        "dates": [
+          "2019-08-24 23:00:00+00:00",
+          "2019-12-01 04:59:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 723,
+        "lowSupportGamesLt5": 286,
+        "lowSupportRateLt5": 0.39557399723374825,
+        "role": "EarlierTrainingHistory",
+        "season": 2019,
+        "teams": 130
+      },
+      {
+        "dates": [
+          "2020-09-04 01:00:00+00:00",
+          "2020-12-07 00:30:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 452,
+        "lowSupportGamesLt5": 320,
+        "lowSupportRateLt5": 0.7079646017699115,
+        "role": "EarlierTrainingHistory",
+        "season": 2020,
+        "teams": 127
+      },
+      {
+        "dates": [
+          "2021-08-28 17:20:00+00:00",
+          "2021-12-05 04:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 731,
+        "lowSupportGamesLt5": 282,
+        "lowSupportRateLt5": 0.3857729138166895,
+        "role": "Development",
+        "season": 2021,
+        "teams": 130
+      },
+      {
+        "dates": [
+          "2022-08-27 16:30:00+00:00",
+          "2022-12-04 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 733,
+        "lowSupportGamesLt5": 282,
+        "lowSupportRateLt5": 0.38472032742155526,
+        "role": "Development",
+        "season": 2022,
+        "teams": 131
+      },
+      {
+        "dates": [
+          "2023-08-26 18:30:00+00:00",
+          "2023-12-03 01:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 749,
+        "lowSupportGamesLt5": 287,
+        "lowSupportRateLt5": 0.38317757009345793,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2023,
+        "teams": 133
+      },
+      {
+        "dates": [
+          "2024-08-24 16:00:00+00:00",
+          "2024-12-01 04:00:00+00:00"
+        ],
+        "featureMissingCells": 0,
+        "featureMissingRate": 0.0,
+        "games": 742,
+        "lowSupportGamesLt5": 293,
+        "lowSupportRateLt5": 0.3948787061994609,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2024,
+        "teams": 134
+      }
+    ],
+    "targets": {
+      "awayMean": 25.82760847107438,
+      "awayWinRate": 0.4196797520661157,
+      "homeMean": 29.883780991735538,
+      "homeWinRate": 0.5803202479338843,
+      "marginMean": 4.056172520661157,
+      "overtimeIdentification": "UNAVAILABLE_IN_BOUND_PROJECTION",
+      "scoreQuantiles": {
+        "0.01": [
+          0.8600000000000136,
+          0.0
+        ],
+        "0.5": [
+          29.0,
+          24.0
+        ],
+        "0.99": [
+          63.0,
+          62.0
+        ]
+      },
+      "tieRate": 0.0,
+      "ties": 0,
+      "totalMean": 55.71138946280992
+    },
+    "teamIdentityBySeason": [
+      {
+        "departedVsPriorObservedSeason": null,
+        "newVsPriorObservedSeason": null,
+        "season": 2014,
+        "teams": 128
+      },
+      {
+        "departedVsPriorObservedSeason": 1,
+        "newVsPriorObservedSeason": 1,
+        "season": 2015,
+        "teams": 128
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2016,
+        "teams": 128
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 2,
+        "season": 2017,
+        "teams": 130
+      },
+      {
+        "departedVsPriorObservedSeason": 1,
+        "newVsPriorObservedSeason": 1,
+        "season": 2018,
+        "teams": 130
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2019,
+        "teams": 130
+      },
+      {
+        "departedVsPriorObservedSeason": 3,
+        "newVsPriorObservedSeason": 0,
+        "season": 2020,
+        "teams": 127
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 3,
+        "season": 2021,
+        "teams": 130
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 1,
+        "season": 2022,
+        "teams": 131
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 2,
+        "season": 2023,
+        "teams": 133
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 1,
+        "season": 2024,
+        "teams": 134
+      }
+    ],
+    "topDriftFeatures": [
+      {
+        "correlationHomeMargin": -0.007751223531639433,
+        "correlationTotal": 0.18360694556887172,
+        "developmentToLaterPsi": 0.12506966196524516,
+        "distinct": 874,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 79.61111111111111,
+        "maxAbsTargetCorrelation": 0.18360694556887172,
+        "median": 56.0,
+        "min": 37.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_total_shrunk"
+      },
+      {
+        "correlationHomeMargin": 0.020573831654949696,
+        "correlationTotal": 0.1974661761698655,
+        "developmentToLaterPsi": 0.10741088516391498,
+        "distinct": 876,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 79.61111111111111,
+        "maxAbsTargetCorrelation": 0.1974661761698655,
+        "median": 56.0,
+        "min": 37.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_prior_total_shrunk"
+      },
+      {
+        "correlationHomeMargin": -0.2934522815536796,
+        "correlationTotal": -0.013438846905145026,
+        "developmentToLaterPsi": 0.08650500230354859,
+        "distinct": 880,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 24.42105263157895,
+        "maxAbsTargetCorrelation": 0.2934522815536796,
+        "median": 0.0,
+        "min": -23.235294117647058,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_margin_shrunk"
+      },
+      {
+        "correlationHomeMargin": -0.22759136652432935,
+        "correlationTotal": 0.1588275700896066,
+        "developmentToLaterPsi": 0.05686380732379581,
+        "distinct": 4509,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 723.0,
+        "maxAbsTargetCorrelation": 0.22759136652432935,
+        "median": 377.5,
+        "min": 51.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_yards_allowed_season"
+      },
+      {
+        "correlationHomeMargin": -0.021524709303319553,
+        "correlationTotal": 0.22222140793559939,
+        "developmentToLaterPsi": 0.03937839808989346,
+        "distinct": 399,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 94.0,
+        "maxAbsTargetCorrelation": 0.22222140793559939,
+        "median": 55.6,
+        "min": 22.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_total_trailing5"
+      },
+      {
+        "correlationHomeMargin": 0.03649438278313874,
+        "correlationTotal": 0.24228626038901532,
+        "developmentToLaterPsi": 0.03849333147945398,
+        "distinct": 405,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 97.8,
+        "maxAbsTargetCorrelation": 0.24228626038901532,
+        "median": 55.4,
+        "min": 22.2,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_total_trailing5"
+      },
+      {
+        "correlationHomeMargin": 0.1980787045606954,
+        "correlationTotal": 0.14700997698289744,
+        "developmentToLaterPsi": 0.037842320745640326,
+        "distinct": 4488,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 784.0,
+        "maxAbsTargetCorrelation": 0.1980787045606954,
+        "median": 378.17424242424244,
+        "min": 33.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_yards_allowed_season"
+      },
+      {
+        "correlationHomeMargin": 0.31267383985094693,
+        "correlationTotal": -0.006769813965878583,
+        "developmentToLaterPsi": 0.03609377010882667,
+        "distinct": 891,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 24.42105263157895,
+        "maxAbsTargetCorrelation": 0.31267383985094693,
+        "median": 0.7368421052631579,
+        "min": -21.764705882352942,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_prior_margin_shrunk"
+      },
+      {
+        "correlationHomeMargin": 0.23512913472321606,
+        "correlationTotal": 0.19122435481235545,
+        "developmentToLaterPsi": 0.03350675266456033,
+        "distinct": 4522,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 815.0,
+        "maxAbsTargetCorrelation": 0.23512913472321606,
+        "median": 407.0,
+        "min": 94.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_total_yards_season"
+      },
+      {
+        "correlationHomeMargin": -0.32778535444517104,
+        "correlationTotal": 0.0175812706932595,
+        "developmentToLaterPsi": 0.02739761442419229,
+        "distinct": 481,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 63.0,
+        "maxAbsTargetCorrelation": 0.32778535444517104,
+        "median": 2.0,
+        "min": -65.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_margin_trailing5"
+      },
+      {
+        "correlationHomeMargin": -0.2108228862989215,
+        "correlationTotal": 0.16613616440769952,
+        "developmentToLaterPsi": 0.027314590207742444,
+        "distinct": 4506,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 787.0,
+        "maxAbsTargetCorrelation": 0.2108228862989215,
+        "median": 406.6333333333333,
+        "min": 67.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_total_yards_season"
+      },
+      {
+        "correlationHomeMargin": -0.07451561905257781,
+        "correlationTotal": 0.0017443367091910544,
+        "developmentToLaterPsi": 0.025533570360589855,
+        "distinct": 226,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 7.0,
+        "maxAbsTargetCorrelation": 0.07451561905257781,
+        "median": 1.5,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_takeaways_season"
+      },
+      {
+        "correlationHomeMargin": -0.2706792676341635,
+        "correlationTotal": 0.12383873629489824,
+        "developmentToLaterPsi": 0.025155232688161864,
+        "distinct": 1564,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 73.0,
+        "maxAbsTargetCorrelation": 0.2706792676341635,
+        "median": 25.424812030075188,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_points_allowed_season"
+      },
+      {
+        "correlationHomeMargin": 0.28042664305919834,
+        "correlationTotal": 0.14455850005670495,
+        "developmentToLaterPsi": 0.023721415962630207,
+        "distinct": 1595,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 79.0,
+        "maxAbsTargetCorrelation": 0.28042664305919834,
+        "median": 29.8,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_points_for_season"
+      },
+      {
+        "correlationHomeMargin": -0.2397258137503271,
+        "correlationTotal": 0.13124410304648024,
+        "developmentToLaterPsi": 0.021676248425386783,
+        "distinct": 1601,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 81.0,
+        "maxAbsTargetCorrelation": 0.2397258137503271,
+        "median": 29.80909090909091,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_points_for_season"
+      }
+    ],
+    "topMissingFeatures": [
+      {
+        "correlationHomeMargin": -0.06726039083399424,
+        "correlationTotal": 0.008842447131009009,
+        "developmentToLaterPsi": 0.0009682971257089077,
+        "distinct": 14,
+        "dtype": "int64",
+        "family": "SUPPORT_MISSINGNESS",
+        "impossibleValueCount": 0,
+        "max": 13.0,
+        "maxAbsTargetCorrelation": 0.06726039083399424,
+        "median": 6.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_current_season_games"
+      },
+      {
+        "correlationHomeMargin": -0.00886238535570769,
+        "correlationTotal": -0.009306088137785008,
+        "developmentToLaterPsi": null,
+        "distinct": 2,
+        "dtype": "int64",
+        "family": "REST_SCHEDULE",
+        "impossibleValueCount": 0,
+        "max": 1.0,
+        "maxAbsTargetCorrelation": 0.009306088137785008,
+        "median": 0.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_long_gap"
+      },
+      {
+        "correlationHomeMargin": -0.32778535444517104,
+        "correlationTotal": 0.0175812706932595,
+        "developmentToLaterPsi": 0.02739761442419229,
+        "distinct": 481,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 63.0,
+        "maxAbsTargetCorrelation": 0.32778535444517104,
+        "median": 2.0,
+        "min": -65.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_margin_trailing5"
+      },
+      {
+        "correlationHomeMargin": 0.2366931980643073,
+        "correlationTotal": 0.11778388395075377,
+        "developmentToLaterPsi": 0.021646057638542236,
+        "distinct": 1561,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 65.0,
+        "maxAbsTargetCorrelation": 0.2366931980643073,
+        "median": 25.5,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_points_allowed_season"
+      },
+      {
+        "correlationHomeMargin": -0.2397258137503271,
+        "correlationTotal": 0.13124410304648024,
+        "developmentToLaterPsi": 0.021676248425386783,
+        "distinct": 1601,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 81.0,
+        "maxAbsTargetCorrelation": 0.2397258137503271,
+        "median": 29.80909090909091,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_points_for_season"
+      },
+      {
+        "correlationHomeMargin": -0.2934522815536796,
+        "correlationTotal": -0.013438846905145026,
+        "developmentToLaterPsi": 0.08650500230354859,
+        "distinct": 880,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 24.42105263157895,
+        "maxAbsTargetCorrelation": 0.2934522815536796,
+        "median": 0.0,
+        "min": -23.235294117647058,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_margin_shrunk"
+      },
+      {
+        "correlationHomeMargin": -0.007751223531639433,
+        "correlationTotal": 0.18360694556887172,
+        "developmentToLaterPsi": 0.12506966196524516,
+        "distinct": 874,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 79.61111111111111,
+        "maxAbsTargetCorrelation": 0.18360694556887172,
+        "median": 56.0,
+        "min": 37.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_total_shrunk"
+      },
+      {
+        "correlationHomeMargin": 0.036920242081980165,
+        "correlationTotal": -0.013454947297643209,
+        "developmentToLaterPsi": 0.02009207085425975,
+        "distinct": 570,
+        "dtype": "float64",
+        "family": "REST_SCHEDULE",
+        "impossibleValueCount": 0,
+        "max": 21.0,
+        "maxAbsTargetCorrelation": 0.036920242081980165,
+        "median": 7.041666666666667,
+        "min": 4.854166666666667,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_rest_days_capped21"
+      },
+      {
+        "correlationHomeMargin": 0.05998410648585376,
+        "correlationTotal": -0.014098087791002486,
+        "developmentToLaterPsi": null,
+        "distinct": 2,
+        "dtype": "int64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 1.0,
+        "maxAbsTargetCorrelation": 0.05998410648585376,
+        "median": 0.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_season_opener"
+      },
+      {
+        "correlationHomeMargin": -0.07451561905257781,
+        "correlationTotal": 0.0017443367091910544,
+        "developmentToLaterPsi": 0.025533570360589855,
+        "distinct": 226,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 7.0,
+        "maxAbsTargetCorrelation": 0.07451561905257781,
+        "median": 1.5,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_takeaways_season"
+      },
+      {
+        "correlationHomeMargin": -0.021524709303319553,
+        "correlationTotal": 0.22222140793559939,
+        "developmentToLaterPsi": 0.03937839808989346,
+        "distinct": 399,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 94.0,
+        "maxAbsTargetCorrelation": 0.22222140793559939,
+        "median": 55.6,
+        "min": 22.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_total_trailing5"
+      },
+      {
+        "correlationHomeMargin": -0.2108228862989215,
+        "correlationTotal": 0.16613616440769952,
+        "developmentToLaterPsi": 0.027314590207742444,
+        "distinct": 4506,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 787.0,
+        "maxAbsTargetCorrelation": 0.2108228862989215,
+        "median": 406.6333333333333,
+        "min": 67.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_total_yards_season"
+      },
+      {
+        "correlationHomeMargin": 0.1286924498379465,
+        "correlationTotal": -0.01376183876798726,
+        "developmentToLaterPsi": 0.016035298503306518,
+        "distinct": 239,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 7.0,
+        "maxAbsTargetCorrelation": 0.1286924498379465,
+        "median": 1.4285714285714286,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_turnovers_season"
+      },
+      {
+        "correlationHomeMargin": 0.1980787045606954,
+        "correlationTotal": 0.14700997698289744,
+        "developmentToLaterPsi": 0.037842320745640326,
+        "distinct": 4488,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 784.0,
+        "maxAbsTargetCorrelation": 0.1980787045606954,
+        "median": 378.17424242424244,
+        "min": 33.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_yards_allowed_season"
+      },
+      {
+        "correlationHomeMargin": -0.13470012374222726,
+        "correlationTotal": -0.010009824364639736,
+        "developmentToLaterPsi": null,
+        "distinct": 2,
+        "dtype": "int64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 1.0,
+        "maxAbsTargetCorrelation": 0.13470012374222726,
+        "median": 1.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "conference_competition"
+      }
+    ],
+    "topTargetAssociations": [
+      {
+        "correlationHomeMargin": 0.5280422667563536,
+        "correlationTotal": -0.0005177642175773273,
+        "developmentToLaterPsi": 0.0192128963716062,
+        "distinct": 7679,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 386.0912294033608,
+        "maxAbsTargetCorrelation": 0.5280422667563536,
+        "median": 57.25682243754079,
+        "min": -266.2954905080967,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "elo_difference_with_site"
+      },
+      {
+        "correlationHomeMargin": 0.36600511564724897,
+        "correlationTotal": -0.0006186821389606599,
+        "developmentToLaterPsi": 0.005720419771066949,
+        "distinct": 7648,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 1718.9986531346583,
+        "maxAbsTargetCorrelation": 0.36600511564724897,
+        "median": 1510.1160779437262,
+        "min": 1314.4032917522295,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "elo_home"
+      },
+      {
+        "correlationHomeMargin": 0.3544221160940111,
+        "correlationTotal": 0.016514841280843552,
+        "developmentToLaterPsi": 0.014695931877894428,
+        "distinct": 491,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 65.0,
+        "maxAbsTargetCorrelation": 0.3544221160940111,
+        "median": 2.0,
+        "min": -44.666666666666664,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_margin_trailing5"
+      },
+      {
+        "correlationHomeMargin": -0.3415533345321042,
+        "correlationTotal": 0.0016458729063146356,
+        "developmentToLaterPsi": 0.011324165686449467,
+        "distinct": 7647,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 1732.790245073365,
+        "maxAbsTargetCorrelation": 0.3415533345321042,
+        "median": 1505.0001734857565,
+        "min": 1319.7966961483537,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "elo_away"
+      },
+      {
+        "correlationHomeMargin": -0.32778535444517104,
+        "correlationTotal": 0.0175812706932595,
+        "developmentToLaterPsi": 0.02739761442419229,
+        "distinct": 481,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 63.0,
+        "maxAbsTargetCorrelation": 0.32778535444517104,
+        "median": 2.0,
+        "min": -65.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_margin_trailing5"
+      },
+      {
+        "correlationHomeMargin": 0.31267383985094693,
+        "correlationTotal": -0.006769813965878583,
+        "developmentToLaterPsi": 0.03609377010882667,
+        "distinct": 891,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 24.42105263157895,
+        "maxAbsTargetCorrelation": 0.31267383985094693,
+        "median": 0.7368421052631579,
+        "min": -21.764705882352942,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_prior_margin_shrunk"
+      },
+      {
+        "correlationHomeMargin": -0.2934522815536796,
+        "correlationTotal": -0.013438846905145026,
+        "developmentToLaterPsi": 0.08650500230354859,
+        "distinct": 880,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 24.42105263157895,
+        "maxAbsTargetCorrelation": 0.2934522815536796,
+        "median": 0.0,
+        "min": -23.235294117647058,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_margin_shrunk"
+      },
+      {
+        "correlationHomeMargin": 0.28042664305919834,
+        "correlationTotal": 0.14455850005670495,
+        "developmentToLaterPsi": 0.023721415962630207,
+        "distinct": 1595,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 79.0,
+        "maxAbsTargetCorrelation": 0.28042664305919834,
+        "median": 29.8,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_points_for_season"
+      },
+      {
+        "correlationHomeMargin": -0.2706792676341635,
+        "correlationTotal": 0.12383873629489824,
+        "developmentToLaterPsi": 0.025155232688161864,
+        "distinct": 1564,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 73.0,
+        "maxAbsTargetCorrelation": 0.2706792676341635,
+        "median": 25.424812030075188,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_points_allowed_season"
+      },
+      {
+        "correlationHomeMargin": 0.03649438278313874,
+        "correlationTotal": 0.24228626038901532,
+        "developmentToLaterPsi": 0.03849333147945398,
+        "distinct": 405,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 97.8,
+        "maxAbsTargetCorrelation": 0.24228626038901532,
+        "median": 55.4,
+        "min": 22.2,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_total_trailing5"
+      },
+      {
+        "correlationHomeMargin": -0.2397258137503271,
+        "correlationTotal": 0.13124410304648024,
+        "developmentToLaterPsi": 0.021676248425386783,
+        "distinct": 1601,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 81.0,
+        "maxAbsTargetCorrelation": 0.2397258137503271,
+        "median": 29.80909090909091,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_points_for_season"
+      },
+      {
+        "correlationHomeMargin": 0.2366931980643073,
+        "correlationTotal": 0.11778388395075377,
+        "developmentToLaterPsi": 0.021646057638542236,
+        "distinct": 1561,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 65.0,
+        "maxAbsTargetCorrelation": 0.2366931980643073,
+        "median": 25.5,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_points_allowed_season"
+      },
+      {
+        "correlationHomeMargin": 0.23512913472321606,
+        "correlationTotal": 0.19122435481235545,
+        "developmentToLaterPsi": 0.03350675266456033,
+        "distinct": 4522,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 815.0,
+        "maxAbsTargetCorrelation": 0.23512913472321606,
+        "median": 407.0,
+        "min": 94.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_total_yards_season"
+      },
+      {
+        "correlationHomeMargin": -0.22759136652432935,
+        "correlationTotal": 0.1588275700896066,
+        "developmentToLaterPsi": 0.05686380732379581,
+        "distinct": 4509,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 723.0,
+        "maxAbsTargetCorrelation": 0.22759136652432935,
+        "median": 377.5,
+        "min": 51.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_yards_allowed_season"
+      },
+      {
+        "correlationHomeMargin": -0.021524709303319553,
+        "correlationTotal": 0.22222140793559939,
+        "developmentToLaterPsi": 0.03937839808989346,
+        "distinct": 399,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 94.0,
+        "maxAbsTargetCorrelation": 0.22222140793559939,
+        "median": 55.6,
+        "min": 22.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_total_trailing5"
+      }
+    ],
+    "topTeamMissingness": [
+      {
+        "games": 121,
+        "missingRate": 0.0,
+        "team": "103"
+      },
+      {
+        "games": 114,
+        "missingRate": 0.0,
+        "team": "113"
+      },
+      {
+        "games": 115,
+        "missingRate": 0.0,
+        "team": "12"
+      },
+      {
+        "games": 116,
+        "missingRate": 0.0,
+        "team": "120"
+      },
+      {
+        "games": 122,
+        "missingRate": 0.0,
+        "team": "127"
+      },
+      {
+        "games": 129,
+        "missingRate": 0.0,
+        "team": "130"
+      },
+      {
+        "games": 120,
+        "missingRate": 0.0,
+        "team": "135"
+      },
+      {
+        "games": 118,
+        "missingRate": 0.0,
+        "team": "142"
+      },
+      {
+        "games": 118,
+        "missingRate": 0.0,
+        "team": "145"
+      },
+      {
+        "games": 120,
+        "missingRate": 0.0,
+        "team": "150"
+      },
+      {
+        "games": 117,
+        "missingRate": 0.0,
+        "team": "151"
+      },
+      {
+        "games": 121,
+        "missingRate": 0.0,
+        "team": "152"
+      },
+      {
+        "games": 118,
+        "missingRate": 0.0,
+        "team": "153"
+      },
+      {
+        "games": 117,
+        "missingRate": 0.0,
+        "team": "154"
+      },
+      {
+        "games": 121,
+        "missingRate": 0.0,
+        "team": "158"
+      }
+    ]
+  },
+  "NBA": {
+    "duplicateGameIds": 0,
+    "featureMissingCells": 2258,
+    "features": 78,
+    "games": 6952,
+    "impossibleValueCount": 0,
+    "missingTargetRows": 0,
+    "seasons": [
+      {
+        "dates": [
+          "2019-10-22 00:00:00+00:00",
+          "2020-03-11 00:00:00+00:00"
+        ],
+        "featureMissingCells": 458,
+        "featureMissingRate": 0.00606590379317652,
+        "games": 968,
+        "lowSupportGamesLt5": 77,
+        "lowSupportRateLt5": 0.07954545454545454,
+        "role": "EarlierTrainingHistory",
+        "season": 2020,
+        "teams": 30
+      },
+      {
+        "dates": [
+          "2020-12-22 00:00:00+00:00",
+          "2021-05-16 00:00:00+00:00"
+        ],
+        "featureMissingCells": 360,
+        "featureMissingRate": 0.004273504273504274,
+        "games": 1080,
+        "lowSupportGamesLt5": 80,
+        "lowSupportRateLt5": 0.07407407407407407,
+        "role": "Development",
+        "season": 2021,
+        "teams": 30
+      },
+      {
+        "dates": [
+          "2021-10-19 00:00:00+00:00",
+          "2022-04-10 00:00:00+00:00"
+        ],
+        "featureMissingCells": 360,
+        "featureMissingRate": 0.00375234521575985,
+        "games": 1230,
+        "lowSupportGamesLt5": 78,
+        "lowSupportRateLt5": 0.06341463414634146,
+        "role": "Development",
+        "season": 2022,
+        "teams": 30
+      },
+      {
+        "dates": [
+          "2022-10-18 00:00:00+00:00",
+          "2023-04-09 00:00:00+00:00"
+        ],
+        "featureMissingCells": 360,
+        "featureMissingRate": 0.0037584565271861687,
+        "games": 1228,
+        "lowSupportGamesLt5": 79,
+        "lowSupportRateLt5": 0.06433224755700326,
+        "role": "Development",
+        "season": 2023,
+        "teams": 30
+      },
+      {
+        "dates": [
+          "2023-10-24 00:00:00+00:00",
+          "2024-04-14 00:00:00+00:00"
+        ],
+        "featureMissingCells": 360,
+        "featureMissingRate": 0.0037676609105180532,
+        "games": 1225,
+        "lowSupportGamesLt5": 81,
+        "lowSupportRateLt5": 0.06612244897959184,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2024,
+        "teams": 30
+      },
+      {
+        "dates": [
+          "2024-10-22 00:00:00+00:00",
+          "2025-04-13 00:00:00+00:00"
+        ],
+        "featureMissingCells": 360,
+        "featureMissingRate": 0.00378000378000378,
+        "games": 1221,
+        "lowSupportGamesLt5": 77,
+        "lowSupportRateLt5": 0.06306306306306306,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2025,
+        "teams": 30
+      }
+    ],
+    "targets": {
+      "awayMean": 111.9372842347526,
+      "awayWinRate": 0.4483601841196778,
+      "homeMean": 113.81257192174914,
+      "homeWinRate": 0.5516398158803222,
+      "marginMean": 1.8752876869965478,
+      "overtimeIdentification": "UNAVAILABLE_IN_BOUND_PROJECTION",
+      "scoreQuantiles": {
+        "0.01": [
+          86.0,
+          84.0
+        ],
+        "0.5": [
+          113.0,
+          112.0
+        ],
+        "0.99": [
+          144.0,
+          142.0
+        ]
+      },
+      "tieRate": 0.0,
+      "ties": 0,
+      "totalMean": 225.74985615650172
+    },
+    "teamIdentityBySeason": [
+      {
+        "departedVsPriorObservedSeason": null,
+        "newVsPriorObservedSeason": null,
+        "season": 2020,
+        "teams": 30
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2021,
+        "teams": 30
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2022,
+        "teams": 30
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2023,
+        "teams": 30
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2024,
+        "teams": 30
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2025,
+        "teams": 30
+      }
+    ],
+    "topDriftFeatures": [
+      {
+        "correlationHomeMargin": -0.003025887103435136,
+        "correlationTotal": 0.09579055337244251,
+        "developmentToLaterPsi": 12.399037191844162,
+        "distinct": 923,
+        "dtype": "float64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 121.0,
+        "maxAbsTargetCorrelation": 0.09579055337244251,
+        "median": 112.53419933335356,
+        "min": 110.08,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "league_mean_home_score"
+      },
+      {
+        "correlationHomeMargin": 0.002895319624729768,
+        "correlationTotal": 0.11907798143859732,
+        "developmentToLaterPsi": 12.39901021467617,
+        "distinct": 924,
+        "dtype": "int64",
+        "family": "SUPPORT_MISSINGNESS",
+        "impossibleValueCount": 0,
+        "max": 7044.0,
+        "maxAbsTargetCorrelation": 0.11907798143859732,
+        "median": 3563.5,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "league_history_games"
+      },
+      {
+        "correlationHomeMargin": -0.0019705092070815195,
+        "correlationTotal": 0.10143926479670062,
+        "developmentToLaterPsi": 12.398998020810401,
+        "distinct": 923,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 233.0,
+        "maxAbsTargetCorrelation": 0.10143926479670062,
+        "median": 223.30811554332877,
+        "min": 219.43333333333334,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "league_mean_total"
+      },
+      {
+        "correlationHomeMargin": -0.0007438128717972501,
+        "correlationTotal": 0.10024604369976334,
+        "developmentToLaterPsi": 12.398987647597256,
+        "distinct": 923,
+        "dtype": "float64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 112.0,
+        "maxAbsTargetCorrelation": 0.10024604369976334,
+        "median": 110.80139462809917,
+        "min": 106.38461538461539,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "league_mean_away_score"
+      },
+      {
+        "correlationHomeMargin": -0.004517460403027781,
+        "correlationTotal": -0.002460949418833231,
+        "developmentToLaterPsi": 9.205119310351147,
+        "distinct": 922,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 9.0,
+        "maxAbsTargetCorrelation": 0.004517460403027781,
+        "median": 1.8837046132257456,
+        "min": 0.4285714285714306,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "league_mean_home_margin"
+      },
+      {
+        "correlationHomeMargin": -0.003310906556405191,
+        "correlationTotal": 0.08066641806213033,
+        "developmentToLaterPsi": 7.413141673415984,
+        "distinct": 11,
+        "dtype": "int64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 82.0,
+        "maxAbsTargetCorrelation": 0.08066641806213033,
+        "median": 82.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_prior_season_games"
+      },
+      {
+        "correlationHomeMargin": -0.006844743764887897,
+        "correlationTotal": 0.08018282677194685,
+        "developmentToLaterPsi": 7.413141673415984,
+        "distinct": 11,
+        "dtype": "int64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 82.0,
+        "maxAbsTargetCorrelation": 0.08018282677194685,
+        "median": 82.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_season_games"
+      },
+      {
+        "correlationHomeMargin": 0.08066010241779883,
+        "correlationTotal": 0.09700627803156929,
+        "developmentToLaterPsi": 2.584023225357014,
+        "distinct": 283,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 122.30558501237186,
+        "maxAbsTargetCorrelation": 0.09700627803156929,
+        "median": 112.47949805585013,
+        "min": 104.06638967579478,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_prior_points_for"
+      },
+      {
+        "correlationHomeMargin": -0.0783433307424746,
+        "correlationTotal": 0.10291723982444327,
+        "developmentToLaterPsi": 2.5813303852812997,
+        "distinct": 283,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 122.30558501237186,
+        "maxAbsTargetCorrelation": 0.10291723982444327,
+        "median": 112.47949805585013,
+        "min": 104.06638967579478,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_prior_points_for"
+      },
+      {
+        "correlationHomeMargin": -0.10963849395677928,
+        "correlationTotal": 0.11423804806958758,
+        "developmentToLaterPsi": 0.7979607253109554,
+        "distinct": 281,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 122.16149699540473,
+        "maxAbsTargetCorrelation": 0.11423804806958758,
+        "median": 111.96911452810181,
+        "min": 105.14302757158006,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_prior_points_allowed"
+      },
+      {
+        "correlationHomeMargin": 0.10744827832813801,
+        "correlationTotal": 0.10426444262792912,
+        "developmentToLaterPsi": 0.7974572569519922,
+        "distinct": 281,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 122.16149699540473,
+        "maxAbsTargetCorrelation": 0.10744827832813801,
+        "median": 111.96911452810181,
+        "min": 105.14302757158006,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_prior_points_allowed"
+      },
+      {
+        "correlationHomeMargin": 0.00808071131816726,
+        "correlationTotal": 0.282511523500788,
+        "developmentToLaterPsi": 0.5955070944409018,
+        "distinct": 6664,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 250.15041828679156,
+        "maxAbsTargetCorrelation": 0.282511523500788,
+        "median": 225.09607635206788,
+        "min": 205.22204908160194,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_total"
+      },
+      {
+        "correlationHomeMargin": -0.004117265262807195,
+        "correlationTotal": 0.2867576404433384,
+        "developmentToLaterPsi": 0.5919642278582247,
+        "distinct": 6640,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 249.88375162012488,
+        "maxAbsTargetCorrelation": 0.2867576404433384,
+        "median": 225.03235142833014,
+        "min": 205.45538241493526,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_total"
+      },
+      {
+        "correlationHomeMargin": -0.1423759585801002,
+        "correlationTotal": 0.23962957720390354,
+        "developmentToLaterPsi": 0.4306093738646479,
+        "distinct": 6483,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 125.56904972310593,
+        "maxAbsTargetCorrelation": 0.23962957720390354,
+        "median": 112.67371702175518,
+        "min": 100.79972146943692,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_points_for"
+      },
+      {
+        "correlationHomeMargin": 0.16726094074560283,
+        "correlationTotal": 0.2396890560132641,
+        "developmentToLaterPsi": 0.41970968575246775,
+        "distinct": 6441,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 124.96470189701897,
+        "maxAbsTargetCorrelation": 0.2396890560132641,
+        "median": 112.51036236575216,
+        "min": 100.95492697982536,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_points_for"
+      }
+    ],
+    "topMissingFeatures": [
+      {
+        "correlationHomeMargin": -0.03639170366127496,
+        "correlationTotal": 0.01574057155880483,
+        "developmentToLaterPsi": 0.054527465918716586,
+        "distinct": 6066,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 32.5,
+        "maxAbsTargetCorrelation": 0.03639170366127496,
+        "median": 13.26376643340797,
+        "min": 0.0,
+        "missing": 181,
+        "missingRate": 0.026035673187571922,
+        "name": "away_rolling_margin_std"
+      },
+      {
+        "correlationHomeMargin": -0.011969238879606178,
+        "correlationTotal": 0.008157777834285968,
+        "developmentToLaterPsi": 0.04192803656337424,
+        "distinct": 6016,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 25.5,
+        "maxAbsTargetCorrelation": 0.011969238879606178,
+        "median": 11.177991769544304,
+        "min": 0.5,
+        "missing": 181,
+        "missingRate": 0.026035673187571922,
+        "name": "away_rolling_points_allowed_std"
+      },
+      {
+        "correlationHomeMargin": -0.006972184393970682,
+        "correlationTotal": 0.023851791898745017,
+        "developmentToLaterPsi": 0.011667912212550993,
+        "distinct": 5988,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 25.5,
+        "maxAbsTargetCorrelation": 0.023851791898745017,
+        "median": 11.123848254988092,
+        "min": 0.0,
+        "missing": 181,
+        "missingRate": 0.026035673187571922,
+        "name": "away_rolling_points_for_std"
+      },
+      {
+        "correlationHomeMargin": 0.010857740515273537,
+        "correlationTotal": 0.012395536491891889,
+        "developmentToLaterPsi": 0.05086939079933089,
+        "distinct": 6422,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 44.0,
+        "maxAbsTargetCorrelation": 0.012395536491891889,
+        "median": 17.62235795800346,
+        "min": 0.0,
+        "missing": 181,
+        "missingRate": 0.026035673187571922,
+        "name": "away_rolling_total_std"
+      },
+      {
+        "correlationHomeMargin": 0.02415328454194019,
+        "correlationTotal": 0.019491434755892097,
+        "developmentToLaterPsi": 0.04044176722667664,
+        "distinct": 6034,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 31.379398762032817,
+        "maxAbsTargetCorrelation": 0.02415328454194019,
+        "median": 13.162351613598537,
+        "min": 0.0,
+        "missing": 179,
+        "missingRate": 0.025747986191024166,
+        "name": "home_rolling_margin_std"
+      },
+      {
+        "correlationHomeMargin": -0.016181362489013473,
+        "correlationTotal": 0.021104162514011534,
+        "developmentToLaterPsi": 0.0206657434867493,
+        "distinct": 6041,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 26.93510720231126,
+        "maxAbsTargetCorrelation": 0.021104162514011534,
+        "median": 11.076551810017435,
+        "min": 0.0,
+        "missing": 179,
+        "missingRate": 0.025747986191024166,
+        "name": "home_rolling_points_allowed_std"
+      },
+      {
+        "correlationHomeMargin": 0.0028985820670912963,
+        "correlationTotal": 0.054325754627769694,
+        "developmentToLaterPsi": 0.01520246862389451,
+        "distinct": 6010,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 24.365703355331238,
+        "maxAbsTargetCorrelation": 0.054325754627769694,
+        "median": 11.102252023801308,
+        "min": 0.0,
+        "missing": 179,
+        "missingRate": 0.025747986191024166,
+        "name": "home_rolling_points_for_std"
+      },
+      {
+        "correlationHomeMargin": -0.026041049153829935,
+        "correlationTotal": 0.04290940142677017,
+        "developmentToLaterPsi": 0.02115158264958925,
+        "distinct": 6411,
+        "dtype": "float64",
+        "family": "VARIABILITY",
+        "impossibleValueCount": 0,
+        "max": 50.8447391575569,
+        "maxAbsTargetCorrelation": 0.04290940142677017,
+        "median": 17.54957264436952,
+        "min": 1.0,
+        "missing": 179,
+        "missingRate": 0.025747986191024166,
+        "name": "home_rolling_total_std"
+      },
+      {
+        "correlationHomeMargin": -0.23539810903830527,
+        "correlationTotal": 0.010932437529256062,
+        "developmentToLaterPsi": 0.08203957240587864,
+        "distinct": 1354,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 42.0,
+        "maxAbsTargetCorrelation": 0.23539810903830527,
+        "median": 0.25,
+        "min": -32.5,
+        "missing": 91,
+        "missingRate": 0.0130897583429229,
+        "name": "away_rolling_margin"
+      },
+      {
+        "correlationHomeMargin": 0.13606673606162858,
+        "correlationTotal": 0.22822727419832795,
+        "developmentToLaterPsi": 0.1445898318527663,
+        "distinct": 1263,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 141.0,
+        "maxAbsTargetCorrelation": 0.22822727419832795,
+        "median": 112.55,
+        "min": 85.0,
+        "missing": 91,
+        "missingRate": 0.0130897583429229,
+        "name": "away_rolling_points_allowed"
+      },
+      {
+        "correlationHomeMargin": -0.13043772866463874,
+        "correlationTotal": 0.23910996776066393,
+        "developmentToLaterPsi": 0.1459977717112887,
+        "distinct": 1293,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 143.0,
+        "maxAbsTargetCorrelation": 0.23910996776066393,
+        "median": 112.85,
+        "min": 83.0,
+        "missing": 91,
+        "missingRate": 0.0130897583429229,
+        "name": "away_rolling_points_for"
+      },
+      {
+        "correlationHomeMargin": 0.002897473800197351,
+        "correlationTotal": 0.28346592379928043,
+        "developmentToLaterPsi": 0.19693456273358098,
+        "distinct": 1684,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 272.0,
+        "maxAbsTargetCorrelation": 0.28346592379928043,
+        "median": 225.55,
+        "min": 179.0,
+        "missing": 91,
+        "missingRate": 0.0130897583429229,
+        "name": "away_rolling_total"
+      },
+      {
+        "correlationHomeMargin": 0.27383902904931595,
+        "correlationTotal": 0.008194013035866216,
+        "developmentToLaterPsi": 0.06828404432571884,
+        "distinct": 1374,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 38.5,
+        "maxAbsTargetCorrelation": 0.27383902904931595,
+        "median": 0.1,
+        "min": -36.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_margin"
+      },
+      {
+        "correlationHomeMargin": -0.15819143356690094,
+        "correlationTotal": 0.22606091736788841,
+        "developmentToLaterPsi": 0.1510648828118733,
+        "distinct": 1294,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 143.0,
+        "maxAbsTargetCorrelation": 0.22606091736788841,
+        "median": 112.55,
+        "min": 83.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_points_allowed"
+      },
+      {
+        "correlationHomeMargin": 0.14818129552754858,
+        "correlationTotal": 0.24096001797745994,
+        "developmentToLaterPsi": 0.1558976160584817,
+        "distinct": 1273,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 136.0,
+        "maxAbsTargetCorrelation": 0.24096001797745994,
+        "median": 112.7,
+        "min": 85.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_points_for"
+      }
+    ],
+    "topTargetAssociations": [
+      {
+        "correlationHomeMargin": 0.37917462637595345,
+        "correlationTotal": -9.756584631382024e-05,
+        "developmentToLaterPsi": 0.04236311567630541,
+        "distinct": 6930,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 442.9247689928293,
+        "maxAbsTargetCorrelation": 0.37917462637595345,
+        "median": 0.7239353196285947,
+        "min": -469.515193983799,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "difference_elo"
+      },
+      {
+        "correlationHomeMargin": 0.3776646397766979,
+        "correlationTotal": -0.0017421428877344239,
+        "developmentToLaterPsi": 0.04236311567630541,
+        "distinct": 6930,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 0.9490129131319835,
+        "maxAbsTargetCorrelation": 0.3776646397766979,
+        "median": 0.5934720376758243,
+        "min": 0.08878374748812363,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "elo_home_win_probability"
+      },
+      {
+        "correlationHomeMargin": 0.2941224213575077,
+        "correlationTotal": -0.0012147126592985545,
+        "developmentToLaterPsi": 0.05332320269775414,
+        "distinct": 6927,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 1768.8687375861457,
+        "maxAbsTargetCorrelation": 0.2941224213575077,
+        "median": 1508.0389042644067,
+        "min": 1224.2389874397768,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_elo"
+      },
+      {
+        "correlationHomeMargin": 0.2935532291625873,
+        "correlationTotal": 0.0021711074007213613,
+        "developmentToLaterPsi": 0.04182908869429425,
+        "distinct": 5923,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 13.305072463768116,
+        "maxAbsTargetCorrelation": 0.2935532291625873,
+        "median": 0.2238977072310407,
+        "min": -14.627536231884058,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_margin"
+      },
+      {
+        "correlationHomeMargin": -0.004117265262807195,
+        "correlationTotal": 0.2867576404433384,
+        "developmentToLaterPsi": 0.5919642278582247,
+        "distinct": 6640,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 249.88375162012488,
+        "maxAbsTargetCorrelation": 0.2867576404433384,
+        "median": 225.03235142833014,
+        "min": 205.45538241493526,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_total"
+      },
+      {
+        "correlationHomeMargin": 0.002897473800197351,
+        "correlationTotal": 0.28346592379928043,
+        "developmentToLaterPsi": 0.19693456273358098,
+        "distinct": 1684,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 272.0,
+        "maxAbsTargetCorrelation": 0.28346592379928043,
+        "median": 225.55,
+        "min": 179.0,
+        "missing": 91,
+        "missingRate": 0.0130897583429229,
+        "name": "away_rolling_total"
+      },
+      {
+        "correlationHomeMargin": 0.00808071131816726,
+        "correlationTotal": 0.282511523500788,
+        "developmentToLaterPsi": 0.5955070944409018,
+        "distinct": 6664,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 250.15041828679156,
+        "maxAbsTargetCorrelation": 0.282511523500788,
+        "median": 225.09607635206788,
+        "min": 205.22204908160194,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_total"
+      },
+      {
+        "correlationHomeMargin": -0.008305472557420738,
+        "correlationTotal": 0.28162303194369653,
+        "developmentToLaterPsi": 0.20617357949628495,
+        "distinct": 1653,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 272.0,
+        "maxAbsTargetCorrelation": 0.28162303194369653,
+        "median": 225.3,
+        "min": 178.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_total"
+      },
+      {
+        "correlationHomeMargin": 0.27383902904931595,
+        "correlationTotal": 0.008194013035866216,
+        "developmentToLaterPsi": 0.06828404432571884,
+        "distinct": 1374,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 38.5,
+        "maxAbsTargetCorrelation": 0.27383902904931595,
+        "median": 0.1,
+        "min": -36.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_margin"
+      },
+      {
+        "correlationHomeMargin": -0.2584159227439292,
+        "correlationTotal": 0.013972214252950156,
+        "developmentToLaterPsi": 0.04034813675049875,
+        "distinct": 5937,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 13.705072463768117,
+        "maxAbsTargetCorrelation": 0.2584159227439292,
+        "median": 0.2944018186984939,
+        "min": -13.660869565217391,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "away_margin"
+      },
+      {
+        "correlationHomeMargin": -0.2519792293558283,
+        "correlationTotal": -0.0010706030778586762,
+        "developmentToLaterPsi": 0.05544945447859653,
+        "distinct": 6927,
+        "dtype": "float64",
+        "family": "TEAM_STRENGTH_ELO",
+        "impossibleValueCount": 0,
+        "max": 1771.9072500677264,
+        "maxAbsTargetCorrelation": 0.2519792293558283,
+        "median": 1507.8952381225577,
+        "min": 1218.6303028041386,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_elo"
+      },
+      {
+        "correlationHomeMargin": -0.2495138486928845,
+        "correlationTotal": 0.00851933741338031,
+        "developmentToLaterPsi": 0.0365327308187135,
+        "distinct": 6556,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 16.872463768115935,
+        "maxAbsTargetCorrelation": 0.2495138486928845,
+        "median": 0.0,
+        "min": -16.288405797101447,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "difference_points_allowed"
+      },
+      {
+        "correlationHomeMargin": 0.2414856076703829,
+        "correlationTotal": -0.0018955531214942748,
+        "developmentToLaterPsi": 0.03569645360101193,
+        "distinct": 6536,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 18.87753623188405,
+        "maxAbsTargetCorrelation": 0.2414856076703829,
+        "median": -0.06739130434782226,
+        "min": -18.554347826086953,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "difference_points_for"
+      },
+      {
+        "correlationHomeMargin": 0.14818129552754858,
+        "correlationTotal": 0.24096001797745994,
+        "developmentToLaterPsi": 0.1558976160584817,
+        "distinct": 1273,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 136.0,
+        "maxAbsTargetCorrelation": 0.24096001797745994,
+        "median": 112.7,
+        "min": 85.0,
+        "missing": 89,
+        "missingRate": 0.012802071346375144,
+        "name": "home_rolling_points_for"
+      },
+      {
+        "correlationHomeMargin": 0.16726094074560283,
+        "correlationTotal": 0.2396890560132641,
+        "developmentToLaterPsi": 0.41970968575246775,
+        "distinct": 6441,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 124.96470189701897,
+        "maxAbsTargetCorrelation": 0.2396890560132641,
+        "median": 112.51036236575216,
+        "min": 100.95492697982536,
+        "missing": 2,
+        "missingRate": 0.00028768699654775604,
+        "name": "home_points_for"
+      }
+    ],
+    "topTeamMissingness": [
+      {
+        "games": 462,
+        "missingRate": 0.020053475935828877,
+        "team": "nba-neil:franchise:NOP"
+      },
+      {
+        "games": 462,
+        "missingRate": 0.019989814107461167,
+        "team": "nba-neil:franchise:LAL"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.019967038539553752,
+        "team": "nba-neil:franchise:LAC"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.019967038539553752,
+        "team": "nba-neil:franchise:TOR"
+      },
+      {
+        "games": 456,
+        "missingRate": 0.0196078431372549,
+        "team": "nba-neil:franchise:SAS"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.01945993914807302,
+        "team": "nba-neil:franchise:CHO"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.01945993914807302,
+        "team": "nba-neil:franchise:ORL"
+      },
+      {
+        "games": 463,
+        "missingRate": 0.019438444924406047,
+        "team": "nba-neil:franchise:DET"
+      },
+      {
+        "games": 465,
+        "missingRate": 0.01941808981657179,
+        "team": "nba-neil:franchise:PHI"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.01939655172413793,
+        "team": "nba-neil:franchise:SAC"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.01939655172413793,
+        "team": "nba-neil:franchise:UTA"
+      },
+      {
+        "games": 461,
+        "missingRate": 0.01939517672578793,
+        "team": "nba-neil:franchise:MIL"
+      },
+      {
+        "games": 466,
+        "missingRate": 0.01937642009593537,
+        "team": "nba-neil:franchise:POR"
+      },
+      {
+        "games": 463,
+        "missingRate": 0.019374920594587727,
+        "team": "nba-neil:franchise:WAS"
+      },
+      {
+        "games": 464,
+        "missingRate": 0.019333164300202838,
+        "team": "nba-neil:franchise:BOS"
+      }
+    ]
+  },
+  "NFL": {
+    "duplicateGameIds": 0,
+    "featureMissingCells": 20631,
+    "features": 197,
+    "games": 6695,
+    "impossibleValueCount": 0,
+    "missingTargetRows": 0,
+    "seasons": [
+      {
+        "dates": [
+          "1999-09-12 00:00:00+00:00",
+          "2000-01-03 00:00:00+00:00"
+        ],
+        "featureMissingCells": 2989,
+        "featureMissingRate": 0.061179793679384316,
+        "games": 248,
+        "lowSupportGamesLt5": 82,
+        "lowSupportRateLt5": 0.33064516129032256,
+        "role": "EarlierTrainingHistory",
+        "season": 1999,
+        "teams": 31
+      },
+      {
+        "dates": [
+          "2000-09-03 00:00:00+00:00",
+          "2000-12-25 00:00:00+00:00"
+        ],
+        "featureMissingCells": 684,
+        "featureMissingRate": 0.014000327493040773,
+        "games": 248,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2000,
+        "teams": 31
+      },
+      {
+        "dates": [
+          "2001-09-09 00:00:00+00:00",
+          "2002-01-07 00:00:00+00:00"
+        ],
+        "featureMissingCells": 682,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 248,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2001,
+        "teams": 31
+      },
+      {
+        "dates": [
+          "2002-09-05 00:00:00+00:00",
+          "2002-12-30 00:00:00+00:00"
+        ],
+        "featureMissingCells": 773,
+        "featureMissingRate": 0.015327569796954314,
+        "games": 256,
+        "lowSupportGamesLt5": 5,
+        "lowSupportRateLt5": 0.01953125,
+        "role": "EarlierTrainingHistory",
+        "season": 2002,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2003-09-04 00:00:00+00:00",
+          "2003-12-28 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013979219543147209,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2003,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2004-09-09 00:00:00+00:00",
+          "2005-01-02 00:00:00+00:00"
+        ],
+        "featureMissingCells": 706,
+        "featureMissingRate": 0.013999048223350253,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2004,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2005-09-08 00:00:00+00:00",
+          "2006-01-01 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2005,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2006-09-07 00:00:00+00:00",
+          "2006-12-31 00:00:00+00:00"
+        ],
+        "featureMissingCells": 706,
+        "featureMissingRate": 0.013999048223350253,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2006,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2007-09-06 00:00:00+00:00",
+          "2007-12-30 00:00:00+00:00"
+        ],
+        "featureMissingCells": 706,
+        "featureMissingRate": 0.013999048223350253,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2007,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2008-09-04 00:00:00+00:00",
+          "2008-12-28 00:00:00+00:00"
+        ],
+        "featureMissingCells": 706,
+        "featureMissingRate": 0.013999048223350253,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2008,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2009-09-10 00:00:00+00:00",
+          "2010-01-03 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013979219543147209,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2009,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2010-09-09 00:00:00+00:00",
+          "2011-01-02 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013979219543147209,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2010,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2011-09-08 00:00:00+00:00",
+          "2012-01-01 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2011,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2012-09-05 00:00:00+00:00",
+          "2012-12-30 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2012,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2013-09-05 00:00:00+00:00",
+          "2013-12-29 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2013,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2014-09-04 00:00:00+00:00",
+          "2014-12-28 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013979219543147209,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2014,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2015-09-10 00:00:00+00:00",
+          "2016-01-03 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2015,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2016-09-08 00:00:00+00:00",
+          "2017-01-01 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013979219543147209,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2016,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2017-09-07 00:00:00+00:00",
+          "2017-12-31 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2017,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2018-09-06 00:00:00+00:00",
+          "2018-12-30 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2018,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2019-09-05 00:00:00+00:00",
+          "2019-12-29 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2019,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2020-09-10 00:00:00+00:00",
+          "2021-01-03 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013959390862944163,
+        "games": 256,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2020,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2021-09-09 00:00:00+00:00",
+          "2022-01-09 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013138250223947446,
+        "games": 272,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "EarlierTrainingHistory",
+        "season": 2021,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2022-09-08 00:00:00+00:00",
+          "2023-01-08 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013205462003858618,
+        "games": 271,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "Development",
+        "season": 2022,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2023-09-07 00:00:00+00:00",
+          "2024-01-07 00:00:00+00:00"
+        ],
+        "featureMissingCells": 705,
+        "featureMissingRate": 0.013156912511197372,
+        "games": 272,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2023,
+        "teams": 32
+      },
+      {
+        "dates": [
+          "2024-09-05 00:00:00+00:00",
+          "2025-01-05 00:00:00+00:00"
+        ],
+        "featureMissingCells": 704,
+        "featureMissingRate": 0.013138250223947446,
+        "games": 272,
+        "lowSupportGamesLt5": 0,
+        "lowSupportRateLt5": 0.0,
+        "role": "ReusedLaterDiagnostic",
+        "season": 2024,
+        "teams": 32
+      }
+    ],
+    "targets": {
+      "awayMean": 20.920388349514564,
+      "awayWinRate": 0.43644510828976846,
+      "homeMean": 23.166990291262135,
+      "homeWinRate": 0.561463778939507,
+      "marginMean": 2.246601941747573,
+      "overtimeIdentification": "UNAVAILABLE_IN_BOUND_PROJECTION",
+      "scoreQuantiles": {
+        "0.01": [
+          2.0,
+          0.0
+        ],
+        "0.5": [
+          23.0,
+          20.0
+        ],
+        "0.99": [
+          49.0,
+          45.0
+        ]
+      },
+      "tieRate": 0.0020911127707244214,
+      "ties": 14,
+      "totalMean": 44.0873786407767
+    },
+    "teamIdentityBySeason": [
+      {
+        "departedVsPriorObservedSeason": null,
+        "newVsPriorObservedSeason": null,
+        "season": 1999,
+        "teams": 31
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2000,
+        "teams": 31
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2001,
+        "teams": 31
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 1,
+        "season": 2002,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2003,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2004,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2005,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2006,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2007,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2008,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2009,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2010,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2011,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2012,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2013,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2014,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2015,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2016,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2017,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2018,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2019,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2020,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2021,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2022,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2023,
+        "teams": 32
+      },
+      {
+        "departedVsPriorObservedSeason": 0,
+        "newVsPriorObservedSeason": 0,
+        "season": 2024,
+        "teams": 32
+      }
+    ],
+    "topDriftFeatures": [
+      {
+        "correlationHomeMargin": -0.03100266602234542,
+        "correlationTotal": 0.10699386819976668,
+        "developmentToLaterPsi": 4.883042010165637,
+        "distinct": 456,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 459.0,
+        "maxAbsTargetCorrelation": 0.10699386819976668,
+        "median": 217.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "away_prior_games"
+      },
+      {
+        "correlationHomeMargin": -0.018602458334869586,
+        "correlationTotal": 0.10584471346015645,
+        "developmentToLaterPsi": 4.551960214513575,
+        "distinct": 456,
+        "dtype": "float64",
+        "family": "PRIOR_COLD_START",
+        "impossibleValueCount": 0,
+        "max": 461.0,
+        "maxAbsTargetCorrelation": 0.10584471346015645,
+        "median": 217.0,
+        "min": 0.0,
+        "missing": 0,
+        "missingRate": 0.0,
+        "name": "home_prior_games"
+      },
+      {
+        "correlationHomeMargin": 0.0629052695065627,
+        "correlationTotal": -0.0017708024249037811,
+        "developmentToLaterPsi": 0.2846120049654657,
+        "distinct": 6080,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 0.19444444444444445,
+        "maxAbsTargetCorrelation": 0.0629052695065627,
+        "median": 0.07804608091500816,
+        "min": 0.0,
+        "missing": 414,
+        "missingRate": 0.06183719193427931,
+        "name": "away_penalty_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.011687572435716335,
+        "correlationTotal": 0.051653949000364345,
+        "developmentToLaterPsi": 0.2507618976805119,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 30.74392321351987,
+        "maxAbsTargetCorrelation": 0.051653949000364345,
+        "median": 26.394822764438988,
+        "min": 2.0530852994555353,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_seconds_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": -0.055918988980776387,
+        "correlationTotal": -0.0028459094347653073,
+        "developmentToLaterPsi": 0.24312117403242153,
+        "distinct": 6074,
+        "dtype": "float64",
+        "family": "EFFICIENCY_EVENT",
+        "impossibleValueCount": 0,
+        "max": 0.20987654320987653,
+        "maxAbsTargetCorrelation": 0.055918988980776387,
+        "median": 0.07802326071734716,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_penalty_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.029047239503076746,
+        "correlationTotal": 0.04989802021790402,
+        "developmentToLaterPsi": 0.24048648762234262,
+        "distinct": 6679,
+        "dtype": "float64",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": 30.55779763481617,
+        "maxAbsTargetCorrelation": 0.04989802021790402,
+        "median": 26.406448901192544,
+        "min": 2.507936507936508,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_seconds_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": 0.10524402428181795,
+        "correlationTotal": 0.0839508073442791,
+        "developmentToLaterPsi": 0.2199628636473249,
+        "distinct": 5935,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.2857142857142857,
+        "maxAbsTargetCorrelation": 0.10524402428181795,
+        "median": 0.08259922346358517,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_explosive_pass_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.00610864157658074,
+        "correlationTotal": 0.03397259468222558,
+        "developmentToLaterPsi": 0.2199595182720227,
+        "distinct": 3276,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.6,
+        "maxAbsTargetCorrelation": 0.03397259468222558,
+        "median": 0.05612244897959184,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_fourth_down_conversion_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.15762629077947463,
+        "correlationTotal": 0.13565439208692173,
+        "developmentToLaterPsi": 0.21945189216908795,
+        "distinct": 6048,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.6511627906976745,
+        "maxAbsTargetCorrelation": 0.15762629077947463,
+        "median": 0.41985778370722926,
+        "min": 0.17777777777777778,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_early_down_success_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.10384935199467656,
+        "correlationTotal": 0.09688244174987569,
+        "developmentToLaterPsi": 0.1964661894994978,
+        "distinct": 5945,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.36363636363636365,
+        "maxAbsTargetCorrelation": 0.10384935199467656,
+        "median": 0.08294757223688581,
+        "min": 0.0,
+        "missing": 414,
+        "missingRate": 0.06183719193427931,
+        "name": "away_explosive_pass_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.02833971486612313,
+        "correlationTotal": 0.027636435659708417,
+        "developmentToLaterPsi": 0.19553463783250635,
+        "distinct": 3246,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.42857142857142855,
+        "maxAbsTargetCorrelation": 0.02833971486612313,
+        "median": 0.056175390266299356,
+        "min": 0.0,
+        "missing": 414,
+        "missingRate": 0.06183719193427931,
+        "name": "away_fourth_down_conversion_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.05893629301627525,
+        "correlationTotal": 0.049515652469220996,
+        "developmentToLaterPsi": 0.193826292013539,
+        "distinct": 6281,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.43894532449801615,
+        "maxAbsTargetCorrelation": 0.05893629301627525,
+        "median": -0.07374316904454935,
+        "min": -1.0540111417559763,
+        "missing": 414,
+        "missingRate": 0.06183719193427931,
+        "name": "away_defensive_rush_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.19417112586601576,
+        "correlationTotal": 0.16473189163369523,
+        "developmentToLaterPsi": 0.19362142823726397,
+        "distinct": 6281,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.44448121961232645,
+        "maxAbsTargetCorrelation": 0.19417112586601576,
+        "median": -0.0203764719965964,
+        "min": -0.8791978051303886,
+        "missing": 414,
+        "missingRate": 0.06183719193427931,
+        "name": "away_offensive_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.21576277722102916,
+        "correlationTotal": 0.139758775672858,
+        "developmentToLaterPsi": 0.18208639390624157,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.6602583175086832,
+        "maxAbsTargetCorrelation": 0.21576277722102916,
+        "median": -0.0186711804254798,
+        "min": -0.8177121366617185,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_offensive_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.11990530085682635,
+        "correlationTotal": 0.06686707490800889,
+        "developmentToLaterPsi": 0.17141175544266707,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.6602583175086832,
+        "maxAbsTargetCorrelation": 0.11990530085682635,
+        "median": -0.01277344268080913,
+        "min": -0.6762021030101459,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_epa_per_play_season_to_date"
+      }
+    ],
+    "topMissingFeatures": [
+      {
+        "correlationHomeMargin": null,
+        "correlationTotal": null,
+        "developmentToLaterPsi": null,
+        "distinct": 1,
+        "dtype": "object",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": null,
+        "maxAbsTargetCorrelation": 0,
+        "median": null,
+        "min": null,
+        "missing": 6695,
+        "missingRate": 1.0,
+        "name": "game_type"
+      },
+      {
+        "correlationHomeMargin": null,
+        "correlationTotal": null,
+        "developmentToLaterPsi": null,
+        "distinct": 4,
+        "dtype": "object",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": null,
+        "maxAbsTargetCorrelation": 0,
+        "median": null,
+        "min": null,
+        "missing": 6695,
+        "missingRate": 1.0,
+        "name": "roof"
+      },
+      {
+        "correlationHomeMargin": null,
+        "correlationTotal": null,
+        "developmentToLaterPsi": null,
+        "distinct": 10,
+        "dtype": "object",
+        "family": "CONTEXT",
+        "impossibleValueCount": 0,
+        "max": null,
+        "maxAbsTargetCorrelation": 0,
+        "median": null,
+        "min": null,
+        "missing": 6695,
+        "missingRate": 1.0,
+        "name": "surface"
+      },
+      {
+        "correlationHomeMargin": 0.03515970077997785,
+        "correlationTotal": 0.0435398964530245,
+        "developmentToLaterPsi": 0.011967376505401592,
+        "distinct": 5255,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 1.0,
+        "maxAbsTargetCorrelation": 0.0435398964530245,
+        "median": 0.20634737561820893,
+        "min": 0.0,
+        "missing": 427,
+        "missingRate": 0.06377893950709485,
+        "name": "home_red_zone_td_play_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.06946876321204018,
+        "correlationTotal": 0.06681197030789203,
+        "developmentToLaterPsi": 0.08745442080529578,
+        "distinct": 5277,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 1.0,
+        "maxAbsTargetCorrelation": 0.06946876321204018,
+        "median": 0.20490161390896683,
+        "min": 0.0,
+        "missing": 423,
+        "missingRate": 0.0631814787154593,
+        "name": "away_red_zone_td_play_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.11990530085682635,
+        "correlationTotal": 0.06686707490800889,
+        "developmentToLaterPsi": 0.17141175544266707,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.6602583175086832,
+        "maxAbsTargetCorrelation": 0.11990530085682635,
+        "median": -0.01277344268080913,
+        "min": -0.6762021030101459,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.07617780267435288,
+        "correlationTotal": 0.04482998193653499,
+        "developmentToLaterPsi": 0.12747434530489055,
+        "distinct": 5945,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.36363636363636365,
+        "maxAbsTargetCorrelation": 0.07617780267435288,
+        "median": 0.08297089595511345,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_explosive_pass_allowed_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.05744917693475088,
+        "correlationTotal": 0.05943754618176406,
+        "developmentToLaterPsi": 0.06064186211716312,
+        "distinct": 5870,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.34210526315789475,
+        "maxAbsTargetCorrelation": 0.05943754618176406,
+        "median": 0.1098617869573752,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_explosive_rush_allowed_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.1125418957310133,
+        "correlationTotal": 0.04535611252345512,
+        "developmentToLaterPsi": 0.08457746193242238,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 1.5876375691055165,
+        "maxAbsTargetCorrelation": 0.1125418957310133,
+        "median": 0.03007380267040021,
+        "min": -1.0218097183231472,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_pass_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.07571560637055277,
+        "correlationTotal": 0.04879365788127899,
+        "developmentToLaterPsi": 0.15474326278223874,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.43085373406862154,
+        "maxAbsTargetCorrelation": 0.07571560637055277,
+        "median": -0.07355482483909595,
+        "min": -0.8515716828326483,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_rush_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.06687404061997818,
+        "correlationTotal": 0.09412540298681872,
+        "developmentToLaterPsi": 0.08173549597636205,
+        "distinct": 6104,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.6346153846153846,
+        "maxAbsTargetCorrelation": 0.09412540298681872,
+        "median": 0.42304608175086744,
+        "min": 0.21814187068424357,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_defensive_success_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.15762629077947463,
+        "correlationTotal": 0.13565439208692173,
+        "developmentToLaterPsi": 0.21945189216908795,
+        "distinct": 6048,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.6511627906976745,
+        "maxAbsTargetCorrelation": 0.15762629077947463,
+        "median": 0.41985778370722926,
+        "min": 0.17777777777777778,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_early_down_success_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.10524402428181795,
+        "correlationTotal": 0.0839508073442791,
+        "developmentToLaterPsi": 0.2199628636473249,
+        "distinct": 5935,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.2857142857142857,
+        "maxAbsTargetCorrelation": 0.10524402428181795,
+        "median": 0.08259922346358517,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_explosive_pass_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.04442055498160171,
+        "correlationTotal": 0.02059791199013782,
+        "developmentToLaterPsi": 0.10123329993121061,
+        "distinct": 5866,
+        "dtype": "float64",
+        "family": "EXPLOSIVENESS",
+        "impossibleValueCount": 0,
+        "max": 0.3333333333333333,
+        "maxAbsTargetCorrelation": 0.04442055498160171,
+        "median": 0.10845085801395185,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_explosive_rush_rate_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.00610864157658074,
+        "correlationTotal": 0.03397259468222558,
+        "developmentToLaterPsi": 0.2199595182720227,
+        "distinct": 3276,
+        "dtype": "float64",
+        "family": "SUCCESS_DOWN_DISTANCE",
+        "impossibleValueCount": 0,
+        "max": 0.6,
+        "maxAbsTargetCorrelation": 0.03397259468222558,
+        "median": 0.05612244897959184,
+        "min": 0.0,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_fourth_down_conversion_rate_season_to_date"
+      }
+    ],
+    "topTargetAssociations": [
+      {
+        "correlationHomeMargin": 0.22626958954683285,
+        "correlationTotal": 0.1622328059465762,
+        "developmentToLaterPsi": 0.05553320095327291,
+        "distinct": 524,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 41.0,
+        "maxAbsTargetCorrelation": 0.22626958954683285,
+        "median": 21.6875,
+        "min": 3.0,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "home_points_for_last_16"
+      },
+      {
+        "correlationHomeMargin": 0.2224413694628284,
+        "correlationTotal": 0.1484064864330784,
+        "developmentToLaterPsi": 0.09664766011435104,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.35646385578470074,
+        "maxAbsTargetCorrelation": 0.2224413694628284,
+        "median": -0.027491817871092512,
+        "min": -0.6003801188096117,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_offensive_epa_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": -0.21908603393129553,
+        "correlationTotal": 0.15185829967584566,
+        "developmentToLaterPsi": 0.04647249909297356,
+        "distinct": 516,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 43.0,
+        "maxAbsTargetCorrelation": 0.21908603393129553,
+        "median": 21.8125,
+        "min": 0.0,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_points_for_last_16"
+      },
+      {
+        "correlationHomeMargin": 0.21829871207145976,
+        "correlationTotal": 0.13969280360145434,
+        "developmentToLaterPsi": 0.08778035627747059,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.943389245587241,
+        "maxAbsTargetCorrelation": 0.21829871207145976,
+        "median": 0.010821957600837004,
+        "min": -0.7402264806407703,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_pass_epa_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": 0.2171444226107636,
+        "correlationTotal": 0.1401286084951734,
+        "developmentToLaterPsi": 0.10142631279836223,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.35646385578470074,
+        "maxAbsTargetCorrelation": 0.2171444226107636,
+        "median": -0.02579714748592858,
+        "min": -0.6003801188096117,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_offensive_epa_per_play_last_8"
+      },
+      {
+        "correlationHomeMargin": 0.21576277722102916,
+        "correlationTotal": 0.139758775672858,
+        "developmentToLaterPsi": 0.18208639390624157,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.6602583175086832,
+        "maxAbsTargetCorrelation": 0.21576277722102916,
+        "median": -0.0186711804254798,
+        "min": -0.8177121366617185,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_offensive_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": 0.21547858677435455,
+        "correlationTotal": 0.15390341137547786,
+        "developmentToLaterPsi": 0.056733580646403055,
+        "distinct": 294,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 42.125,
+        "maxAbsTargetCorrelation": 0.21547858677435455,
+        "median": 21.625,
+        "min": 3.0,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "home_points_for_last_8"
+      },
+      {
+        "correlationHomeMargin": -0.21092504624945121,
+        "correlationTotal": 0.1455514047590833,
+        "developmentToLaterPsi": 0.08198623558935868,
+        "distinct": 295,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 43.0,
+        "maxAbsTargetCorrelation": 0.21092504624945121,
+        "median": 21.875,
+        "min": 0.0,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_points_for_last_8"
+      },
+      {
+        "correlationHomeMargin": 0.21078879951090101,
+        "correlationTotal": 0.13371387925736705,
+        "developmentToLaterPsi": 0.058190170568850355,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.943389245587241,
+        "maxAbsTargetCorrelation": 0.21078879951090101,
+        "median": 0.01391918915668633,
+        "min": -0.7402264806407703,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_pass_epa_per_play_last_8"
+      },
+      {
+        "correlationHomeMargin": -0.210235852127917,
+        "correlationTotal": 0.1626445754037345,
+        "developmentToLaterPsi": 0.16599128960570592,
+        "distinct": 6679,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.3462403697171975,
+        "maxAbsTargetCorrelation": 0.210235852127917,
+        "median": -0.028000252172526434,
+        "min": -0.8791978051303886,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_offensive_epa_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": -0.2064924078120311,
+        "correlationTotal": 0.1607121241383963,
+        "developmentToLaterPsi": 0.1204422282058344,
+        "distinct": 6679,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.3462403697171975,
+        "maxAbsTargetCorrelation": 0.2064924078120311,
+        "median": -0.02571483118227951,
+        "min": -0.8791978051303886,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_offensive_epa_per_play_last_8"
+      },
+      {
+        "correlationHomeMargin": 0.2053949912225282,
+        "correlationTotal": 0.12833131508243922,
+        "developmentToLaterPsi": 0.12941592759609213,
+        "distinct": 6278,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 1.4070257927302847,
+        "maxAbsTargetCorrelation": 0.2053949912225282,
+        "median": 0.030750006353845713,
+        "min": -1.203067679747166,
+        "missing": 417,
+        "missingRate": 0.062285287528005974,
+        "name": "home_pass_epa_per_play_season_to_date"
+      },
+      {
+        "correlationHomeMargin": -0.20205551149155038,
+        "correlationTotal": 0.15338920880772294,
+        "developmentToLaterPsi": 0.06905196149134361,
+        "distinct": 6679,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.8882323903616571,
+        "maxAbsTargetCorrelation": 0.20205551149155038,
+        "median": 0.011677992439985149,
+        "min": -1.0837208268103975,
+        "missing": 16,
+        "missingRate": 0.002389843166542196,
+        "name": "away_pass_epa_per_play_last_16"
+      },
+      {
+        "correlationHomeMargin": 0.2013240231480333,
+        "correlationTotal": 0.12896331353710752,
+        "developmentToLaterPsi": 0.06840257495430326,
+        "distinct": 6677,
+        "dtype": "float64",
+        "family": "EPA",
+        "impossibleValueCount": 0,
+        "max": 0.4097189714367238,
+        "maxAbsTargetCorrelation": 0.2013240231480333,
+        "median": -0.022335213345837407,
+        "min": -0.6003801188096117,
+        "missing": 18,
+        "missingRate": 0.0026885735623599703,
+        "name": "home_offensive_epa_per_play_last_4"
+      },
+      {
+        "correlationHomeMargin": 0.19803326971746593,
+        "correlationTotal": 0.14843962673021302,
+        "developmentToLaterPsi": 0.04941001976860002,
+        "distinct": 1364,
+        "dtype": "float64",
+        "family": "SCORING",
+        "impossibleValueCount": 0,
+        "max": 59.0,
+        "maxAbsTargetCorrelation": 0.19803326971746593,
+        "median": 21.63068181818182,
+        "min": 0.0,
+        "missing": 415,
+        "missingRate": 0.0619865571321882,
+        "name": "home_points_for_season_to_date"
+      }
+    ],
+    "topTeamMissingness": [
+      {
+        "games": 420,
+        "missingRate": 0.01836372847011145,
+        "team": "LAR"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.01828774062816616,
+        "team": "BAL"
+      },
+      {
+        "games": 372,
+        "missingRate": 0.016472203157172273,
+        "team": "HOU"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.01633738601823708,
+        "team": "CLE"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.01633738601823708,
+        "team": "NYG"
+      },
+      {
+        "games": 419,
+        "missingRate": 0.016300208195805615,
+        "team": "BUF"
+      },
+      {
+        "games": 419,
+        "missingRate": 0.016300208195805615,
+        "team": "CIN"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "ATL"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "CAR"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "DAL"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "GB"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "LV"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "MIN"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "NO"
+      },
+      {
+        "games": 420,
+        "missingRate": 0.016261398176291793,
+        "team": "SEA"
+      }
+    ]
+  }
+}

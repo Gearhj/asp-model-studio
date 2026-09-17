@@ -1,0 +1,38 @@
+{
+  "files": {
+    "CFB": {
+      "bytes": 782445,
+      "columns": 47,
+      "maxDate": "2024-12-01 04:00:00+00:00",
+      "maxSeason": 2024,
+      "minDate": "2014-08-28 22:00:00+00:00",
+      "minSeason": 2014,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\multisport-feature-engineering-audit-v1\\permitted-input-projections\\CFB.parquet",
+      "rows": 7744,
+      "sha256": "03f33aee8e8882f71e87dd20267f51c339dce7bb91c1063290dc86e508d3458b"
+    },
+    "NBA": {
+      "bytes": 2306034,
+      "columns": 88,
+      "maxDate": "2025-04-13 00:00:00+00:00",
+      "maxSeason": 2025,
+      "minDate": "2019-10-22 00:00:00+00:00",
+      "minSeason": 2020,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\multisport-feature-engineering-audit-v1\\permitted-input-projections\\NBA.parquet",
+      "rows": 6952,
+      "sha256": "680ffe438bed958456743993b9f20a05ac2f0b04a6d07bc235aa842a1a27277a"
+    },
+    "NFL": {
+      "bytes": 10079138,
+      "columns": 206,
+      "maxDate": "2025-01-05 00:00:00+00:00",
+      "maxSeason": 2024,
+      "minDate": "1999-09-12 00:00:00+00:00",
+      "minSeason": 1999,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\multisport-feature-engineering-audit-v1\\permitted-input-projections\\NFL.parquet",
+      "rows": 6695,
+      "sha256": "30737340c0b75d2c39ccd64a08137fbc77f766753cabbdc669902117df229427"
+    }
+  },
+  "identity": "NFL_CFB_NBA_BOUND_INPUT_RECEIPT_V1"
+}

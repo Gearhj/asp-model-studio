@@ -1,0 +1,26 @@
+{
+  "NFL": [
+    {"featureFamily":"existing EPA/success/explosiveness/scoring windows","status":"CURRENTLY_AVAILABLE_ADMISSIBLE_FOR_RECONSTRUCTED_RESEARCH","source":"retained NFL Gold projection","cutoff":"earlier completed games","missingness":"source-era and not-yet-observed","nextAction":"preserve"},
+    {"featureFamily":"opposing-unit pass/rush EPA contrasts","status":"IMPLEMENTED_RESEARCH_BLOCK_FAILED_GATE","source":"existing retained pregame rolling EPA fields","cutoff":"same as source fields","missingness":"inherits source fields","nextAction":"do not advance the direct-contrast version"},
+    {"featureFamily":"schedule-fitted opponent-adjusted EPA team effects","status":"AVAILABLE_REQUIRING_REPAIR","source":"existing governed game/PBP evidence","cutoff":"strictly earlier completed games","missingness":"hierarchical league prior plus support","nextAction":"fit team effects inside each origin; retain Category A timing qualification"},
+    {"featureFamily":"quarterback/personnel/OL/skill continuity","status":"REQUIRES_NEW_GOVERNED_SOURCE","source":"timestamped roster, depth-chart and injury revision feed","cutoff":"each forecast checkpoint","missingness":"status unknown/delayed/identity","nextAction":"establish identity and revision contract"},
+    {"featureFamily":"weather/travel/time-zone","status":"REQUIRES_NEW_GOVERNED_SOURCE","source":"timestamped venue/weather and geospatial schedule binding","cutoff":"forecast checkpoint","missingness":"forecast unavailable or venue unresolved","nextAction":"retain vintage and forecast lead"},
+    {"featureFamily":"actual snaps or postgame participation","status":"REJECTED_LEAKAGE","source":"postgame","cutoff":"after game","missingness":"not applicable","nextAction":"never use as pregame input"}
+  ],
+  "CFB": [
+    {"featureFamily":"Elo, scoring, yardage, rest, recent-five and prior shrinkage","status":"CURRENTLY_AVAILABLE_ADMISSIBLE_FOR_RECONSTRUCTED_RESEARCH","source":"retained CFB point-in-time projection","cutoff":"earlier completed games","missingness":"upstream treatment masks raw missingness","nextAction":"preserve source-observed indicators"},
+    {"featureFamily":"direct offense-versus-defense matchup contrasts","status":"IMPLEMENTED_RESEARCH_BLOCK_FAILED_GATE","source":"existing retained features","cutoff":"target pregame","missingness":"inherits upstream treatment","nextAction":"do not advance"},
+    {"featureFamily":"schedule-fitted opponent strength","status":"AVAILABLE_REQUIRING_REPAIR","source":"existing game identities and prior results","cutoff":"strictly earlier games","missingness":"new-team hierarchical prior","nextAction":"fit inside chronological origin"},
+    {"featureFamily":"conference strength and realignment","status":"REQUIRES_GOVERNED_IDENTITY_EXTENSION","source":"timestamped school-conference membership","cutoff":"effective date before target","missingness":"independent/transitioning program","nextAction":"add effective-dated conference identity"},
+    {"featureFamily":"returning production, transfers, recruiting, QB continuity and coaches","status":"REQUIRES_NEW_GOVERNED_SOURCE","source":"timestamped roster/recruiting/coaching records with licensed retention","cutoff":"day-before or forecast cutoff","missingness":"transfer/identity/unknown role","nextAction":"source and identity contract"},
+    {"featureFamily":"end-season rankings or later roster outcome","status":"REJECTED_LEAKAGE","source":"post-target","cutoff":"after target","missingness":"not applicable","nextAction":"never use retrospectively as pregame"}
+  ],
+  "NBA": [
+    {"featureFamily":"Elo, scoring history, variability, rest and schedule density","status":"CURRENTLY_AVAILABLE_ADMISSIBLE_FOR_RECONSTRUCTED_RESEARCH","source":"retained score/date projection","cutoff":"earlier completed games","missingness":"cold-start rolling variability","nextAction":"preserve"},
+    {"featureFamily":"explicit cold-start shrinkage additions","status":"IMPLEMENTED_RESEARCH_BLOCK_FAILED_GATE","source":"existing current/prior scoring and support","cutoff":"target pregame","missingness":"hierarchical prior","nextAction":"retain design; do not advance current block"},
+    {"featureFamily":"rest-density interactions","status":"IMPLEMENTED_RESEARCH_BLOCK_FAILED_GATE","source":"existing retained rest/density fields","cutoff":"target pregame","missingness":"rest unknown indicator","nextAction":"do not advance"},
+    {"featureFamily":"possessions, pace, shooting, rebounding and turnover efficiency","status":"REQUIRES_GOVERNED_TEAM_BOX_SOURCE","source":"timestamped retained team boxes","cutoff":"only prior completed games","missingness":"source game missing/correction","nextAction":"acquire or bind retained boxes and derive fold-locally"},
+    {"featureFamily":"lineup, expected minutes, injuries, trades and player strength","status":"REQUIRES_NEW_GOVERNED_SOURCE","source":"revisioned pregame availability, roster transactions and projected minutes","cutoff":"each forecast checkpoint","missingness":"questionable/status delayed/identity","nextAction":"prospective capture contract"},
+    {"featureFamily":"actual minutes or final active roster","status":"REJECTED_LEAKAGE","source":"postgame/final status","cutoff":"after game or after forecast cutoff","missingness":"not applicable","nextAction":"never use as historical pregame evidence"}
+  ]
+}

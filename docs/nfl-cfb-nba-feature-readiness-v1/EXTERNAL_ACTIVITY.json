@@ -1,0 +1,13 @@
+{
+  "networkRequests": 0,
+  "providerRequests": 0,
+  "sportsbookRequests": 0,
+  "bytesDownloaded": 0,
+  "creditsConsumed": 0,
+  "incrementalCostUsd": 0,
+  "aispWrites": 0,
+  "exchangeWrites": 0,
+  "productionOwnerChanges": 0,
+  "sealedOrFinalOotReads": 0,
+  "note": "All calculations used hash-bound local pre-2026 permitted projections."
+}

@@ -1,0 +1,76 @@
+{
+  "CFB": {
+    "earliestCredibleTiming": "team/conference reports vary; no governed uniform retained feed",
+    "highestValueFields": [
+      "QB availability",
+      "starter depth-chart change",
+      "transfer/eligibility status"
+    ],
+    "permittedUse": "readiness design only; no model feature in this study",
+    "prohibitedSubstitutes": [
+      "postgame participation",
+      "current roster projected backward",
+      "final lineup or inactive list after cutoff"
+    ],
+    "requiredContract": [
+      "canonical player and team identity",
+      "status and status vocabulary",
+      "source publication time",
+      "retrieval time",
+      "effective game",
+      "revision/correction lineage",
+      "source payload digest"
+    ],
+    "retainedPointInTimeAvailability": false
+  },
+  "NBA": {
+    "earliestCredibleTiming": "league/team injury reports; revision history and cutoff binding required",
+    "highestValueFields": [
+      "official injury status",
+      "confirmed active/inactive",
+      "expected minutes restriction",
+      "starter availability"
+    ],
+    "permittedUse": "readiness design only; no model feature in this study",
+    "prohibitedSubstitutes": [
+      "postgame participation",
+      "current roster projected backward",
+      "final lineup or inactive list after cutoff"
+    ],
+    "requiredContract": [
+      "canonical player and team identity",
+      "status and status vocabulary",
+      "source publication time",
+      "retrieval time",
+      "effective game",
+      "revision/correction lineage",
+      "source payload digest"
+    ],
+    "retainedPointInTimeAvailability": false
+  },
+  "NFL": {
+    "earliestCredibleTiming": "official practice participation and game-status reports; exact historical revisions not retained",
+    "highestValueFields": [
+      "QB starter/status",
+      "offensive-line availability",
+      "skill-player availability",
+      "defensive starter availability"
+    ],
+    "permittedUse": "readiness design only; no model feature in this study",
+    "prohibitedSubstitutes": [
+      "postgame participation",
+      "current roster projected backward",
+      "final lineup or inactive list after cutoff"
+    ],
+    "requiredContract": [
+      "canonical player and team identity",
+      "status and status vocabulary",
+      "source publication time",
+      "retrieval time",
+      "effective game",
+      "revision/correction lineage",
+      "source payload digest"
+    ],
+    "retainedPointInTimeAvailability": false
+  }
+}

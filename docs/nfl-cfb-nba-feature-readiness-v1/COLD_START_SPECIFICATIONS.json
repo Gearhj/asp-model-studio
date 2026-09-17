@@ -1,0 +1,17 @@
+{
+  "CFB": {
+    "priorStrengthGames": 5,
+    "thresholdGames": 5,
+    "weight": "n/(n+5)"
+  },
+  "NBA": {
+    "priorStrengthGames": 5,
+    "thresholdGames": 5,
+    "weight": "n/(n+5)"
+  },
+  "NFL": {
+    "priorStrengthGames": 5,
+    "thresholdGames": 5,
+    "weight": "n/(n+5)"
+  }
+}

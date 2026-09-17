@@ -1,0 +1,265 @@
+{
+  "files": [
+    {
+      "bytes": 1473,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/BOUND_INPUT_RECEIPT.json",
+      "sha256": "f8c148a621f121c178f77b15bcc40b11333c9bcbc02592b511deb990a3b1a195"
+    },
+    {
+      "bytes": 5348,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/CANDIDATE_FEATURE_READINESS.json",
+      "sha256": "b48938e11559a6c55e8ba1a2b10db72f568a5378499a04fb270045e47888d577"
+    },
+    {
+      "bytes": 3721,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/CFB_EDA.md",
+      "sha256": "e33aa5d97ce32db2f3b4ba78258b3f18f739670142d481b0459be37def240ff6"
+    },
+    {
+      "bytes": 2652,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/CLAUDE_HANDOFF.md",
+      "sha256": "ff563ae9fb393ef03b5634b5420e93eb316c159380f54ab8b73fc232c62c4e5a"
+    },
+    {
+      "bytes": 302,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/COLD_START_SPECIFICATIONS.json",
+      "sha256": "7ab53fa73c4df76aa52cc68f6aee525363214368dbcf4ccb7896a6e35885a0c3"
+    },
+    {
+      "bytes": 1619,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/DATA_AND_MODEL_INVENTORY.md",
+      "sha256": "d184b19ece5f2000eca111322626b45f3dbbc6e8673d8f4b9293236001f184e0"
+    },
+    {
+      "bytes": 107140,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/DATA_QUALITY_SCORECARDS.json",
+      "sha256": "cbbd1bc9e6d533898e1bb7e097535d74fa70aec66daaeff0c2eeff3ea67214ad"
+    },
+    {
+      "bytes": 159914,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/EXPERIMENT_RESULTS.json",
+      "sha256": "e0e1b6adb94e0d0914b0ca3487711bcc4ca0f425df33f2ad15b671f043bc1835"
+    },
+    {
+      "bytes": 341,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/EXTERNAL_ACTIVITY.json",
+      "sha256": "e3fb49c149cc5d0c17ee3c885aec82086253457bc663e020faccb04984b5e126"
+    },
+    {
+      "bytes": 316972,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/FEATURE_REGISTRIES.json",
+      "sha256": "147ea364b74d3981733dc8180b22f71e5ba80721ad39a4b516ad71d3367b71b2"
+    },
+    {
+      "bytes": 2471,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/FIGURE_INDEX.json",
+      "sha256": "1d41a9237bb55ebce70d46e6519fb39010ee2580107e06a8dc67e3bd2b3097d3"
+    },
+    {
+      "bytes": 33016,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_availability_timeline.png",
+      "sha256": "44da9c26405674466da088df9a9d0745a39dbeb852d27510f55a335a20b5f9a3"
+    },
+    {
+      "bytes": 40772,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_cold_start_coverage.png",
+      "sha256": "2980f0deffa92211a530625afd2c0234511c3f73d2c77cd94e111a01feceb44e"
+    },
+    {
+      "bytes": 33321,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_coverage.png",
+      "sha256": "1278b8248c3b128a9c28e9b8a9febf5463a1c20d15b7ee1f0e3a52c49c687d9f"
+    },
+    {
+      "bytes": 65668,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_experiment_deltas.png",
+      "sha256": "e9e55608b5b6320aa8acda2a948f1774c4e050812a1c05a3dbda0008267bed46"
+    },
+    {
+      "bytes": 70383,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_margin_residuals.png",
+      "sha256": "c01a026e5c23f7a65a35da14db622e9cb0804834715ee9ba60a715cecbc7a17b"
+    },
+    {
+      "bytes": 61639,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_missingness.png",
+      "sha256": "f87c4882b2c4147b95699192376435531a9781a14deb460a39418bfbbfb2d122"
+    },
+    {
+      "bytes": 51639,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_reliability.png",
+      "sha256": "e281d828279b1c9551b8ef5af41b892343b233f9152ea189fbcc0a8e0f844f7d"
+    },
+    {
+      "bytes": 68841,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_target_associations.png",
+      "sha256": "ed42434f38d41c8e8a84236ace33d6edec666f54bd49811235e81ec239d3f71a"
+    },
+    {
+      "bytes": 60535,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_target_distribution.png",
+      "sha256": "42d3851b6ac8a1c1fbbb8d6004907e7caa39ca119f89db96d742233a6fb0328e"
+    },
+    {
+      "bytes": 65013,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/cfb_temporal_drift.png",
+      "sha256": "01bd4e69de0b50098fe980b55173c3ac02fca256603f1960f3318bba4f4306c7"
+    },
+    {
+      "bytes": 45678,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_availability_timeline.png",
+      "sha256": "5736b3232ddb5bfdb21eb7787dcf0f209b3ea8dfac960195853c1587852d7228"
+    },
+    {
+      "bytes": 36799,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_cold_start_coverage.png",
+      "sha256": "d9d9410521f6d0ab2378c280a2cfaabee279a06fb6521b6a5fb11a7af704ae46"
+    },
+    {
+      "bytes": 31276,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_coverage.png",
+      "sha256": "c5ff1666d29b8ee6d890dba8ecba5dc1eae91a0597d0d4357736588a7acb8676"
+    },
+    {
+      "bytes": 62026,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_experiment_deltas.png",
+      "sha256": "7dafbc5bf465f660a3d821d3f84d12fd984624cb98ff7efe879be4f846a1595b"
+    },
+    {
+      "bytes": 75733,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_margin_residuals.png",
+      "sha256": "5d2a769e2e823625891ac89ccd22457f488be95c9ca0dd54f5955d777a5bb0ad"
+    },
+    {
+      "bytes": 59539,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_missingness.png",
+      "sha256": "34f562ed5b696d3263881220ec2c266d1f3ccff8000ede575e17613d9b3854e0"
+    },
+    {
+      "bytes": 71143,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_reliability.png",
+      "sha256": "76b4450169a7b5332bc40d3f5c67cbfbf994674fac90b6533217374f4288c420"
+    },
+    {
+      "bytes": 60881,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_target_associations.png",
+      "sha256": "292df1000a7bbe91cfac734d5412d6c822eacb8a32d45ad31dfdf242c5939a28"
+    },
+    {
+      "bytes": 59944,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_target_distribution.png",
+      "sha256": "c664f4069a9d64c2d8f961316c00a7519a034d9b20a039b75859bc37dffb6c8f"
+    },
+    {
+      "bytes": 65478,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nba_temporal_drift.png",
+      "sha256": "ab1f48b342a8577e732eb4b425e262033cfd5636061765a5b2f59dd510dd23d7"
+    },
+    {
+      "bytes": 36549,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_availability_timeline.png",
+      "sha256": "0345a851d8e0058c0e21f02c90a85b84b431fa032071499631b369b210df8ef7"
+    },
+    {
+      "bytes": 44214,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_cold_start_coverage.png",
+      "sha256": "b86a0c7f915c31658c7dbd4fcec8f7a984d9e4d41e78a00f7042f5b557086f6d"
+    },
+    {
+      "bytes": 35379,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_coverage.png",
+      "sha256": "44e9475f40c281ab3f40d243889e009f424984c5bef61aeba12ed4c5719ba19a"
+    },
+    {
+      "bytes": 60120,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_experiment_deltas.png",
+      "sha256": "482877a0fd16b4c1aa622a73daa03cddb4ea3bab5fefd617eecde045a8d19492"
+    },
+    {
+      "bytes": 75355,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_margin_residuals.png",
+      "sha256": "325439241cf4a57793b17b642fbaff59810e29df82828be99a68e81276f20ff0"
+    },
+    {
+      "bytes": 70804,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_missingness.png",
+      "sha256": "5c44a75d22963bb46a030cb4db6097f52a6935829e9ad59c867c953380136bb7"
+    },
+    {
+      "bytes": 70411,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_reliability.png",
+      "sha256": "0849f9483fb433e575f75be09539693243a7036499a4a6becb85ea0e55bb3bb3"
+    },
+    {
+      "bytes": 83167,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_target_associations.png",
+      "sha256": "a7128ff1608577382003d0325add8e4aeb00205762918641da946fb931f822c8"
+    },
+    {
+      "bytes": 52888,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_target_distribution.png",
+      "sha256": "b88ed0f40612ef84659fadb91fd6a5860abc598d0651115bee974d248a2dc13b"
+    },
+    {
+      "bytes": 79422,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/figures/nfl_temporal_drift.png",
+      "sha256": "936275a7787b79fc390764a3266920af7860698099bbc1314d9daa113f4849fe"
+    },
+    {
+      "bytes": 1940,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/GEN2_ROADMAP.json",
+      "sha256": "34862cbae98c20ed91c595e9854be22627700177483030f236f808ab9b9c9a93"
+    },
+    {
+      "bytes": 2581,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/INJURY_AVAILABILITY_MATRIX.json",
+      "sha256": "dbeecc08bec256a9b96fc8e650ddac5309239e845b69d67f6a6f17161f6b020e"
+    },
+    {
+      "bytes": 4384,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/LEAKAGE_AND_POINT_IN_TIME_AUDIT.md",
+      "sha256": "3cae8359436bbfe7c95c09e29dc51e616f5187367a6efcc46c07097443c2c722"
+    },
+    {
+      "bytes": 11230,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/MISSINGNESS_AND_IMPUTATION.json",
+      "sha256": "60fcd6482d00dd1bacff25aae56d5b8e44f2071cb6bb28d58c047c15b70d20dc"
+    },
+    {
+      "bytes": 3970,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/NBA_EDA.md",
+      "sha256": "604f63b02343282c900f580a85ea35d63d755549e181b861be07822dcfbbb753"
+    },
+    {
+      "bytes": 4595,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/NFL_EDA.md",
+      "sha256": "d4aa5f68e918e836411993660237b101a9d16717a6c85503ccee83c5f69fe407"
+    },
+    {
+      "bytes": 8694,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/REPORT.md",
+      "sha256": "a9a3d4da92da34e365a733ffafd4db1c08874141f7a39a46a230fe3b0f665dee"
+    },
+    {
+      "bytes": 2521,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/REPRODUCTION.md",
+      "sha256": "e50e29cbd190c6ce3ab6ee5cf285fee93c9b8c950f5c38fd8f42ba4601591a45"
+    },
+    {
+      "bytes": 1770,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/STUDY_DESIGN.json",
+      "sha256": "db93bb58fead57d6778aee15ff9ddbf0b97247979f8a6cb14c9fa6118cbae6f1"
+    },
+    {
+      "bytes": 5914,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/STUDY_DESIGN.md",
+      "sha256": "5aad3029980a76c62be61257333193a5e353a7266ef12f8825b64760e6b3d251"
+    },
+    {
+      "bytes": 766,
+      "path": "docs/nfl-cfb-nba-feature-readiness-v1/VERIFICATION.json",
+      "sha256": "ee174606bf9cb1c89c684d68a185ee96da1c3a899f9e4475a07f004f0e125382"
+    }
+  ],
+  "identity": "NFL_CFB_NBA_FEATURE_READINESS_ARTIFACT_INDEX_V1"
+}
