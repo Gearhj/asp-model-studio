@@ -654,18 +654,21 @@ def publish_composed_game(snapshot, composition, *, output_root=OUTPUT, engine=N
     capture_root = _player_prop_capture_root(root, player_prop_capture_root)
     capture_result, capture_failure = None, None
     if private_capture is not None:
-        try:
-            if private_capture.get("observerFailureCategory") is not None:
-                raise ValueError("PLAYER_PROP_OBSERVER_FAILED_" + str(private_capture["observerFailureCategory"]))
-            capture_result = finalize_player_prop_capture(
-                collector=private_capture["collector"],
-                forecast_manifest=planned_manifest,
-                payload=payload,
-                output_root=capture_root,
-                observer_seconds=private_capture.get("observerSeconds"),
+        if private_capture.get("observerFailureCategory") is not None:
+            capture_failure = "PLAYER_PROP_OBSERVER_FAILED_" + str(
+                private_capture["observerFailureCategory"]
             )
-        except Exception as exc:
-            capture_failure = getattr(exc, "code", type(exc).__name__)
+        else:
+            try:
+                capture_result = finalize_player_prop_capture(
+                    collector=private_capture["collector"],
+                    forecast_manifest=planned_manifest,
+                    payload=payload,
+                    output_root=capture_root,
+                    observer_seconds=private_capture.get("observerSeconds"),
+                )
+            except Exception as exc:
+                capture_failure = getattr(exc, "code", type(exc).__name__)
     if datetime.now(timezone.utc) >= utc(snapshot["game"]["starts_at"]):
         raise daily.DailySlateError("GAME_STARTED_DURING_EXECUTION", "No retroactive pregame publication is authorized")
     pointer = daily._publish_game(root, enriched_snapshot, payload)
