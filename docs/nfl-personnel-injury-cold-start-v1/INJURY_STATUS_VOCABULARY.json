@@ -1,0 +1,66 @@
+{
+  "expectedAvailability": [
+    "EXPECTED_ACTIVE",
+    "EXPECTED_INACTIVE",
+    "UNCERTAIN",
+    "UNKNOWN"
+  ],
+  "expectedRole": [
+    "BACKUP",
+    "ROTATION",
+    "SPECIAL_TEAMS",
+    "STARTER",
+    "UNKNOWN"
+  ],
+  "gameStatus": [
+    "DOUBTFUL",
+    "NOTE",
+    "NO_DESIGNATION",
+    "OUT",
+    "PROBABLE",
+    "QUESTIONABLE",
+    "UNKNOWN"
+  ],
+  "missingness": [
+    "PLAYER_ABSENT_FROM_REPORT",
+    "PLAYER_REPORTED_HEALTHY",
+    "SOURCE_NOT_PUBLISHED",
+    "PLAYER_IDENTITY_UNRESOLVED",
+    "STATUS_UNKNOWN",
+    "NO_PRIOR_NFL_HISTORY",
+    "NO_PRIOR_START",
+    "STRUCTURAL_NOT_APPLICABLE"
+  ],
+  "positionGroup": [
+    "DEFENSIVE_FRONT",
+    "OFFENSIVE_LINE",
+    "OTHER",
+    "QB",
+    "SECONDARY",
+    "SKILL",
+    "SPECIAL_TEAMS",
+    "UNKNOWN"
+  ],
+  "practiceStatus": [
+    "DID_NOT_PARTICIPATE",
+    "FULL",
+    "LIMITED",
+    "NOT_LISTED",
+    "OUT",
+    "UNKNOWN"
+  ],
+  "rosterStatus": [
+    "ACTIVE",
+    "INACTIVE",
+    "PRACTICE_SQUAD",
+    "RESERVE",
+    "UNKNOWN"
+  ],
+  "rules": [
+    "QUESTIONABLE, DOUBTFUL, and LIMITED never imply a deterministic availability probability.",
+    "PLAYER_ABSENT_FROM_REPORT and PLAYER_REPORTED_HEALTHY are distinct states.",
+    "confirmedInactive and actualParticipation are separate observations; actual target-game participation is prohibited as a pregame input.",
+    "A missing draft record does not imply undrafted status."
+  ],
+  "schemaVersion": "NFL_PERSONNEL_STATUS_VOCABULARY_V1"
+}

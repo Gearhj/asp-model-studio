@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="285" viewBox="0 0 900 285">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="24" y="34" font-family="Arial" font-size="20" font-weight="700" fill="#16243a">Exact ID resolution among identified records</text>
+<text x="24" y="87" font-family="Arial" font-size="13" fill="#26384f">injuries_gsis</text>
+<rect x="260" y="70" width="530.00" height="20" rx="3" fill="#2374ab"/>
+<text x="798.00" y="86" font-family="Arial" font-size="12" fill="#26384f">100.0%</text>
+<text x="24" y="119" font-family="Arial" font-size="13" fill="#26384f">weekly_rosters_gsis</text>
+<rect x="260" y="102" width="478.80" height="20" rx="3" fill="#2374ab"/>
+<text x="746.80" y="118" font-family="Arial" font-size="12" fill="#26384f">90.3%</text>
+<text x="24" y="151" font-family="Arial" font-size="13" fill="#26384f">depth_charts_gsis</text>
+<rect x="260" y="134" width="529.71" height="20" rx="3" fill="#2374ab"/>
+<text x="797.71" y="150" font-family="Arial" font-size="12" fill="#26384f">99.9%</text>
+<text x="24" y="183" font-family="Arial" font-size="13" fill="#26384f">snap_counts_pfr</text>
+<rect x="260" y="166" width="528.10" height="20" rx="3" fill="#2374ab"/>
+<text x="796.10" y="182" font-family="Arial" font-size="12" fill="#26384f">99.6%</text>
+<text x="24" y="215" font-family="Arial" font-size="13" fill="#26384f">draft_gsis</text>
+<rect x="260" y="198" width="530.00" height="20" rx="3" fill="#2374ab"/>
+<text x="798.00" y="214" font-family="Arial" font-size="12" fill="#26384f">100.0%</text>
+<text x="24" y="267" font-family="Arial" font-size="11" fill="#637083">Generated from retained outcome-free metadata; finalized snapshots are not certified pregame vintages.</text>
+</svg>

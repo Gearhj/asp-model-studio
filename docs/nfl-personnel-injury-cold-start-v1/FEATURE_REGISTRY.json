@@ -1,0 +1,54 @@
+{
+  "families": [
+    {
+      "blocker": "no certified target-game expected-QB publication vintage",
+      "classification": "PROSPECTIVE_ONLY",
+      "family": "quarterback_continuity",
+      "implemented": "contract and cold-start semantics"
+    },
+    {
+      "blocker": "cannot attach to a certified historical expected target QB",
+      "classification": "RECONSTRUCTED_RESEARCH_ONLY",
+      "family": "quarterback_prior_performance",
+      "implemented": "strictly prior history and league shrinkage"
+    },
+    {
+      "blocker": "expected target QB and historical start state lack point-in-time authority",
+      "classification": "PROSPECTIVE_ONLY",
+      "family": "rookie_sparse_qb",
+      "implemented": "draft-aware cold-start state; missing draft is unknown"
+    },
+    {
+      "blocker": "weekly roster/depth vintages have no retained revision archive; PFR snaps need crosswalk",
+      "classification": "RECONSTRUCTED_RESEARCH_ONLY",
+      "family": "prior_role_roster_continuity",
+      "implemented": "prior-game-only role helper"
+    },
+    {
+      "blocker": "finalized injury files lack immutable historical release vintages",
+      "classification": "PROSPECTIVE_ONLY",
+      "family": "injury_burden",
+      "implemented": "status vocabulary and revision-aware record"
+    },
+    {
+      "blocker": "postgame evidence is prohibited as a pregame input",
+      "classification": "UNSUPPORTED",
+      "family": "target_game_actual_participation",
+      "implemented": "explicit rejection"
+    },
+    {
+      "blocker": "roster status exists, but no retained historical effective/publication revision chain proves transaction timing",
+      "classification": "PROSPECTIVE_ONLY",
+      "family": "transactions",
+      "implemented": "none"
+    },
+    {
+      "blocker": "weather was explicitly outside this experiment",
+      "classification": "OUT_OF_SCOPE_EXISTING",
+      "family": "weather_venue",
+      "implemented": "unchanged existing schedule fields"
+    }
+  ],
+  "overallHistoricalGate": "FAIL",
+  "schemaVersion": "NFL_PERSONNEL_FEATURE_REGISTRY_V1"
+}

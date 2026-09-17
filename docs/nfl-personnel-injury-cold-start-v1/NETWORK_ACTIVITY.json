@@ -1,0 +1,40 @@
+{
+  "authenticatedProviderCalls": 0,
+  "browserDocumentationRequests": [
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://nflreadr.nflverse.com/articles/dictionary_injuries.html"
+    },
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://github.com/nflverse/nflverse-rosters"
+    },
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://github.com/nflverse/nflverse-data/releases"
+    },
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+    },
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://github.com/nflverse/nflreadr/releases"
+    },
+    {
+      "qualification": "browser tool does not expose physical response byte count",
+      "responseBytes": null,
+      "url": "https://github.com/nflverse/nflverse-data/issues/102"
+    }
+  ],
+  "capturePlannerRequests": 0,
+  "capturePlannerResponseBytes": 0,
+  "costUsd": 0,
+  "downloadedArtifacts": 0,
+  "schemaVersion": "NFL_PERSONNEL_NETWORK_ACTIVITY_V1"
+}

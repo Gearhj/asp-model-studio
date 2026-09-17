@@ -1,0 +1,73 @@
+{
+  "assets": [
+    {
+      "asset_name": "games.parquet",
+      "family_id": "schedules",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "schedules",
+      "role": "game identity and kickoff",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/schedules/games.parquet"
+    },
+    {
+      "asset_name": "injuries_2026.parquet",
+      "family_id": "injuries",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "injuries",
+      "role": "practice/game status",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_2026.parquet"
+    },
+    {
+      "asset_name": "roster_weekly_2026.parquet",
+      "family_id": "weekly_rosters",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "weekly_rosters",
+      "role": "roster identity/status",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/roster_weekly_2026.parquet"
+    },
+    {
+      "asset_name": "depth_charts_2026.parquet",
+      "family_id": "depth_charts",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "depth_charts",
+      "role": "expected role; source semantics must be reverified",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/depth_charts/depth_charts_2026.parquet"
+    },
+    {
+      "asset_name": "snap_counts_2026.parquet",
+      "family_id": "snap_counts",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "snap_counts",
+      "role": "completed-prior-game role only",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/snap_counts/snap_counts_2026.parquet"
+    },
+    {
+      "asset_name": "players.parquet",
+      "family_id": "players",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "players",
+      "role": "identity crosswalk",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/players/players.parquet"
+    },
+    {
+      "asset_name": "draft_picks.parquet",
+      "family_id": "draft_picks",
+      "license_id": "CC-BY-4.0",
+      "release_tag": "draft_picks",
+      "role": "draft identity and pre-career facts only",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/draft_picks/draft_picks.parquet"
+    }
+  ],
+  "authority": "research evidence only; no model, forecast, AISP, exchange, or scheduler authority",
+  "defaultMode": "DRY_RUN_NO_NETWORK",
+  "requestBudget": {
+    "maximumRequests": 7,
+    "maximumResponseBytes": 67108864
+  },
+  "retention": "raw bytes content-addressed by SHA-256; append-only receipt; unchanged bytes reused",
+  "schemaVersion": "NFL_PERSONNEL_PROSPECTIVE_CAPTURE_V1",
+  "season": 2026,
+  "status": "INACTIVE_DRY_RUN_ONLY",
+  "storageBudget": {
+    "maximumRetainedBytes": 2147483648
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "observedCounts": [
+    {
+      "metric": "injury_missing_gsis",
+      "value": 0
+    },
+    {
+      "metric": "injury_missing_date_modified",
+      "value": 4866
+    },
+    {
+      "metric": "injury_no_game_designation",
+      "value": 26960
+    },
+    {
+      "metric": "roster_missing_gsis",
+      "value": 118
+    },
+    {
+      "metric": "roster_missing_experience",
+      "value": 2632
+    },
+    {
+      "metric": "depth_missing_gsis",
+      "value": 0
+    },
+    {
+      "metric": "depth_missing_observation_date",
+      "value": 869185
+    }
+  ],
+  "rule": "states are categorical and never collapsed to numeric zero",
+  "schemaVersion": "NFL_PERSONNEL_MISSINGNESS_SPEC_V1",
+  "states": [
+    "PLAYER_ABSENT_FROM_REPORT",
+    "PLAYER_REPORTED_HEALTHY",
+    "SOURCE_NOT_PUBLISHED",
+    "PLAYER_IDENTITY_UNRESOLVED",
+    "STATUS_UNKNOWN",
+    "NO_PRIOR_NFL_HISTORY",
+    "NO_PRIOR_START",
+    "STRUCTURAL_NOT_APPLICABLE"
+  ]
+}

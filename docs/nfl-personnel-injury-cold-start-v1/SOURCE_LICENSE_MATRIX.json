@@ -1,0 +1,337 @@
+{
+  "officialDocumentation": [
+    {
+      "claim": "date_modified is when injury information was updated",
+      "url": "https://nflreadr.nflverse.com/articles/dictionary_injuries.html"
+    },
+    {
+      "claim": "nflverse roster pipeline updates rosters, depth charts, practice reports, and injuries",
+      "url": "https://github.com/nflverse/nflverse-rosters"
+    },
+    {
+      "claim": "data are distributed as GitHub release assets",
+      "url": "https://github.com/nflverse/nflverse-data/releases"
+    },
+    {
+      "claim": "nflverse-data is CC BY 4.0; attribution and change notice required",
+      "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+    },
+    {
+      "claim": "weekly-roster/depth/participation conventions changed over time",
+      "url": "https://github.com/nflverse/nflreadr/releases"
+    },
+    {
+      "claim": "historical weekly-roster contemporaneity/revision question is open and unanswered",
+      "url": "https://github.com/nflverse/nflverse-data/issues/102"
+    }
+  ],
+  "schemaVersion": "NFL_PERSONNEL_SOURCE_LICENSE_MATRIX_V1",
+  "sources": [
+    {
+      "bytes": 15751542,
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "familyId": "depth_charts",
+      "latestAssetUpdatedAt": "2026-09-17T06:02:29Z",
+      "latestRetrievalAt": "2026-09-17T09:35:18.010446+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": 2026,
+      "minimumSeason": 2001,
+      "partitionCount": 26,
+      "releasePublishedAt": "2022-01-28T02:13:47Z",
+      "releaseTag": "depth_charts",
+      "rows": 1948582,
+      "seasons": [
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ]
+    },
+    {
+      "bytes": 700983,
+      "classification": "STATIC PRE-CAREER FIELDS ONLY; CAREER OUTCOME FIELDS PROHIBITED",
+      "familyId": "draft_picks",
+      "latestAssetUpdatedAt": "2026-09-16T09:37:48Z",
+      "latestRetrievalAt": "2026-09-17T09:35:20.377049+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": null,
+      "minimumSeason": null,
+      "partitionCount": 1,
+      "releasePublishedAt": "2022-05-06T18:15:12Z",
+      "releaseTag": "draft_picks",
+      "rows": 12927,
+      "seasons": []
+    },
+    {
+      "bytes": 1978781,
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "familyId": "injuries",
+      "latestAssetUpdatedAt": "2026-09-07T12:23:41Z",
+      "latestRetrievalAt": "2026-09-09T00:36:19.103505+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": 2025,
+      "minimumSeason": 2009,
+      "partitionCount": 17,
+      "releasePublishedAt": "2022-01-28T02:13:49Z",
+      "releaseTag": "injuries",
+      "rows": 90752,
+      "seasons": [
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    {
+      "bytes": 34817744,
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "familyId": "participation",
+      "latestAssetUpdatedAt": "2026-02-10T18:54:07Z",
+      "latestRetrievalAt": "2026-08-29T13:34:43.258888+00:00",
+      "license": {
+        "attribution": "FTN Data via nflverse",
+        "id": "CC-BY-SA-4.0",
+        "name": "Creative Commons Attribution-ShareAlike 4.0 International",
+        "url": "https://creativecommons.org/licenses/by-sa/4.0/"
+      },
+      "maximumSeason": 2025,
+      "minimumSeason": 2016,
+      "partitionCount": 10,
+      "releasePublishedAt": "2022-07-10T04:32:49Z",
+      "releaseTag": "pbp_participation",
+      "rows": 478989,
+      "seasons": [
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    {
+      "bytes": 3386516,
+      "classification": "IDENTITY_ONLY; CURRENT SNAPSHOT",
+      "familyId": "players",
+      "latestAssetUpdatedAt": "2026-09-16T13:00:58Z",
+      "latestRetrievalAt": "2026-09-17T09:35:07.060335+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": null,
+      "minimumSeason": null,
+      "partitionCount": 1,
+      "releasePublishedAt": "2022-06-19T05:36:22Z",
+      "releaseTag": "players",
+      "rows": 24824,
+      "seasons": []
+    },
+    {
+      "bytes": 520482,
+      "classification": "GAME IDENTITY; HISTORICAL REVISION VINTAGES NOT RETAINED",
+      "familyId": "schedules",
+      "latestAssetUpdatedAt": "2026-09-17T08:36:20Z",
+      "latestRetrievalAt": "2026-09-17T09:35:00.793611+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": null,
+      "minimumSeason": null,
+      "partitionCount": 1,
+      "releasePublishedAt": "2025-10-01T11:19:34Z",
+      "releaseTag": "schedules",
+      "rows": 7548,
+      "seasons": []
+    },
+    {
+      "bytes": 2918884,
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "familyId": "snap_counts",
+      "latestAssetUpdatedAt": "2026-02-09T13:39:50Z",
+      "latestRetrievalAt": "2026-08-29T13:38:18.577563+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": 2025,
+      "minimumSeason": 2012,
+      "partitionCount": 14,
+      "releasePublishedAt": "2022-01-28T02:15:02Z",
+      "releaseTag": "snap_counts",
+      "rows": 324611,
+      "seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    {
+      "bytes": 20427625,
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "familyId": "weekly_player_stats",
+      "latestAssetUpdatedAt": "2026-09-17T09:04:17Z",
+      "latestRetrievalAt": "2026-09-17T09:35:11.693512+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": 2026,
+      "minimumSeason": 1999,
+      "partitionCount": 28,
+      "releasePublishedAt": "2025-07-31T18:47:44Z",
+      "releaseTag": "stats_player",
+      "rows": 477277,
+      "seasons": [
+        1999,
+        2000,
+        2001,
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ]
+    },
+    {
+      "bytes": 14252505,
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "familyId": "weekly_rosters",
+      "latestAssetUpdatedAt": "2026-09-17T06:03:48Z",
+      "latestRetrievalAt": "2026-09-17T09:35:10.294934+00:00",
+      "license": {
+        "attribution": "nflverse / nflverse-data",
+        "id": "CC-BY-4.0",
+        "name": "Creative Commons Attribution 4.0 International",
+        "url": "https://github.com/nflverse/nflverse-data/blob/main/LICENSE.md"
+      },
+      "maximumSeason": 2026,
+      "minimumSeason": 2002,
+      "partitionCount": 25,
+      "releasePublishedAt": "2022-08-01T07:45:30Z",
+      "releaseTag": "weekly_rosters",
+      "rows": 911862,
+      "seasons": [
+        2002,
+        2003,
+        2004,
+        2005,
+        2006,
+        2007,
+        2008,
+        2009,
+        2010,
+        2011,
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ]
+    }
+  ]
+}

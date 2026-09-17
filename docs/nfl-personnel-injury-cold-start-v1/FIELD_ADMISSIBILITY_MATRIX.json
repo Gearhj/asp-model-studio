@@ -1,0 +1,170 @@
+{
+  "fields": [
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "fields": [
+        "gsis_id",
+        "team",
+        "season",
+        "week",
+        "position"
+      ],
+      "reason": "identity/grain exist but original physical release vintages are not retained",
+      "source": "injuries"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "fields": [
+        "date_modified"
+      ],
+      "reason": "row update time is not immutable publication-byte proof",
+      "source": "injuries"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY; PROSPECTIVE_ONLY_FOR_MODEL_INPUT",
+      "fields": [
+        "practice_status",
+        "report_status",
+        "injury fields"
+      ],
+      "reason": "current final snapshots may contain corrections",
+      "source": "injuries"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY; PROSPECTIVE_ONLY_FOR_MODEL_INPUT",
+      "fields": [
+        "gsis_id",
+        "team",
+        "week",
+        "status",
+        "depth_chart_position",
+        "years_exp",
+        "rookie_year"
+      ],
+      "reason": "no per-row publication time or retained revision chain",
+      "source": "weekly_rosters"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY; PROSPECTIVE_ONLY_FOR_MODEL_INPUT",
+      "fields": [
+        "gsis_id",
+        "team",
+        "week",
+        "dt",
+        "depth_position",
+        "pos_rank"
+      ],
+      "reason": "source/conventions changed and historical revisions are not retained",
+      "source": "depth_charts"
+    },
+    {
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "fields": [
+        "offense_snaps",
+        "defense_snaps",
+        "st_snaps",
+        "percentages"
+      ],
+      "reason": "realized participation is postgame",
+      "source": "snap_counts"
+    },
+    {
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "fields": [
+        "play participants",
+        "roles"
+      ],
+      "reason": "realized play participation is postgame and CC BY-SA 4.0",
+      "source": "participation"
+    },
+    {
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE_FOR_TARGET; RECONSTRUCTED_RESEARCH_ONLY_WHEN_STRICTLY_PRIOR",
+      "fields": [
+        "attempts",
+        "EPA",
+        "success",
+        "CPOE",
+        "sacks",
+        "interceptions"
+      ],
+      "reason": "target-game performance is postgame",
+      "source": "weekly_player_stats"
+    },
+    {
+      "classification": "IDENTITY_ONLY_CURRENT_SNAPSHOT",
+      "fields": [
+        "canonical IDs and crosswalk IDs"
+      ],
+      "reason": "usable for exact joins; not proof of historical team/status",
+      "source": "players"
+    },
+    {
+      "classification": "HISTORICALLY_POINT_IN_TIME_ADMISSIBLE",
+      "fields": [
+        "draft season",
+        "round",
+        "pick",
+        "team",
+        "age",
+        "college",
+        "player IDs"
+      ],
+      "reason": "stable facts fixed before NFL career, subject to exact identity",
+      "source": "draft_picks"
+    },
+    {
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE",
+      "fields": [
+        "games",
+        "career AV",
+        "starts",
+        "career statistics",
+        "awards"
+      ],
+      "reason": "career outcomes would leak later evidence",
+      "source": "draft_picks"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY; PROSPECTIVE_CAPTURE_SUPPORTED",
+      "fields": [
+        "game ID",
+        "teams",
+        "week",
+        "date",
+        "gametime"
+      ],
+      "reason": "current schedule snapshot lacks old revision vintages",
+      "source": "schedules"
+    },
+    {
+      "classification": "RECONSTRUCTED_HISTORICAL_RESEARCH_ONLY",
+      "fields": [
+        "roof",
+        "surface",
+        "temperature",
+        "wind"
+      ],
+      "reason": "weather/venue intentionally excluded from this experiment",
+      "scope": "OUT_OF_SCOPE",
+      "source": "schedules"
+    },
+    {
+      "classification": "PROSPECTIVE_ONLY",
+      "fields": [
+        "confirmed inactive"
+      ],
+      "reason": "requires a separate source publication captured before cutoff",
+      "source": "pregame inactive publication"
+    },
+    {
+      "classification": "PROHIBITED_POSTGAME_EVIDENCE",
+      "fields": [
+        "actual starter",
+        "actual participation"
+      ],
+      "reason": "realized state cannot be substituted for expected pregame state",
+      "source": "postgame result"
+    }
+  ],
+  "schemaVersion": "NFL_PERSONNEL_FIELD_ADMISSIBILITY_MATRIX_V1"
+}

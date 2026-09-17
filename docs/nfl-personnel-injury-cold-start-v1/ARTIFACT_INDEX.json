@@ -1,0 +1,108 @@
+{
+  "artifacts": {
+    "assessment": {
+      "byteCount": 872,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\ASSESSMENT.json",
+      "sha256": "c4a9864e2768132a852e5d117e75ea4b7915ed27693b4ca15ab9a91717099c4b"
+    },
+    "capturePlan": {
+      "byteCount": 2729,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\PROSPECTIVE_CAPTURE_PLAN.json",
+      "sha256": "cfe01e81128c099787346f568d53a9694e56c8711debbe3e2764abef91a407cb"
+    },
+    "coverage": {
+      "byteCount": 13710,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\HISTORICAL_COVERAGE.json",
+      "sha256": "bf78a7cf1706d417d06756d10ae18cf910f799c2001e06664a1317d8174d76a0"
+    },
+    "features": {
+      "byteCount": 2081,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\FEATURE_REGISTRY.json",
+      "sha256": "1cdb6b0be728fc6a92ca5cdc461aa109f83967ae8d5b38131c646970b9081fff"
+    },
+    "fieldAdmissibility": {
+      "byteCount": 4738,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\FIELD_ADMISSIBILITY_MATRIX.json",
+      "sha256": "62582ae76e903843ac248df77452f8e99ef8619bf42cd0d3adaab82a9790523b"
+    },
+    "identity": {
+      "byteCount": 32975,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\IDENTITY_RECONCILIATION.json",
+      "sha256": "4760e05c74f1bea68cd6ada92d1647ae605d3f485449d52464da98c182a5d9e7"
+    },
+    "missingness": {
+      "byteCount": 938,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\MISSINGNESS_SPEC.json",
+      "sha256": "e9a20def7b5d105b9d133c61cd659c1943497e3672da2e3f34636dbef1a3e095"
+    },
+    "network": {
+      "byteCount": 1413,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\NETWORK_ACTIVITY.json",
+      "sha256": "bfbb8be9ddbaa08f9548c569b7ea494d8629ed9372b1ada47425f2e7074464da"
+    },
+    "report": {
+      "byteCount": 3370,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\REPORT.md",
+      "sha256": "90ef4b278eb51215a675de4abc7800a46386a7b79f0257bc5714cd2d54300a76"
+    },
+    "sourceAudit": {
+      "byteCount": 9493,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\SOURCE_LICENSE_MATRIX.json",
+      "sha256": "6e86ac6f3d21fcf299a9a82dcc3e5e68d73142e162ec3b262bc22bf2fc7152e7"
+    },
+    "sourceMatrixMarkdown": {
+      "byteCount": 1508,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\SOURCE_AND_LICENSE_MATRIX.md",
+      "sha256": "377e9fc45aa51ead91cecf6c543c95e1c0ff4bfd4fc10945a162457ae494d2a2"
+    },
+    "vocabulary": {
+      "byteCount": 1456,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\docs\\nfl-personnel-injury-cold-start-v1\\INJURY_STATUS_VOCABULARY.json",
+      "sha256": "a3e97c729340f44bc01207e044a12ee63608a53fb6398a09a20041a44be06cab"
+    }
+  },
+  "assessmentStatus": "NOT_RUN",
+  "bronzeManifest": {
+    "byteCount": 1967201,
+    "path": "C:\\Users\\james\\asp-data-staging\\nfl\\bronze-v1\\manifests\\sha256\\c37ffbcebab5f758c9376c4553ec46931141c415e2b36ebe3b4b7bf063f38ec7\\manifest.json",
+    "sha256": "c37ffbcebab5f758c9376c4553ec46931141c415e2b36ebe3b4b7bf063f38ec7"
+  },
+  "contentIdentitySha256": "fcd3c677b2c32456db0ee770bfcd930ce79b1bbea03dc2caf2400e6c4097d46a",
+  "evidenceAsOfUtc": "2026-09-17T09:36:17.943466+00:00",
+  "foundationManifest": {
+    "byteCount": 61560,
+    "path": "C:\\Users\\james\\asp-data-staging\\nfl\\foundation-v1\\manifests\\sha256\\c265041976e119fab5497f5b4f48a3cefe2db354af91f7144ede25065881d2bb\\foundation-manifest.json",
+    "sha256": "85bef1b0423b1a51049781b4868ccf6ccdf38f8b2c469c7b65aa74160b6adcbf"
+  },
+  "implementation": [
+    {
+      "byteCount": 45844,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\scripts\\audit_nfl_personnel_injury_v1.py",
+      "sha256": "cf5b4cab0ab7c0acd4cfcd082f83109b8b53aafdd2ca46634e6a883cd610cac6"
+    },
+    {
+      "byteCount": 2084,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\scripts\\capture_nfl_personnel_evidence_v1.py",
+      "sha256": "e9861d2f4354ee8d980373836c361a3e8709f66af2971b8eaf26b7eb92799f1d"
+    },
+    {
+      "byteCount": 18150,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\server\\sports_nfl_m1\\personnel_evidence.py",
+      "sha256": "abc59c53991942992faa0949d2c8c0e616110b815000543dd548681602c62ff2"
+    },
+    {
+      "byteCount": 10415,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\server\\sports_nfl_m1\\personnel_capture.py",
+      "sha256": "d8e00a328a5de647159e5f44e2317e3a3b4416c6b1de6379de726e063a22558f"
+    },
+    {
+      "byteCount": 7821,
+      "path": "C:\\Users\\james\\asp-model-studio-source-nfl-personnel-injury\\tests\\test_nfl_personnel_evidence.py",
+      "sha256": "d059ae3627e3df096c704624c39e68509eb6d3015c3ae4e760ef0f1f88d15012"
+    }
+  ],
+  "maximumSeasonRead": 2024,
+  "outcomeColumnsRead": [],
+  "overallDisposition": "INSUFFICIENT_ADMISSIBLE_EVIDENCE",
+  "schemaVersion": "NFL_PERSONNEL_INJURY_COLD_START_INDEX_V1"
+}

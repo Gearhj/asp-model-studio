@@ -1,0 +1,707 @@
+{
+  "coverageBySeason": {
+    "depth_charts": [
+      {
+        "rows": 36736,
+        "season": 2001
+      },
+      {
+        "rows": 34594,
+        "season": 2002
+      },
+      {
+        "rows": 34298,
+        "season": 2003
+      },
+      {
+        "rows": 28898,
+        "season": 2004
+      },
+      {
+        "rows": 32803,
+        "season": 2005
+      },
+      {
+        "rows": 33721,
+        "season": 2006
+      },
+      {
+        "rows": 38547,
+        "season": 2007
+      },
+      {
+        "rows": 38651,
+        "season": 2008
+      },
+      {
+        "rows": 38423,
+        "season": 2009
+      },
+      {
+        "rows": 38421,
+        "season": 2010
+      },
+      {
+        "rows": 37941,
+        "season": 2011
+      },
+      {
+        "rows": 37312,
+        "season": 2012
+      },
+      {
+        "rows": 37066,
+        "season": 2013
+      },
+      {
+        "rows": 32542,
+        "season": 2014
+      },
+      {
+        "rows": 37058,
+        "season": 2015
+      },
+      {
+        "rows": 36612,
+        "season": 2016
+      },
+      {
+        "rows": 36620,
+        "season": 2017
+      },
+      {
+        "rows": 36560,
+        "season": 2018
+      },
+      {
+        "rows": 36308,
+        "season": 2019
+      },
+      {
+        "rows": 36168,
+        "season": 2020
+      },
+      {
+        "rows": 37487,
+        "season": 2021
+      },
+      {
+        "rows": 37780,
+        "season": 2022
+      },
+      {
+        "rows": 37327,
+        "season": 2023
+      },
+      {
+        "rows": 37312,
+        "season": 2024
+      }
+    ],
+    "injuries": [
+      {
+        "rows": 4821,
+        "season": 2009
+      },
+      {
+        "rows": 4491,
+        "season": 2010
+      },
+      {
+        "rows": 4971,
+        "season": 2011
+      },
+      {
+        "rows": 5533,
+        "season": 2012
+      },
+      {
+        "rows": 5070,
+        "season": 2013
+      },
+      {
+        "rows": 5078,
+        "season": 2014
+      },
+      {
+        "rows": 5232,
+        "season": 2015
+      },
+      {
+        "rows": 5115,
+        "season": 2016
+      },
+      {
+        "rows": 5104,
+        "season": 2017
+      },
+      {
+        "rows": 5133,
+        "season": 2018
+      },
+      {
+        "rows": 5392,
+        "season": 2019
+      },
+      {
+        "rows": 5661,
+        "season": 2020
+      },
+      {
+        "rows": 5587,
+        "season": 2021
+      },
+      {
+        "rows": 5682,
+        "season": 2022
+      },
+      {
+        "rows": 5599,
+        "season": 2023
+      },
+      {
+        "rows": 6215,
+        "season": 2024
+      }
+    ],
+    "snap_counts": [
+      {
+        "rows": 23799,
+        "season": 2013
+      },
+      {
+        "rows": 23864,
+        "season": 2014
+      },
+      {
+        "rows": 23842,
+        "season": 2015
+      },
+      {
+        "rows": 23890,
+        "season": 2016
+      },
+      {
+        "rows": 23862,
+        "season": 2017
+      },
+      {
+        "rows": 23877,
+        "season": 2018
+      },
+      {
+        "rows": 23862,
+        "season": 2019
+      },
+      {
+        "rows": 24999,
+        "season": 2020
+      },
+      {
+        "rows": 26468,
+        "season": 2021
+      },
+      {
+        "rows": 26381,
+        "season": 2022
+      },
+      {
+        "rows": 26540,
+        "season": 2023
+      },
+      {
+        "rows": 26615,
+        "season": 2024
+      }
+    ],
+    "weekly_rosters": [
+      {
+        "rows": 31086,
+        "season": 2002
+      },
+      {
+        "rows": 30938,
+        "season": 2003
+      },
+      {
+        "rows": 31009,
+        "season": 2004
+      },
+      {
+        "rows": 30751,
+        "season": 2005
+      },
+      {
+        "rows": 31323,
+        "season": 2006
+      },
+      {
+        "rows": 31337,
+        "season": 2007
+      },
+      {
+        "rows": 31361,
+        "season": 2008
+      },
+      {
+        "rows": 31632,
+        "season": 2009
+      },
+      {
+        "rows": 31926,
+        "season": 2010
+      },
+      {
+        "rows": 31338,
+        "season": 2011
+      },
+      {
+        "rows": 31431,
+        "season": 2012
+      },
+      {
+        "rows": 31901,
+        "season": 2013
+      },
+      {
+        "rows": 31964,
+        "season": 2014
+      },
+      {
+        "rows": 32098,
+        "season": 2015
+      },
+      {
+        "rows": 35020,
+        "season": 2016
+      },
+      {
+        "rows": 51321,
+        "season": 2017
+      },
+      {
+        "rows": 52238,
+        "season": 2018
+      },
+      {
+        "rows": 51632,
+        "season": 2019
+      },
+      {
+        "rows": 44130,
+        "season": 2020
+      },
+      {
+        "rows": 46696,
+        "season": 2021
+      },
+      {
+        "rows": 46163,
+        "season": 2022
+      },
+      {
+        "rows": 45655,
+        "season": 2023
+      },
+      {
+        "rows": 46579,
+        "season": 2024
+      }
+    ]
+  },
+  "injuryGameStatus": [
+    {
+      "rows": 26960,
+      "status": "NO_DESIGNATION"
+    },
+    {
+      "rows": 22333,
+      "status": "Questionable"
+    },
+    {
+      "rows": 17400,
+      "status": "Probable"
+    },
+    {
+      "rows": 14725,
+      "status": "Out"
+    },
+    {
+      "rows": 3260,
+      "status": "Doubtful"
+    },
+    {
+      "rows": 6,
+      "status": "Note"
+    }
+  ],
+  "injuryTiming": {
+    "dateModifiedAtOrAfterKickoff": 26,
+    "dateModifiedBeforeKickoff": 75383,
+    "dateModifiedPresent": 79818,
+    "matchedUniqueTeamWeekKickoff": 79875,
+    "qualification": "date_modified is a row update field, not a retained immutable release vintage; pre-kickoff values remain reconstructed research only",
+    "records": 84684
+  },
+  "maximumSeasonRead": 2024,
+  "missingnessCounts": [
+    {
+      "metric": "injury_missing_gsis",
+      "value": 0
+    },
+    {
+      "metric": "injury_missing_date_modified",
+      "value": 4866
+    },
+    {
+      "metric": "injury_no_game_designation",
+      "value": 26960
+    },
+    {
+      "metric": "roster_missing_gsis",
+      "value": 118
+    },
+    {
+      "metric": "roster_missing_experience",
+      "value": 2632
+    },
+    {
+      "metric": "depth_missing_gsis",
+      "value": 0
+    },
+    {
+      "metric": "depth_missing_observation_date",
+      "value": 869185
+    }
+  ],
+  "outcomeColumnsRead": [],
+  "positionGroupListedRows": [
+    {
+      "listed_rows": 25179,
+      "position_group": "DEFENSIVE_FRONT"
+    },
+    {
+      "listed_rows": 23705,
+      "position_group": "SKILL"
+    },
+    {
+      "listed_rows": 17304,
+      "position_group": "SECONDARY"
+    },
+    {
+      "listed_rows": 14341,
+      "position_group": "OFFENSIVE_LINE"
+    },
+    {
+      "listed_rows": 2907,
+      "position_group": "QB"
+    },
+    {
+      "listed_rows": 1236,
+      "position_group": "SPECIAL_TEAMS"
+    },
+    {
+      "listed_rows": 12,
+      "position_group": "OTHER"
+    }
+  ],
+  "practiceStatus": [
+    {
+      "rows": 38799,
+      "status": "Full Participation in Practice"
+    },
+    {
+      "rows": 23068,
+      "status": "Did Not Participate In Practice"
+    },
+    {
+      "rows": 21627,
+      "status": "Limited Participation in Practice"
+    },
+    {
+      "rows": 974,
+      "status": "Out (Definitely Will Not Play)"
+    },
+    {
+      "rows": 215,
+      "status": "\n"
+    },
+    {
+      "rows": 1,
+      "status": "Note"
+    }
+  ],
+  "quarterbackRosterSupport": [
+    {
+      "experienced_roster_rows": 1039,
+      "low_experience_roster_rows": 429,
+      "rookie_roster_rows": 276,
+      "season": 2002,
+      "total_qb_roster_rows": 1744,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1062,
+      "low_experience_roster_rows": 375,
+      "rookie_roster_rows": 230,
+      "season": 2003,
+      "total_qb_roster_rows": 1667,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1062,
+      "low_experience_roster_rows": 402,
+      "rookie_roster_rows": 235,
+      "season": 2004,
+      "total_qb_roster_rows": 1682,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1013,
+      "low_experience_roster_rows": 458,
+      "rookie_roster_rows": 237,
+      "season": 2005,
+      "total_qb_roster_rows": 1708,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1025,
+      "low_experience_roster_rows": 356,
+      "rookie_roster_rows": 186,
+      "season": 2006,
+      "total_qb_roster_rows": 1564,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1079,
+      "low_experience_roster_rows": 326,
+      "rookie_roster_rows": 178,
+      "season": 2007,
+      "total_qb_roster_rows": 1583,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1074,
+      "low_experience_roster_rows": 367,
+      "rookie_roster_rows": 206,
+      "season": 2008,
+      "total_qb_roster_rows": 1647,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 992,
+      "low_experience_roster_rows": 385,
+      "rookie_roster_rows": 239,
+      "season": 2009,
+      "total_qb_roster_rows": 1616,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1040,
+      "low_experience_roster_rows": 300,
+      "rookie_roster_rows": 212,
+      "season": 2010,
+      "total_qb_roster_rows": 1552,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 954,
+      "low_experience_roster_rows": 313,
+      "rookie_roster_rows": 250,
+      "season": 2011,
+      "total_qb_roster_rows": 1517,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 849,
+      "low_experience_roster_rows": 396,
+      "rookie_roster_rows": 219,
+      "season": 2012,
+      "total_qb_roster_rows": 1464,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 796,
+      "low_experience_roster_rows": 473,
+      "rookie_roster_rows": 221,
+      "season": 2013,
+      "total_qb_roster_rows": 1490,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 886,
+      "low_experience_roster_rows": 350,
+      "rookie_roster_rows": 187,
+      "season": 2014,
+      "total_qb_roster_rows": 1423,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 990,
+      "low_experience_roster_rows": 329,
+      "rookie_roster_rows": 152,
+      "season": 2015,
+      "total_qb_roster_rows": 1471,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1039,
+      "low_experience_roster_rows": 262,
+      "rookie_roster_rows": 261,
+      "season": 2016,
+      "total_qb_roster_rows": 1598,
+      "unknown_experience_roster_rows": 36
+    },
+    {
+      "experienced_roster_rows": 1206,
+      "low_experience_roster_rows": 462,
+      "rookie_roster_rows": 370,
+      "season": 2017,
+      "total_qb_roster_rows": 2038,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1030,
+      "low_experience_roster_rows": 527,
+      "rookie_roster_rows": 466,
+      "season": 2018,
+      "total_qb_roster_rows": 2023,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1111,
+      "low_experience_roster_rows": 583,
+      "rookie_roster_rows": 461,
+      "season": 2019,
+      "total_qb_roster_rows": 2155,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1126,
+      "low_experience_roster_rows": 547,
+      "rookie_roster_rows": 289,
+      "season": 2020,
+      "total_qb_roster_rows": 1962,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1231,
+      "low_experience_roster_rows": 550,
+      "rookie_roster_rows": 218,
+      "season": 2021,
+      "total_qb_roster_rows": 1999,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1278,
+      "low_experience_roster_rows": 416,
+      "rookie_roster_rows": 239,
+      "season": 2022,
+      "total_qb_roster_rows": 1933,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1253,
+      "low_experience_roster_rows": 340,
+      "rookie_roster_rows": 332,
+      "season": 2023,
+      "total_qb_roster_rows": 1908,
+      "unknown_experience_roster_rows": 0
+    },
+    {
+      "experienced_roster_rows": 1180,
+      "low_experience_roster_rows": 437,
+      "rookie_roster_rows": 345,
+      "season": 2024,
+      "total_qb_roster_rows": 1962,
+      "unknown_experience_roster_rows": 0
+    }
+  ],
+  "rosterStatus": [
+    {
+      "rows": 632241,
+      "status": "ACT"
+    },
+    {
+      "rows": 75213,
+      "status": "RES"
+    },
+    {
+      "rows": 59598,
+      "status": "DEV"
+    },
+    {
+      "rows": 48482,
+      "status": "CUT"
+    },
+    {
+      "rows": 20273,
+      "status": "INA"
+    },
+    {
+      "rows": 8265,
+      "status": "TRC"
+    },
+    {
+      "rows": 6924,
+      "status": "TRD"
+    },
+    {
+      "rows": 1967,
+      "status": "TRT"
+    },
+    {
+      "rows": 1722,
+      "status": "RET"
+    },
+    {
+      "rows": 1269,
+      "status": "RSN"
+    },
+    {
+      "rows": 998,
+      "status": "SUS"
+    },
+    {
+      "rows": 996,
+      "status": "PUP"
+    },
+    {
+      "rows": 977,
+      "status": "NWT"
+    },
+    {
+      "rows": 180,
+      "status": "UFA"
+    },
+    {
+      "rows": 178,
+      "status": "EXE"
+    },
+    {
+      "rows": 174,
+      "status": "RSR"
+    },
+    {
+      "rows": 31,
+      "status": "UNKNOWN"
+    },
+    {
+      "rows": 30,
+      "status": "E14"
+    },
+    {
+      "rows": 6,
+      "status": "RFA"
+    },
+    {
+      "rows": 4,
+      "status": "E01"
+    },
+    {
+      "rows": 1,
+      "status": "UDF"
+    }
+  ],
+  "schemaVersion": "NFL_PERSONNEL_HISTORICAL_COVERAGE_V1"
+}

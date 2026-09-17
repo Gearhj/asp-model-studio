@@ -1,0 +1,29 @@
+{
+  "advancementGate": "requires append-only pre-cutoff prospective captures with exact identity and sufficient supported game count",
+  "metricsNotCalculated": [
+    "score MAE",
+    "margin MAE",
+    "total MAE",
+    "winner accuracy",
+    "log loss",
+    "binary Brier",
+    "calibration"
+  ],
+  "outcomesRead": {
+    "2023": false,
+    "2024": false,
+    "2025": false,
+    "2026": false
+  },
+  "overallDisposition": "INSUFFICIENT_ADMISSIBLE_EVIDENCE",
+  "plannedButNotExecuted": [
+    "M1 baseline",
+    "QB continuity/cold-start",
+    "QB prior performance",
+    "injury/personnel burden",
+    "combined personnel block"
+  ],
+  "reason": "No retained source proves the historical target-game expected quarterback, roster/depth state, and injury revision available before cutoff.",
+  "schemaVersion": "NFL_PERSONNEL_CHALLENGER_ASSESSMENT_V1",
+  "status": "NOT_RUN"
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="253" viewBox="0 0 900 253">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="24" y="34" font-family="Arial" font-size="20" font-weight="700" fill="#16243a">2024 QB roster-row experience support (not starts)</text>
+<text x="24" y="87" font-family="Arial" font-size="13" fill="#26384f">rookie</text>
+<rect x="260" y="70" width="154.96" height="20" rx="3" fill="#2374ab"/>
+<text x="422.96" y="86" font-family="Arial" font-size="12" fill="#26384f">345.0</text>
+<text x="24" y="119" font-family="Arial" font-size="13" fill="#26384f">low_experience</text>
+<rect x="260" y="102" width="196.28" height="20" rx="3" fill="#2374ab"/>
+<text x="464.28" y="118" font-family="Arial" font-size="12" fill="#26384f">437.0</text>
+<text x="24" y="151" font-family="Arial" font-size="13" fill="#26384f">experienced</text>
+<rect x="260" y="134" width="530.00" height="20" rx="3" fill="#2374ab"/>
+<text x="798.00" y="150" font-family="Arial" font-size="12" fill="#26384f">1,180.0</text>
+<text x="24" y="183" font-family="Arial" font-size="13" fill="#26384f">unknown_experience</text>
+<rect x="260" y="166" width="0.00" height="20" rx="3" fill="#2374ab"/>
+<text x="268.00" y="182" font-family="Arial" font-size="12" fill="#26384f">0.0</text>
+<text x="24" y="235" font-family="Arial" font-size="11" fill="#637083">Generated from retained outcome-free metadata; finalized snapshots are not certified pregame vintages.</text>
+</svg>

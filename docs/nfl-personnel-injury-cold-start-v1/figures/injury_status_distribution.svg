@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="317" viewBox="0 0 900 317">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="24" y="34" font-family="Arial" font-size="20" font-weight="700" fill="#16243a">Historical finalized injury game-status rows</text>
+<text x="24" y="87" font-family="Arial" font-size="13" fill="#26384f">NO_DESIGNATION</text>
+<rect x="260" y="70" width="530.00" height="20" rx="3" fill="#2374ab"/>
+<text x="798.00" y="86" font-family="Arial" font-size="12" fill="#26384f">26,960.0</text>
+<text x="24" y="119" font-family="Arial" font-size="13" fill="#26384f">Questionable</text>
+<rect x="260" y="102" width="439.04" height="20" rx="3" fill="#2374ab"/>
+<text x="707.04" y="118" font-family="Arial" font-size="12" fill="#26384f">22,333.0</text>
+<text x="24" y="151" font-family="Arial" font-size="13" fill="#26384f">Probable</text>
+<rect x="260" y="134" width="342.06" height="20" rx="3" fill="#2374ab"/>
+<text x="610.06" y="150" font-family="Arial" font-size="12" fill="#26384f">17,400.0</text>
+<text x="24" y="183" font-family="Arial" font-size="13" fill="#26384f">Out</text>
+<rect x="260" y="166" width="289.48" height="20" rx="3" fill="#2374ab"/>
+<text x="557.48" y="182" font-family="Arial" font-size="12" fill="#26384f">14,725.0</text>
+<text x="24" y="215" font-family="Arial" font-size="13" fill="#26384f">Doubtful</text>
+<rect x="260" y="198" width="64.09" height="20" rx="3" fill="#2374ab"/>
+<text x="332.09" y="214" font-family="Arial" font-size="12" fill="#26384f">3,260.0</text>
+<text x="24" y="247" font-family="Arial" font-size="13" fill="#26384f">Note</text>
+<rect x="260" y="230" width="0.12" height="20" rx="3" fill="#2374ab"/>
+<text x="268.12" y="246" font-family="Arial" font-size="12" fill="#26384f">6.0</text>
+<text x="24" y="299" font-family="Arial" font-size="11" fill="#637083">Generated from retained outcome-free metadata; finalized snapshots are not certified pregame vintages.</text>
+</svg>

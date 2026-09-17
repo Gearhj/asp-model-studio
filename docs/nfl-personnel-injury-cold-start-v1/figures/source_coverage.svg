@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 900 430">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="24" y="32" font-family="Arial" font-size="20" font-weight="700" fill="#16243a">Retained source coverage over time</text>
+<line x1="70" y1="375" x2="720" y2="375" stroke="#8a94a3"/>
+<line x1="70" y1="60" x2="70" y2="375" stroke="#8a94a3"/>
+<text x="58.0" y="397" font-family="Arial" font-size="11" fill="#637083">2001</text>
+<text x="142.8" y="397" font-family="Arial" font-size="11" fill="#637083">2004</text>
+<text x="227.6" y="397" font-family="Arial" font-size="11" fill="#637083">2007</text>
+<text x="312.3" y="397" font-family="Arial" font-size="11" fill="#637083">2010</text>
+<text x="397.1" y="397" font-family="Arial" font-size="11" fill="#637083">2013</text>
+<text x="481.9" y="397" font-family="Arial" font-size="11" fill="#637083">2016</text>
+<text x="566.7" y="397" font-family="Arial" font-size="11" fill="#637083">2019</text>
+<text x="651.5" y="397" font-family="Arial" font-size="11" fill="#637083">2022</text>
+<text x="708.0" y="397" font-family="Arial" font-size="11" fill="#637083">2024</text>
+<polyline points="296.1,345.9 324.3,347.9 352.6,345.0 380.9,341.6 409.1,344.4 437.4,344.4 465.7,343.5 493.9,344.2 522.2,344.2 550.4,344.0 578.7,342.5 607.0,340.9 635.2,341.3 663.5,340.7 691.7,341.2 720.0,337.5" fill="none" stroke="#2374ab" stroke-width="2.5"/>
+<rect x="740" y="60" width="14" height="14" fill="#2374ab"/>
+<text x="762" y="72" font-family="Arial" font-size="12" fill="#26384f">injuries</text>
+<polyline points="98.3,187.5 126.5,188.4 154.8,188.0 183.0,189.6 211.3,186.1 239.6,186.0 267.8,185.9 296.1,184.3 324.3,182.5 352.6,186.0 380.9,185.5 409.1,182.6 437.4,182.3 465.7,181.4 493.9,163.8 522.2,65.5 550.4,60.0 578.7,63.7 607.0,108.9 635.2,93.4 663.5,96.6 691.7,99.7 720.0,94.1" fill="none" stroke="#d1495b" stroke-width="2.5"/>
+<rect x="740" y="88" width="14" height="14" fill="#d1495b"/>
+<text x="762" y="100" font-family="Arial" font-size="12" fill="#26384f">weekly_rosters</text>
+<polyline points="70.0,153.5 98.3,166.4 126.5,168.2 154.8,200.7 183.0,177.2 211.3,171.7 239.6,142.6 267.8,141.9 296.1,143.3 324.3,143.3 352.6,146.2 380.9,150.0 409.1,151.5 437.4,178.8 465.7,151.5 493.9,154.2 522.2,154.2 550.4,154.5 578.7,156.1 607.0,156.9 635.2,148.9 663.5,147.2 691.7,149.9 720.0,150.0" fill="none" stroke="#2a9d8f" stroke-width="2.5"/>
+<rect x="740" y="116" width="14" height="14" fill="#2a9d8f"/>
+<text x="762" y="128" font-family="Arial" font-size="12" fill="#26384f">depth_charts</text>
+<polyline points="409.1,231.5 437.4,231.1 465.7,231.2 493.9,230.9 522.2,231.1 550.4,231.0 578.7,231.1 607.0,224.3 635.2,215.4 663.5,215.9 691.7,215.0 720.0,214.5" fill="none" stroke="#e09f3e" stroke-width="2.5"/>
+<rect x="740" y="144" width="14" height="14" fill="#e09f3e"/>
+<text x="762" y="156" font-family="Arial" font-size="12" fill="#26384f">snap_counts</text>
+<text x="24" y="416" font-family="Arial" font-size="11" fill="#637083">Rows by season; source definitions and completeness change over time.</text>
+</svg>

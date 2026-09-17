@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="349" viewBox="0 0 900 349">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="24" y="34" font-family="Arial" font-size="20" font-weight="700" fill="#16243a">Listed injury rows by position group</text>
+<text x="24" y="87" font-family="Arial" font-size="13" fill="#26384f">DEFENSIVE_FRONT</text>
+<rect x="260" y="70" width="530.00" height="20" rx="3" fill="#2374ab"/>
+<text x="798.00" y="86" font-family="Arial" font-size="12" fill="#26384f">25,179.0</text>
+<text x="24" y="119" font-family="Arial" font-size="13" fill="#26384f">SKILL</text>
+<rect x="260" y="102" width="498.97" height="20" rx="3" fill="#2374ab"/>
+<text x="766.97" y="118" font-family="Arial" font-size="12" fill="#26384f">23,705.0</text>
+<text x="24" y="151" font-family="Arial" font-size="13" fill="#26384f">SECONDARY</text>
+<rect x="260" y="134" width="364.24" height="20" rx="3" fill="#2374ab"/>
+<text x="632.24" y="150" font-family="Arial" font-size="12" fill="#26384f">17,304.0</text>
+<text x="24" y="183" font-family="Arial" font-size="13" fill="#26384f">OFFENSIVE_LINE</text>
+<rect x="260" y="166" width="301.87" height="20" rx="3" fill="#2374ab"/>
+<text x="569.87" y="182" font-family="Arial" font-size="12" fill="#26384f">14,341.0</text>
+<text x="24" y="215" font-family="Arial" font-size="13" fill="#26384f">QB</text>
+<rect x="260" y="198" width="61.19" height="20" rx="3" fill="#2374ab"/>
+<text x="329.19" y="214" font-family="Arial" font-size="12" fill="#26384f">2,907.0</text>
+<text x="24" y="247" font-family="Arial" font-size="13" fill="#26384f">SPECIAL_TEAMS</text>
+<rect x="260" y="230" width="26.02" height="20" rx="3" fill="#2374ab"/>
+<text x="294.02" y="246" font-family="Arial" font-size="12" fill="#26384f">1,236.0</text>
+<text x="24" y="279" font-family="Arial" font-size="13" fill="#26384f">OTHER</text>
+<rect x="260" y="262" width="0.25" height="20" rx="3" fill="#2374ab"/>
+<text x="268.25" y="278" font-family="Arial" font-size="12" fill="#26384f">12.0</text>
+<text x="24" y="331" font-family="Arial" font-size="11" fill="#637083">Generated from retained outcome-free metadata; finalized snapshots are not certified pregame vintages.</text>
+</svg>
