@@ -492,7 +492,7 @@ def run(output: Path) -> dict[str, Any]:
     game_baseline = game_assessment[PROBABILITY_COLUMNS].to_numpy(dtype=float)
     game_candidate_values = oracle_values[assessment_oracle["canonicalGameId"].isin(common_games).to_numpy()]
     dev_game = development.loc[dev_supported].copy()
-    games, game_result = game_proxy(dev_game, game_assessment, dev_game[PROBABILITY_COLUMNS].to_numpy(dtype=float), game_candidate_values, team_games, design["gameProxy"]["linearRunWeights"])
+    games, game_result = game_proxy(dev_game, game_assessment, game_baseline, game_candidate_values, team_games, design["gameProxy"]["linearRunWeights"])
 
     oracle_primary = bootstrap["candidateMinusBaseline"]["conditionalBipBinaryLogLoss"]
     material = game_result["materiality"]
