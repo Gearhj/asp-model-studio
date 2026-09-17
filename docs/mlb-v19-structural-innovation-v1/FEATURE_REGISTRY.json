@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "MLB_V19_STRUCTURAL_FEATURE_REGISTRY_V1",
+  "candidate": "MLB_V19_TEAM_DEFENSE_BIP_EB_V1",
+  "features": [
+    {"name": "fielding_team_id", "availability": "PRE_TARGET_FROM_GAME_IDENTITY", "role": "GROUP_KEY", "targetLeakage": false},
+    {"name": "prior_completed_team_bip_hits", "availability": "COMPLETION_DATE_STRICTLY_BEFORE_TARGET_DATE", "role": "NUMERATOR", "targetLeakage": false},
+    {"name": "prior_completed_team_bip_outs", "availability": "COMPLETION_DATE_STRICTLY_BEFORE_TARGET_DATE", "role": "DENOMINATOR", "targetLeakage": false},
+    {"name": "prior_completed_league_bip_hits", "availability": "COMPLETION_DATE_STRICTLY_BEFORE_TARGET_DATE", "role": "SHRINKAGE_PRIOR", "targetLeakage": false},
+    {"name": "prior_completed_league_bip_outs", "availability": "COMPLETION_DATE_STRICTLY_BEFORE_TARGET_DATE", "role": "SHRINKAGE_PRIOR", "targetLeakage": false}
+  ],
+  "prohibited": ["target_game_outcome", "same_date_outcomes", "named_target_fielders", "actual_target_lineup_changes", "actual_target_relievers", "2025_outcomes", "2026_outcomes", "final_oot"]
+}
+

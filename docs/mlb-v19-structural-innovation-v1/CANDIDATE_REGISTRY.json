@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "MLB_V19_STRUCTURAL_CANDIDATE_REGISTRY_V1",
+  "baseline": "FROZEN_V18_MATCHED_OOF_NUMERICAL_POPULATION",
+  "candidates": [
+    {"id": "MLB_V19_TEAM_DEFENSE_BIP_EB_V1", "module": "DEFENSE", "status": "NO_INCREMENTAL_VALUE", "executable": true, "fitted": true, "assessed": true},
+    {"id": "V19_PLAYER_ARCHETYPES", "module": "ARCHETYPE", "status": "BLOCKED_BASELINE_CHRONOLOGY", "executable": false, "fitted": false, "assessed": false},
+    {"id": "V19_MATCHUP_INTERACTIONS", "module": "MATCHUP", "status": "NOT_OPENED_BOUNDED_PROGRAM", "executable": false, "fitted": false, "assessed": false},
+    {"id": "V19_NAMED_BULLPEN_MANAGER_POLICY", "module": "BULLPEN_MANAGER", "status": "INSUFFICIENT_ADMISSIBLE_EVIDENCE", "executable": false, "fitted": false, "assessed": false},
+    {"id": "V19_MIXTURE_OF_EXPERTS", "module": "MIXTURE", "status": "NOT_ELIGIBLE_NO_PASSED_SPECIALIST", "executable": false, "fitted": false, "assessed": false}
+  ],
+  "maximumMajorArchitecturesOpened": 1,
+  "productionAuthority": false
+}
