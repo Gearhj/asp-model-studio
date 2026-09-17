@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "MLB_V18_PROSPECTIVE_PLAYER_PROP_CAPTURE_ARTIFACT_INDEX_V1",
+  "status": "IMPLEMENTED_AND_VERIFIED_AWAITING_PRODUCTION_ACTIVATION",
+  "branch": "codex/mlb-v18-prospective-player-prop-capture-v1",
+  "sourceBaseCommit": "9dd26941241a9beb1146c2c77a43a066b8199281",
+  "deploymentCodeCommit": "b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
+  "installedDeploymentBeforeActivation": "77d39e1ae08e05be82e19bdb0bab21999fba1d3b",
+  "stagedDeployment": {
+    "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
+    "buildManifest": {
+      "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\mlb-v18-unattended\\b8cae23dde745d0d5f5cf4d160b4970d2892c38b\\deployment-build.json",
+      "sha256": "22b98c125baa64f5a34ddc90d5586e7871dcbf50aa1972dffb9d4fd1bd34db7d",
+      "bytes": 163360,
+      "hashedCodeFiles": 920
+    }
+  },
+  "frozenProspectivePlan": {
+    "path": "docs/mlb-player-prop-calibration-v1/PROSPECTIVE_CAPTURE_PLAN.json",
+    "sha256": "3aa6219a3b8315b111d87a56b3e9353572ce8d35dec6fe5bc384a96b1a6afa4a",
+    "bytes": 3702
+  },
+  "invarianceReplay": {
+    "forecastObjectSha256": "2f07648c51e830736d65ff37689c563bb2195ec767090d14ecc8e905968cbdac",
+    "populationSha256": "a302b39e17922a208ac90b14310d82fefa60451734704a45e26d4f34f7282faa",
+    "objectPath": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-player-prop-capture-verification-v1\\objects\\sha256\\3259706deca700ac6d0ea1b8779eaae9fdbcc359612b69ad3168dd920924d3d4",
+    "manifestSha256": "57486ab76bf02c9b9f50a06c1b0c70c90e5bf28c35d1a3849fcc01619afcd7a0",
+    "receiptSha256": "eb4badc5856fffcce0a85855e42317f71c9ca16fe4c183b3643a42776da46f31",
+    "sidecarSha256": "3259706deca700ac6d0ea1b8779eaae9fdbcc359612b69ad3168dd920924d3d4",
+    "sidecarBytes": 267423,
+    "drawCount": 5000,
+    "completedPaCount": 382769,
+    "twoPassWallSeconds": 1436.587,
+    "collectorArrayBytes": 1510000,
+    "sampledProcessPeakWorkingSetBytes": 446578688,
+    "invarianceAllPassed": true,
+    "accountingAllPassed": true
+  },
+  "activation": {
+    "planPassed": true,
+    "installCompleted": false,
+    "blocker": "AUTOMATIC_APPROVAL_REVIEW_REJECTED_PERSISTENT_TASK_AND_MANIFEST_REPLACEMENT",
+    "naturalSuccessorInvocationObserved": false,
+    "prospectiveCaptureCount": 0
+  },
+  "operations": {
+    "providerCalls": 0,
+    "providerBytes": 0,
+    "providerCostUsd": 0,
+    "aispWrites": 0,
+    "exchangeWrites": 0,
+    "outcomeReads": 0,
+    "sealedReads": 0,
+    "modelFits": 0,
+    "forecastPublications": 0
+  }
+}
