@@ -293,7 +293,9 @@ def logistic_fit(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 def game_proxy(dev: pd.DataFrame, assess: pd.DataFrame, baseline: np.ndarray, candidate: np.ndarray, team_games: pd.DataFrame, weights: dict[str, float]) -> tuple[pd.DataFrame, dict[str, Any]]:
     run_weights = np.asarray([weights[name] for name in PA_CLASS_ORDER], dtype=float)
-    outcomes = team_games.pivot(index="canonicalGameId", columns="homeAway", values="runsScored").rename(columns={"away": "actualAway", "home": "actualHome"}).reset_index()
+    outcome_source = team_games[["canonicalGameId", "homeAway", "runsScored"]].copy()
+    outcome_source["runsScored"] = pd.to_numeric(outcome_source["runsScored"], errors="coerce")
+    outcomes = outcome_source.pivot(index="canonicalGameId", columns="homeAway", values="runsScored").rename(columns={"away": "actualAway", "home": "actualHome"}).reset_index()
 
     def aggregate(rows: pd.DataFrame, probabilities: np.ndarray, prefix: str) -> pd.DataFrame:
         values = probabilities @ run_weights
@@ -305,7 +307,7 @@ def game_proxy(dev: pd.DataFrame, assess: pd.DataFrame, baseline: np.ndarray, ca
     dev_base = aggregate(dev, dev[PROBABILITY_COLUMNS].to_numpy(dtype=float), "baseline")
     dev_games = dev_base.merge(outcomes, on="canonicalGameId", how="inner", validate="one_to_one").dropna()
     x_scores = np.concatenate([dev_games["baselineAwayRaw"], dev_games["baselineHomeRaw"]])
-    y_scores = np.concatenate([dev_games["actualAway"], dev_games["actualHome"]])
+    y_scores = np.concatenate([dev_games["actualAway"], dev_games["actualHome"]]).astype(float)
     score_map = np.linalg.lstsq(np.column_stack([np.ones(len(x_scores)), x_scores]), y_scores, rcond=None)[0]
     dev_margin = dev_games["baselineHomeRaw"].to_numpy() - dev_games["baselineAwayRaw"].to_numpy()
     home_win = (dev_games["actualHome"].to_numpy() > dev_games["actualAway"].to_numpy()).astype(float)
