@@ -138,8 +138,13 @@ earlier rerun occurred before test execution and were corrected.
 - Forecast publications caused by this work: `0`.
 
 Natural invocations of the pre-existing 77d owner continued independently and
-completed with task result 0 while this work was staged. They are not evidence
-that the successor observer ran.
+completed with task result 0 while this work was staged. The post-attempt tick
+from `2026-09-17T01:43:56.464505Z` through `01:44:07.005493Z` is
+`BOUNDED_TICK_COMPLETED`, SHA-256
+`4d788ce1719908f5513100093a4ac91c4b72c80fb89d68911195786a3d9bd7d1`.
+It records one `SCHEDULE_IDENTITIES_ONLY` request, zero paid-provider calls,
+zero cost, and zero AISP writes; response bytes are not reported in that
+receipt. It binds 77d and is not evidence that the successor observer ran.
 
 ## Remaining dependency
 

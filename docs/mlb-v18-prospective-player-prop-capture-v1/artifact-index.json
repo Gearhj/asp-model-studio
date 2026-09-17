@@ -42,6 +42,29 @@
     "naturalSuccessorInvocationObserved": false,
     "prospectiveCaptureCount": 0
   },
+  "postAttemptOwnerVerification": {
+    "singleCanonicalOwner": true,
+    "taskName": "ASP MLB V18 Research Publisher",
+    "taskState": "Ready",
+    "lastTaskResult": 0,
+    "installedDeployment": "77d39e1ae08e05be82e19bdb0bab21999fba1d3b",
+    "installedManifestSha256": "8bf005eeff64388cefa356e55815c4f24f938a22d66a27339b074cb79e7d3a6e",
+    "naturalTick": {
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-v18-unattended-v1\\objects\\sha256\\4d788ce1719908f5513100093a4ac91c4b72c80fb89d68911195786a3d9bd7d1\\tick.json",
+      "sha256": "4d788ce1719908f5513100093a4ac91c4b72c80fb89d68911195786a3d9bd7d1",
+      "bytes": 86143,
+      "status": "BOUNDED_TICK_COMPLETED",
+      "startedAt": "2026-09-17T01:43:56.464505+00:00",
+      "completedAt": "2026-09-17T01:44:07.005493+00:00",
+      "providerRequests": 1,
+      "providerRequestFamily": "SCHEDULE_IDENTITIES_ONLY",
+      "providerResponseBytes": null,
+      "paidProviderCalls": 0,
+      "costUsd": 0,
+      "aispWrites": 0,
+      "successorObserverRan": false
+    }
+  },
   "operations": {
     "providerCalls": 0,
     "providerBytes": 0,
