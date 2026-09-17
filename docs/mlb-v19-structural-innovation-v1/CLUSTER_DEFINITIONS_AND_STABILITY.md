@@ -6,3 +6,4 @@ The repository's earlier cluster implementation is executable, but its fits were
 
 After the baseline chronology repair, the cluster study must predeclare its scaler, missingness treatment, algorithms, cluster counts, stability statistic, sparse-player assignment, and matchup shrinkage before reopening assessment evidence. Until then, cluster count and stability are `NOT_ESTIMABLE_FROM_ADMISSIBLE_EVIDENCE`.
 
+\n

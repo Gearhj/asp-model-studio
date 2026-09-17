@@ -13,3 +13,4 @@ There is no consumer import action.
 
 AISP must not display this candidate as V19, a promoted defense model, or a new forecast. The useful producer conclusion is that a simple team-level BIP conversion adjustment did not establish incremental value. The next producer dependency is a completion-aware baseline/history rebuild; after that, timestamped named-reliever availability is the leading structural data gap.
 
+\n

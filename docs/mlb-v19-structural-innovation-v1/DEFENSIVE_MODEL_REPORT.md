@@ -20,3 +20,4 @@ No post-assessment cap, window, class, or team slice search was run. The tiny mo
 
 Figures are retained outside Git under `C:\Users\james\asp-data-staging\mlb\structural-innovation-v1\figures` and hash-bound in `ARTIFACT_INDEX.json`.
 
+\n

@@ -18,3 +18,4 @@ Expected: four tests pass. A second full runner invocation must leave all eight 
 
 The default external root is `C:\Users\james\asp-data-staging\mlb\structural-innovation-v1`. Do not substitute a new baseline file with the same name; the runner verifies physical SHA-256 before reading it.
 
+\n

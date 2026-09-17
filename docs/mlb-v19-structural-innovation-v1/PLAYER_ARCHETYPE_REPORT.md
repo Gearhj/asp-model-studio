@@ -6,3 +6,4 @@ No new archetype challenger was admitted in this program. The earlier V19 cluste
 
 The smallest honest next archetype assessment is conditional on the completion-aware baseline/history repair. It should reuse the already bounded cluster definitions, refit only chronological Development folds, and require improvement over both exact V18 and the corresponding continuous-feature model. No cluster should be promoted solely because it is interpretable.
 
+\n

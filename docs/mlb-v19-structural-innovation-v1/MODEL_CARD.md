@@ -26,3 +26,4 @@ This is not a player defense model. The estimate confounds fielders, park, pitch
 
 Point estimates moved slightly lower, but the primary 95% interval crossed zero. Disposition: `NO_INCREMENTAL_VALUE`. No forecast, simulation, shadow, ensemble, or production authority.
 
+\n

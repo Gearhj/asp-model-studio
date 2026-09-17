@@ -21,3 +21,4 @@ The retained cross-season population does not provide those fields with certifie
 
 `INSUFFICIENT_ADMISSIBLE_EVIDENCE`. Preserve anonymous fallback semantics until a bounded prospective named-reliever archive has adequate coverage. Missing evidence must remain a fallback, not a fabricated available reliever.
 
+\n
