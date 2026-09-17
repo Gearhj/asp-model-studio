@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "MLB_V19_STRUCTURAL_INNOVATION_FROZEN_DESIGN_V1",
+  "frozenAtUtc": "2026-09-17T17:05:00Z",
+  "authority": {
+    "status": "RESEARCH_ONLY",
+    "productionAuthority": false,
+    "promotionAuthority": false,
+    "aispWrites": false,
+    "exchangeWrites": false,
+    "finalOotAccess": false
+  },
+  "baseline": {
+    "identity": "FROZEN_V18_MATCHED_OOF_NUMERICAL_POPULATION",
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\mlb-regime-hybrid-ensemble-v1\\baseline-cache\\matched-oof.parquet",
+    "physicalSha256": "3e816c20f6276837062b97aaa5398984ac0b3660731cc086dfae4aef04f2c8ba",
+    "qualification": "Exact retained probabilities; reused diagnostic evidence with inherited suspended-game chronology limitation"
+  },
+  "candidate": {
+    "identity": "MLB_V19_TEAM_DEFENSE_BIP_EB_V1",
+    "architectures": ["TEAM_DEFENSE_CONDITIONAL_BIP_LOG_ODDS"],
+    "maximumMajorArchitectures": 1,
+    "eligibleClasses": ["SINGLE", "DOUBLE", "TRIPLE", "BIP_OUT"],
+    "unchangedClasses": ["STRIKEOUT", "WALK_HBP_CI", "HOME_RUN", "OTHER_REACH"],
+    "maximumAbsoluteLogOddsShift": 0.35,
+    "developmentOnlyPriorStrengthCandidates": [100.0, 400.0, 1600.0],
+    "developmentSelectionMetric": "binary_log_loss_on_ball_in_play_conversion",
+    "developmentSelectionStart": "2023-08-01",
+    "developmentSelectionEnd": "2023-10-01"
+  },
+  "chronology": {
+    "developmentSeason": 2023,
+    "assessmentFold": 1,
+    "assessmentStart": "2024-03-20",
+    "assessmentEnd": "2024-07-06",
+    "assessmentStatus": "REUSED_HISTORICAL_DIAGNOSTIC_NOT_FRESH_VALIDATION",
+    "sameDateOutcomesExcluded": true,
+    "knownDelayedGamesUseCompletionDateProxy": true,
+    "unknownFinalizationGamesExcluded": true,
+    "assessmentDelayedGamesExcluded": true,
+    "seasons2025And2026Read": false,
+    "sealedFinalOotRead": false
+  },
+  "metrics": {
+    "primary": "eight_class_multiclass_log_loss",
+    "secondary": ["summed_eight_class_brier", "conditional_bip_binary_log_loss", "conditional_bip_brier", "conditional_bip_ece_10_equal_width_bins"],
+    "uncertaintyUnit": "calendar_date",
+    "bootstrapReplicates": 2000,
+    "bootstrapSeed": 20260917
+  },
+  "advancementCriteria": {
+    "primaryCandidateMinusBaselineMeanBelowZero": true,
+    "primaryCandidateMinusBaselineUpper95BelowZero": true,
+    "summedBrierMaterialHarmMaximum": 0.0005,
+    "minimumCoverage": 0.99,
+    "nonBipProbabilitiesBitwiseUnchanged": true,
+    "probabilityMassAbsoluteTolerance": 1e-12,
+    "deterministicReplayRequired": true,
+    "pointInTimeReviewRequired": true,
+    "inheritedBaselineChronologyDefectBlocksProspectiveAdvancement": true
+  },
+  "dispositions": ["ADVANCE_TO_PROSPECTIVE_SHADOW", "PROMISING_REUSED_EVIDENCE_ONLY", "NO_INCREMENTAL_VALUE", "INSUFFICIENT_ADMISSIBLE_EVIDENCE"]
+}
