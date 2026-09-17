@@ -400,6 +400,96 @@ def artifact_index(output: Path, sources: list[Path], disposition: str) -> dict[
     }
 
 
+def weighted_quantile(values: np.ndarray, weights: np.ndarray, probability: float) -> float:
+    order = np.argsort(values)
+    ordered_values = values[order]
+    ordered_weights = weights[order]
+    cumulative = np.cumsum(ordered_weights) - 0.5 * ordered_weights
+    cumulative = cumulative / ordered_weights.sum()
+    return float(np.interp(probability, cumulative, ordered_values))
+
+
+def counterfactual_materiality(
+    assessment: pd.DataFrame,
+    baseline: np.ndarray,
+    model: Any,
+    games: pd.DataFrame,
+    game_result: dict[str, Any],
+    run_weight_mapping: dict[str, float],
+    maximum_shift: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Apply frozen realistic effect quantiles to fixed realized PA exposure.
+
+    This is a noncausal magnitude calculation, not an assessment or forecast.
+    """
+    run_weights = np.asarray([run_weight_mapping[name] for name in PA_CLASS_ORDER], dtype=float)
+    score_slope = float(game_result["scoreMapping"]["slope"])
+    win_intercept = float(game_result["homeWinMapping"]["intercept"])
+    win_slope = float(game_result["homeWinMapping"]["slope"])
+    game_lookup = games.set_index("canonicalGameId")
+
+    actual_lineups = assessment[["canonicalGameId", "fieldingHomeAway", *[f"player_{position}" for position in POSITIONS]]].drop_duplicates(["canonicalGameId", "fieldingHomeAway"])
+    observed_full = lineup_shifts(
+        model,
+        actual_lineups[[f"player_{position}" for position in POSITIONS]].astype(str).to_numpy(dtype=object),
+        maximum_absolute_shift=maximum_shift,
+    )
+    concepts: dict[str, tuple[float, float]] = {}
+    for label, position in (("SHORTSTOP", 6), ("CENTER_FIELD", 8), ("CATCHER_IDENTITY", 2)):
+        keys = [key for key in model.coefficients if key.startswith(f"P{position}:")]
+        values = np.asarray([model.coefficients[key] for key in keys], dtype=float)
+        exposures = np.asarray([model.exposures[key] for key in keys], dtype=float)
+        concepts[label] = (weighted_quantile(values, exposures, 0.10), weighted_quantile(values, exposures, 0.90))
+    concepts["FULL_DEFENSIVE_UNIT"] = (float(np.quantile(observed_full, 0.10)), float(np.quantile(observed_full, 0.90)))
+
+    rows: list[dict[str, Any]] = []
+    for concept, (elite_shift, poor_shift) in concepts.items():
+        for scenario, shift in (("AVERAGE_TO_ELITE", elite_shift), ("AVERAGE_TO_POOR", poor_shift)):
+            for (game_id, fielding_side), positions in assessment.groupby(["canonicalGameId", "fieldingHomeAway"], sort=False).indices.items():
+                if game_id not in game_lookup.index:
+                    continue
+                take = np.asarray(positions, dtype=int)
+                base = baseline[take]
+                changed = apply_identity_effects(base, np.full(len(take), np.clip(shift, -maximum_shift, maximum_shift)))
+                raw_run_delta = float(((changed - base) @ run_weights).sum())
+                expected_run_delta = score_slope * raw_run_delta
+                game = game_lookup.loc[game_id]
+                baseline_raw_margin = float(game["baselineHomeRaw"] - game["baselineAwayRaw"])
+                changed_raw_margin = baseline_raw_margin - raw_run_delta if fielding_side == "home" else baseline_raw_margin + raw_run_delta
+                baseline_home_win = 1 / (1 + np.exp(-np.clip(win_intercept + win_slope * baseline_raw_margin, -35, 35)))
+                changed_home_win = 1 / (1 + np.exp(-np.clip(win_intercept + win_slope * changed_raw_margin, -35, 35)))
+                rows.append({
+                    "concept": concept,
+                    "scenario": scenario,
+                    "canonicalGameId": game_id,
+                    "fieldingSide": fielding_side,
+                    "logOddsShift": float(shift),
+                    "expectedOpposingRunsChange": expected_run_delta,
+                    "homeWinProbabilityChange": float(changed_home_win - baseline_home_win),
+                })
+    table = pd.DataFrame(rows)
+    summaries: dict[str, Any] = {}
+    for (concept, scenario), group in table.groupby(["concept", "scenario"]):
+        absolute_win = group["homeWinProbabilityChange"].abs()
+        absolute_runs = group["expectedOpposingRunsChange"].abs()
+        summaries[f"{concept}:{scenario}"] = {
+            "teamGames": int(len(group)),
+            "logOddsShift": float(group["logOddsShift"].iloc[0]),
+            "meanExpectedOpposingRunsChange": float(group["expectedOpposingRunsChange"].mean()),
+            "meanAbsoluteExpectedOpposingRunsChange": float(absolute_runs.mean()),
+            "p90AbsoluteExpectedOpposingRunsChange": float(absolute_runs.quantile(0.90)),
+            "meanAbsoluteWinProbabilityChange": float(absolute_win.mean()),
+            "fractionAtLeast0_5PercentagePoints": float((absolute_win >= 0.005).mean()),
+            "fractionAtLeast1_0PercentagePoints": float((absolute_win >= 0.01).mean()),
+            "fractionAtLeast2_0PercentagePoints": float((absolute_win >= 0.02).mean()),
+        }
+    return table, {
+        "status": "NONCAUSAL_FIXED_REALIZED_PA_EXPOSURE_MAGNITUDE_SCREEN",
+        "effectDefinition": "Development-exposure-weighted 10th/90th percentile for named positions; assessment-lineup 10th/90th percentile for full unit.",
+        "summaries": summaries,
+    }
+
+
 def run(output: Path) -> dict[str, Any]:
     design = json.loads(DESIGN.read_bytes())
     if design["authority"]["finalOotAccess"] or not design["authority"]["researchOnly"]:
@@ -512,6 +602,15 @@ def run(output: Path) -> dict[str, Any]:
     game_candidate_values = oracle_values[assessment_oracle["canonicalGameId"].isin(common_games).to_numpy()]
     dev_game = development.loc[dev_supported].copy()
     games, game_result = game_proxy(dev_game, game_assessment, game_baseline, game_candidate_values, team_games, design["gameProxy"]["linearRunWeights"])
+    counterfactual_rows, counterfactual_result = counterfactual_materiality(
+        game_assessment,
+        game_baseline,
+        model,
+        games,
+        game_result,
+        design["gameProxy"]["linearRunWeights"],
+        float(design["candidate"]["maximumAbsoluteLineupShift"]),
+    )
 
     oracle_primary = bootstrap["candidateMinusBaseline"]["conditionalBipBinaryLogLoss"]
     material = game_result["materiality"]
@@ -557,6 +656,7 @@ def run(output: Path) -> dict[str, Any]:
         },
         "variants": variants,
         "gameProxy": game_result,
+        "counterfactualMateriality": counterfactual_result,
         "decisionGates": {
             "oracleProperScoreGatePassed": bool(oracle_gate),
             "practicalMaterialityGatePassed": bool(material_gate),
@@ -579,6 +679,7 @@ def run(output: Path) -> dict[str, Any]:
     effects = pd.DataFrame([{"playerPositionKey": key, "logOddsEffect": value, "developmentBipExposure": model.exposures[key]} for key, value in sorted(model.coefficients.items())])
     effects.to_parquet(output / "player-position-effects.parquet", index=False)
     games.to_parquet(output / "game-proxy.parquet", index=False)
+    counterfactual_rows.to_parquet(output / "counterfactual-materiality.parquet", index=False)
     assessment_output = assessment_oracle[["canonicalPaId", "canonicalGameId", "game_date", "observedClassIndex"]].copy()
     assessment_output["oracleLineupShift"] = lineup_shifts(model, assessment_oracle[[f"player_{p}" for p in POSITIONS]].astype(str).to_numpy(dtype=object), maximum_absolute_shift=float(design["candidate"]["maximumAbsoluteLineupShift"]))
     assessment_output.to_parquet(output / "pa-screen.parquet", index=False)
