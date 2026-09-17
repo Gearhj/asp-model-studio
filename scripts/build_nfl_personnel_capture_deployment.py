@@ -46,7 +46,7 @@ def main() -> int:
         if not path.is_file():
             raise RuntimeError(f"missing deployment member: {rel}")
         members.append({"path": rel.replace("\\", "/"), "sha256": sha(path), "byteCount": path.stat().st_size})
-    identity_content = {"schemaVersion": "NFL_PERSONNEL_CAPTURE_DEPLOYMENT_IDENTITY_V1", "sourceCommit": commit,
+    identity_content = {"schemaVersion": "NFL_PERSONNEL_CAPTURE_DEPLOYMENT_IDENTITY_V1",
                         "members": members, "taskName": "ASP NFL Personnel Evidence Capture",
                         "ownerMarker": "ASP_NFL_PERSONNEL_EVIDENCE_OWNER_V1"}
     deployment_id = hashlib.sha256(canonical_json_bytes(identity_content)).hexdigest()
@@ -60,7 +60,7 @@ def main() -> int:
             destination = target / item["path"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / item["path"], destination)
-        manifest = {**identity_content, "identitySha256": deployment_id,
+        manifest = {**identity_content, "identitySha256": deployment_id, "sourceCommit": commit,
                     "authority": "data capture only; no model, forecast, AISP, exchange, decision, position, or outcome authority"}
         (target / "deployment-manifest.json").write_bytes(canonical_json_bytes(manifest))
     for item in members:

@@ -4,9 +4,9 @@
 
 `IMPLEMENTED_AND_DEPLOYMENT_STAGED_INSTALLATION_BLOCKED_BY_AUTOMATIC_APPROVAL_REVIEW`
 
-The data-only capture owner, immutable deployment builder, supported Plan/Install path, outcome-free projection, tests, and operator documentation are complete. The initial deployment `279158e2223925bc3083289bf048656dc9a45b6db783e6f6afa757bfbbf4ccff` was built from source commit `eead5f9dc8cbb9520e72ae7e4509ccf8f7794b11`. Its manifest SHA-256 is `0ec6a1d4329304fb5c3b83568d980825c219f23c1c5e816acf35d6b12a53afe9`.
+The data-only capture owner, immutable deployment builder, supported Plan/Install path, outcome-free projection, tests, and operator documentation are complete. The reviewed member bytes have deployment identity `cbf3686a0c8ceb22dd135b5af9f3fb4738a8114a2e7ac969712992292404d20d`. The builder records the final Git source commit as lineage without making documentation-only commits alter the content identity.
 
-The supported installer passed Plan mode. Automatic approval review rejected Install mode before it executed because the recurring S4U task can make durable external requests and the reviewer could not treat the attached work order as visible explicit authorization. No task, rights acknowledgement, runtime manifest, data root, provider request, or capture was created. This is an approval gate, not a runtime or code failure.
+The predecessor deployment passed supported installer Plan mode. Automatic approval review rejected Install mode before it executed because the recurring S4U task can make durable external requests and the reviewer could not treat the attached work order as visible explicit authorization. No task, rights acknowledgement, runtime manifest, data root, provider request, or capture was created. This is an approval gate, not a runtime or code failure. Re-run Plan against the final deployment before installation.
 
 ## Sources and cadence
 
