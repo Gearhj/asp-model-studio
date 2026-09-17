@@ -19,7 +19,7 @@ $actionArgs="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$launche
 $plan=[ordered]@{
   mode=$Mode; taskName=$TaskName; ownerMarker=$marker; deploymentId=$manifest.identitySha256
   principal="$env:USERDOMAIN\$env:USERNAME"; logonType='S4U'; runLevel='Limited'; multipleInstances='IgnoreNew'
-  tickCadence='PT15M'; executionTimeLimit='PT15M'; boundedSlots='MON_TUE_15:15_ET; WED_SUN_07:15_11:15_15:15_19:15_ET'
+  tickCadence='PT15M'; executionTimeLimit='PT15M'; boundedSlots='MON_TUE_15:15_ET; WED_SUN_07:15_11:15_15:15_ET'
   requestCeilings=@{perCapture=6;perUtcDay=28;bytesPerCapture=67108864;retainedBytes=2147483648}
   action="powershell.exe $actionArgs"; rightsAcknowledgement=(Join-Path $RuntimeRoot 'RIGHTS_ACKNOWLEDGEMENT.json')
 }

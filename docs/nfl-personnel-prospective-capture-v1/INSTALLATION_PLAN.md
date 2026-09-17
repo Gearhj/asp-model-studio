@@ -5,7 +5,7 @@
 - Principal: current Windows user, S4U, least privilege (`Limited`)
 - Overlap: Task Scheduler `IgnoreNew` plus an atomic runtime lock
 - Tick: every 15 minutes; the runner spends network budget only at admitted slots
-- Capture slots: Monday/Tuesday 15:15 ET; Wednesday-Sunday 07:15, 11:15, 15:15, 19:15 ET
+- Capture slots: Monday/Tuesday 15:15 ET; Wednesday-Sunday 07:15, 11:15, 15:15 ET
 - Runtime ceiling: 15 minutes
 - Network ceiling: six requests/capture, 28 requests/UTC day, zero retries
 - Bytes/storage: 64 MiB/capture, 2 GiB retained

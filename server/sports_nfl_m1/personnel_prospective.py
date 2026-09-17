@@ -27,14 +27,15 @@ ET = ZoneInfo("America/New_York")
 
 # The task ticks every fifteen minutes.  Only these local slots can spend the
 # network budget.  Monday/Tuesday use one capture; Wednesday through Sunday use
-# four, matching the admitted weekly reporting cycle while staying <= 24 calls.
+# three, matching the observed once-daily-to-intraday release cadence while
+# leaving room under the 28-call hard ceiling.
 SLOTS_BY_WEEKDAY = {
     0: ("15:15",), 1: ("15:15",),
-    2: ("07:15", "11:15", "15:15", "19:15"),
-    3: ("07:15", "11:15", "15:15", "19:15"),
-    4: ("07:15", "11:15", "15:15", "19:15"),
-    5: ("07:15", "11:15", "15:15", "19:15"),
-    6: ("07:15", "11:15", "15:15", "19:15"),
+    2: ("07:15", "11:15", "15:15"),
+    3: ("07:15", "11:15", "15:15"),
+    4: ("07:15", "11:15", "15:15"),
+    5: ("07:15", "11:15", "15:15"),
+    6: ("07:15", "11:15", "15:15"),
 }
 
 SAFE_SCHEDULE_COLUMNS = ("game_id", "season", "game_type", "week", "gameday", "gametime", "away_team", "home_team")
