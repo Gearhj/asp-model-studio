@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "NBA_PRODUCTION_BASELINE_EXCHANGE_RECEIPT_V1",
+  "status": "STAGED_INACTIVE",
+  "packageAddress": "4b870c1ff2a4ff537b6533f46019cfc0212bc0e08bd7f7cbe2c6fad9aedf1b5c",
+  "path": "C:\\Users\\james\\asp-model-exchange\\nba-production-baseline-v1\\handoffs\\sha256\\4b870c1ff2a4ff537b6533f46019cfc0212bc0e08bd7f7cbe2c6fad9aedf1b5c\\index.json",
+  "indexSha256": "4b870c1ff2a4ff537b6533f46019cfc0212bc0e08bd7f7cbe2c6fad9aedf1b5c",
+  "indexBytes": 450,
+  "discoverySha256": "eb45d86741002afa503def33ea96830287771560dde1be3fead82ee7c3dde1fc",
+  "consumerAcknowledged": false,
+  "schedulerActive": false,
+  "aispWrites": 0
+}

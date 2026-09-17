@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "NBA_GEN2_TEAM_BOX_ACQUISITION_PLAN_V1",
+  "declaredBeforeAcquisition": true,
+  "createdAt": "2026-09-17T23:15:00Z",
+  "classification": "CATEGORY_A_RECONSTRUCTED_HISTORICAL_EVIDENCE",
+  "source": {
+    "publisher": "SportsDataverse/hoopR-nba-data",
+    "underlyingSource": "ESPN",
+    "release": "espn_nba_team_boxscores",
+    "license": "CC BY 4.0",
+    "licenseRevision": "ec432186c9aa08ef1267578f0e54ccf50f510452"
+  },
+  "seasons": [2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026],
+  "seasonLabels": ["2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26"],
+  "endpointTemplate": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_team_boxscores/team_box_{season}.parquet",
+  "limits": {
+    "maximumSuccessfulHttpRequests": 8,
+    "maximumResponseBytes": 268435456,
+    "maximumRetries": 0,
+    "minimumDelaySeconds": 2,
+    "incrementalCostUsd": 0
+  },
+  "stopConditions": [
+    "access refusal",
+    "non-Parquet response",
+    "schema instability in required identity or box fields",
+    "response-byte ceiling",
+    "source-rights uncertainty"
+  ],
+  "nbaComDisposition": "ZERO_CALLS_TERMS_INCOMPATIBLE_WITH_INTENDED_DOWNSTREAM_GAMBLING_USE",
+  "rawRetention": "PRIVATE_CONTENT_ADDRESSED_OUTSIDE_GIT"
+}
+

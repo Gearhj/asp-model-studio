@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "NBA_GEN2_TEAM_BOX_ACQUISITION_ADDENDUM_V1",
+  "declaredBeforeAdditionalRequests": true,
+  "createdAt": "2026-09-17T23:28:00Z",
+  "trigger": "The first team-box export passed identity and traditional-stat checks but contains no minutes or overtime-period field.",
+  "resolution": "Acquire the matching eight licensed hoopR schedule exports and derive completed-game minutes as 240 plus 25 times periods beyond four. Reconcile status_period and line scores before admission.",
+  "additionalAssets": "nba_schedule_2019.parquet through nba_schedule_2026.parquet, plus the seven remaining team_box season exports",
+  "totalSuccessfulRequestCeilingIncludingFirstResponse": 20,
+  "plannedTotalSuccessfulRequests": 16,
+  "maximumResponseBytes": 268435456,
+  "costUsd": 0,
+  "nbaComRequests": 0,
+  "qualification": "The first response was retained before the fail-closed schema check. Its response headers were not persisted; this gap is disclosed rather than repaired with a duplicate request."
+}
+
