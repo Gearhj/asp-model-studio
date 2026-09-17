@@ -1,0 +1,99 @@
+{
+  "identity": "NFL_SCHEDULE_ADJUSTED_TEAM_EFFECTS_STUDY_DESIGN_V1",
+  "status": "FROZEN_BEFORE_REUSED_2023_2024_SCORE_OUTCOME_ACCESS",
+  "baseCommit": "f0bd8fe1aa1189d1c1b3bd0eb86d188ad0a6090f",
+  "seed": 731001,
+  "authority": "RESEARCH_ONLY_NO_MODEL_PROMOTION",
+  "inputs": {
+    "pregameProjection": {
+      "path": "C:/Users/james/asp-model-studio/outputs/multisport-feature-engineering-audit-v1/permitted-input-projections/NFL.parquet",
+      "sha256": "30737340c0b75d2c39ccd64a08137fbc77f766753cabbdc669902117df229427",
+      "rows": 6695,
+      "seasons": [1999, 2024]
+    },
+    "teamGame": {
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/objects/sha256/4e4f6ec9b2efacc68fa3d8994673f615829f688a0e77d78d32f2970e3ecb58ea/object.parquet",
+      "objectManifestSha256": "4e4f6ec9b2efacc68fa3d8994673f615829f688a0e77d78d32f2970e3ecb58ea",
+      "physicalSha256": "11631f1cc5e74252f011aa553b84b84035272ea9f433ed057fc342427686e362",
+      "readFilter": "season <= 2024 before conversion to pandas"
+    },
+    "teamIdentity": {
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/objects/sha256/62e7e484d52c5e2509141433202960fa2a5631e81cd72a461cbe96c4a00c49fd/object.parquet",
+      "objectManifestSha256": "62e7e484d52c5e2509141433202960fa2a5631e81cd72a461cbe96c4a00c49fd",
+      "physicalSha256": "671a17e5d4fc288806f5b1207be9227734d898750cb7a7e9cc6034c584f91ded"
+    },
+    "foundationManifest": {
+      "path": "C:/Users/james/asp-data-staging/nfl/foundation-v1/manifests/sha256/c265041976e119fab5497f5b4f48a3cefe2db354af91f7144ede25065881d2bb/foundation-manifest.json",
+      "physicalSha256": "85bef1b0423b1a51049781b4868ccf6ccdf38f8b2c469c7b65aa74160b6adcbf",
+      "sourceManifestSha256": "c37ffbcebab5f758c9376c4553ec46931141c415e2b36ebe3b4b7bf063f38ec7"
+    }
+  },
+  "population": {
+    "gameType": "REG",
+    "minimumTargetSeason": 2000,
+    "maximumTargetSeason": 2024,
+    "developmentSelectionSeasons": [2020, 2021, 2022],
+    "baselineReproductionSeason": 2022,
+    "reusedLaterDiagnosticSeasons": [2023, 2024],
+    "excluded": ["2025 assessment", "2026 rows and outcomes", "postseason targets", "market evidence", "sealed or Final OOT evidence"]
+  },
+  "originContract": {
+    "granularity": "season-week atomic",
+    "eligibleSource": "source season precedes target season, or source season equals target season and source week precedes target week; source game_date must also precede the earliest target date in the origin",
+    "sameWeekEvidence": "excluded conservatively even when a Thursday game precedes a Sunday game",
+    "targetExclusion": "required",
+    "missingUnitStatistic": "excluded from that unit fit; never replaced with zero",
+    "unknownTeamOrNoHistory": "zero latent deviation from league environment plus explicit zero support and fallback status"
+  },
+  "estimator": {
+    "family": "ridge_regularized_two_way_team_effects",
+    "response": {
+      "pass": "offensive_pass_epa_per_play",
+      "rush": "offensive_rush_epa_per_play"
+    },
+    "terms": ["intercept", "offensive_team", "opposing_defensive_team", "season_environment", "offense_is_home"],
+    "priorSeasonCarry": "sample weight = seasonDecay ^ (targetSeason - sourceSeason)",
+    "regularizationSearch": {
+      "ridgeAlpha": [10.0, 50.0],
+      "seasonDecay": [0.5, 0.75]
+    },
+    "selection": "one common configuration minimizing the mean Development RMSE across pass and rush game-level EPA predictions; ties prefer larger alpha then smaller decay",
+    "supportShrinkageWeight": "currentSeasonGames / (currentSeasonGames + 8)",
+    "uncertaintyProxy": "1 / sqrt(weightedEarlierSupport + 1)",
+    "noOtherEstimatorVariants": true
+  },
+  "candidateVariants": ["BASELINE", "BASELINE_PLUS_PASS", "BASELINE_PLUS_RUSH", "BASELINE_PLUS_PASS_AND_RUSH"],
+  "baseline": {
+    "modelId": "NFL_M1_XGBOOST",
+    "researchImplementation": "IndependentHomeAwayScoreModel(XGBOOST_SCORE_CONFIG, 197 GAME_FEATURES, seed 731001)",
+    "chronology": "fit separately for each assessment season on strictly earlier seasons",
+    "probabilityQualification": "native binary diagnostic probability, not the operational three-way simulation distribution"
+  },
+  "metrics": ["homeScoreMAE", "awayScoreMAE", "pooledScoreMAE", "marginMAE", "totalMAE", "winnerAccuracy", "binaryLogLossNonTie", "binaryBrierNonTie", "calibrationIntercept", "calibrationSlope", "coverage", "runtimeSeconds"],
+  "uncertainty": {
+    "unit": "season-calendar-week",
+    "method": "paired clustered bootstrap",
+    "replicates": 2000,
+    "confidence": 0.95
+  },
+  "diagnosticSegments": ["weeks_1_4", "weeks_5_9", "weeks_10_plus", "low_current_support_lt5_either_team", "large_schedule_mismatch_development_p80", "interconference", "short_rest", "ordinary_rest", "baseline_favorite_side", "baseline_underdog_side", "low_projected_total_development_p33", "high_projected_total_development_p67"],
+  "advancementGate": {
+    "pooledReusedScoreMaeDeltaMax": -0.10,
+    "pooledReusedScoreMaeClustered95UpperMax": 0.0,
+    "eachReusedSeasonScoreMaeDeltaMax": 0.0,
+    "pooledMarginMaeDegradationMax": 0.10,
+    "pooledTotalMaeDegradationMax": 0.10,
+    "pooledBinaryLogLossDegradationMax": 0.002,
+    "pooledBinaryBrierDegradationMax": 0.002,
+    "coverageMinimum": 0.99,
+    "passingDisposition": "RESEARCH_CHALLENGER_WORTH_PROSPECTIVE_CAPTURE",
+    "completeNonpassingDisposition": "NO_INCREMENTAL_VALUE",
+    "incompleteDisposition": "INSUFFICIENT_EVIDENCE"
+  },
+  "qualifications": [
+    "2023 and 2024 are previously inspected reused diagnostic evidence, not untouched Validation, OOT, or prospective evidence.",
+    "The finalized nflverse-derived revisions certify values and lineage, not their historical publication vintage.",
+    "No operational three-way NFL probability or simulation distribution is reconstructed by this experiment.",
+    "No 2026 outcome, sealed evidence, provider, sportsbook, AISP, exchange, scheduler, or production owner is accessed or changed."
+  ]
+}
