@@ -70,6 +70,15 @@ def ref(path: Path) -> dict[str, Any]:
     return {"path": str(path.resolve()), "sha256": digest(path), "bytes": path.stat().st_size}
 
 
+def canonical_json_ref(path: Path, value: Any) -> dict[str, Any]:
+    payload = canonical(value)
+    return {
+        "path": str(path.resolve()),
+        "canonicalSha256": hashlib.sha256(payload).hexdigest(),
+        "canonicalBytes": len(payload),
+    }
+
+
 def checked(path: Path, expected: str) -> None:
     if not path.is_file() or digest(path) != expected:
         raise ValueError(f"Registered source changed: {path}")
@@ -306,7 +315,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     result = {
         "schemaVersion": "MLB_V19_STRUCTURAL_DEFENSE_ASSESSMENT_V1",
-        "candidateIdentity": design["candidate"]["identity"], "design": ref(DESIGN),
+        "candidateIdentity": design["candidate"]["identity"],
+        "design": canonical_json_ref(DESIGN, design),
         "baseline": base_metrics, "candidate": candidate_metrics,
         "candidateMinusBaseline": {key: candidate_metrics[key] - base_metrics[key] for key in
             ("multiclassLogLoss", "summedMulticlassBrier", "conditionalBipBinaryLogLoss", "conditionalBipBrier")},
