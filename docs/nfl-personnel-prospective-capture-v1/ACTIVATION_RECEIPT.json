@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "NFL_PERSONNEL_CAPTURE_ACTIVATION_RECEIPT_V1",
+  "recordedAtUtc": "2026-09-17T16:38:14.7963527Z",
+  "task": {
+    "name": "ASP NFL Personnel Evidence Capture",
+    "canonicalOwnerCount": 1,
+    "principal": {
+      "userId": "james",
+      "logonType": "S4U",
+      "runLevel": "Limited"
+    },
+    "multipleInstances": "IgnoreNew",
+    "executionTimeLimit": "PT15M",
+    "repetitionInterval": "PT15M",
+    "action": {
+      "executable": "powershell.exe",
+      "deploymentId": "da85acc26f5ce0e0edbe2c5a81ffeca318d9a868a243d071b0d5e8bc1067e422",
+      "wrapper": "scripts/invoke_nfl_personnel_capture.ps1"
+    }
+  },
+  "deployment": {
+    "deploymentId": "da85acc26f5ce0e0edbe2c5a81ffeca318d9a868a243d071b0d5e8bc1067e422",
+    "sourceCommit": "fd5025a76e13bce361f57fcedf9e5fae98aa97bf",
+    "deploymentManifestPhysicalSha256": "10bb13c8a07226e28d6aa40ce8f075758319a9bd9b462cee0855807e8104308d",
+    "runtimeManifestPhysicalSha256": "b886b1cd0fa166172e862bcdd6ef15c9f4b971175ec13dd4313cf895e7704524",
+    "rightsAcknowledgementPhysicalSha256": "9bd6db3377840bf6172940306221bb75e4f93d7e7f72b7af767719dfb4f050ea",
+    "installedAtUtc": "2026-09-17T16:28:50.4771957Z",
+    "predecessorDeploymentId": "3139cff08216d9e16fcaa5d012a23738605e14f66c3fffc4687f73ecda7f7dcf",
+    "predecessorPreserved": true
+  },
+  "naturalInvocation": {
+    "startedAtUtc": "2026-09-17T16:29:51.0529147Z",
+    "completedAtUtc": "2026-09-17T16:29:54.7754825Z",
+    "pythonDisposition": "NOT_DUE",
+    "pythonExitCode": 0,
+    "powerShellWrapperExitCode": 0,
+    "taskSchedulerResult": 0,
+    "launcherReceiptSha256": "e591afdd687028c8425eeff089cd9147d00b0d84b17c1cc80613087246479bf1",
+    "providerCalls": 0,
+    "providerResponseBytes": 0,
+    "costUsd": 0,
+    "aispWrites": 0,
+    "exchangeWrites": 0
+  },
+  "preservedInitialCapture": {
+    "captureReceiptSha256": "f28188339ebef3f7ac31a7288f1b654f975695d4e36c9b6a6342ecad73d6f3f6",
+    "captureReceiptBytes": 6538,
+    "projectionSha256": "b824635535ab09af0347d02265f6478541e8177e69dc80174a3d5984ef100957",
+    "projectionBytes": 22697,
+    "providerCalls": 6,
+    "providerResponseBytes": 7231316,
+    "rawObjectCount": 6,
+    "captureReceiptCountAfterNaturalRun": 1,
+    "projectionCountAfterNaturalRun": 1,
+    "repeated": false
+  },
+  "isolation": {
+    "mlbPublisherDeploymentId": "b8cae23dde745d0d5f5cf4d160b4970d2892c38b",
+    "mlbPublisherChanged": false,
+    "backendTaskChanged": false,
+    "otherScheduledTaskChanged": false,
+    "modelOrForecastArtifactChanged": false,
+    "aispOrExchangeChanged": false
+  }
+}
