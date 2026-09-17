@@ -1,8 +1,8 @@
 # NFL M1 production baseline readiness and activation report
 
-**Decision: `NFL_M1_PRODUCTION_READY_AWAITING_EXPLICIT_ACTIVATION`.**
+**Decision: `NFL_M1_PRODUCTION_BASELINE_ACTIVATED`.**
 
-Model Studio published the exact production handoff and AISP's live adapter accepts its bytes. AISP has not pinned those bytes: the live `/api/v1/research/nfl-production-status` response remained `NOT_RECEIVED` at 2026-09-17 16:10 ET. Model Studio cannot truthfully claim activation, a natural post-activation invocation, or a production-labelled AISP forecast until the consumer owner sets the two supported pins and reloads the existing backend owner.
+Model Studio published the exact production handoff, AISP pinned and accepted it, and the existing canonical backend completed a natural import during an uninterrupted 40-minute verification window. `/api/v1/research/nfl-production-status` reports `NFL_M1_PRODUCTION_BASELINE_PROSPECTIVE_MONITORING`, `accepted=true`, `production_label_allowed=true`, and the exact handoff SHA-256. The effective boundary remains prospective at 2026-09-20 13:00 ET.
 
 ## Frozen baseline
 
@@ -42,8 +42,8 @@ The handoff deliberately leaves optional `forecastPopulations` empty. Pre-pinnin
 | Deterministic artifact reload | PASS |
 | AISP exact handoff adapter | PASS; production label allowed for the supplied bytes |
 | Week 2 scoring readiness | PASS; 16/16 `READY_AFTER_GOVERNED_FINAL` |
-| Consumer operator pin | **PENDING**; live status `NOT_RECEIVED` |
-| Natural invocation after activation | NOT APPLICABLE UNTIL PINNED |
+| Consumer operator pin | PASS; exact path and SHA pins active |
+| Natural invocation after activation | PASS; job `72ebb57f-3905-4e57-a331-a3ed8c8eeaaa` succeeded |
 
 ## Existing evidence
 
@@ -55,5 +55,16 @@ The failed missingness, cold-start, EPA-matchup and schedule-adjusted challenger
 
 The sole operational scheduler is the running `ASP Backend 8010` S4U task, which owns Model Studio generation/import jobs internally. No second NFL forecast scheduler was created. The separate `ASP NFL Personnel Evidence Capture` task remains unchanged. `ASP MLB V18 Research Publisher` remains unchanged.
 
-This work made zero provider calls, incurred zero cost, wrote no AISP record or database row, changed no decision/position/settlement, and executed no model fit. Two immutable Model Studio exchange publications were created; the second is the final commit-bound successor. Existing forecasts and exchange objects were not changed.
+Activation made zero provider calls, incurred zero cost, changed no decision/position/settlement policy, and executed no model fit. The natural importer reused all 515 selected bundles and 3,005 forecast children, created zero forecast rows, and opened no unlisted objects. Two immutable Model Studio exchange publications remain unchanged; existing forecasts and exchange objects were not changed.
 
+
+
+## Activation closeout
+
+The existing `ASP Backend 8010` task was restarted once outside the NFL final-pregame window. The new listener was PID `48856`, created at 2026-09-17 18:16:41.395060 ET. Scheduler ownership token `c236b61a188145e8a0b692d5ee81ae0f` was claimed at 18:16:41 ET; the scheduler-start log is bounded by the first immediate scheduled run at 18:16:48.993743 ET.
+
+The quiet verification ran through 18:56:41 ET with 152 observations. The PID, listener count and scheduler-owner token never changed. The natural `import-nfl-shadow-forecast-bundle` run `72ebb57f-3905-4e57-a331-a3ed8c8eeaaa` succeeded from 18:48:51.916069 through 18:50:29.026846 ET. It reused 515/515 selected bundles and all 3,005 forecast children, created no replacement row, and did not open an unlisted object.
+
+All 15 Sunday/Monday Week 2 games pass the production binding: exact model, configuration, artifact, immutable package, verified population, 10,000 draws and pre-kickoff publication. DET-BUF remains `BEFORE_EFFECTIVE_FROM`. Week 2 remains 16/16 `READY_AFTER_GOVERNED_FINAL`.
+
+The 16:44, 17:15 and 17:21 backend replacements observed during the earlier attempt coincide with separately documented AISP deployment work. The uninterrupted quiet window supplies no evidence of an autonomous repeated-supervisor defect; no supervisor or task-definition change was made.
