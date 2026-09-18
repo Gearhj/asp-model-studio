@@ -138,6 +138,18 @@ def independent_draw_metrics(draws, target):
             "totalCrps": independent_crps(total, target.total_points)}
 
 
+def independent_frozen_precision_energy(draws, target):
+    """Account explicitly for the frozen int16/float32 pair-distance path."""
+    integers = draws[["home_score", "away_score"]].to_numpy(dtype=np.int16)
+    actual = np.array([target.home_score, target.away_score], dtype=float)
+    first = np.sqrt(np.square(integers.astype(float) - actual).sum(axis=1)).mean()
+    half = len(integers) // 2
+    other_half = np.concatenate([integers[half:], integers[:half]])
+    difference = integers - other_half
+    distances = np.hypot(difference[:, 0], difference[:, 1])
+    return float(first - 0.5 * distances.mean()), str(distances.dtype)
+
+
 def verify_freezes(reader, out):
     required = ("DESIGN.json", "FROZEN_SELECTION.json", "SOURCE_GATE_THROUGH_2022.json",
                 "SOURCE_GATE_THROUGH_2025.json", "COMMON_POPULATION_PREDICTIONS.parquet",
@@ -220,6 +232,13 @@ def verify_populations(predictions, scores):
 def verify_support(reader, design, predictions, scores):
     columns = ["game_id", "season", "scheduled_at", "home_id", "away_id", "primary", "is_final", "score_supported"]
     source = reader.parquet(design["sourcePopulation"]["path"], columns=columns, filters=[("season", "<=", 2025)])
+    calendar_2026 = source[source.scheduled_at.dt.year.eq(2026)]
+    calendar_accounting = {"sourceRowsScheduledInCalendar2026": len(calendar_2026),
+                           "sourceSeasonsOfThoseRows": sorted(map(int, calendar_2026.season.unique())),
+                           "primarySourceRowsScheduledInCalendar2026": int(calendar_2026.primary.sum()),
+                           "primaryEvaluationRowsScheduledInCalendar2026": int(scores.scheduled_at.dt.year.eq(2026).sum()),
+                           "qualification": "Season2026 outcomes are excluded; season2025 includes January2026 nonprimary postseason context. A season cutoff is not a calendar-year cutoff."}
+    require(calendar_accounting["primaryEvaluationRowsScheduledInCalendar2026"] == 0, "unexpected calendar2026 primary evaluation")
     source = source[source.primary & source.is_final & source.score_supported]
     records = pd.concat([source.rename(columns={"home_id": "team_id"})[["team_id", "season", "scheduled_at"]],
                          source.rename(columns={"away_id": "team_id"})[["team_id", "season", "scheduled_at"]]])
@@ -244,7 +263,7 @@ def verify_support(reader, design, predictions, scores):
         require(np.array_equal(frame[keys].to_numpy(), matched), f"independent {kind} support membership differs")
     return {"gamesChecked": len(expected), "currentSupportRecomputedFrom": "source-final primary identity metadata under UTC-date48h embargo",
             "lowSupportGames": int(expected.low_support.sum()), "openerGames": int(expected.opener.sum()),
-            "zeroPriorSupportGames": int(expected.zero_prior_support.sum())}
+            "zeroPriorSupportGames": int(expected.zero_prior_support.sum()), "calendarVersusSeasonAccounting": calendar_accounting}
 
 
 def verify_folds(reader, out, predictions, frozen):
@@ -347,14 +366,25 @@ def verify_draw_samples(predictions, scores):
             draws, accounting = pipeline.simulate_paired_residuals(target, donors, "ridge_alpha100", draw_count=10000)
             manual = independent_draw_metrics(draws, target)
             saved = scores[scores.arm.eq(arm) & scores.game_id.eq(game_id)].iloc[0]
-            difference = max(abs(value - saved[name]) for name, value in manual.items())
+            frozen_precision_energy, pair_dtype = independent_frozen_precision_energy(draws, target)
+            difference = max([abs(frozen_precision_energy - saved.jointEnergyScore)]
+                             + [abs(value - saved[name]) for name, value in manual.items() if name != "jointEnergyScore"])
             require(difference <= 1e-10, "independent sampled score differs")
+            float64_energy_difference = abs(manual["jointEnergyScore"] - saved.jointEnergyScore)
+            # Conservative pairwise-reduction roundoff envelope; this is a
+            # verification precision tolerance, not a model or advancement gate.
+            float32_bound = float(np.finfo(np.float32).eps * np.ceil(np.log2(len(draws)))
+                                  * max(1.0, np.hypot(draws.home_score.max(), draws.away_score.max())))
+            require(float64_energy_difference <= float32_bound, "float64 energy discrepancy exceeds reduction roundoff")
             require(len(draws) == 10000 and (draws.home_score != draws.away_score).all(), "sample support/count violated")
             results.append({"game_id": game_id, "season": int(target.season), "arm": arm,
                             "lowSupport": bool(target.low_support), "drawCount": 10000,
                             "donorCount": len(donors), "maximumMetricDifference": float(difference),
                             "drawPairsSha256": hashlib.sha256(draws[["home_score", "away_score"]].to_numpy(dtype="<i2").tobytes()).hexdigest(),
-                            "manualMetrics": manual, "finalTieCount": accounting["finalTieCount"]})
+                            "manualFloat64Metrics": manual, "frozenPrecisionEnergy": frozen_precision_energy,
+                            "frozenPairDistanceDtype": pair_dtype, "float64EnergyDifference": float64_energy_difference,
+                            "float32ReductionRoundoffBound": float32_bound,
+                            "finalTieCount": accounting["finalTieCount"]})
     return results
 
 
@@ -373,14 +403,21 @@ def verify(out):
               "foldFitsAndSelection": verify_folds(reader, out, predictions, frozen),
               "independentPairedEffects": verify_effects(reader, out, scores, frozen),
               "independentSmallDrawReplay": verify_draw_samples(predictions, scores)}
-    reader.json(out / "DECISION.json")
+    decision = reader.json(out / "DECISION.json")
+    low = next(item["independentResult"] for item in checks["independentPairedEffects"] if item["subgroup"] == "low_support")
+    adequate = low["games"] >= 100 and low["blocks"] >= 15
+    require(decision["gates"]["lowSupportAdequate"] == adequate, "reported low-support adequacy gate differs")
+    checks["independentLowSupportAdequacyGate"] = {"games": low["games"], "blocks": low["blocks"],
+                                                  "minimumGames": 100, "minimumBlocks": 15, "passes": adequate,
+                                                  "gateRelaxed": False,
+                                                  "qualification": "A favorable diagnostic interval does not override insufficient chronological block support."}
     receipt = {"schema": "CFB_STRENGTH_INDEPENDENT_VERIFICATION_V1", "status": "PASSED",
                "verifiedAtUtc": datetime.now(timezone.utc).isoformat(),
                "qualification": "PRIVATE_CLASS_A_RECONSTRUCTED_RESEARCH;2023-2025_REUSED;NO_CERTIFIED_HISTORICAL_AVAILABILITY",
                "checks": checks, "inputBindings": sorted(reader.refs.values(), key=lambda item: item["path"]),
                "verifierSource": ref(__file__), "fullStudyRerun": False, "modelFits": 0,
                "providerCalls": 0, "productionWrites": 0, "consumerWrites": 0,
-               "2026OutcomeRowsMaterialized": 0}
+               "season2026OutcomeRowsMaterialized": 0}
     raw = canonical(receipt)
     digest = hashlib.sha256(raw).hexdigest()
     destination = out / "verification/sha256" / digest / "receipt.json"
