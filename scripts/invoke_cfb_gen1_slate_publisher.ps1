@@ -29,6 +29,10 @@ try {
     $resultPath = $prefix + '.runner-result.json'
     $captureArgs = @()
     if ($binding.capturePointer) { $captureArgs = @('--capture-pointer',$binding.capturePointer) }
+    if ($binding.networkEnabled) {
+        if (-not $binding.grantPath -or -not $binding.grantSha256) { throw 'Exact recurring refresh grant required' }
+        $captureArgs += @('--enable-network','--grant',$binding.grantPath,'--grant-sha256',$binding.grantSha256)
+    }
     & $python $script --release $binding.releasePath --release-sha256 $binding.releaseSha256 --input-pointer $binding.inputPointer --state-root $binding.stateRoot --exchange-root $binding.exchangeRoot --result-file $resultPath @captureArgs 1> ($prefix + '.stdout.txt') 2> ($prefix + '.stderr.txt')
     $pythonCode = $LASTEXITCODE
     if (-not (Test-Path -LiteralPath $resultPath)) { throw 'Runner did not leave a result receipt' }

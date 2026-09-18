@@ -151,11 +151,12 @@ def eligibility(row, bundle, clock, policy=POLICY):
 
 def revision_key(row, bundle_ref, release):
     bundle = read_ref(bundle_ref)
+    release_data=read_ref(release)
     # A refreshed capture clock or an unrelated game's change cannot restamp a
     # numerically unchanged target. Eligibility is still checked on every tick.
     target = {k:v for k,v in row["target"].items() if k != "source_revision"}
     return digest({"target": target, "predictionInputs": row.get("predictionInputIdentity", bundle.get("predictionInputIdentity", bundle_ref["sha256"])),
-                   "release": release["sha256"], "policy": POLICY})
+                   "release": release_data.get('predictionReleaseIdentity',release["sha256"]), "policy": POLICY})
 
 
 def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,

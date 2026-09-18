@@ -5,6 +5,9 @@ param(
     [string]$ReleasePath,
     [string]$ReleaseSha256,
     [string]$InputPointer,
+    [switch]$EnableNetwork,
+    [string]$GrantPath = '',
+    [string]$GrantSha256 = '',
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256
 )
 $ErrorActionPreference = 'Stop'
@@ -35,6 +38,15 @@ if ((Get-FileHash -LiteralPath $ReleasePath -Algorithm SHA256).Hash.ToLowerInvar
 $release = Get-Content -LiteralPath $ReleasePath -Raw | ConvertFrom-Json
 if ($release.deploymentManifest.sha256 -ne $ExpectedManifestSha256) { throw 'Release/deployment binding mismatch' }
 if ((Get-FileHash -LiteralPath $release.refreshAuthorizationProposal.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $release.refreshAuthorizationProposal.sha256) { throw 'Refresh requirements identity mismatch' }
+if ((Get-FileHash -LiteralPath $release.refreshPlan.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $release.refreshPlan.sha256) { throw 'Exact recurring refresh plan mismatch' }
+if ($EnableNetwork) {
+    if (-not $GrantPath -or -not $GrantSha256) { throw 'Explicit exact recurring grant required; one-time grant is insufficient' }
+    if ((Get-FileHash -LiteralPath $GrantPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $GrantSha256) { throw 'Grant physical hash mismatch' }
+    $grant = Get-Content -LiteralPath $GrantPath -Raw | ConvertFrom-Json
+    $plan = Get-Content -LiteralPath $release.refreshPlan.path -Raw | ConvertFrom-Json
+    if ($grant.approvedBy -ne 'James' -or $grant.liveCaptureAuthorized -ne $true -or $grant.planSha256 -ne $release.refreshPlan.sha256 -or $grant.deploymentId -ne $DeploymentId -or $grant.validFromUtc -ne $plan.validFromUtc -or $grant.validUntilUtc -ne $plan.validUntilUtc) { throw 'Recurring grant does not match this exact deployment/plan' }
+    if ($Mode -in @('Plan','Install') -and ([DateTimeOffset]::UtcNow -lt [DateTimeOffset]::Parse($plan.validFromUtc) -or [DateTimeOffset]::UtcNow -ge [DateTimeOffset]::Parse($plan.validUntilUtc))) { throw 'Recurring grant period closed' }
+}
 $inputVersion = Get-Content -LiteralPath $InputPointer -Raw | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath $inputVersion.inputManifest.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputVersion.inputManifest.sha256) { throw 'Input pointer/member mismatch' }
 $binding = [ordered]@{
@@ -47,7 +59,9 @@ $binding = [ordered]@{
     stateRoot = Join-Path $runtimeRoot 'state'
     exchangeRoot = Join-Path $RepositoryRoot '..\asp-model-exchange\cfb-gen1-production-v1'
     taskName = $taskName
-    networkEnabled = $false
+    networkEnabled = [bool]$EnableNetwork
+    grantPath = $GrantPath
+    grantSha256 = $GrantSha256
     capturePointer = Join-Path (Split-Path -Parent $InputPointer) 'capture-current.json'
 }
 $json = $binding | ConvertTo-Json -Depth 8 -Compress

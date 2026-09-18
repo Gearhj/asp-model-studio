@@ -17,6 +17,10 @@ from .lifecycle import atomic_json, immutable, now, object_json, owner_lock, rea
 
 ADMISSION_RULE='CFB_ADMISSION_V1_REQUIRED_FIELDS_TARGET_CONTENT_REUSE'
 
+def observed_at(item):
+    """A 304 is a new validation clock, never a new raw acquisition clock."""
+    return item.get('validatedAtUtc',item['acquiredAt'])
+
 
 def parquet(root,name,frame):
     out=io.BytesIO(); frame.to_parquet(out,index=False)
@@ -35,7 +39,7 @@ def read_capture_rows(manifest, season):
     if len(schedules)!=1 or len(schools)!=1:
         raise ValueError('Exactly one governed season schedule and school list required')
     for item in requests:
-        if item['httpStatus']!=200 or item['parameters'].get('year')!=season or utc(item['acquiredAt'])>utc(now()):
+        if item['httpStatus']!=200 or item['parameters'].get('year')!=season or not utc(item['acquiredAt'])<=utc(observed_at(item))<=utc(now()):
             raise ValueError('Capture season/status/clock invalid')
         verified_bytes(item)
     schedule=json.loads(verified_bytes(schedules[0]))
@@ -77,8 +81,8 @@ def admit(*, manifest_ref, release, registry_root, season=2026, precommit=None):
     with owner_lock(root/'admission.lock'):
         manifest=read_ref(manifest_ref)
         requests,schedule_request,school_request,schedule,teams,stats=read_capture_rows(manifest,season)
-        cutoff=max((x['acquiredAt'] for x in requests),key=utc)
-        schedule_clock=schedule_request['acquiredAt']
+        cutoff=max((observed_at(x) for x in requests),key=utc)
+        schedule_clock=observed_at(schedule_request)
         # Only completed records captured before this cutoff may update state.
         final_ids={int(x['id']) for x in schedule if x.get('completed')}
         if any(int(x['id']) not in final_ids for x in stats):
@@ -182,11 +186,20 @@ def validate_bundle(bundle,release):
         raise ValueError('Wrong sport or fixture input')
     if bundle['modelBindings']!=release['modelBindings'] or bundle['historicalGames']!=release['historicalGames']:
         raise ValueError('Frozen baseline binding changed')
+    if release.get('predictionReleaseIdentity'):
+        compatible=release['compatiblePredictionRelease'];previous=read_ref(compatible)
+        if compatible['sha256']!=release['predictionReleaseIdentity'] or any(previous[k]!=release[k] for k in ('modelBindings','historicalGames','featureColumns','configurationIdentity','policy')):
+            raise ValueError('Numerical reuse compatibility mismatch')
+        old={m['relativePath']:m['sha256'] for m in read_ref(previous['deploymentManifest'])['members']}
+        new={m['relativePath']:m['sha256'] for m in read_ref(release['deploymentManifest'])['members']}
+        for name in ('pipeline.py','current.py','render.py'):
+            path='server/sports_cfb_gen1/'+name
+            if old[path]!=new[path]:raise ValueError('Numerical implementation changed without revision identity')
     for ref in [bundle['sourceManifest'],bundle['features'],bundle['schedule'],bundle['aliases'],bundle['historicalGames'],*bundle['modelBindings'].values()]:
         verified_bytes(ref)
     manifest=read_ref(bundle['sourceManifest'])
     req=data_requests(manifest)
-    if max((x['acquiredAt'] for x in req),key=utc)!=bundle['sourceCutoffUtc'] or next(x['acquiredAt'] for x in req if x['endpoint']=='/games')!=bundle['scheduleCapturedAtUtc'] or bundle['historyCompleteThroughUtc']!=bundle['scheduleCapturedAtUtc']:
+    if max((observed_at(x) for x in req),key=utc)!=bundle['sourceCutoffUtc'] or next(observed_at(x) for x in req if x['endpoint']=='/games')!=bundle['scheduleCapturedAtUtc'] or bundle['historyCompleteThroughUtc']!=bundle['scheduleCapturedAtUtc']:
         raise ValueError('Source clock binding mismatch')
     for x in req: verified_bytes(x)
     schedule=pd.read_parquet(bundle['schedule']['path'],columns=['game_id','scheduled_at','home_id','away_id','home_team','away_team','is_final'])
