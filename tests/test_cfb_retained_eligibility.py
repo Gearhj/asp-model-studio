@@ -169,3 +169,42 @@ def test_operational_authorization_does_not_change_POLICY_or_revision_key(setup)
         bundle['games'][0], br, object_json(root / 'release', release))
     assert POLICY['lastPublicationMinutesBeforeKickoff'] == 30
     assert POLICY['cadenceMinutes'] == 15
+
+
+@pytest.mark.parametrize('phase', ['tick_start', 'row', 'render', 'final_check', 'before_period'])
+def test_bound_grant_never_falls_back_when_tick_crosses_expiry(setup, phase):
+    root, bundle, release, grant, calls, run = setup
+    grant['validUntilUtc'] = '2030-10-21T23:30:00Z'
+    if phase == 'before_period':
+        grant['retainedAtUtc'] = '2030-10-21T23:29:30Z'
+    release = dict(release, paperEligibilityAuthorization=object_json(root / 'grant', grant))
+    bundle = copy.deepcopy(bundle)
+    # A far-future kickoff would be DUE with a new 15-minute lease under the
+    # ungranted path. An explicit expired grant must never select that fallback.
+    bundle['games'][0]['target']['scheduled_at'] = '2030-10-22T10:00:00Z'
+    before = '2030-10-21T23:29:00Z'
+    after = '2030-10-21T23:30:01Z'
+    clocks = [0]
+    render_expired = [False]
+    def clock():
+        clocks[0] += 1
+        if phase == 'tick_start': return after
+        if phase == 'row' and clocks[0] > 1: return after
+        if phase == 'render' and render_expired[0]: return after
+        if phase == 'final_check' and clocks[0] > 5: return after
+        return before
+    def render(row, br, rr, key, path):
+        calls['render'] += 1
+        immutable(path / 'index.json', canonical_bytes({'schema': 'SYNTHETIC_ONLY', 'revisionKey': key,
+                  'forecastId': 'synthetic:' + key, 'gameId': 1}))
+        render_expired[0] = True
+        return path
+    result = run(None, b=bundle, r=release, renderer=render, clock=clock)
+    game = result['games'][0]
+    assert game['currentlyEligible'] is False
+    assert game['disposition'] == ('PAPER_AUTHORIZATION_NOT_YET_VALID' if phase == 'before_period' else 'PAPER_AUTHORIZATION_EXPIRED')
+    assert all(not x['currentlyEligible'] for x in read_ref(result['discovery'])['packages'])
+    if game.get('eligibilityValidUntilUtc'):
+        assert game['eligibilityValidUntilUtc'] <= '2030-10-21T23:30:00+00:00'
+    if phase in ('tick_start', 'row', 'before_period'):
+        assert calls['render'] == 0
