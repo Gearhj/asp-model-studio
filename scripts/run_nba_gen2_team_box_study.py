@@ -21,12 +21,14 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from threadpoolctl import threadpool_limits
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from server.sports_nba_gen1.distribution import game_seed, score_forecast, simulate
+from server.sports_nba_gen1.distribution import empirical_crps, game_seed, simulate
+from server.sports_nba_gen1.joint_residual_scoring import energy_score
 from server.sports_nba_gen1.recent_features import recent_feature_contract
 from server.sports_nba_gen1.rest_support import learn_rest_support, transform_rest
 from server.sports_nba_gen2.team_box_study import build_pregame_box_features, load_governed_population
@@ -124,7 +126,8 @@ def fit_configuration(config_id: str, train: pd.DataFrame, feature_columns: list
                 ("imputer", SimpleImputer(strategy="median", keep_empty_features=True)),
                 ("model", HistGradientBoostingRegressor(**kwargs)),
             ])
-            estimator.fit(x, y[:, index])
+            with threadpool_limits(limits=1, user_api="openmp"):
+                estimator.fit(x, y[:, index])
             estimators[target] = estimator
     identity = canonical_hash({"configuration": config_id, "featureColumns": feature_columns,
                                "trainingGameIds": train.game_id.astype(str).tolist(),
@@ -139,8 +142,9 @@ def predict_model(model, target: pd.DataFrame) -> np.ndarray:
     if model["params"]["family"] == "ridge":
         margin_total = model["estimators"]["margin_total"].predict(x)
     else:
-        margin_total = np.column_stack((model["estimators"]["margin"].predict(x),
-                                        model["estimators"]["total"].predict(x)))
+        with threadpool_limits(limits=1, user_api="openmp"):
+            margin_total = np.column_stack((model["estimators"]["margin"].predict(x),
+                                            model["estimators"]["total"].predict(x)))
     return np.column_stack(((margin_total[:, 1] + margin_total[:, 0]) / 2,
                             (margin_total[:, 1] - margin_total[:, 0]) / 2))
 
@@ -229,33 +233,38 @@ def candidate_distribution_scores(predictions: pd.DataFrame, population, config_
             game_seed(str(row.game_id), config_id, MASTER_SEED), DRAW_COUNT,
             ot[["home_points", "away_points"]].to_numpy(int),
         )
-        scored = score_forecast(population_draw["home_runs"], population_draw["away_runs"],
-                                int(row.home_score), int(row.away_score))
+        home_draws, away_draws = population_draw["home_runs"], population_draw["away_runs"]
+        actual_home, actual_away = int(row.home_score), int(row.away_score)
+        p_home = float(np.mean(home_draws > away_draws)); truth = int(actual_home > actual_away)
         record = {
             "game_id": row.game_id, "game_date": row.game_date, "season_end": int(row.season_end),
             "home_team_code": row.home_team_code, "away_team_code": row.away_team_code,
-            "actual_home": int(row.home_score), "actual_away": int(row.away_score),
+            "actual_home": actual_home, "actual_away": actual_away,
             "configuration": config_id, "draw_count": DRAW_COUNT,
             "donors": int(len(donors)), "latest_donor_date": str(donors.game_date.max()),
-            "home_win_probability": scored["homeWinProbability"],
-            "away_win_probability": scored["awayWinProbability"],
-            "tie_probability": 0.0, "log_loss": scored["winnerLogLoss"],
-            "binary_brier": scored["binaryBrier"], "energy": scored["jointEnergyScore"],
-            "correct_pick": int(scored["correctWinnerPick"]),
+            "home_win_probability": p_home, "away_win_probability": 1 - p_home,
+            "tie_probability": 0.0,
+            "log_loss": float(-np.log(max(p_home if truth else 1 - p_home, 1e-12))),
+            "binary_brier": float((p_home - truth) ** 2),
+            "energy": energy_score(home_draws, away_draws, actual_home, actual_away),
+            "correct_pick": int((p_home > 0.5) == bool(truth)),
             "raw_tie_fraction": population_draw["diagnostics"]["rawTieFraction"],
             "overtime_mean_change_home": population_draw["diagnostics"]["overtimeMeanChangeHomeAway"][0],
             "overtime_mean_change_away": population_draw["diagnostics"]["overtimeMeanChangeHomeAway"][1],
             "actual_overtime": int(row.overtime_periods > 0),
         }
-        for name in ("home", "away", "total", "margin"):
-            marginal = scored["marginals"][name]
-            record[f"{name}_mean"] = marginal["mean"]
-            record[f"{name}_crps"] = marginal["crps"]
-            record[f"{name}_mae"] = marginal["absoluteError"]
+        for name, values, observed in (
+                ("home", home_draws, actual_home), ("away", away_draws, actual_away),
+                ("total", home_draws + away_draws, actual_home + actual_away),
+                ("margin", home_draws - away_draws, actual_home - actual_away)):
+            record[f"{name}_mean"] = float(values.mean())
+            record[f"{name}_crps"] = empirical_crps(values, observed)
+            record[f"{name}_mae"] = float(abs(values.mean() - observed))
             for level in (50, 80, 90):
-                interval = marginal["centralPredictionIntervals"][str(level / 100)]
-                record[f"{name}_{level}_coverage"] = int(interval["covered"])
-                record[f"{name}_{level}_width"] = interval["width"]
+                lower, upper = np.quantile(values, [(1 - level / 100) / 2, (1 + level / 100) / 2],
+                                           method="inverted_cdf")
+                record[f"{name}_{level}_coverage"] = int(lower <= observed <= upper)
+                record[f"{name}_{level}_width"] = int(upper - lower)
         output.append(record)
     return pd.DataFrame(output)
 
@@ -281,6 +290,11 @@ def main() -> None:
     if ((combined.home_score != combined.home_score_box) | (combined.away_score != combined.away_score_box)).any():
         raise RuntimeError("Gen1 and retained box scores do not reconcile")
     combined = combined.drop(columns=["home_score_box", "away_score_box"])
+    # Preserve the exact Gen1 target contract. Neutral-site and other
+    # history-only rows may inform upstream histories but cannot become fitted
+    # home/away assessment targets.
+    combined = combined[combined.target_eligible.fillna(False).astype(bool)
+                        & ~combined.neutral_site.fillna(True).astype(bool)].copy()
     combined = combined.sort_values(["game_date", "game_id"]).reset_index(drop=True)
 
     gen1_columns = list(recent_feature_contract()["numericFeatures"])
