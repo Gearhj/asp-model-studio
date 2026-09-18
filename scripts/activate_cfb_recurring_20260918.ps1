@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Plan','Install','Verify')][string]$Mode = 'Plan',
+    [ValidateSet('Plan','Install','Verify','Remove')][string]$Mode = 'Plan',
     [string]$EvidenceRoot = 'C:\Users\james\asp-model-studio\outputs\cfb-recurring-activation-20260918-v1'
 )
 $ErrorActionPreference = 'Stop'
