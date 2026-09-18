@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "nba-gen2-team-box-study-freeze-v1",
+  "frozenBeforeCandidateScoring": true,
+  "source": "SportsDataverse/hoopR CC BY 4.0 retained team_box and schedule files, season end years 2019 through 2026",
+  "evidenceClass": "CATEGORY_A_RECONSTRUCTED_HISTORICAL_EVIDENCE",
+  "population": {
+    "competition": "NBA regular season only",
+    "historyStartSeasonEnd": 2019,
+    "targetSeasonEnds": [2021, 2022, 2023, 2024, 2025, 2026],
+    "distributionAssessmentSeasonEnds": [2022, 2023, 2024, 2025, 2026],
+    "identityJoin": "game date plus effective-dated home/away franchise abbreviation, reconciled to score and provider game_id",
+    "integrityQuarantineGameIds": ["401704652"],
+    "integrityQuarantineReason": "Both retained team rows fail points = 2*FGM + 3PM + FTM although schedule and box final scores agree; raw evidence is preserved and no component statistic is inferred.",
+    "exclude": ["preseason", "exhibitions", "All-Star/non-franchise teams", "playoffs", "integrity quarantine", "unmatched identities"]
+  },
+  "roles": {
+    "development": [2021, 2022, 2023],
+    "validationPrimarySelection": [2024],
+    "reusedHistoricalStabilityOnly": [2025, 2026],
+    "qualification": "Every season has been inspected previously for Gen1; none is described as a fresh untouched holdout. Candidate choice is frozen before scoring."
+  },
+  "configurations": [
+    {
+      "id": "GEN1_EXACT_RETAINED",
+      "point": "NBA_GEN1_ORDINARY_REST_RIDGE_A100_V1 retained chronological predictions",
+      "winner": "unchanged chronological Elo",
+      "joint": "NBA_GEN1_JOINT_FINAL_PAIRED_OOF_LATTICE_V1 retained scores"
+    },
+    {
+      "id": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "family": "Ridge",
+      "alpha": 100.0,
+      "features": "exact Gen1 78 numerical features plus frozen prior-game team-box contract",
+      "chronology": "season-forward fitting; train-only imputer, scaler and ordinary-rest support"
+    },
+    {
+      "id": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "family": "HistGradientBoostingRegressor",
+      "learningRate": 0.05,
+      "maxIterations": 150,
+      "maxLeafNodes": 15,
+      "minimumSamplesLeaf": 40,
+      "l2Regularization": 10.0,
+      "earlyStopping": false,
+      "randomState": 731001,
+      "features": "same as Gen2 Ridge",
+      "chronology": "season-forward fitting; train-only median imputer and ordinary-rest support"
+    }
+  ],
+  "featureRules": {
+    "targetExclusion": "Only completed games with game_date strictly earlier than target game_date enter a feature.",
+    "sameDate": "All target features for a calendar date are emitted before any result on that date updates history.",
+    "possessions": "Mean of both teams' FGA + 0.44*FTA - OREB + TOV estimates.",
+    "pace": "possessions * 48 / (48 + 5*overtime_periods), with overtime periods from the matched completed schedule.",
+    "rebounds": "OREB and DREB enter rates directly; source total_rebounds is retained separately and is not reconciled or used.",
+    "forms": ["10-game rolling mean", "alpha=0.15 exponentially weighted mean", "current-season mean shrunk with 10 prior-season pseudo-games"],
+    "historicalVintageCertified": false
+  },
+  "jointDistribution": {
+    "drawsPerGame": 10000,
+    "residuals": "complete oriented home/away residual pairs from earlier chronological out-of-fold candidate predictions",
+    "tieRule": "existing NBA_GEN1_PAIRED_RESIDUAL_V1 empirical overtime-period rule using only earlier retained schedule line-score periods",
+    "seedPolicy": "existing SHA-256 game_seed with master seed 731001 and configuration identity"
+  },
+  "primaryMetric": "joint energy score on the exact common game cohort",
+  "secondaryMetrics": [
+    "team-score MAE", "margin MAE", "total MAE", "home/away CRPS",
+    "margin CRPS", "total CRPS", "winner log loss", "binary Brier",
+    "home-win calibration intercept/slope", "50/80/90 percent interval coverage and width"
+  ],
+  "uncertainty": "paired calendar-week block bootstrap, 2000 replicates, seed 731201; observed games are units, not simulation draws",
+  "advanceGate": {
+    "validationSeason": 2024,
+    "jointEnergyRelativeImprovementMinimum": 0.005,
+    "jointEnergyPaired95UpperMustBeBelowZero": true,
+    "teamScoreMaeImprovementMinimumPoints": 0.05,
+    "maximumRelativeDegradation": {"marginCrps": 0.005, "totalCrps": 0.005, "winnerLogLoss": 0.01, "binaryBrier": 0.01},
+    "stability": "For each of 2025 and 2026, joint energy may not degrade more than 1 percent and team-score MAE may not worsen by more than 0.10 points.",
+    "integrity": "All hard identity, box-component, chronology, distribution-accounting and reproduction checks pass."
+  },
+  "ensemble": "Not evaluated unless both standalone Gen2 candidates independently pass the frozen gate.",
+  "promotionAuthority": false,
+  "schedulerAuthority": false
+}
