@@ -51,7 +51,7 @@ def main():
             or paper.get('realMoneyAuthorized') is not False):
             raise ValueError('Exact virtual-only paper extension grant required')
     # Every path here is reviewed executable source, not raw data or credentials.
-    names=['__init__.py','pipeline.py','current.py','publication_io.py','identities.py','inputs.py','lifecycle.py','render.py','owner.py','capture.py','refresh.py']
+    names=['__init__.py','pipeline.py','current.py','publication_io.py','identities.py','inputs.py','lifecycle.py','render.py','owner.py','capture.py','refresh.py','final_evidence.py']
     paths=[source/'server/__init__.py']+[source/'server/sports_cfb_gen1'/n for n in names]
     paths += [source/'scripts'/n for n in ('run_cfb_gen1_slate_publisher.py','invoke_cfb_gen1_slate_publisher.ps1','install_cfb_gen1_slate_publisher.ps1')]
     members=[dict(relativePath=x.relative_to(source).as_posix(),sha256=reference(x)['sha256'],bytes=x.stat().st_size) for x in paths]
@@ -75,6 +75,8 @@ def main():
         inputPointer=str(Path(a.input_pointer).resolve()),initialInputVersion=input_ref,
         networkCapability=True,networkEnabledByDefault=False,installationAuthorized=False,
         stateRoot=str(root/'.runtime/cfb-gen1-slate-publisher/state'),
+        finalResultEvidenceEnabled=True,
+        finalResultEvidencePointer=str((root/'../asp-model-exchange/cfb-gen1-production-v1/final-result-evidence/current.json').resolve()),
         successorScope='Operational capture/admission only; preserves original prospective effective time and numerical configuration')
     if deployed_paper:
         release['paperEligibilityAuthorization']=deployed_paper

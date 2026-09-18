@@ -1,0 +1,13 @@
+# CFB retained final-result evidence
+
+The same forecast owner exports source-declared finals from each successfully admitted CFBD `/games` capture. It makes no extra source call, evaluates no forecast and admits no AISP final or settlement. The existing plan's T+5-hour availability check remains subject to the natural 15-minute cadence, 90-minute capture spacing, expiry and all request/byte limits. Kickoff time never establishes completion.
+
+Discovery: `C:\Users\james\asp-model-exchange\cfb-gen1-production-v1\final-result-evidence\current.json` uses `CFB_ACTIVATION_RETAINED_EVIDENCE_POINTER_V1` and binds `index.path/sha256/bytes`. The content-addressed `EVIDENCE_INDEX.json` uses `CFB_ACTIVATION_RETAINED_EVIDENCE_INDEX_V1`; its `artifacts.finalResultEvidenceJson` binds `CFB_RETAINED_FINAL_RESULT_EVIDENCE_V1` with `rows`. These are the same index/row conventions as the coordination directory's retained initial evidence. The production pointer is the ongoing authority; the original coordination index remains immutable.
+
+Rows contain exact CFBD game/team IDs, home/away orientation, final points, literal `completed=true`, raw acquisition time, source content hash and array locator. `lastValidatedAtUtc` is separate when conditional validation exists. Actual per-game completion/update/revision fields are preserved when supplied; otherwise their output clocks are null with explicit absence labels. HTTP Date, source hash and scheduled kickoff never substitute for those clocks. Raw provider responses remain in private retained storage and are referenced, not copied to the exchange.
+
+Only admitted FBS/FBS regular weeks 1–14 are exported. Other completed source rows are counted as outside producer scope. Current exports retain all source-declared finals in scope, including corrections. Every index binds its predecessor and identifies previously exported final game IDs absent from the current final set; this is an inspection signal for the consumer, not automatic revocation or settlement.
+
+Export runs after the forecast tick, under its existing lock, and records a `final-evidence` phase. Unchanged admitted input reuses the exact index and pointer. A failed export preserves the earlier pointer and original forecasts while reporting owner failure with the actual completed runner receipt. The successor stage explicitly enables this local exporter and includes its module in the immutable deployment. The frozen model, prediction-release identity, capture plan and task privileges remain unchanged.
+
+Claude owns canonical final admission, scoring, settlement and import acknowledgements. This interface adds no paper-eligibility or wagering authority.

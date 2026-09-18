@@ -5,12 +5,13 @@ from .publication_io import reference
 from .lifecycle import read_ref,now,object_json,owner_lock,tick,atomic_json
 from .inputs import admit,validate_bundle
 from .render import render,verify_package
+from .final_evidence import publish_final_evidence
 
 
 def invoke(*,release_ref,input_pointer,state_root,exchange_root,capture_pointer=None,
            clock=now,renderer=render,verifier=verify_package,bundle_validator=validate_bundle,
            admitter=admit,fault=None,enable_network=False,grant_ref=None,transport_factory=None,
-           capturer=None):
+           capturer=None,final_exporter=publish_final_evidence):
     state=Path(state_root)
     ident=uuid.uuid4().hex
     result={'schema':'CFB_GEN1_OWNER_RECEIPT_V1','invocationId':ident,'startedAtUtc':clock(),
@@ -96,6 +97,11 @@ def invoke(*,release_ref,input_pointer,state_root,exchange_root,capture_pointer=
                 bundle_validator=bundle_validator,owner_lock_already_held=True)
             phase('publication',runner['disposition'],runnerReceipt=bound)
             result.update(disposition=runner['disposition'],exitCode=runner['exitCode'],runnerReceipt=bound)
+            if release.get('finalResultEvidenceEnabled'):
+                exported=final_exporter(bundle_ref=current,exchange_root=exchange_root,
+                    capture_pointer=capture_pointer,clock=clock)
+                phase('final-evidence',exported['disposition'],evidence=exported)
+                result['finalResultEvidence']=exported
     except Exception as exc:
         phase('failure','FAILED_CLOSED',reason=str(exc),errorType=type(exc).__name__)
         result.update(disposition='FAILED_CLOSED',exitCode=1,reason=str(exc))
