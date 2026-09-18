@@ -66,8 +66,9 @@ if ($Mode -eq 'Install') {
     $wrapper = Join-Path $checked.Root 'scripts\invoke_nba_gen1_publisher.ps1'
     $args = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`" -RepositoryRoot `"$RepositoryRoot`""
     $action = New-ScheduledTaskAction -Execute $powershell -Argument $args -WorkingDirectory $checked.Root
-    $trigger = New-ScheduledTaskTrigger -Daily -At 12:00AM
-    $trigger.Repetition = $(New-CimInstance -ClassName MSFT_TaskRepetitionPattern -Namespace Root/Microsoft/Windows/TaskScheduler -ClientOnly -Property @{Interval='PT15M';Duration='P1D';StopAtDurationEnd=$false})
+    $trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) `
+        -RepetitionInterval (New-TimeSpan -Minutes 15) `
+        -RepetitionDuration (New-TimeSpan -Days 3650)
     $principal = New-ScheduledTaskPrincipal -UserId $ownerSid -LogonType S4U -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 12)
     $definition = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "NBA Gen1 production publisher; deployment=$DeploymentId"
@@ -81,4 +82,3 @@ if ($task.Principal.LogonType.ToString() -ne 'S4U' -or $task.Principal.RunLevel.
     throw 'NBA owner is not S4U/Limited/IgnoreNew'
 }
 Write-Output ([ordered]@{status='VERIFIED';taskCount=1;taskName=$taskName;deploymentId=$DeploymentId;logonType='S4U';runLevel='Limited';multipleInstances='IgnoreNew';runtimeManifest=$runtimeManifest} | ConvertTo-Json -Depth 8)
-
