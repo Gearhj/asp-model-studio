@@ -235,6 +235,9 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                                     publicationClockSemantics="First durable availability confirmation; package preparation is not publication")
                                 immutable(committed, canonical_bytes(saved))
                                 item.update(disposition="PUBLISHED_NEW_PROSPECTIVE", package=saved)
+                                final_check = eligibility(row, bundle, clock())
+                                if final_check["disposition"] != "DUE":
+                                    item.update(final_check, package=saved)
                     # Never describe an existing package as current when the new version failed.
                 except Exception as exc:
                     item.update(disposition="GAME_FAILED", currentlyEligible=False,
@@ -242,7 +245,11 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                     receipt["exitCode"] = 1
                 receipt["games"].append(item)
                 # One game's completion is durable even if the process dies on the next.
-                object_json(state / "game-receipts", {"invocationId": invocation, "observedAtUtc": clock(), **item})
+                # Offseason/full-year inventories need one runner receipt, not
+                # thousands of tiny NOT_DUE files every quarter hour. Publication
+                # and per-game failure work remains independently durable.
+                if item.get("package") or item["disposition"] == "GAME_FAILED":
+                    object_json(state / "game-receipts", {"invocationId": invocation, "observedAtUtc": clock(), **item})
             packages = []
             for path in sorted(journal.glob("*.json")) if journal.exists() else []:
                 saved = json.loads(path.read_bytes())
