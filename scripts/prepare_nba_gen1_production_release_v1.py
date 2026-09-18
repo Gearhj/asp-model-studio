@@ -68,7 +68,13 @@ def main():
         "dataRoot": str(repository / "outputs"), "exchangeRoot": str(exchange),
         "activationAuthority": False}
     manifest_path = deployment / "deployment-manifest.json"
-    manifest_path.write_bytes(raw(manifest))
+    if manifest_path.exists():
+        retained = json.loads(manifest_path.read_bytes())
+        if retained.get("deploymentId") != deployment_id or retained.get("members") != members:
+            raise RuntimeError("Immutable deployment manifest conflict")
+        manifest = retained
+    else:
+        manifest_path.write_bytes(raw(manifest))
     effective = now()
     current = json.loads((repository / "outputs/nba-gen1-long-gap-v1/current-research/receipt.json").read_bytes())
     method = json.loads((repository / "outputs/nba-gen1-joint-residual-v1/method-freeze.json").read_bytes())
@@ -83,7 +89,7 @@ def main():
         "distribution": {"configurationIdentity": method["engine"], "drawCount": 10000,
             "masterSeed": method["masterSeed"], "residualPopulation": method["residuals"],
             "supportTreatment": method["supportTreatment"], "closeScoreChallengerEnabled": False},
-        "featureContract": current["freeze"]["featureContract"],
+        "featureContract": current["models"]["ridge_a100_rest"]["featureContract"],
         "training": {"lastDate": current["latestRecordedGameDate"], "throughSeasonEnd": current["trainingThroughSeasonEnd"],
             "trainingGames": current["trainingGames"], "historyGames": current["historyGames"]},
         "scheduleDiscovery": ref(repository / "outputs/nba-gen1-long-gap-v1/future-schedule-evidence-qualified.json"),
