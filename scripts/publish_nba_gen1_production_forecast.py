@@ -196,7 +196,7 @@ def build_and_publish(args: argparse.Namespace) -> dict:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
         (temp / "index.json").write_bytes(index_raw)
-        verify_package(temp)
+        verify_package(temp, expected_address=address)
         if package.exists():
             verify_package(package)
             shutil.rmtree(temp)
@@ -224,10 +224,10 @@ def build_and_publish(args: argparse.Namespace) -> dict:
     return receipt
 
 
-def verify_package(package: Path) -> dict:
+def verify_package(package: Path, expected_address: str | None = None) -> dict:
     raw = (package / "index.json").read_bytes()
     index = json.loads(raw)
-    if digest(raw) != package.name:
+    if digest(raw) != (expected_address or package.name):
         raise RuntimeError("Package address/index digest mismatch")
     for item in index["files"]:
         child = package / item["relativePath"]
