@@ -142,6 +142,9 @@ def forest(effects, frozen, directory):
     fig.subplots_adjust(left=.205, right=.975, bottom=.175, top=.815, wspace=.14, hspace=.61)
     fig.suptitle("CFB strength: paired distribution effects", x=.035, ha="left", y=.969, fontsize=23, fontweight="bold")
     fig.text(.035, .923, f"Frozen Development choice: {frozen['selectedArm']}  |  prior precision λ = {frozen['lambdaPrior']:g}", fontsize=13)
+    low_validation = effect(effects, "reused_validation", "low_support", frozen["selectedArm"])
+    if low_validation["games"] < 100 or low_validation["blocks"] < 15:
+        fig.text(.035, .883, f"Coverage gate unmet: low-support validation has {low_validation['games']:,} games / {low_validation['blocks']} week blocks; at least 100 / 15 were required.", fontsize=11.5, color="#83521C")
     for r, (subgroup, group_label) in enumerate(groups):
         for c, (period, period_label) in enumerate(periods):
             axis = axes[r, c]
@@ -234,7 +237,7 @@ def forecast_diagnostics(predictions, scores, directory):
     axis.xaxis.set_major_locator(MaxNLocator(integer=True))
     axis.legend(loc="upper right", frameon=False, fontsize=11)
     clean_axis(axis, "y")
-    axis.text(.02, .05, "Two team rows per game; this is a precision diagnostic,\nnot a confidence interval or independent team sample.", transform=axis.transAxes, fontsize=10.5, color="#58636D")
+    axis.text(.49, .54, "Two team rows per game.\nPrecision share only, not a confidence\ninterval or independent team sample.", transform=axis.transAxes, fontsize=10.5, color="#58636D")
     axis = axes[0, 1]
     support = frames["A"][["home_current_support", "away_current_support"]].min(axis=1)
     bins = pd.cut(support, [-.5, .5, 1.5, 3.5, 6.5, np.inf], labels=["0", "1", "2–3", "4–6", "7+"])
