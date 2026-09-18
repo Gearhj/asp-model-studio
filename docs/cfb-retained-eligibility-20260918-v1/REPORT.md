@@ -13,8 +13,10 @@ commit whose recorded clock is at or after that cutoff.
 Only an immutable `release.paperEligibilityAuthorization` reference with the
 expected virtual-only schema, James authorization, frozen CFB model, exact
 refresh-plan binding and active period enables the additional retained path.
-Absent or expired authorization preserves the original T-30 behavior. Invalid
-or physically altered authorization fails closed. No real-money or model
+Absent authorization preserves the original T-30 behavior. A separately bound
+grant outside its active period blocks current eligibility, including when a
+tick crosses expiry; it cannot fall back to ungranted behavior. Invalid or
+physically altered authorization fails closed. No real-money or model
 promotion authority is added.
 
 Before any reuse lookup, the owner still checks current scheduled status,
@@ -31,11 +33,12 @@ issue an authorized lease crossing T-30, while preserving the original package
 bytes and publication clock. Discovery explicitly labels this additional
 eligibility `VIRTUAL_RESEARCH_ONLY` and binds its immutable authorization.
 
-Focused verification: **42 tests passed** across the new retained-eligibility
+Focused verification: **47 tests passed** across the new retained-eligibility
 tests and existing slate/recurring lifecycle tests. Cases include T-31, T-30,
 T-29, T-16, T-15, kickoff, source-declared completion, stale inputs, missing
 identity/history, grant expiry, changed revisions, absent commitment, exact
-cutoff rejection, a render crossing the cutoff and unchanged numerical revision
+cutoff rejection, a render crossing the cutoff, a bound grant not yet valid or
+expired at tick start, expiry during row evaluation/render/final checks and unchanged numerical revision
 identity. Tests are synthetic and make no provider requests or model fits.
 
 Source base: `2463920170fa09244beaacfd4c391fbb9c218c48`; independent worktree and

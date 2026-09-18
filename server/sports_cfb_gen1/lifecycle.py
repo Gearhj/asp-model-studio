@@ -128,8 +128,10 @@ def paper_eligibility_authorization(release, clock):
     plan = read_ref(plan_ref)
     first = max(utc(grant["retainedAtUtc"]), utc(plan["validFromUtc"]))
     last = min(utc(grant["validUntilUtc"]), utc(plan["validUntilUtc"]))
-    if not first <= utc(clock) < last:
-        return None
+    if first >= last:
+        raise ValueError("Empty CFB paper eligibility authorization period")
+    # Keep a separately bound grant distinct from absence, including when the
+    # tick starts outside its period or crosses expiry while processing games.
     return {"reference": bound, "validFromUtc": first.isoformat(), "validUntilUtc": last.isoformat()}
 
 
@@ -144,8 +146,11 @@ def eligibility(row, bundle, clock, policy=POLICY, *, paper_authorization=None):
     if clock >= start:
         return {"disposition": "POST_KICKOFF_REJECTED", "currentlyEligible": False}
     stop = start - timedelta(minutes=policy["lastPublicationMinutesBeforeKickoff"])
-    paper = paper_authorization if (paper_authorization and
-        utc(paper_authorization["validFromUtc"]) <= clock < utc(paper_authorization["validUntilUtc"])) else None
+    paper = paper_authorization
+    if paper and clock < utc(paper["validFromUtc"]):
+        return {"disposition": "PAPER_AUTHORIZATION_NOT_YET_VALID", "currentlyEligible": False}
+    if paper and clock >= utc(paper["validUntilUtc"]):
+        return {"disposition": "PAPER_AUTHORIZATION_EXPIRED", "currentlyEligible": False}
     retained_stop = min(start - timedelta(minutes=15), utc(paper["validUntilUtc"])) if paper else stop
     if clock >= stop and paper is None:
         return {"disposition": "PUBLICATION_CUTOFF_PASSED", "currentlyEligible": False}
@@ -275,7 +280,9 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                                            "forecastId": index["forecastId"], "gameId": gid}
                                 immutable(transaction, canonical_bytes(pending))
                             # Time/status/input freshness rechecked after expensive rendering.
-                            check = eligibility(row, bundle, clock())
+                            check = eligibility(row, bundle, clock(), paper_authorization=paper)
+                            if check["disposition"] == "RETAINED_ONLY":
+                                check.update(disposition="PUBLICATION_CUTOFF_PASSED", currentlyEligible=False)
                             if check["disposition"] != "DUE":
                                 item.update(check)
                             else:
@@ -289,14 +296,14 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                                     stage = destination.parent / (".stage-" + uuid.uuid4().hex)
                                     shutil.copytree(directory, stage)
                                     verifier(stage)
-                                    if eligibility(row, bundle, clock())["disposition"] != "DUE":
+                                    if eligibility(row, bundle, clock(), paper_authorization=paper)["disposition"] != "DUE":
                                         raise ValueError("Eligibility expired during publication copy")
                                     stage.rename(destination)
                                 index = verifier(destination)
                                 if fault:
                                     fault("published", gid)
                                 committed_at = clock()
-                                if eligibility(row, bundle, committed_at)["disposition"] != "DUE":
+                                if eligibility(row, bundle, committed_at, paper_authorization=paper)["disposition"] != "DUE":
                                     raise ValueError("Publication cutoff passed before durable commitment")
                                 saved = {k: v for k, v in pending.items() if k != "stagingDirectory"}
                                 saved.update(index=reference(destination / "index.json"),
