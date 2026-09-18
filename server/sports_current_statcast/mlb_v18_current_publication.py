@@ -807,7 +807,14 @@ def current_import_receipt(root, slate_date, forecasts, games, handoff):
     return {**reference(path), "logicalReceiptSha256": receipt["receiptSha256"]}
 
 
-def publish_slate(snapshot_collection, compositions, *, output_root=OUTPUT):
+def publish_slate(snapshot_collection, compositions, *, output_root=OUTPUT, on_game_published=None):
+    """Publish sequentially, optionally expose each complete object immediately.
+
+    The callback runs synchronously after the existing immutable publication
+    and validation path returns, before starting another game's inference. It
+    is outside the per-game inference exception handler: an exchange failure
+    must not relabel a successfully frozen forecast or silently defer delivery.
+    """
     root = Path(output_root)
     games, engine = [], None
     # The model is loaded lazily only for an eligible cache miss.
@@ -827,6 +834,10 @@ def publish_slate(snapshot_collection, compositions, *, output_root=OUTPUT):
                 "category": category, "error": str(exc)}
             failure["receipt"], _ = write_object(root, "failure.json", failure)
             games.append(failure)
+        if on_game_published is not None and games[-1]["status"] in {
+                "PUBLISHED", "DUPLICATE_ALREADY_PUBLISHED", "UNCHANGED_NUMERICAL_FORECAST_REUSED"}:
+            on_game_published({**games[-1],
+                "publicationCompletedAtUtc": datetime.now(timezone.utc).isoformat()})
     date_eastern = utc(snapshot_collection["capturedAt"]).astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).date()
     if snapshot_collection["snapshots"]:
         date_eastern = utc(snapshot_collection["snapshots"][0]["game"]["starts_at"]).astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).date()

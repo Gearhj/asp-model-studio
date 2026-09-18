@@ -5,6 +5,7 @@ The default is a read-only plan; callers must opt in to the exchange write.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -236,6 +237,7 @@ def export_current_handoff(handoff_ref, receipt_ref, *, exchange_root=DEFAULT_EX
     blob = json.dumps(manifest, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     manifest_ref = {"path": str(package_root / "exchange-package.json"), "sha256": hashlib.sha256(blob).hexdigest(), "bytes": len(blob)}
     reused = False
+    package_exposed_at = None
 
     def verify_destination():
         if (package_root / "exchange-package.json").read_bytes() != blob:
@@ -265,6 +267,7 @@ def export_current_handoff(handoff_ref, receipt_ref, *, exchange_root=DEFAULT_EX
                 package_root.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     os.rename(stage, package_root)
+                    package_exposed_at = datetime.now(timezone.utc).isoformat()
                 except FileExistsError:
                     verify_destination()
                     reused = True
@@ -294,4 +297,5 @@ def export_current_handoff(handoff_ref, receipt_ref, *, exchange_root=DEFAULT_EX
         finally:
             if temporary.exists():
                 temporary.unlink()
-    return _package_result(manifest, manifest_ref, publish=publish, reused=reused)
+    return {**_package_result(manifest, manifest_ref, publish=publish, reused=reused),
+            "packageExposedAtUtc": package_exposed_at}

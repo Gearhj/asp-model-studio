@@ -475,6 +475,62 @@ def assemble_handoffs(report, *, publish_exchange=False):
         report["slates"].append(slate)
 
 
+def publish_completed_game_handoff(report, detail, *, slate_date, output_root=OUTPUT, publish_exchange=False):
+    """Expose a validated completed prefix without waiting for later inference.
+
+    The existing single owner calls this synchronously. Assemble on a copy so
+    intermediate accounting cannot overwrite actual attempt dispositions.
+    The immutable progress receipt survives interruption of the later game.
+    """
+    from copy import deepcopy
+    completed_at = detail["publicationCompletedAtUtc"]
+    callback_started = datetime.now(timezone.utc).isoformat()
+    matching = [row for row in report["games"]
+                if row["gameId"] == detail["gameId"] and row["gameDate"] == slate_date]
+    if len(matching) != 1 or detail["status"] not in {
+            "PUBLISHED", "DUPLICATE_ALREADY_PUBLISHED", "UNCHANGED_NUMERICAL_FORECAST_REUSED"}:
+        raise ValueError("INCREMENTAL_PUBLICATION_REQUIRES_ONE_COMPLETED_DISCOVERED_GAME")
+    row = matching[0]
+    row.update(publication=dict(detail), status=detail["status"],
+               reason=detail.get("reason") or "", newInference=bool(detail.get("newInference")))
+    progress = deepcopy(report)
+    progress["discovery"]["slateDates"] = [slate_date]
+    for pending in progress["games"]:
+        if (pending["gameDate"] == slate_date and pending.get("checkpoint", {}).get("due")
+                and "publication" not in pending and not pending.get("sourcePreflight", {}).get("reasons")):
+            pending.update(status="SKIPPED", reason="SEQUENTIAL_FORECAST_NOT_COMPLETED")
+    assemble_handoffs(progress, publish_exchange=publish_exchange)
+    confirmed_at = datetime.now(timezone.utc).isoformat()
+    slate = progress["slates"][0]
+    exchange = slate.get("exchange", {})
+    exposed_at = exchange.get("packageExposedAtUtc")
+    selected = next((item.get("forecast") for item in progress["games"]
+        if item["gameId"] == detail["gameId"] and item["gameDate"] == slate_date), None)
+    included = bool(selected and selected["objectSha256"] == detail["objectSha256"])
+    created_at = detail.get("forecastCreatedAt")
+    event = {"schemaVersion": "MLB_V18_INCREMENTAL_PUBLICATION_V1",
+        "gameId": detail["gameId"], "slateDate": slate_date,
+        "objectSha256": detail["objectSha256"],
+        "completedObjectIncluded": included,
+        "selectedObjectSha256": selected.get("objectSha256") if selected else None,
+        "forecastCreatedAt": created_at, "capturedAt": detail.get("capturedAt"),
+        "newInference": bool(detail.get("newInference")),
+        "deploymentManifest": report.get("deploymentManifest"),
+        "deploymentIdentity": deepcopy(report.get("deploymentIdentity")),
+        "publicationCompletedAtUtc": completed_at,
+        "callbackStartedAtUtc": callback_started,
+        "callbackConfirmedAtUtc": confirmed_at,
+        "packageExposedAtUtc": exposed_at,
+        "completedToExposureSeconds": (utc(exposed_at)-utc(completed_at)).total_seconds() if exposed_at and included else None,
+        "createdToExposureSeconds": (utc(exposed_at)-utc(created_at)).total_seconds() if exposed_at and included and created_at else None,
+        "completedToConfirmationSeconds": (utc(confirmed_at)-utc(completed_at)).total_seconds(),
+        "publicationClockMeaning": "Completion follows immutable forecast validation and required local publication work, not raw simulation end. Exposure is the actual atomic exchange-directory rename for a new package; null for an already retained package. Object-specific exposure intervals require the completed object to match the selected handoff object. Confirmation follows destination verification and index installation. Original forecast clocks are unchanged.",
+        "slate": slate, "providerCalls": 0, "aispWrites": 0, "modelFits": 0, **RESEARCH_FLAGS}
+    receipt, _ = write_object(Path(output_root), "incremental-publication.json", event)
+    report.setdefault("incrementalPublications", []).append(receipt)
+    return receipt
+
+
 def execute_tick(*, allow_free_network=True, now=None, state_root=STATE_ROOT, output_root=OUTPUT, run_now=False, publish_exchange=False):
     now = now or datetime.now(timezone.utc)
     from .mlb_v18_current_sources import SourceRequestTelemetry
@@ -539,8 +595,12 @@ def execute_tick(*, allow_free_network=True, now=None, state_root=STATE_ROOT, ou
                 for slate_date, game_ids in due.items():
                     if stop.exists():
                         raise ValueError("KILL_SWITCH_ACTIVE_BEFORE_INFERENCE")
+                    def on_game_published(detail):
+                        return publish_completed_game_handoff(report, detail, slate_date=slate_date,
+                            output_root=output_root, publish_exchange=publish_exchange)
                     result = run(SimpleNamespace(source_attempt=attempt, inventory=None, output_root=PUBLICATIONS,
-                        slate_date=slate_date, game_ids=game_ids, require_fresh_participants=True))
+                        slate_date=slate_date, game_ids=game_ids, require_fresh_participants=True,
+                        on_game_published=on_game_published))
                     by_id = {row["gameId"]: row for row in result["games"]}
                     for row in report["games"]:
                         if row["gameId"] not in game_ids:

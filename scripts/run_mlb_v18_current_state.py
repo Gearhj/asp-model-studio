@@ -220,7 +220,8 @@ def run(args):
     # Match the verified Windows inference context; this is not a model refit or
     # a hyperparameter change. Keep native inference bounded to four workers.
     with threadpool_limits(limits=4):
-        result = publish_slate(snapshot_collection, compositions, output_root=args.output_root)
+        result = publish_slate(snapshot_collection, compositions, output_root=args.output_root,
+            on_game_published=getattr(args, "on_game_published", None))
     result.update(sourceSummary=source_ref, acceptedReload=reload_ref, modelRegistration=model_ref,
         normalizedSourceCache=bundle.get("cache"), gameCompositionReuse=composition_reuse,
         fieldContract=field_ref, rawFieldCategoryCounts=field_contract["categoryCounts"],
