@@ -1,0 +1,215 @@
+{
+  "activity": {
+    "aispWrites": 0,
+    "costUsd": 0,
+    "exchangeActivationCloseoutPackages": 1,
+    "exchangeForecastWrites": 0,
+    "forecastOrSimulationRuns": 0,
+    "forecastPublications": 0,
+    "providerCalls": 0,
+    "providerResponseBytes": 0,
+    "realModelFits": 0
+  },
+  "authorization": "James explicitly authorized only the exact 7e04b1 deployment, S4U/Limited/IgnoreNew, 15 minutes",
+  "authorizedDeploymentId": "7e04b1cc6f68ad4a4c0a3833f28751fdbfc54957e019e2cb5743946eeae25716",
+  "canonicalOwnerCount": 0,
+  "canonicalTaskName": "ASP NBA Forecast Publisher",
+  "consumerAcknowledgement": false,
+  "consumerStatus": "NOT_ACTIVATED_BY_THIS_TASK",
+  "createdAtUtc": "2026-09-18T03:02:06.859989+00:00",
+  "deploymentManifest": {
+    "bytes": 4628,
+    "path": "C:\\Users\\james\\asp-model-studio\\.deployments\\nba-gen1-publisher\\7e04b1cc6f68ad4a4c0a3833f28751fdbfc54957e019e2cb5743946eeae25716\\deployment-manifest.json",
+    "sha256": "5d34687595d35837528be0655080b00d006c38b5414e33ffb7448c9e19cb360e"
+  },
+  "disposition": "NBA_GEN1_PRODUCTION_BLOCKED",
+  "fullSlateReadiness": {
+    "automaticInputRefreshOwner": null,
+    "blockers": [
+      "No slate dispatcher: wrapper omits --game-id so default is always PHI-NYK 401909089",
+      "Schedule hash and source cutoff fixed to September 14 snapshot; different source bytes are rejected",
+      "No recurring result/history/coverage refresh; manual governed source admission belongs to Model Studio",
+      "Reuse branch precedes schedule/history/deadline checks and returns old receipt without checking current input freshness",
+      "Discovery writer replaces packages with one entry; not a full-slate append/preserve implementation",
+      "No durable per-invocation launcher/runner receipt in pinned deployment; stdout only"
+    ],
+    "capturedAtUtc": "2026-09-14T13:04:43.697362+00:00",
+    "fullSlateReady": false,
+    "identityColumnsRead": [
+      "id",
+      "game_id",
+      "date",
+      "game_date",
+      "season",
+      "season_type",
+      "type_id",
+      "type_abbreviation",
+      "neutral_site",
+      "status_type_state",
+      "status_type_completed",
+      "home_id",
+      "away_id",
+      "home_abbreviation",
+      "away_abbreviation"
+    ],
+    "mappedUnstartedNonneutralGames": 1197,
+    "nextGenuinelyDuePublication": "Not defined by this deployment; next 15-minute invocation reuses PHI-NYK. A governed refreshed schedule/history bundle and dispatcher successor are needed for new slate publications.",
+    "openingSlate": [
+      {
+        "away_abbreviation": "BOS",
+        "date": "2026-10-20T19:00Z",
+        "home_abbreviation": "DET",
+        "id": 401909088
+      },
+      {
+        "away_abbreviation": "PHI",
+        "date": "2026-10-20T23:00Z",
+        "home_abbreviation": "NY",
+        "id": 401909089
+      },
+      {
+        "away_abbreviation": "OKC",
+        "date": "2026-10-21T01:30Z",
+        "home_abbreviation": "SA",
+        "id": 401909090
+      }
+    ],
+    "outcomeColumnsRead": [],
+    "recurringOwnerReachableGameIds": [
+      401909089
+    ],
+    "regularRows": 1205,
+    "requiredBeforeOpeningNight": [
+      "Governed schedule identity/status/tipoff refresh",
+      "Retained result/history membership update following each completed regular game; feature snapshot excludes target/later evidence",
+      "Explicit publication checkpoints, multi-game discovery preservation and revision-aware reuse",
+      "Player/lineup/injury inputs remain unsupported rather than fabricated"
+    ],
+    "source": {
+      "bytes": 86466,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-long-gap-v1\\source\\sha256\\d4ffe0d974dbec227af1ea5d731e0f36426839a170bfd0bbffc39b65f933a090\\nba_schedule_2027.parquet",
+      "sha256": "d4ffe0d974dbec227af1ea5d731e0f36426839a170bfd0bbffc39b65f933a090"
+    },
+    "unmappedRegularGames": [
+      {
+        "away_id": -2,
+        "home_id": -1,
+        "id": 401909454
+      },
+      {
+        "away_id": -2,
+        "home_id": -1,
+        "id": 401909452
+      },
+      {
+        "away_id": -2,
+        "home_id": -1,
+        "id": 401909453
+      },
+      {
+        "away_id": -2,
+        "home_id": -1,
+        "id": 401909450
+      },
+      {
+        "away_id": -2,
+        "home_id": -1,
+        "id": 401909451
+      }
+    ]
+  },
+  "implementationCommit": "f64ebf6aea556afd0055912a1007f7b45b783d8d",
+  "independentAudit": {
+    "bytes": 24125,
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-producer-activation-v1\\independent-audit-after.json",
+    "sha256": "236b0b48c75c510b90e1acf83721059889e17f620333b209370b386837fc411a"
+  },
+  "independentForecastAndPopulationChecksPassed": true,
+  "installAttempts": [
+    {
+      "evidence": {
+        "bytes": 568,
+        "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-producer-activation-v1\\installer-attempt.txt",
+        "sha256": "814ccfb3458b2b69b6b90a5736ba40f286db85198b95b5202b4474d8dc8da199"
+      },
+      "exitCode": 1,
+      "result": "FAILED_USER_ID_PARAMETER",
+      "windowsHresult": "0x80070057"
+    },
+    {
+      "evidence": {
+        "bytes": 534,
+        "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-producer-activation-v1\\installer-attempt-2.txt",
+        "sha256": "83c557f76f569005982202a1ced8f73b47795096016a52bc56b001968cb338c9"
+      },
+      "exitCode": 1,
+      "result": "FAILED_ADMINISTRATOR_TOKEN_REQUIRED",
+      "windowsHresult": "0x80070005"
+    },
+    {
+      "administratorProcessStarted": false,
+      "furtherElevationAttempted": false,
+      "message": "Start-Process -Verb RunAs returned: The operation was canceled by the user.",
+      "observedAtUtc": "2026-09-18T02:56:10.6883966+00:00",
+      "result": "WINDOWS_ELEVATION_CANCELED"
+    }
+  ],
+  "installedDeploymentId": null,
+  "installer": {
+    "bytes": 8735,
+    "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\nba-gen2-production-readiness-v1\\scripts\\install_nba_gen1_publisher.ps1",
+    "sha256": "f8ae4a4e0980907b74e6c31b7846f58ecf79ab7bbbbb1aab3986da5d48621768"
+  },
+  "installerPlan": {
+    "bytes": 1632,
+    "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-producer-activation-v1\\installer-plan-final.json",
+    "sha256": "0f589dfb349edb7a1675419dd123e9506d493c4be7ee8a1d2bba44b65d6f55ff"
+  },
+  "naturalDispositions": [],
+  "naturalInvocations": [],
+  "naturalLauncherExitCodes": [],
+  "naturalRunnerExitCodes": [],
+  "preservation": {
+    "all26DeploymentMembersByteIdentical": true,
+    "bosDetIndexedResearchArtifactsByteIdentical": true,
+    "gen2PopulationTouched": false,
+    "otherOwnerDefinitions": {
+      "bytes": 595,
+      "path": "C:\\Users\\james\\asp-model-studio\\outputs\\nba-gen1-producer-activation-v1\\owners-after.json",
+      "sha256": "c4c8f371ba37af018e3be9506063749c212f91d2fb3a653b97f6effa901fca7e"
+    },
+    "otherOwnerDefinitionsUnchanged": true,
+    "phiNykPackageAndPopulationByteIdentical": true
+  },
+  "priorReadinessCorrection": "Prior statement that the owner fails closed when current history becomes stale was unsupported: the pinned reuse branch precedes freshness and deadline checks.",
+  "producerStatus": "BLOCKED_NOT_INSTALLED",
+  "productionHandoff": {
+    "bytes": 490,
+    "path": "C:\\Users\\james\\asp-model-exchange\\nba-gen1-production-v1\\handoffs\\sha256\\7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf\\index.json",
+    "sha256": "7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf"
+  },
+  "rollback": {
+    "performed": false,
+    "reason": "Task and runtime binding were never created",
+    "required": false
+  },
+  "runtimeBinding": null,
+  "schema": "NBA_GEN1_PRODUCER_ACTIVATION_RECEIPT_V1",
+  "tests": {
+    "aclChanged": false,
+    "deselected": 7,
+    "elevationUsed": false,
+    "failed": 0,
+    "fixturePopulation": "SYNTHETIC_ONLY",
+    "junit": {
+      "bytes": 1106,
+      "path": "C:\\Users\\james\\asp-model-studio\\.tmp\\nba-activation-tests-20260918T0251\\six-point-tests.xml",
+      "sha256": "dee78c8e62c506b92cbed3f4317e0cd107e2c8148127c89d15e85d7e9b21d691"
+    },
+    "passed": 6,
+    "temporaryDirectory": "fresh default inherited permissions"
+  },
+  "twoConsecutiveInvocationsVerified": false,
+  "verificationUnavailableReason": "No task was registered; no natural execution can occur",
+  "verifiedDeploymentMembers": 26
+}

@@ -1,5 +1,7 @@
 # NBA Gen1 production activation readiness
 
+> September 18 activation follow-up: installation remains blocked by Windows Administrator consent; zero owners were registered. The six blocked tests now pass. The pinned publisher covers only PHI–NYK, has no input-refresh owner, and its reuse branch does **not** check freshness or deadlines. The earlier full-readiness and stale-history fail-closed claims below are superseded by [the activation closeout](../nba-gen1-producer-activation-v1/CLAUDE_HANDOFF.md). Original packages and deployment bytes remain unchanged.
+
 ## Disposition
 
 `NBA_GEN1_PRODUCTION_READY_AWAITING_ACTIVATION`
@@ -74,4 +76,3 @@ No provider call, source byte download, paid request, sportsbook call, AISP writ
 ## Verification
 
 Focused production tests passed for population count and mass, orientation, PMFs, mean coherence, intervals, totals semantics, disabled close-score behavior and tamper rejection. Existing joint-residual checks also passed. A larger combined run completed 20 tests before six legacy point-forecast fixture setups hit a Windows ACL denial while pytest created temporary directories; those errors occurred before the six test bodies. Python compilation and PowerShell parser checks passed. The deployed package was verified twice, including the immutable replay.
-

@@ -1,0 +1,20 @@
+{
+  "consumerAcknowledged": false,
+  "discoveryChanged": false,
+  "handoff": {
+    "bytes": 6991,
+    "path": "C:\\Users\\james\\asp-model-exchange\\nba-gen1-production-v1\\activation-receipts\\sha256\\597db8664ecc4dceb84876620fdfc5c79c65176676e2f5379536d71ff2dce4af\\CLAUDE_HANDOFF.md",
+    "sha256": "d3d4508380b3578f2a818872b2d12c5f0009915a89000e88270cefd109d3cc3f"
+  },
+  "index": {
+    "bytes": 775,
+    "path": "C:\\Users\\james\\asp-model-exchange\\nba-gen1-production-v1\\activation-receipts\\sha256\\597db8664ecc4dceb84876620fdfc5c79c65176676e2f5379536d71ff2dce4af\\index.json",
+    "sha256": "597db8664ecc4dceb84876620fdfc5c79c65176676e2f5379536d71ff2dce4af"
+  },
+  "publishedAtUtc": "2026-09-18T03:02:06.979614+00:00",
+  "receipt": {
+    "bytes": 8340,
+    "path": "C:\\Users\\james\\asp-model-exchange\\nba-gen1-production-v1\\activation-receipts\\sha256\\597db8664ecc4dceb84876620fdfc5c79c65176676e2f5379536d71ff2dce4af\\ACTIVATION_RECEIPT.json",
+    "sha256": "d8f64a49d4d1721bf74e43dcdc27ed8faf3d201dbc43bef35a641b5be9f236ab"
+  }
+}
