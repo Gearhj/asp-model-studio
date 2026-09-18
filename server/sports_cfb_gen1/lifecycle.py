@@ -107,7 +107,33 @@ def owner_lock(path):
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def eligibility(row, bundle, clock, policy=POLICY):
+def paper_eligibility_authorization(release, clock):
+    """Validate only the separately bound virtual-use extension, never publication."""
+    bound = release.get("paperEligibilityAuthorization")
+    if bound is None:
+        return None
+    grant = read_ref(bound)
+    policy = grant.get("policyAuthorization", {})
+    plan_ref = release.get("refreshPlan", {})
+    if (grant.get("schema") != "CFB_VIRTUAL_POLICY_EXTENSION_AUTHORIZATION_V1"
+            or grant.get("approvedBy") != "James"
+            or grant.get("consumerVirtualExperimentAuthorized") is not True
+            or grant.get("realMoneyAuthorized") is not False
+            or grant.get("modelPromotionAuthorized") is not False
+            or grant.get("modelConfiguration") != "CFB_GEN1_RIDGE_A100_PAIRED_RESIDUAL_V1"
+            or grant.get("planSha256") != plan_ref.get("sha256")
+            or policy.get("mode") != "VIRTUAL_RESEARCH_ONLY"
+            or policy.get("realMoneyExecutionAllowed") is not False):
+        raise ValueError("Invalid separately bound CFB paper eligibility authorization")
+    plan = read_ref(plan_ref)
+    first = max(utc(grant["retainedAtUtc"]), utc(plan["validFromUtc"]))
+    last = min(utc(grant["validUntilUtc"]), utc(plan["validUntilUtc"]))
+    if not first <= utc(clock) < last:
+        return None
+    return {"reference": bound, "validFromUtc": first.isoformat(), "validUntilUtc": last.isoformat()}
+
+
+def eligibility(row, bundle, clock, policy=POLICY, *, paper_authorization=None):
     """No package lookup is permitted before this decision. No outcomes read."""
     if row.get("exclusion"):
         return {"disposition": "EXCLUDED", "reason": row["exclusion"], "currentlyEligible": False}
@@ -118,8 +144,13 @@ def eligibility(row, bundle, clock, policy=POLICY):
     if clock >= start:
         return {"disposition": "POST_KICKOFF_REJECTED", "currentlyEligible": False}
     stop = start - timedelta(minutes=policy["lastPublicationMinutesBeforeKickoff"])
-    if clock >= stop:
+    paper = paper_authorization if (paper_authorization and
+        utc(paper_authorization["validFromUtc"]) <= clock < utc(paper_authorization["validUntilUtc"])) else None
+    retained_stop = min(start - timedelta(minutes=15), utc(paper["validUntilUtc"])) if paper else stop
+    if clock >= stop and paper is None:
         return {"disposition": "PUBLICATION_CUTOFF_PASSED", "currentlyEligible": False}
+    if clock >= retained_stop:
+        return {"disposition": "PAPER_DECISION_CUTOFF_PASSED", "currentlyEligible": False}
     checkpoints = [(start - timedelta(minutes=m), m) for m in policy["checkpointsMinutesBeforeKickoff"]]
     reached = [(at, minutes) for at, minutes in checkpoints if at <= clock]
     issues = []
@@ -142,11 +173,29 @@ def eligibility(row, bundle, clock, policy=POLICY):
     if bundle.get("historyMissingGameIds"):
         return {"disposition": "HISTORY_INCOMPLETE", "currentlyEligible": False,
                 "missingGameIds": bundle["historyMissingGameIds"]}
-    return {"disposition": "DUE", "currentlyEligible": True,
+    result = {"disposition": "DUE" if clock < stop else "RETAINED_ONLY", "currentlyEligible": clock < stop,
             "checkpointMinutesBeforeKickoff": reached[-1][1], "publicationDeadlineUtc": stop.isoformat(),
-            "eligibilityValidUntilUtc": min(stop, clock + timedelta(minutes=policy["cadenceMinutes"]),
+            "eligibilityValidUntilUtc": min(retained_stop, clock + timedelta(minutes=policy["cadenceMinutes"]),
                 utc(bundle[schedule_clock]) + timedelta(hours=max_age),
                 utc(bundle["historyCompleteThroughUtc"]) + timedelta(hours=min(max_age, policy["historyMembershipMaxAgeHours"])) ).isoformat()}
+    if paper:
+        result.update(paperEligibilityAuthorization=paper["reference"], eligibilityAuthority="VIRTUAL_RESEARCH_ONLY",
+                      publicationAllowed=clock < stop)
+    return result
+
+
+def verify_retained_publication(saved, key, gid, deadline, clock, verifier):
+    """Prove an exact immutable prior publication; never recover a prepared one."""
+    if (saved.get("revisionKey") != key or str(saved.get("gameId")) != str(gid)
+            or not utc(saved["committedAtUtc"]) < utc(deadline)
+            or utc(saved["committedAtUtc"]) > utc(clock)):
+        raise ValueError("Retained forecast lacks exact pre-cutoff publication proof")
+    bound_index = read_ref(saved["index"])
+    index = verifier(Path(saved["packageDirectory"]))
+    if (index != bound_index or index.get("revisionKey") != key
+            or str(index.get("gameId")) != str(gid)
+            or index.get("forecastId") != saved.get("forecastId")):
+        raise ValueError("Retained package identity differs from exact committed revision")
 
 
 def revision_key(row, bundle_ref, release):
@@ -185,22 +234,31 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                 bundle_validator(bundle, release)
             if utc(started) < utc(release["prospectiveEffectiveAtUtc"]):
                 raise ValueError("Release not yet effective")
+            paper = paper_eligibility_authorization(release, started)
             journal = state / "committed"
             prepared = state / "prepared"
             # An input update is snapshotted once; every package binds that exact version.
             for row in bundle["games"]:
                 gid = row["gameId"]
-                item = {"gameId": gid, **eligibility(row, bundle, clock())}
+                item = {"gameId": gid, **eligibility(row, bundle, clock(), paper_authorization=paper)}
                 try:
-                    if item["disposition"] == "DUE":
+                    if item["disposition"] in ("DUE", "RETAINED_ONLY"):
                         key = revision_key(row, bundle_ref, release_ref)
                         item["revisionKey"] = key
                         committed = journal / (key + ".json")
                         transaction = prepared / (key + ".json")
                         if committed.exists():
                             saved = json.loads(committed.read_bytes())
-                            verifier(Path(saved["packageDirectory"]))
-                            item.update(disposition="REUSED_IMMUTABLE", package=saved)
+                            if paper:
+                                verify_retained_publication(saved, key, gid, item["publicationDeadlineUtc"], clock(), verifier)
+                            else:
+                                verifier(Path(saved["packageDirectory"]))
+                            check = eligibility(row, bundle, clock(), paper_authorization=paper)
+                            item.update(check)
+                            if check["disposition"] in ("DUE", "RETAINED_ONLY"):
+                                item.update(disposition="REUSED_IMMUTABLE", currentlyEligible=True, package=saved)
+                        elif item["disposition"] == "RETAINED_ONLY":
+                            item.update(disposition="RETAINED_FORECAST_UNAVAILABLE", currentlyEligible=False)
                         else:
                             if transaction.exists():
                                 pending = json.loads(transaction.read_bytes())
@@ -237,15 +295,19 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                                 index = verifier(destination)
                                 if fault:
                                     fault("published", gid)
+                                committed_at = clock()
+                                if eligibility(row, bundle, committed_at)["disposition"] != "DUE":
+                                    raise ValueError("Publication cutoff passed before durable commitment")
                                 saved = {k: v for k, v in pending.items() if k != "stagingDirectory"}
                                 saved.update(index=reference(destination / "index.json"),
-                                    committedAtUtc=clock(), originallyPublishedAtUtc=index.get("publishedAtUtc"),
+                                    committedAtUtc=committed_at, originallyPublishedAtUtc=index.get("publishedAtUtc"),
                                     publicationClockSemantics="First durable availability confirmation; package preparation is not publication")
                                 immutable(committed, canonical_bytes(saved))
                                 item.update(disposition="PUBLISHED_NEW_PROSPECTIVE", package=saved)
-                                final_check = eligibility(row, bundle, clock())
-                                if final_check["disposition"] != "DUE":
-                                    item.update(final_check, package=saved)
+                                final_check = eligibility(row, bundle, clock(), paper_authorization=paper)
+                                item.update(final_check, package=saved)
+                                if final_check["disposition"] in ("DUE", "RETAINED_ONLY"):
+                                    item.update(disposition="PUBLISHED_NEW_PROSPECTIVE", currentlyEligible=True)
                     # Never describe an existing package as current when the new version failed.
                 except Exception as exc:
                     item.update(disposition="GAME_FAILED", currentlyEligible=False,
@@ -273,6 +335,9 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
                 row.update(currentlyEligible=bool(current and current["currentlyEligible"]),
                     eligibilityValidUntilUtc=current.get("eligibilityValidUntilUtc") if current else None,
                     status="CURRENT_ELIGIBLE" if current and current["currentlyEligible"] else "PRESERVED_HISTORICAL_VERSION")
+                if current and current.get("paperEligibilityAuthorization"):
+                    row.update(paperEligibilityAuthorization=current["paperEligibilityAuthorization"],
+                               eligibilityAuthority="VIRTUAL_RESEARCH_ONLY")
             pointer = exchange / "slate-discovery/current.json"
             predecessor = reference(pointer) if pointer.exists() else None
             previous = read_ref(predecessor) if predecessor else None
