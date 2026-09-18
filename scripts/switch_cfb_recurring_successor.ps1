@@ -17,6 +17,12 @@ $task = Get-ScheduledTask -TaskName 'ASP CFB Forecast Publisher' -ErrorAction St
 if ($task.State.ToString() -eq 'Running') { throw 'Natural owner started during verification; no removal performed' }
 & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Remove -EvidenceRoot $PreviousEvidenceRoot
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Plan -EvidenceRoot $SuccessorEvidenceRoot
+$planResult = $LASTEXITCODE
+if ($planResult -ne 0) {
+    & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Install -EvidenceRoot $PreviousEvidenceRoot
+    exit $planResult
+}
 & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper -Mode Install -EvidenceRoot $SuccessorEvidenceRoot
 $installResult = $LASTEXITCODE
 if ($installResult -ne 0) {
