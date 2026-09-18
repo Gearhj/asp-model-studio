@@ -5,6 +5,9 @@ param(
     [string]$ReleasePath,
     [string]$ReleaseSha256,
     [string]$InputPointer,
+    [switch]$EnableNetwork,
+    [string]$RefreshGrantPath = '',
+    [string]$RefreshGrantSha256 = '',
     [Parameter(Mandatory=$true)][string]$ExpectedManifestSha256
 )
 $ErrorActionPreference = 'Stop'
@@ -34,6 +37,20 @@ if (-not $ReleasePath -or -not $ReleaseSha256 -or -not $InputPointer) { throw 'R
 if ((Get-FileHash -LiteralPath $ReleasePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ReleaseSha256) { throw 'Release hash mismatch' }
 $release = Get-Content -LiteralPath $ReleasePath -Raw | ConvertFrom-Json
 if ($release.deploymentManifest.sha256 -ne $ExpectedManifestSha256) { throw 'Release/deployment binding mismatch' }
+foreach ($ref in @($release.refreshPlan, $release.refreshAuthorizationProposal)) {
+    if ((Get-FileHash -LiteralPath $ref.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ref.sha256 -or (Get-Item -LiteralPath $ref.path).Length -ne $ref.bytes) { throw 'Refresh proposal/plan integrity failure' }
+}
+if ($EnableNetwork) {
+    if (-not $RefreshGrantPath -or -not $RefreshGrantSha256) { throw 'Network needs an explicit exact grant' }
+    if ((Get-FileHash -LiteralPath $RefreshGrantPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $RefreshGrantSha256) { throw 'Grant integrity failure' }
+    $grant = Get-Content -LiteralPath $RefreshGrantPath -Raw | ConvertFrom-Json
+    $plan = Get-Content -LiteralPath $release.refreshPlan.path -Raw | ConvertFrom-Json
+    if ($grant.schema -ne 'NBA_SAME_OWNER_REFRESH_GRANT_V1' -or $grant.approvedBy -cne 'James' -or
+        $grant.liveCaptureAuthorized -ne $true -or $grant.deploymentId -cne $DeploymentId -or
+        $grant.refreshPlanSha256 -cne $release.refreshPlan.sha256 -or
+        $grant.proposalSha256 -cne $release.refreshAuthorizationProposal.sha256 -or
+        $grant.validFromUtc -cne $plan.validFromUtc -or $grant.validUntilUtc -cne $plan.validUntilUtc) { throw 'Grant does not authorize exact final proposal' }
+}
 $inputVersion = Get-Content -LiteralPath $InputPointer -Raw | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath $inputVersion.inputManifest.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $inputVersion.inputManifest.sha256) { throw 'Input pointer/member mismatch' }
 $binding = [ordered]@{
@@ -46,6 +63,9 @@ $binding = [ordered]@{
     stateRoot = Join-Path $runtimeRoot 'state'
     exchangeRoot = Join-Path $RepositoryRoot '..\asp-model-exchange\nba-gen1-production-v1'
     taskName = $taskName
+    networkEnabled = [bool]$EnableNetwork
+    refreshGrantPath = $RefreshGrantPath
+    refreshGrantSha256 = $RefreshGrantSha256
 }
 $json = $binding | ConvertTo-Json -Depth 8 -Compress
 $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -eq $taskName })

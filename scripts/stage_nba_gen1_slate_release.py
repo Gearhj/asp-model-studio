@@ -17,6 +17,7 @@ def main():
     p.add_argument('--source-root', default=str(Path(__file__).resolve().parents[1]))
     p.add_argument('--output-root', required=True)
     p.add_argument('--input-pointer', required=True)
+    p.add_argument('--refresh-plan', required=True)
     a = p.parse_args()
     source, root, output = Path(a.source_root), Path(a.repository_root), Path(a.output_root)
     result_path = output / 'release-receipt.json'
@@ -34,18 +35,30 @@ def main():
         'capture_nba_slate_refresh.py', 'invoke_nba_gen1_slate_publisher.ps1', 'install_nba_gen1_slate_publisher.ps1')]
     members = [{'relativePath': path.relative_to(source).as_posix(), 'sha256': reference(path)['sha256'],
                 'bytes': path.stat().st_size} for path in paths]
+    plan_ref = reference(a.refresh_plan)
+    plan = read_ref(plan_ref)
+    if plan['schema'] != 'NBA_SAME_OWNER_REFRESH_PLAN_V1' or plan['networkEnabledByDefault'] is not False:
+        raise ValueError('Exact disabled-network refresh plan required')
+    members.append({'relativePath':'configuration/REFRESH_PLAN.json', 'sha256':plan_ref['sha256'], 'bytes':plan_ref['bytes']})
     identity = {'schema': 'NBA_GEN1_SLATE_DEPLOYMENT_IDENTITY_V1', 'sourceCommit': subprocess.check_output(
         ['git','rev-parse','HEAD'],cwd=source,text=True).strip(), 'members': members,
         'configurationIdentity': CONFIGURATION, 'distributionConfigurationIdentity': ENGINE,
         'drawCount': DRAW_COUNT, 'masterSeed': MASTER_SEED, 'policy': POLICY,
-        'supersedesUninstalledDeployment': '7e04b1cc6f68ad4a4c0a3833f28751fdbfc54957e019e2cb5743946eeae25716'}
+        'supersedesUninstalledDeployment': '0aa50236f9dcac875106c13c6749e025126370e700a4467915275251ad583a88'}
     deployment_id = digest(identity)
     deployment = root/'.deployments/nba-gen1-slate-publisher'/deployment_id
     for path, member in zip(paths, members):
         immutable(deployment/member['relativePath'], path.read_bytes())
+    plan_ref = immutable(deployment/'configuration/REFRESH_PLAN.json', verified_bytes(plan_ref))
     manifest = dict(identity, deploymentId=deployment_id, createdAtUtc=now(), status='STAGED_NOT_INSTALLED',
                     canonicalTaskName='ASP NBA Forecast Publisher', activationAuthorized=False)
     manifest_ref = immutable(deployment/'deployment-manifest.json', canonical_bytes(manifest))
+    proposal = {'schema':'NBA_REFRESH_AUTHORIZATION_PROPOSAL_V1', 'createdAtUtc':now(),
+        'liveCaptureAuthorized':False, 'installationAuthorized':False, 'deploymentId':deployment_id,
+        'deploymentManifest':manifest_ref, 'refreshPlan':plan_ref,
+        'validFromUtc':plan['validFromUtc'], 'validUntilUtc':plan['validUntilUtc'],
+        'owner':'ASP NBA Forecast Publisher', 'requiredApproval':'Exact deployment installation and exact bounded REFRESH_PLAN live capture; consumer activation remains separate'}
+    proposal_ref = object_json(output/'refresh-authorization', proposal, 'proposal.json')
     original = root/'outputs/nba-gen1-long-gap-v1'
     model_handoff = Path(r'C:\Users\james\asp-model-exchange\nba-gen1-production-v1\handoffs\sha256\7113b71ff5819c89103ad19d5f9afb22c51dbc92980be12b56ce8826cb34ccaf\index.json')
     handoff = read_ref(reference(model_handoff))
@@ -67,6 +80,8 @@ def main():
         'modelHandoff': reference(model_handoff), 'drawCount': DRAW_COUNT, 'masterSeed': MASTER_SEED,
         'inputPointer': str(Path(a.input_pointer).resolve()), 'initialInputVersion': pointer['inputManifest'],
         'preservedDiscovery': preserved, 'policy': POLICY, 'automaticExternalAcquisition': False,
+        'refreshPlan':plan_ref, 'refreshAuthorizationProposal':proposal_ref,
+        'refreshOwner':'SAME_INVOCATION_SAME_PUBLISHER_LOCK', 'networkEnabledByDefault':False,
         'authority': {'producerInstalled': False, 'consumerActivated': False, 'wageringAuthority': False,
                       'decisionAuthority': False, 'positionAuthority': False, 'modelPromotionAuthority': False},
         'channelAuthorities': {'expectedScores': 'Frozen Ridge alpha100 ordinary-rest',
@@ -82,6 +97,7 @@ def main():
     release_ref = object_json(output/'releases', release, 'release.json')
     result = {'schema': 'NBA_GEN1_SLATE_STAGING_RECEIPT_V1', 'deploymentId': deployment_id,
         'deploymentManifest': manifest_ref, 'release': release_ref, 'installed': False,
+        'refreshPlan':plan_ref, 'refreshAuthorizationProposal':proposal_ref,
         'inputPointer': str(Path(a.input_pointer).resolve()), 'effectiveAtUtc': effective,
         'providerCalls': 0, 'costUsd': 0, 'aispWrites': 0}
     immutable(result_path, canonical_bytes(result))

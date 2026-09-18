@@ -27,7 +27,12 @@ try {
     $python = Join-Path $RepositoryRoot '.venv\Scripts\python.exe'
     $script = Join-Path $PSScriptRoot 'run_nba_gen1_slate_publisher.py'
     $resultPath = $prefix + '.runner-result.json'
-    & $python $script --release $binding.releasePath --release-sha256 $binding.releaseSha256 --input-pointer $binding.inputPointer --state-root $binding.stateRoot --exchange-root $binding.exchangeRoot --result-file $resultPath 1> ($prefix + '.stdout.txt') 2> ($prefix + '.stderr.txt')
+    $networkArgs = @()
+    if ($binding.networkEnabled -eq $true) {
+        if (-not $binding.refreshGrantPath -or -not $binding.refreshGrantSha256) { throw 'Exact refresh grant required' }
+        $networkArgs = @('--enable-network','--refresh-grant',$binding.refreshGrantPath,'--refresh-grant-sha256',$binding.refreshGrantSha256)
+    }
+    & $python $script --release $binding.releasePath --release-sha256 $binding.releaseSha256 --input-pointer $binding.inputPointer --state-root $binding.stateRoot --exchange-root $binding.exchangeRoot --result-file $resultPath @networkArgs 1> ($prefix + '.stdout.txt') 2> ($prefix + '.stderr.txt')
     $pythonCode = $LASTEXITCODE
     if (-not (Test-Path -LiteralPath $resultPath)) { throw 'Runner did not leave a result receipt' }
     $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
@@ -42,7 +47,8 @@ try {
         startedAtUtc=$started;completedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');
         pythonExitCode=$pythonCode;wrapperExitCode=$code;runner=$result;error=$errorText;
         disposition=$(if ($errorText) {'LAUNCHER_FAILED'} elseif ($result) {$result.disposition} else {'FAILED'});
-        bindingPath=$BindingPath;providerCalls=0;aispWrites=0}
+        bindingPath=$BindingPath;providerCalls=$(if ($result) {$result.providerCalls} else {$null});
+        providerBytes=$(if ($result) {$result.providerBytes} else {$null});aispWrites=0}
     [IO.File]::WriteAllText($prefix + '.json', ($receipt | ConvertTo-Json -Depth 12 -Compress), $utf8)
     $sha = (Get-FileHash -LiteralPath ($prefix + '.json') -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Output ($receipt | ConvertTo-Json -Depth 12 -Compress)

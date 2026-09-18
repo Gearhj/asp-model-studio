@@ -5,7 +5,7 @@ receipts are append-only. The process lock is released by the OS after a crash.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -24,7 +24,7 @@ POLICY = {
     "historyMembershipMaxAgeHours": 24,
     "finalCheckpointMaxAgeHours": 2,
     "cadenceMinutes": 15,
-    "newRevision": "Admitted input version, target identity/time, or frozen release binding changes while due",
+    "newRevision": "Prediction-affecting admitted content, target identity/time, or frozen release binding changes while due; validation-only 304 retains original forecast",
     "unchangedCheckpoint": "Verify current eligibility and reuse original bytes; receipt records checkpoint",
 }
 
@@ -124,7 +124,8 @@ def eligibility(row, bundle, clock, policy=POLICY):
     reached = [(at, minutes) for at, minutes in checkpoints if at <= clock]
     issues = []
     max_age = policy["finalCheckpointMaxAgeHours"] if reached and reached[-1][1] == 60 else policy["scheduleMaxAgeHours"]
-    for field, hours in [("scheduleCapturedAtUtc", max_age),
+    schedule_clock = "scheduleValidatedAtUtc" if "scheduleValidatedAtUtc" in bundle else "scheduleCapturedAtUtc"
+    for field, hours in [(schedule_clock, max_age),
                          ("historyCompleteThroughUtc", min(max_age, policy["historyMembershipMaxAgeHours"]))]:
         stamp = utc(bundle[field])
         if stamp > clock:
@@ -142,17 +143,18 @@ def eligibility(row, bundle, clock, policy=POLICY):
     return {"disposition": "DUE", "currentlyEligible": True,
             "checkpointMinutesBeforeTipoff": reached[-1][1], "publicationDeadlineUtc": stop.isoformat(),
             "eligibilityValidUntilUtc": min(stop, clock + timedelta(minutes=policy["cadenceMinutes"]),
-                utc(bundle["scheduleCapturedAtUtc"]) + timedelta(hours=max_age),
+                utc(bundle[schedule_clock]) + timedelta(hours=max_age),
                 utc(bundle["historyCompleteThroughUtc"]) + timedelta(hours=min(max_age, policy["historyMembershipMaxAgeHours"])) ).isoformat()}
 
 
 def revision_key(row, bundle_ref, release):
-    return digest({"target": row["target"], "inputVersion": bundle_ref["sha256"],
+    bundle = read_ref(bundle_ref)
+    return digest({"target": row["target"], "predictionInputs": bundle.get("predictionInputIdentity", bundle_ref["sha256"]),
                    "release": release["sha256"], "policy": POLICY})
 
 
 def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
-         verifier, clock=now, fault=None, bundle_validator=None):
+         verifier, clock=now, fault=None, bundle_validator=None, owner_lock_already_held=False):
     """One bounded tick. Renderer returns a fully written private package folder.
 
     fault is a test-only callback; the production CLI never exposes it. Complete
@@ -168,7 +170,7 @@ def tick(*, bundle_ref, release_ref, state_root, exchange_root, renderer,
         "release": release_ref, "games": [], "providerCalls": 0, "providerBytes": 0,
         "costUsd": 0, "aispWrites": 0, "exitCode": 0}
     try:
-        with owner_lock(state / "publisher.lock"):
+        with (nullcontext() if owner_lock_already_held else owner_lock(state / "publisher.lock")):
             bundle = read_ref(bundle_ref)
             release = read_ref(release_ref)
             if bundle["schema"] != "NBA_GEN1_SLATE_INPUT_V1":

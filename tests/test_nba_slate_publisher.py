@@ -263,3 +263,8 @@ def test_offline_input_update_preserves_models_and_applies_final_corrections(spa
     assert pd.read_parquet(read_ref(read_ref(one)['currentModelReceipt'])['history']['games']['path']).home_score.iloc[-1] == 110
     with pytest.raises(ValueError, match='regression'):
         admit(capture_ref=first, **kw)
+    pointer_before=(space/'registry/current.json').read_bytes()
+    with pytest.raises(ValueError, match='Precommit rejection'):
+        admit(capture_ref=capture(112, '2026-09-17T03:00:00Z'), **kw,
+              precommit=lambda b: (_ for _ in ()).throw(ValueError('Precommit rejection')))
+    assert (space/'registry/current.json').read_bytes()==pointer_before

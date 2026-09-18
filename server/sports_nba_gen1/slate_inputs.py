@@ -85,7 +85,7 @@ def classify(frame, source_sha):
 
 
 def admit(*, capture_ref, base_model_ref, base_coverage_ref, rights_refs, registry_root,
-          season_end, reviewed_by):
+          season_end, reviewed_by, precommit=None):
     """Normalize a complete season snapshot and publish an append-only input version.
 
     Capture must be supplied by the authorized source owner. This command cannot
@@ -97,13 +97,19 @@ def admit(*, capture_ref, base_model_ref, base_coverage_ref, rights_refs, regist
     registry = Path(registry_root)
     with owner_lock(registry / "admission.lock"):
         capture = read_ref(capture_ref)
-        if capture.get("schema") not in ("nba-gen1-genuine-future-schedule-capture-v1", "NBA_GOVERNED_SCHEDULE_CAPTURE_V1"):
+        if capture.get("schema") not in ("nba-gen1-genuine-future-schedule-capture-v1", "NBA_GOVERNED_SCHEDULE_CAPTURE_V1", "NBA_CONDITIONAL_SCHEDULE_CAPTURE_V1"):
             raise ValueError("Unsupported capture receipt")
         source = capture["source"]
         source_raw = verified_bytes(source)
-        stamp = capture["capturedAtUtc"]
-        if utc(stamp) > utc(now()) or capture.get("httpStatus") != 200:
+        original_capture = capture["capturedAtUtc"]
+        stamp = capture.get("validatedAtUtc", original_capture)
+        if (utc(stamp) > utc(now()) or utc(original_capture) > utc(stamp)
+                or capture.get("httpStatus") not in (200, 304)):
             raise ValueError("Capture clock/status invalid")
+        if capture.get("httpStatus") == 304:
+            prior = read_ref(capture["priorObjectReceipt"])
+            if prior["source"] != source or prior["capturedAtUtc"] != original_capture or not capture.get("conditionalHeadersSent"):
+                raise ValueError("304 must bind an unchanged prior object and real conditional request")
         if not rights_refs:
             raise ValueError("Applicable retained source rights required")
         for ref in rights_refs:
@@ -121,6 +127,10 @@ def admit(*, capture_ref, base_model_ref, base_coverage_ref, rights_refs, regist
             if t and utc(t["scheduled_tipoff_utc"]) <= utc(stamp) and t["status"] not in (
                 "STATUS_FINAL", "STATUS_CANCELED", "STATUS_CANCELLED", "STATUS_POSTPONED"):
                 missing.append(row["gameId"])
+        if missing:
+            # In-progress/stale status is not a partial usable update. Keep the
+            # admitted pointer unchanged until a complete snapshot is available.
+            raise ValueError("SOURCE_FINAL_PENDING:" + ",".join(sorted(set(missing))))
         base = read_ref(base_model_ref)
         coverage = read_ref(base_coverage_ref)
         if base["configurationIdentity"] != CONFIGURATION or coverage["currentResearchReceiptSha256"] != base_model_ref["sha256"]:
@@ -189,7 +199,8 @@ def admit(*, capture_ref, base_model_ref, base_coverage_ref, rights_refs, regist
             missingGameIds=sorted(set(missing)), regularSeasonMembershipComplete=not missing,
             reviewedBy=reviewed_by, createdAtUtc=now(), forecastGenerated=False)
         coverage["sourceCaptures"].append({"source": "SportsDataverse current schedule/finals",
-            "capturedAtUtc": stamp, "sourceObject": source, "rightsEvidence": rights_refs})
+            "capturedAtUtc": original_capture, "sourceObject": source, "rightsEvidence": rights_refs,
+            "validatedAtUtc": stamp})
         coverage["evidence"].append(capture_ref)
         coverage["membershipReview"] = {"baseCoverage": base_coverage_ref, "currentSeasonFinalIds": [t["game_id"] for t in finals],
             "teamCurrentAndPriorSupportCounts": dict(sorted(counts.items())), "historyGames": len(combined)}
@@ -198,19 +209,24 @@ def admit(*, capture_ref, base_model_ref, base_coverage_ref, rights_refs, regist
         previous = read_ref(reference(pointer))["inputManifest"] if pointer.exists() else None
         if previous:
             old = read_ref(previous)
-            if utc(stamp) < utc(old["scheduleCapturedAtUtc"]):
+            if utc(stamp) < utc(old.get("scheduleValidatedAtUtc", old["scheduleCapturedAtUtc"])):
                 raise ValueError("Input version clock regression")
             if capture_ref["sha256"] == old["captureReceipt"]["sha256"]:
                 return previous  # Preserve original admission bytes and clocks.
         bundle = {"schema": "NBA_GEN1_SLATE_INPUT_V1", "admittedAtUtc": now(), "reviewedBy": reviewed_by,
             "classification": "REAL_LOCAL_GOVERNED_INPUTS", "predecessor": previous,
             "captureReceipt": capture_ref, "source": source, "rightsEvidence": rights_refs,
-            "scheduleCapturedAtUtc": stamp, "historyCompleteThroughUtc": stamp, "sourceCutoffUtc": stamp,
+            "scheduleCapturedAtUtc": original_capture, "scheduleValidatedAtUtc": stamp,
+            "historyCompleteThroughUtc": stamp, "sourceCutoffUtc": stamp,
+            "predictionInputIdentity": digest({"source": source["sha256"], "history": history_ref["sha256"],
+                "context": context_ref["sha256"], "models": base_model_ref["sha256"]}),
             "seasonEnd": season_end, "baseModelReceipt": base_model_ref, "currentModelReceipt": current_ref,
             "coverageTemplate": coverage_ref, "historyMissingGameIds": sorted(set(missing)),
             "games": games, "teamSupportCounts": dict(sorted(counts.items())), "providerCalls": 0,
             "outcomeUse": "Only metadata-selected current-season finals enter chronological future inputs; no selection or fitting"}
         bound = object_json(registry / "versions", bundle, "input.json")
+        if precommit:
+            precommit(bundle)
         atomic_json(pointer, {"schema": "NBA_GEN1_SLATE_INPUT_POINTER_V1", "inputManifest": bound})
         return bound
 
@@ -225,6 +241,7 @@ def validate_bundle(bundle, release):
     coverage = read_ref(bundle["coverageTemplate"])
     capture = read_ref(bundle["captureReceipt"])
     if (capture["source"] != bundle["source"] or capture["capturedAtUtc"] != bundle["scheduleCapturedAtUtc"]
+            or capture.get("validatedAtUtc", capture["capturedAtUtc"]) != bundle.get("scheduleValidatedAtUtc", bundle["scheduleCapturedAtUtc"])
             or coverage["completeThroughUtc"] != bundle["historyCompleteThroughUtc"]
             or coverage["sourceCutoffUtc"] != bundle["sourceCutoffUtc"]
             or coverage["currentResearchReceiptSha256"] != bundle["currentModelReceipt"]["sha256"]):
