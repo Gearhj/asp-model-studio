@@ -12,7 +12,25 @@ from server.sports_cfb_gen1.render import verify_package
 def main():
     p=argparse.ArgumentParser();p.add_argument('--root',required=True);a=p.parse_args();root=Path(a.root)
     out=root/'VERIFIED_RUN.json'
-    if out.exists():print(out.read_text());return
+    if out.exists():
+        saved=read_ref(reference(out));checked=set()
+        def verify_references(value):
+            if isinstance(value,dict):
+                if {'path','sha256','bytes'}.issubset(value):
+                    key=(value['path'],value['sha256'])
+                    if key not in checked:verified_bytes(value);checked.add(key)
+                for item in value.values():verify_references(item)
+            elif isinstance(value,list):
+                for item in value:verify_references(item)
+        verify_references(saved)
+        for row in saved['issuedGames']:verify_package(Path(row['index']['path']).parent)
+        manifest=read_ref(saved['capturedManifest'])
+        for ref in manifest['requests']:verified_bytes(ref)
+        prep=read_ref(reference(Path(r'C:\Users\james\asp-model-studio\outputs\cfb-gen1-slate-publisher-v1\preparation.json')))
+        for ref in prep['preservedObjects']:verified_bytes(ref)
+        print(json.dumps({'disposition':'EXISTING_RECEIPT_REVERIFIED_NO_WRITES','receipt':reference(out),
+            'packages':len(saved['issuedGames']),'physicalReferences':len(checked),'originalObjectsUnchanged':len(prep['preservedObjects']),
+            'providerCalls':0,'inferenceRuns':0}));return
     capture_ref=reference(root/'capture/completion.json');capture=read_ref(capture_ref);manifest=read_ref(capture['sourceManifest'])
     assert capture['disposition']=='CAPTURED' and capture['providerCalls']==7 and capture['providerBytes']<=25*1024*1024
     for ref in manifest['requests']:verified_bytes(ref)
