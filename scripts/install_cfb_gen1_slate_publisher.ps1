@@ -71,10 +71,25 @@ $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $wrapper = Join-Path $checked.Root 'scripts\invoke_cfb_gen1_slate_publisher.ps1'
 $actionArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`" -RepositoryRoot `"$RepositoryRoot`""
 $expectedOwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+function Resolve-TaskPrincipalSid([string]$registeredUser) {
+    if ($registeredUser -like 'S-1-*') {
+        return ([Security.Principal.SecurityIdentifier]::new($registeredUser)).Value
+    }
+    # Task Scheduler may return a bare local name even when registered by SID.
+    # Resolve that name in the local machine authority, then compare exact SID.
+    if ($registeredUser -notmatch '[\\@]') {
+        return ([Security.Principal.NTAccount]::new($env:COMPUTERNAME, $registeredUser)).Translate([Security.Principal.SecurityIdentifier]).Value
+    }
+    return ([Security.Principal.NTAccount]::new($registeredUser)).Translate([Security.Principal.SecurityIdentifier]).Value
+}
 function Assert-Task($task) {
-    $registeredUser = [string]$task.Principal.UserId
-    if ($registeredUser -like 'S-1-*') { $registeredSid = $registeredUser }
-    else { $registeredSid = ([Security.Principal.NTAccount]::new($registeredUser)).Translate([Security.Principal.SecurityIdentifier]).Value }
+    # The CIM display name can be bare/unresolvable; exported registration XML
+    # retains the actual registered SID. Bind to this exact task name and path.
+    [xml]$registeredXml = Export-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath
+    $registeredPrincipals = @($registeredXml.Task.Principals.Principal)
+    if ($registeredPrincipals.Count -ne 1) { throw 'Expected exactly one registered task principal' }
+    $registeredUser = [string]$registeredPrincipals[0].UserId
+    $registeredSid = Resolve-TaskPrincipalSid $registeredUser
     if ($task.TaskPath -ne '\' -or @($task.Actions).Count -ne 1 -or
         $registeredSid -ne $expectedOwnerSid -or
         $task.Actions.Execute -ne $powershell -or $task.Actions.Arguments -ne $actionArguments -or

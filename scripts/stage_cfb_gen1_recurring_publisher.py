@@ -10,6 +10,15 @@ from server.sports_cfb_gen1.lifecycle import immutable,now,object_json,read_ref,
 from server.sports_cfb_gen1.inputs import validate_bundle
 
 
+def prediction_binding(previous, previous_ref):
+    """Keep the original numerical identity across operational successors."""
+    compatible = previous.get('compatiblePredictionRelease', previous_ref)
+    identity = previous.get('predictionReleaseIdentity', previous_ref['sha256'])
+    if compatible['sha256'] != identity:
+        raise ValueError('Canonical prediction release identity mismatch')
+    return compatible, identity
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--studio',default=r'C:\Users\james\asp-model-studio')
@@ -26,6 +35,7 @@ def main():
     if previous_ref['sha256']!=a.prior_release_sha256:raise ValueError('Wrong prior release')
     previous=read_ref(previous_ref);input_ref=read_ref(reference(a.input_pointer))['inputManifest']
     validate_bundle(read_ref(input_ref),previous)
+    prediction_ref,prediction_id=prediction_binding(previous,previous_ref)
     plan_ref=reference(a.refresh_plan);plan=read_ref(plan_ref)
     if plan['schema']!='CFB_GEN1_RECURRING_REFRESH_PLAN_V1' or plan['networkEnabledByDefault'] is not False:
         raise ValueError('Exact disabled-default recurring plan required')
@@ -39,7 +49,7 @@ def main():
         'members':members,'configurationIdentity':previous['configurationIdentity'],'policy':POLICY,'drawCount':10000,
         'numericalModelUnchanged':True,'canonicalTaskName':'ASP CFB Forecast Publisher',
         'supersedesUninstalledDeployment':read_ref(previous['deploymentManifest'])['deploymentId'],
-        'networkEnabledByDefault':False,'predictionReleaseIdentity':previous_ref['sha256']}
+        'networkEnabledByDefault':False,'predictionReleaseIdentity':prediction_id}
     deployment_id=digest(identity);deployment=root/'.deployments/cfb-gen1-slate-publisher'/deployment_id
     for file,member in zip(paths,members):immutable(deployment/member['relativePath'],file.read_bytes())
     deployed_plan=immutable(deployment/'configuration/REFRESH_PLAN.json',verified_bytes(plan_ref))
@@ -47,7 +57,7 @@ def main():
         createdAtUtc=now(),status='STAGED_NOT_INSTALLED',activationAuthorized=False)))
     release=dict(previous,createdAtUtc=now(),predecessor=previous_ref,deploymentId=deployment_id,
         deploymentManifest=manifest_ref,refreshPlan=deployed_plan,refreshAuthorizationProposal=deployed_plan,
-        compatiblePredictionRelease=previous_ref,predictionReleaseIdentity=previous_ref['sha256'],
+        compatiblePredictionRelease=prediction_ref,predictionReleaseIdentity=prediction_id,
         inputPointer=str(Path(a.input_pointer).resolve()),initialInputVersion=input_ref,
         networkCapability=True,networkEnabledByDefault=False,installationAuthorized=False,
         stateRoot=str(root/'.runtime/cfb-gen1-slate-publisher/state'),

@@ -144,6 +144,14 @@ def test_uncertain_capture_fails_without_retry_or_partial_publication(space):
 
 
 def test_operational_successor_preserves_numerical_revision_key(space):
+    from scripts.stage_cfb_gen1_recurring_publisher import prediction_binding
     _,_,_,b,br,_,rr=setup(space)
-    successor=object_json(space/'release',dict(read_ref(rr),predictionReleaseIdentity=rr['sha256'],deploymentId='NEW'))
+    compatible,identity=prediction_binding(read_ref(rr),rr)
+    successor=object_json(space/'release',dict(read_ref(rr),predictionReleaseIdentity=identity,compatiblePredictionRelease=compatible,deploymentId='NEW'))
     assert revision_key(b['games'][0],br,rr)==revision_key(b['games'][0],br,successor)
+    compatible2,identity2=prediction_binding(read_ref(successor),successor)
+    second=object_json(space/'release',dict(read_ref(successor),predictionReleaseIdentity=identity2,compatiblePredictionRelease=compatible2,deploymentId='NEW2'))
+    assert compatible2==rr and identity2==rr['sha256']
+    assert revision_key(b['games'][0],br,rr)==revision_key(b['games'][0],br,second)
+    with pytest.raises(ValueError,match='identity mismatch'):
+        prediction_binding(dict(read_ref(second),predictionReleaseIdentity='wrong'),second)
