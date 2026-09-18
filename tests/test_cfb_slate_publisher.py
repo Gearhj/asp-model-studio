@@ -269,6 +269,7 @@ def test_admission_corrected_history_target_exclusion_atomicity_and_identity(spa
     from server.sports_cfb_gen1.publication_io import reference
     def game(gid,year,stamp,completed=True,home=28):
         return dict(id=gid,season=year,week=1,seasonType='regular',startDate=stamp,completed=completed,
+                    startTimeTBD=False,neutralSite=False,conferenceGame=False,
                     homeId=10,awayId=20,homeTeam='School H',awayTeam='School A',homeClassification='fbs',awayClassification='fbs',
                     homePoints=home if completed else None,awayPoints=21 if completed else None)
     def stats(gid):
@@ -284,6 +285,7 @@ def test_admission_corrected_history_target_exclusion_atomicity_and_identity(spa
         if broken=='future':teamstats.append(stats(300))
         if broken=='duplicate':schedule.append(schedule[0])
         if broken=='missing-score':schedule[0]['homePoints']=None
+        if broken=='schema':del schedule[0]['homeClassification']
         schools=[{'id':10,'school':'School H'},{'id':20,'school':'School A'}]
         requests=[]
         for endpoint,value in [('/games',schedule),('/teams/fbs',schools),('/games/teams',teamstats)]:
@@ -299,7 +301,7 @@ def test_admission_corrected_history_target_exclusion_atomicity_and_identity(spa
     again=admit(manifest_ref=capture(),release=release,registry_root=root)
     assert again==first
     before=(root/'current.json').read_bytes()
-    for broken in ('team','missing','future','duplicate','missing-score'):
+    for broken in ('team','missing','future','duplicate','missing-score','schema'):
         with pytest.raises(ValueError):admit(manifest_ref=capture(broken=broken),release=release,registry_root=root)
         assert (root/'current.json').read_bytes()==before
     def interrupt(*args):raise RuntimeError('Synthetic power interruption before input pointer commit')

@@ -15,7 +15,7 @@ from .pipeline import FEATURE_COLUMNS, build_features
 from .publication_io import canonical_bytes, digest, reference, verified_bytes
 from .lifecycle import atomic_json, immutable, now, object_json, owner_lock, read_ref, utc
 
-ADMISSION_RULE='CFB_ADMISSION_V1_TARGET_CONTENT_REUSE'
+ADMISSION_RULE='CFB_ADMISSION_V1_REQUIRED_FIELDS_TARGET_CONTENT_REUSE'
 
 
 def parquet(root,name,frame):
@@ -57,7 +57,11 @@ def read_capture_rows(manifest, season):
     if len(ids)!=len(schedule) or any(int(x['id']) not in ids for x in stats):
         raise ValueError('Duplicate schedule or orphan statistics')
     by_id={int(x['id']):x for x in schedule}
+    required={'id','season','week','seasonType','startDate','startTimeTBD','completed','homeId','awayId',
+              'homeTeam','awayTeam','homeClassification','awayClassification','neutralSite','conferenceGame'}
     for game in schedule:
+        if not required.issubset(game) or any(not isinstance(game[k],bool) for k in ('completed','startTimeTBD','neutralSite','conferenceGame')):
+            raise ValueError('Schedule schema drift or missing required status fields')
         if int(game['season'])!=season or int(game['homeId'])<=0 or int(game['awayId'])<=0 or int(game['homeId'])==int(game['awayId']):
             raise ValueError('Schedule season or oriented school identity invalid')
         utc(game['startDate'])
@@ -152,6 +156,10 @@ def admit(*, manifest_ref, release, registry_root, season=2026, precommit=None):
             'scheduleCapturedAtUtc':schedule_clock,'historyCompleteThroughUtc':schedule_clock,
             'historicalGames':history_ref,'features':feature_ref,'schedule':schedule_ref,'aliases':aliases_ref,
             'modelBindings':release['modelBindings'],'season':season,'games':games,'historyMissingGameIds':[],
+            'sourceSchemaFingerprints':{
+                'gamesRecordKeys':digest(sorted({tuple(sorted(x)) for x in schedule})),
+                'schoolsRecordKeys':digest(sorted({tuple(sorted(x)) for x in teams})),
+                'teamStatsRecordKeys':digest(sorted({tuple(sorted(t)) for x in stats for t in x['teams']}))},
             'predictionInputIdentity':digest({'features':feature_ref['sha256'],'schedule':schedule_ref['sha256'],
                 'modelBindings':release['modelBindings'],'aliases':aliases_ref['sha256']}),
             'sourceLimitations':['No explicit cancellation/postponement/replacement status in retained CFBD schema.',
