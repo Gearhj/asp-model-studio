@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "NBA_GEN2_ACQUISITION_AUTHORIZATION_SUCCESSOR_V1",
+  "createdAtUtc": "2026-09-18T00:00:00Z",
+  "predecessorFailureReceiptSha256": "632125f21647099fa5df121dc68f872559581628c605758b963faf433da0ec32",
+  "disposition": "AUTHORIZED_TO_CONTINUE_WITH_REVISED_ADMISSION",
+  "source": "SportsDataverse/hoopR CC BY 4.0 only",
+  "nbaComCallsAllowed": false,
+  "nbaApiAllowed": false,
+  "additionalSuccessfulRequestCeiling": 15,
+  "cumulativeAcceptedByteCeiling": 268435456,
+  "retryCeiling": 0,
+  "costCeilingUsd": 0,
+  "revisedAdmission": {
+    "totalRebounds": "Preserve as a separate source-defined statistic; equality with OREB+DREB is not required.",
+    "reboundingFeatures": "Use OREB and DREB directly.",
+    "minutes": "Recover periods from schedules when possible; never fabricate. Flag or exclude overtime from pace-per-48 when duration remains unavailable.",
+    "seasonRoles": "Regular season and playoffs remain explicit and separate."
+  },
+  "stopConditions": [
+    "missing required box components",
+    "duplicate or orphan team-game identities",
+    "unreconciled opponent joins",
+    "score-formula failures",
+    "unstable identifiers",
+    "rights changes",
+    "request or byte ceiling exceeded"
+  ],
+  "authority": {
+    "schedulerInstall": false,
+    "productionActivation": false
+  }
+}

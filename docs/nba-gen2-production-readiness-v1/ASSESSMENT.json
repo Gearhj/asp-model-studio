@@ -1,0 +1,2547 @@
+{
+  "advancedConfigurations": [],
+  "assessmentIdentitySha256": "4f95c4b039378659f3f7aa37645ebefb1ca765a375fac53495001bf33dbe75e0",
+  "authority": {
+    "aispWrites": 0,
+    "exchangeWrites": 0,
+    "productionActivated": false,
+    "providerCallsDuringStudy": 0,
+    "researchOnly": true,
+    "schedulerInstalled": false
+  },
+  "commonPopulation": {
+    "bySeason": {
+      "2020": 964,
+      "2021": 1080,
+      "2022": 1230,
+      "2023": 1228,
+      "2024": 1225,
+      "2025": 1220,
+      "2026": 1225
+    },
+    "rows": 8172
+  },
+  "completedAtUtc": "2026-09-18T00:45:28.278835+00:00",
+  "disposition": "GEN1_REMAINS_BASELINE",
+  "featureAudit": {
+    "chronology": "game_date strictly earlier than target; all same-date targets emitted before updates",
+    "earliestDate": "2018-10-16",
+    "featureColumnCount": 148,
+    "featureColumns": [
+      "home_box_possessions_shrunk",
+      "home_box_possessions_rolling10",
+      "home_box_possessions_ewm",
+      "home_box_pace48_shrunk",
+      "home_box_pace48_rolling10",
+      "home_box_pace48_ewm",
+      "home_box_off_rating_shrunk",
+      "home_box_off_rating_rolling10",
+      "home_box_off_rating_ewm",
+      "home_box_def_rating_shrunk",
+      "home_box_def_rating_rolling10",
+      "home_box_def_rating_ewm",
+      "home_box_efg_shrunk",
+      "home_box_efg_rolling10",
+      "home_box_efg_ewm",
+      "home_box_opp_efg_shrunk",
+      "home_box_opp_efg_rolling10",
+      "home_box_opp_efg_ewm",
+      "home_box_tov_rate_shrunk",
+      "home_box_tov_rate_rolling10",
+      "home_box_tov_rate_ewm",
+      "home_box_opp_tov_rate_shrunk",
+      "home_box_opp_tov_rate_rolling10",
+      "home_box_opp_tov_rate_ewm",
+      "home_box_oreb_rate_shrunk",
+      "home_box_oreb_rate_rolling10",
+      "home_box_oreb_rate_ewm",
+      "home_box_opp_oreb_rate_shrunk",
+      "home_box_opp_oreb_rate_rolling10",
+      "home_box_opp_oreb_rate_ewm",
+      "home_box_ft_rate_shrunk",
+      "home_box_ft_rate_rolling10",
+      "home_box_ft_rate_ewm",
+      "home_box_opp_ft_rate_shrunk",
+      "home_box_opp_ft_rate_rolling10",
+      "home_box_opp_ft_rate_ewm",
+      "home_box_three_attempt_rate_shrunk",
+      "home_box_three_attempt_rate_rolling10",
+      "home_box_three_attempt_rate_ewm",
+      "home_box_opp_three_attempt_rate_shrunk",
+      "home_box_opp_three_attempt_rate_rolling10",
+      "home_box_opp_three_attempt_rate_ewm",
+      "home_box_three_accuracy_shrunk",
+      "home_box_three_accuracy_rolling10",
+      "home_box_three_accuracy_ewm",
+      "home_box_opp_three_accuracy_shrunk",
+      "home_box_opp_three_accuracy_rolling10",
+      "home_box_opp_three_accuracy_ewm",
+      "away_box_possessions_shrunk",
+      "away_box_possessions_rolling10",
+      "away_box_possessions_ewm",
+      "away_box_pace48_shrunk",
+      "away_box_pace48_rolling10",
+      "away_box_pace48_ewm",
+      "away_box_off_rating_shrunk",
+      "away_box_off_rating_rolling10",
+      "away_box_off_rating_ewm",
+      "away_box_def_rating_shrunk",
+      "away_box_def_rating_rolling10",
+      "away_box_def_rating_ewm",
+      "away_box_efg_shrunk",
+      "away_box_efg_rolling10",
+      "away_box_efg_ewm",
+      "away_box_opp_efg_shrunk",
+      "away_box_opp_efg_rolling10",
+      "away_box_opp_efg_ewm",
+      "away_box_tov_rate_shrunk",
+      "away_box_tov_rate_rolling10",
+      "away_box_tov_rate_ewm",
+      "away_box_opp_tov_rate_shrunk",
+      "away_box_opp_tov_rate_rolling10",
+      "away_box_opp_tov_rate_ewm",
+      "away_box_oreb_rate_shrunk",
+      "away_box_oreb_rate_rolling10",
+      "away_box_oreb_rate_ewm",
+      "away_box_opp_oreb_rate_shrunk",
+      "away_box_opp_oreb_rate_rolling10",
+      "away_box_opp_oreb_rate_ewm",
+      "away_box_ft_rate_shrunk",
+      "away_box_ft_rate_rolling10",
+      "away_box_ft_rate_ewm",
+      "away_box_opp_ft_rate_shrunk",
+      "away_box_opp_ft_rate_rolling10",
+      "away_box_opp_ft_rate_ewm",
+      "away_box_three_attempt_rate_shrunk",
+      "away_box_three_attempt_rate_rolling10",
+      "away_box_three_attempt_rate_ewm",
+      "away_box_opp_three_attempt_rate_shrunk",
+      "away_box_opp_three_attempt_rate_rolling10",
+      "away_box_opp_three_attempt_rate_ewm",
+      "away_box_three_accuracy_shrunk",
+      "away_box_three_accuracy_rolling10",
+      "away_box_three_accuracy_ewm",
+      "away_box_opp_three_accuracy_shrunk",
+      "away_box_opp_three_accuracy_rolling10",
+      "away_box_opp_three_accuracy_ewm",
+      "difference_box_possessions_shrunk",
+      "difference_box_possessions_rolling10",
+      "difference_box_possessions_ewm",
+      "difference_box_pace48_shrunk",
+      "difference_box_pace48_rolling10",
+      "difference_box_pace48_ewm",
+      "difference_box_off_rating_shrunk",
+      "difference_box_off_rating_rolling10",
+      "difference_box_off_rating_ewm",
+      "difference_box_def_rating_shrunk",
+      "difference_box_def_rating_rolling10",
+      "difference_box_def_rating_ewm",
+      "difference_box_efg_shrunk",
+      "difference_box_efg_rolling10",
+      "difference_box_efg_ewm",
+      "difference_box_opp_efg_shrunk",
+      "difference_box_opp_efg_rolling10",
+      "difference_box_opp_efg_ewm",
+      "difference_box_tov_rate_shrunk",
+      "difference_box_tov_rate_rolling10",
+      "difference_box_tov_rate_ewm",
+      "difference_box_opp_tov_rate_shrunk",
+      "difference_box_opp_tov_rate_rolling10",
+      "difference_box_opp_tov_rate_ewm",
+      "difference_box_oreb_rate_shrunk",
+      "difference_box_oreb_rate_rolling10",
+      "difference_box_oreb_rate_ewm",
+      "difference_box_opp_oreb_rate_shrunk",
+      "difference_box_opp_oreb_rate_rolling10",
+      "difference_box_opp_oreb_rate_ewm",
+      "difference_box_ft_rate_shrunk",
+      "difference_box_ft_rate_rolling10",
+      "difference_box_ft_rate_ewm",
+      "difference_box_opp_ft_rate_shrunk",
+      "difference_box_opp_ft_rate_rolling10",
+      "difference_box_opp_ft_rate_ewm",
+      "difference_box_three_attempt_rate_shrunk",
+      "difference_box_three_attempt_rate_rolling10",
+      "difference_box_three_attempt_rate_ewm",
+      "difference_box_opp_three_attempt_rate_shrunk",
+      "difference_box_opp_three_attempt_rate_rolling10",
+      "difference_box_opp_three_attempt_rate_ewm",
+      "difference_box_three_accuracy_shrunk",
+      "difference_box_three_accuracy_rolling10",
+      "difference_box_three_accuracy_ewm",
+      "difference_box_opp_three_accuracy_shrunk",
+      "difference_box_opp_three_accuracy_rolling10",
+      "difference_box_opp_three_accuracy_ewm",
+      "home_box_team_history_games",
+      "home_box_prior_season_games",
+      "away_box_team_history_games",
+      "away_box_prior_season_games"
+    ],
+    "featureContractSha256": "783a8f2468ed74c85c7bab0e3618d3b784f1972dfbca7b2b9bb90e4d36ee5056",
+    "gameRows": 9521,
+    "latestDate": "2026-04-12",
+    "sameDateOutcomesConsumed": false,
+    "schemaVersion": "nba-gen2-pregame-box-features-v1",
+    "targetLeakageChecks": {
+      "latestHistoryBeforeTarget": true
+    }
+  },
+  "gate": {
+    "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "checks": {
+        "2025EnergyWithin1Pct": false,
+        "2025TeamScoreMaeWithin0.10": true,
+        "2026EnergyWithin1Pct": true,
+        "2026TeamScoreMaeWithin0.10": true,
+        "binaryBrierWithin1Pct": true,
+        "energyPaired95UpperBelowZero": false,
+        "energyRelativeImprovementAtLeast0.5Pct": false,
+        "marginCrpsWithin0.5Pct": false,
+        "teamScoreMaeImprovesAtLeast0.05": false,
+        "totalCrpsWithin0.5Pct": false,
+        "winnerLogLossWithin1Pct": true
+      },
+      "passed": false
+    },
+    "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "checks": {
+        "2025EnergyWithin1Pct": true,
+        "2025TeamScoreMaeWithin0.10": true,
+        "2026EnergyWithin1Pct": true,
+        "2026TeamScoreMaeWithin0.10": true,
+        "binaryBrierWithin1Pct": true,
+        "energyPaired95UpperBelowZero": false,
+        "energyRelativeImprovementAtLeast0.5Pct": false,
+        "marginCrpsWithin0.5Pct": false,
+        "teamScoreMaeImprovesAtLeast0.05": false,
+        "totalCrpsWithin0.5Pct": true,
+        "winnerLogLossWithin1Pct": true
+      },
+      "passed": false
+    }
+  },
+  "jointResults": {
+    "2022": {
+      "GEN1_EXACT_RETAINED": {
+        "away50Coverage": 0.5414634146341464,
+        "away50Width": 16.821951219512194,
+        "away80Coverage": 0.8219512195121951,
+        "away80Width": 32.510569105691054,
+        "away90Coverage": 0.9154471544715447,
+        "away90Width": 41.9,
+        "awayCrps": 6.84543430400813,
+        "awayMae": 9.691268211382114,
+        "binaryBrier": 0.22432898023577238,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.058717317073170704,
+          "intercept": 0.2519161949232621,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 1,
+              "meanProbability": 0.0858,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 54,
+              "meanProbability": 0.16711296296296294,
+              "observedHomeWinRate": 0.2222222222222222
+            },
+            {
+              "bin": 2,
+              "games": 141,
+              "meanProbability": 0.25695602836879433,
+              "observedHomeWinRate": 0.2978723404255319
+            },
+            {
+              "bin": 3,
+              "games": 191,
+              "meanProbability": 0.34883350785340317,
+              "observedHomeWinRate": 0.36649214659685864
+            },
+            {
+              "bin": 4,
+              "games": 237,
+              "meanProbability": 0.45118607594936716,
+              "observedHomeWinRate": 0.5569620253164557
+            },
+            {
+              "bin": 5,
+              "games": 272,
+              "meanProbability": 0.5491216911764706,
+              "observedHomeWinRate": 0.6176470588235294
+            },
+            {
+              "bin": 6,
+              "games": 192,
+              "meanProbability": 0.6492026041666666,
+              "observedHomeWinRate": 0.71875
+            },
+            {
+              "bin": 7,
+              "games": 119,
+              "meanProbability": 0.7358243697478993,
+              "observedHomeWinRate": 0.7478991596638656
+            },
+            {
+              "bin": 8,
+              "games": 22,
+              "meanProbability": 0.8373227272727273,
+              "observedHomeWinRate": 0.7727272727272727
+            },
+            {
+              "bin": 9,
+              "games": 1,
+              "meanProbability": 0.9003,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 0.9740898585931219
+        },
+        "correctPickRate": 0.6343648208469055,
+        "games": 1230,
+        "home50Coverage": 0.5430894308943089,
+        "home50Width": 16.303252032520327,
+        "home80Coverage": 0.8349593495934959,
+        "home80Width": 30.857723577235774,
+        "home90Coverage": 0.9227642276422764,
+        "home90Width": 39.84634146341463,
+        "homeCrps": 6.527327388024389,
+        "homeMae": 9.23646268292683,
+        "jointEnergy": 10.441503827755284,
+        "margin50Coverage": 0.5252032520325203,
+        "margin50Width": 18.556910569105693,
+        "margin80Coverage": 0.8032520325203252,
+        "margin80Width": 35.795121951219514,
+        "margin90Coverage": 0.8975609756097561,
+        "margin90Width": 47.24959349593496,
+        "marginCrps": 8.077792421349594,
+        "marginMae": 11.284064390243902,
+        "teamScoreMae": 9.463865447154472,
+        "total50Coverage": 0.551219512195122,
+        "total50Width": 27.145528455284552,
+        "total80Coverage": 0.8308943089430895,
+        "total80Width": 50.740650406504066,
+        "total90Coverage": 0.9235772357723577,
+        "total90Width": 64.42113821138211,
+        "totalCrps": 10.595416169723578,
+        "totalMae": 14.949398373983742,
+        "winnerLogLoss": 0.6402046115009712
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "away50Coverage": 0.5455284552845528,
+        "away50Width": 17.008130081300813,
+        "away80Coverage": 0.8113821138211382,
+        "away80Width": 32.28780487804878,
+        "away90Coverage": 0.9016260162601626,
+        "away90Width": 40.17967479674797,
+        "awayCrps": 6.893720582146342,
+        "awayMae": 9.71935300813008,
+        "binaryBrier": 0.23132409009756097,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.027793333333333333,
+          "intercept": 0.06644299994639458,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 8,
+              "meanProbability": 0.18501250000000002,
+              "observedHomeWinRate": 0.25
+            },
+            {
+              "bin": 2,
+              "games": 72,
+              "meanProbability": 0.26439999999999997,
+              "observedHomeWinRate": 0.3055555555555556
+            },
+            {
+              "bin": 3,
+              "games": 173,
+              "meanProbability": 0.3532184971098266,
+              "observedHomeWinRate": 0.3583815028901734
+            },
+            {
+              "bin": 4,
+              "games": 262,
+              "meanProbability": 0.45264312977099236,
+              "observedHomeWinRate": 0.5
+            },
+            {
+              "bin": 5,
+              "games": 298,
+              "meanProbability": 0.5518684563758389,
+              "observedHomeWinRate": 0.5469798657718121
+            },
+            {
+              "bin": 6,
+              "games": 244,
+              "meanProbability": 0.6471909836065574,
+              "observedHomeWinRate": 0.6762295081967213
+            },
+            {
+              "bin": 7,
+              "games": 141,
+              "meanProbability": 0.7477148936170213,
+              "observedHomeWinRate": 0.6879432624113475
+            },
+            {
+              "bin": 8,
+              "games": 32,
+              "meanProbability": 0.8302499999999999,
+              "observedHomeWinRate": 0.84375
+            }
+          ],
+          "slope": 0.8659249587728579
+        },
+        "correctPickRate": 0.6097560975609756,
+        "games": 1230,
+        "home50Coverage": 0.5796747967479675,
+        "home50Width": 18.192682926829267,
+        "home80Coverage": 0.8552845528455284,
+        "home80Width": 33.49430894308943,
+        "home90Coverage": 0.9211382113821138,
+        "home90Width": 41.06341463414634,
+        "homeCrps": 6.771499099471545,
+        "homeMae": 9.589923333333333,
+        "jointEnergy": 10.662921268508018,
+        "margin50Coverage": 0.5504065040650407,
+        "margin50Width": 20.150406504065042,
+        "margin80Coverage": 0.8211382113821138,
+        "margin80Width": 37.388617886178864,
+        "margin90Coverage": 0.9097560975609756,
+        "margin90Width": 49.28048780487805,
+        "marginCrps": 8.249701799357723,
+        "marginMae": 11.583511788617885,
+        "teamScoreMae": 9.654638170731706,
+        "total50Coverage": 0.5349593495934959,
+        "total50Width": 26.678048780487806,
+        "total80Coverage": 0.8390243902439024,
+        "total80Width": 51.58130081300813,
+        "total90Coverage": 0.9186991869918699,
+        "total90Width": 65.56747967479674,
+        "totalCrps": 10.803264471195122,
+        "totalMae": 15.233144146341463,
+        "winnerLogLoss": 0.6550220655260401
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "away50Coverage": 0.5300813008130081,
+        "away50Width": 17.433333333333334,
+        "away80Coverage": 0.8032520325203252,
+        "away80Width": 32.40731707317073,
+        "away90Coverage": 0.9048780487804878,
+        "away90Width": 42.28048780487805,
+        "awayCrps": 7.14393767995122,
+        "awayMae": 10.138187154471545,
+        "binaryBrier": 0.23365784484552843,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.09426764227642279,
+          "intercept": 0.4029111604492805,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 2,
+              "meanProbability": 0.08165,
+              "observedHomeWinRate": 0.5
+            },
+            {
+              "bin": 1,
+              "games": 53,
+              "meanProbability": 0.16219999999999998,
+              "observedHomeWinRate": 0.2641509433962264
+            },
+            {
+              "bin": 2,
+              "games": 160,
+              "meanProbability": 0.2514125,
+              "observedHomeWinRate": 0.28125
+            },
+            {
+              "bin": 3,
+              "games": 263,
+              "meanProbability": 0.35084106463878323,
+              "observedHomeWinRate": 0.45627376425855515
+            },
+            {
+              "bin": 4,
+              "games": 284,
+              "meanProbability": 0.44840563380281695,
+              "observedHomeWinRate": 0.5845070422535211
+            },
+            {
+              "bin": 5,
+              "games": 250,
+              "meanProbability": 0.5520364,
+              "observedHomeWinRate": 0.652
+            },
+            {
+              "bin": 6,
+              "games": 147,
+              "meanProbability": 0.6491931972789116,
+              "observedHomeWinRate": 0.7278911564625851
+            },
+            {
+              "bin": 7,
+              "games": 60,
+              "meanProbability": 0.7345750000000001,
+              "observedHomeWinRate": 0.7166666666666667
+            },
+            {
+              "bin": 8,
+              "games": 11,
+              "meanProbability": 0.8254999999999999,
+              "observedHomeWinRate": 0.9090909090909091
+            }
+          ],
+          "slope": 0.9670596694282415
+        },
+        "correctPickRate": 0.6008130081300813,
+        "games": 1230,
+        "home50Coverage": 0.5577235772357724,
+        "home50Width": 17.0130081300813,
+        "home80Coverage": 0.8512195121951219,
+        "home80Width": 32.830081300813006,
+        "home90Coverage": 0.9349593495934959,
+        "home90Width": 41.708943089430896,
+        "homeCrps": 6.618753672926829,
+        "homeMae": 9.345044227642276,
+        "jointEnergy": 10.737828827667052,
+        "margin50Coverage": 0.5422764227642276,
+        "margin50Width": 20.098373983739837,
+        "margin80Coverage": 0.7910569105691057,
+        "margin80Width": 36.03252032520325,
+        "margin90Coverage": 0.8951219512195122,
+        "margin90Width": 47.639837398373984,
+        "marginCrps": 8.349748863821137,
+        "marginMae": 11.784973333333333,
+        "teamScoreMae": 9.74161569105691,
+        "total50Coverage": 0.5682926829268292,
+        "total50Width": 28.18861788617886,
+        "total80Coverage": 0.8333333333333334,
+        "total80Width": 52.259349593495934,
+        "total90Coverage": 0.916260162601626,
+        "total90Width": 66.67886178861788,
+        "totalCrps": 10.83190539895935,
+        "totalMae": 15.309306016260162,
+        "winnerLogLoss": 0.6605900057312235
+      }
+    },
+    "2023": {
+      "GEN1_EXACT_RETAINED": {
+        "away50Coverage": 0.5602605863192183,
+        "away50Width": 16.405537459283387,
+        "away80Coverage": 0.8501628664495114,
+        "away80Width": 31.355048859934854,
+        "away90Coverage": 0.9307817589576547,
+        "away90Width": 40.693811074918564,
+        "awayCrps": 6.4372160471742665,
+        "awayMae": 8.995979723127036,
+        "binaryBrier": 0.22914469193811074,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.024088762214983735,
+          "intercept": 0.1365346053302657,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 4,
+              "meanProbability": 0.17515,
+              "observedHomeWinRate": 0.5
+            },
+            {
+              "bin": 2,
+              "games": 55,
+              "meanProbability": 0.2593163636363636,
+              "observedHomeWinRate": 0.2727272727272727
+            },
+            {
+              "bin": 3,
+              "games": 134,
+              "meanProbability": 0.3506402985074627,
+              "observedHomeWinRate": 0.40298507462686567
+            },
+            {
+              "bin": 4,
+              "games": 201,
+              "meanProbability": 0.4521268656716418,
+              "observedHomeWinRate": 0.5074626865671642
+            },
+            {
+              "bin": 5,
+              "games": 331,
+              "meanProbability": 0.5538845921450152,
+              "observedHomeWinRate": 0.5740181268882175
+            },
+            {
+              "bin": 6,
+              "games": 291,
+              "meanProbability": 0.646828178694158,
+              "observedHomeWinRate": 0.6494845360824743
+            },
+            {
+              "bin": 7,
+              "games": 177,
+              "meanProbability": 0.7430853107344632,
+              "observedHomeWinRate": 0.751412429378531
+            },
+            {
+              "bin": 8,
+              "games": 33,
+              "meanProbability": 0.8278242424242425,
+              "observedHomeWinRate": 0.8181818181818182
+            },
+            {
+              "bin": 9,
+              "games": 2,
+              "meanProbability": 0.911,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 0.8461037616349392
+        },
+        "correctPickRate": 0.6205211726384365,
+        "games": 1228,
+        "home50Coverage": 0.5301302931596091,
+        "home50Width": 16.10097719869707,
+        "home80Coverage": 0.8208469055374593,
+        "home80Width": 30.326547231270357,
+        "home90Coverage": 0.9144951140065146,
+        "home90Width": 39.08794788273616,
+        "homeCrps": 6.675836545700325,
+        "homeMae": 9.45784022801303,
+        "jointEnergy": 10.186782053351928,
+        "margin50Coverage": 0.5480456026058632,
+        "margin50Width": 18.15228013029316,
+        "margin80Coverage": 0.8436482084690554,
+        "margin80Width": 35.09609120521173,
+        "margin90Coverage": 0.9242671009771987,
+        "margin90Width": 46.494299674267104,
+        "marginCrps": 7.2864822034609125,
+        "marginMae": 10.253629723127036,
+        "teamScoreMae": 9.226909975570033,
+        "total50Coverage": 0.5447882736156352,
+        "total50Width": 26.12459283387622,
+        "total80Coverage": 0.8094462540716613,
+        "total80Width": 49.78257328990228,
+        "total90Coverage": 0.9047231270358306,
+        "total90Width": 62.806188925081436,
+        "totalCrps": 10.830651796066773,
+        "totalMae": 15.093672719869707,
+        "winnerLogLoss": 0.6501334548990159
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "away50Coverage": 0.5667752442996743,
+        "away50Width": 16.66042345276873,
+        "away80Coverage": 0.8542345276872965,
+        "away80Width": 32.324918566775246,
+        "away90Coverage": 0.9250814332247557,
+        "away90Width": 40.3957654723127,
+        "awayCrps": 6.4675730576547235,
+        "awayMae": 9.011638599348535,
+        "binaryBrier": 0.2304354409771987,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.047904234527687294,
+          "intercept": 0.19289826932805063,
+          "reliability": [
+            {
+              "bin": 2,
+              "games": 31,
+              "meanProbability": 0.26558064516129026,
+              "observedHomeWinRate": 0.22580645161290322
+            },
+            {
+              "bin": 3,
+              "games": 165,
+              "meanProbability": 0.35753151515151516,
+              "observedHomeWinRate": 0.3878787878787879
+            },
+            {
+              "bin": 4,
+              "games": 294,
+              "meanProbability": 0.4526761904761904,
+              "observedHomeWinRate": 0.5272108843537415
+            },
+            {
+              "bin": 5,
+              "games": 322,
+              "meanProbability": 0.5479487577639752,
+              "observedHomeWinRate": 0.5993788819875776
+            },
+            {
+              "bin": 6,
+              "games": 265,
+              "meanProbability": 0.6470543396226415,
+              "observedHomeWinRate": 0.6754716981132075
+            },
+            {
+              "bin": 7,
+              "games": 138,
+              "meanProbability": 0.7412507246376812,
+              "observedHomeWinRate": 0.7753623188405797
+            },
+            {
+              "bin": 8,
+              "games": 13,
+              "meanProbability": 0.8364923076923076,
+              "observedHomeWinRate": 0.6923076923076923
+            }
+          ],
+          "slope": 0.9472979391621402
+        },
+        "correctPickRate": 0.6123778501628665,
+        "games": 1228,
+        "home50Coverage": 0.5716612377850163,
+        "home50Width": 17.15960912052117,
+        "home80Coverage": 0.8412052117263844,
+        "home80Width": 31.678338762214985,
+        "home90Coverage": 0.9275244299674267,
+        "home90Width": 40.656351791530945,
+        "homeCrps": 6.554335010594463,
+        "homeMae": 9.248117508143322,
+        "jointEnergy": 10.127374414568214,
+        "margin50Coverage": 0.5855048859934854,
+        "margin50Width": 19.513843648208468,
+        "margin80Coverage": 0.8542345276872965,
+        "margin80Width": 37.0586319218241,
+        "margin90Coverage": 0.9438110749185668,
+        "margin90Width": 48.755700325732896,
+        "marginCrps": 7.36922109070847,
+        "marginMae": 10.343884283387622,
+        "teamScoreMae": 9.129878053745928,
+        "total50Coverage": 0.5594462540716613,
+        "total50Width": 26.39413680781759,
+        "total80Coverage": 0.8224755700325733,
+        "total80Width": 50.377035830618894,
+        "total90Coverage": 0.9161237785016286,
+        "total90Width": 64.50162866449512,
+        "totalCrps": 10.662079878591205,
+        "totalMae": 14.788730211726385,
+        "winnerLogLoss": 0.6527469511818791
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "away50Coverage": 0.5708469055374593,
+        "away50Width": 17.34527687296417,
+        "away80Coverage": 0.8737785016286646,
+        "away80Width": 33.28990228013029,
+        "away90Coverage": 0.9381107491856677,
+        "away90Width": 42.16612377850163,
+        "awayCrps": 6.4607037380293155,
+        "awayMae": 9.019751954397394,
+        "binaryBrier": 0.23034701579804556,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.03574869706840395,
+          "intercept": -0.010769966509292853,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 2,
+              "meanProbability": 0.17065,
+              "observedHomeWinRate": 0.5
+            },
+            {
+              "bin": 2,
+              "games": 25,
+              "meanProbability": 0.268784,
+              "observedHomeWinRate": 0.28
+            },
+            {
+              "bin": 3,
+              "games": 97,
+              "meanProbability": 0.35956185567010307,
+              "observedHomeWinRate": 0.4329896907216495
+            },
+            {
+              "bin": 4,
+              "games": 191,
+              "meanProbability": 0.4560219895287958,
+              "observedHomeWinRate": 0.4607329842931937
+            },
+            {
+              "bin": 5,
+              "games": 248,
+              "meanProbability": 0.5523770161290323,
+              "observedHomeWinRate": 0.5201612903225806
+            },
+            {
+              "bin": 6,
+              "games": 337,
+              "meanProbability": 0.652252225519288,
+              "observedHomeWinRate": 0.6053412462908012
+            },
+            {
+              "bin": 7,
+              "games": 259,
+              "meanProbability": 0.7433849420849421,
+              "observedHomeWinRate": 0.7065637065637066
+            },
+            {
+              "bin": 8,
+              "games": 66,
+              "meanProbability": 0.8429469696969697,
+              "observedHomeWinRate": 0.8636363636363636
+            },
+            {
+              "bin": 9,
+              "games": 3,
+              "meanProbability": 0.9209,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 0.813789084528148
+        },
+        "correctPickRate": 0.6131921824104235,
+        "games": 1228,
+        "home50Coverage": 0.5496742671009772,
+        "home50Width": 16.67671009771987,
+        "home80Coverage": 0.8379478827361564,
+        "home80Width": 31.232899022801302,
+        "home90Coverage": 0.9283387622149837,
+        "home90Width": 40.343648208469055,
+        "homeCrps": 6.613568196368077,
+        "homeMae": 9.429369543973943,
+        "jointEnergy": 10.16377104840166,
+        "margin50Coverage": 0.5765472312703583,
+        "margin50Width": 19.482899022801302,
+        "margin80Coverage": 0.8631921824104235,
+        "margin80Width": 37.95358306188925,
+        "margin90Coverage": 0.9397394136807817,
+        "margin90Width": 49.09527687296417,
+        "marginCrps": 7.417055456970684,
+        "marginMae": 10.33204348534202,
+        "teamScoreMae": 9.224560749185668,
+        "total50Coverage": 0.5447882736156352,
+        "total50Width": 26.794788273615634,
+        "total80Coverage": 0.8298045602605864,
+        "total80Width": 50.663680781758956,
+        "total90Coverage": 0.9112377850162866,
+        "total90Width": 64.80374592833876,
+        "totalCrps": 10.671195680879478,
+        "totalMae": 14.947148859934853,
+        "winnerLogLoss": 0.6519479842226445
+      }
+    },
+    "2024": {
+      "GEN1_EXACT_RETAINED": {
+        "away50Coverage": 0.5306122448979592,
+        "away50Width": 16.023673469387756,
+        "away80Coverage": 0.8253061224489796,
+        "away80Width": 30.72326530612245,
+        "away90Coverage": 0.9224489795918367,
+        "away90Width": 39.884081632653064,
+        "awayCrps": 6.543487308359184,
+        "awayMae": 9.250607020408163,
+        "binaryBrier": 0.21630628558367343,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.07079036734693875,
+          "intercept": -0.39482751254400594,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 1,
+              "meanProbability": 0.0892,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 11,
+              "meanProbability": 0.16714545454545454,
+              "observedHomeWinRate": 0.18181818181818182
+            },
+            {
+              "bin": 2,
+              "games": 51,
+              "meanProbability": 0.2584549019607843,
+              "observedHomeWinRate": 0.13725490196078433
+            },
+            {
+              "bin": 3,
+              "games": 107,
+              "meanProbability": 0.3506719626168224,
+              "observedHomeWinRate": 0.2523364485981308
+            },
+            {
+              "bin": 4,
+              "games": 123,
+              "meanProbability": 0.45354146341463414,
+              "observedHomeWinRate": 0.36585365853658536
+            },
+            {
+              "bin": 5,
+              "games": 229,
+              "meanProbability": 0.5542082969432314,
+              "observedHomeWinRate": 0.4847161572052402
+            },
+            {
+              "bin": 6,
+              "games": 267,
+              "meanProbability": 0.6491370786516855,
+              "observedHomeWinRate": 0.5168539325842697
+            },
+            {
+              "bin": 7,
+              "games": 267,
+              "meanProbability": 0.7454239700374532,
+              "observedHomeWinRate": 0.7340823970037453
+            },
+            {
+              "bin": 8,
+              "games": 148,
+              "meanProbability": 0.8409101351351351,
+              "observedHomeWinRate": 0.8108108108108109
+            },
+            {
+              "bin": 9,
+              "games": 21,
+              "meanProbability": 0.9172714285714285,
+              "observedHomeWinRate": 0.9047619047619048
+            }
+          ],
+          "slope": 1.1301291911302307
+        },
+        "correctPickRate": 0.649795918367347,
+        "games": 1225,
+        "home50Coverage": 0.5224489795918368,
+        "home50Width": 16.13795918367347,
+        "home80Coverage": 0.8171428571428572,
+        "home80Width": 30.175510204081633,
+        "home90Coverage": 0.9069387755102041,
+        "home90Width": 38.89795918367347,
+        "homeCrps": 6.646707655142857,
+        "homeMae": 9.430955673469386,
+        "jointEnergy": 10.295443297276957,
+        "margin50Coverage": 0.5093877551020408,
+        "margin50Width": 18.02530612244898,
+        "margin80Coverage": 0.793469387755102,
+        "margin80Width": 34.751020408163264,
+        "margin90Coverage": 0.9036734693877551,
+        "margin90Width": 46.01469387755102,
+        "marginCrps": 7.988586087208164,
+        "marginMae": 11.159780163265307,
+        "teamScoreMae": 9.340781346938774,
+        "total50Coverage": 0.5191836734693878,
+        "total50Width": 25.639183673469386,
+        "total80Coverage": 0.8277551020408164,
+        "total80Width": 49.542857142857144,
+        "total90Coverage": 0.9208163265306123,
+        "total90Width": 62.63428571428572,
+        "totalCrps": 10.417742227093877,
+        "totalMae": 14.797320244897957,
+        "winnerLogLoss": 0.6214461270486056
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "away50Coverage": 0.5281632653061225,
+        "away50Width": 16.234285714285715,
+        "away80Coverage": 0.8277551020408164,
+        "away80Width": 31.31591836734694,
+        "away90Coverage": 0.9102040816326531,
+        "away90Width": 39.95673469387755,
+        "awayCrps": 6.707860738,
+        "awayMae": 9.52775812244898,
+        "binaryBrier": 0.21629716651428574,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.03695722448979596,
+          "intercept": 0.09654269112136299,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 15,
+              "meanProbability": 0.1765666666666667,
+              "observedHomeWinRate": 0.2
+            },
+            {
+              "bin": 2,
+              "games": 114,
+              "meanProbability": 0.25207543859649123,
+              "observedHomeWinRate": 0.23684210526315788
+            },
+            {
+              "bin": 3,
+              "games": 155,
+              "meanProbability": 0.3526509677419355,
+              "observedHomeWinRate": 0.32903225806451614
+            },
+            {
+              "bin": 4,
+              "games": 274,
+              "meanProbability": 0.45375328467153286,
+              "observedHomeWinRate": 0.5
+            },
+            {
+              "bin": 5,
+              "games": 272,
+              "meanProbability": 0.553158455882353,
+              "observedHomeWinRate": 0.5441176470588235
+            },
+            {
+              "bin": 6,
+              "games": 227,
+              "meanProbability": 0.6463361233480176,
+              "observedHomeWinRate": 0.6872246696035242
+            },
+            {
+              "bin": 7,
+              "games": 139,
+              "meanProbability": 0.7492474820143884,
+              "observedHomeWinRate": 0.8561151079136691
+            },
+            {
+              "bin": 8,
+              "games": 28,
+              "meanProbability": 0.8274464285714286,
+              "observedHomeWinRate": 0.8214285714285714
+            },
+            {
+              "bin": 9,
+              "games": 1,
+              "meanProbability": 0.9119,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 1.1941459143882025
+        },
+        "correctPickRate": 0.6416326530612245,
+        "games": 1225,
+        "home50Coverage": 0.5379591836734694,
+        "home50Width": 16.63673469387755,
+        "home80Coverage": 0.8228571428571428,
+        "home80Width": 31.144489795918368,
+        "home90Coverage": 0.9183673469387755,
+        "home90Width": 40.02612244897959,
+        "homeCrps": 6.732007096816326,
+        "homeMae": 9.564333387755102,
+        "jointEnergy": 10.478070512916204,
+        "margin50Coverage": 0.5289795918367347,
+        "margin50Width": 18.73551020408163,
+        "margin80Coverage": 0.8081632653061225,
+        "margin80Width": 35.518367346938774,
+        "margin90Coverage": 0.9012244897959184,
+        "margin90Width": 46.46122448979592,
+        "marginCrps": 8.035199203583673,
+        "marginMae": 11.19289069387755,
+        "teamScoreMae": 9.54604575510204,
+        "total50Coverage": 0.4995918367346939,
+        "total50Width": 25.555918367346937,
+        "total80Coverage": 0.8342857142857143,
+        "total80Width": 50.34938775510204,
+        "total90Coverage": 0.9191836734693878,
+        "total90Width": 64.20081632653061,
+        "totalCrps": 10.673252422293878,
+        "totalMae": 15.229644816326529,
+        "winnerLogLoss": 0.6221355371552938
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "away50Coverage": 0.553469387755102,
+        "away50Width": 16.777142857142856,
+        "away80Coverage": 0.8440816326530612,
+        "away80Width": 31.908571428571427,
+        "away90Coverage": 0.9289795918367347,
+        "away90Width": 41.03836734693878,
+        "awayCrps": 6.554152275436734,
+        "awayMae": 9.276200408163266,
+        "binaryBrier": 0.21831320044081637,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.07028016326530613,
+          "intercept": -0.3458095873310417,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 2,
+              "meanProbability": 0.0814,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 19,
+              "meanProbability": 0.17177894736842106,
+              "observedHomeWinRate": 0.21052631578947367
+            },
+            {
+              "bin": 2,
+              "games": 46,
+              "meanProbability": 0.25694999999999996,
+              "observedHomeWinRate": 0.15217391304347827
+            },
+            {
+              "bin": 3,
+              "games": 95,
+              "meanProbability": 0.3520642105263158,
+              "observedHomeWinRate": 0.29473684210526313
+            },
+            {
+              "bin": 4,
+              "games": 165,
+              "meanProbability": 0.45487151515151514,
+              "observedHomeWinRate": 0.40606060606060607
+            },
+            {
+              "bin": 5,
+              "games": 188,
+              "meanProbability": 0.5501968085106383,
+              "observedHomeWinRate": 0.4308510638297872
+            },
+            {
+              "bin": 6,
+              "games": 272,
+              "meanProbability": 0.6488860294117648,
+              "observedHomeWinRate": 0.5441176470588235
+            },
+            {
+              "bin": 7,
+              "games": 266,
+              "meanProbability": 0.7448484962406015,
+              "observedHomeWinRate": 0.7142857142857143
+            },
+            {
+              "bin": 8,
+              "games": 145,
+              "meanProbability": 0.8456482758620689,
+              "observedHomeWinRate": 0.7931034482758621
+            },
+            {
+              "bin": 9,
+              "games": 27,
+              "meanProbability": 0.9188185185185185,
+              "observedHomeWinRate": 0.9259259259259259
+            }
+          ],
+          "slope": 1.0433157677059763
+        },
+        "correctPickRate": 0.636734693877551,
+        "games": 1225,
+        "home50Coverage": 0.5363265306122449,
+        "home50Width": 16.492244897959182,
+        "home80Coverage": 0.8253061224489796,
+        "home80Width": 30.696326530612247,
+        "home90Coverage": 0.9208163265306123,
+        "home90Width": 39.68571428571428,
+        "homeCrps": 6.630779770742857,
+        "homeMae": 9.426984000000001,
+        "jointEnergy": 10.29445269661376,
+        "margin50Coverage": 0.5265306122448979,
+        "margin50Width": 18.761632653061223,
+        "margin80Coverage": 0.8122448979591836,
+        "margin80Width": 36.17795918367347,
+        "margin90Coverage": 0.9118367346938776,
+        "margin90Width": 47.34040816326531,
+        "marginCrps": 8.082179473346939,
+        "marginMae": 11.336016408163266,
+        "teamScoreMae": 9.351592204081633,
+        "total50Coverage": 0.5436734693877551,
+        "total50Width": 26.24326530612245,
+        "total80Coverage": 0.8424489795918367,
+        "total80Width": 50.39918367346939,
+        "total90Coverage": 0.9404081632653061,
+        "total90Width": 65.21551020408164,
+        "totalCrps": 10.330133359518367,
+        "totalMae": 14.738055755102039,
+        "winnerLogLoss": 0.6257931283113868
+      }
+    },
+    "2025": {
+      "GEN1_EXACT_RETAINED": {
+        "away50Coverage": 0.5450819672131147,
+        "away50Width": 15.967213114754099,
+        "away80Coverage": 0.8221311475409836,
+        "away80Width": 30.64344262295082,
+        "away90Coverage": 0.9229508196721311,
+        "away90Width": 39.459016393442624,
+        "awayCrps": 6.633503603696721,
+        "awayMae": 9.348379098360654,
+        "binaryBrier": 0.21010031981147542,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.036852377049180304,
+          "intercept": -0.18958851093034756,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 2,
+              "meanProbability": 0.0921,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 24,
+              "meanProbability": 0.16451666666666667,
+              "observedHomeWinRate": 0.08333333333333333
+            },
+            {
+              "bin": 2,
+              "games": 74,
+              "meanProbability": 0.26232702702702704,
+              "observedHomeWinRate": 0.20270270270270271
+            },
+            {
+              "bin": 3,
+              "games": 133,
+              "meanProbability": 0.35283308270676694,
+              "observedHomeWinRate": 0.2781954887218045
+            },
+            {
+              "bin": 4,
+              "games": 160,
+              "meanProbability": 0.4544775,
+              "observedHomeWinRate": 0.425
+            },
+            {
+              "bin": 5,
+              "games": 228,
+              "meanProbability": 0.5476929824561403,
+              "observedHomeWinRate": 0.5219298245614035
+            },
+            {
+              "bin": 6,
+              "games": 249,
+              "meanProbability": 0.6483481927710842,
+              "observedHomeWinRate": 0.5903614457831325
+            },
+            {
+              "bin": 7,
+              "games": 230,
+              "meanProbability": 0.7499713043478261,
+              "observedHomeWinRate": 0.7608695652173914
+            },
+            {
+              "bin": 8,
+              "games": 105,
+              "meanProbability": 0.8448971428571429,
+              "observedHomeWinRate": 0.8380952380952381
+            },
+            {
+              "bin": 9,
+              "games": 15,
+              "meanProbability": 0.9174399999999999,
+              "observedHomeWinRate": 0.9333333333333333
+            }
+          ],
+          "slope": 1.1207068348707654
+        },
+        "correctPickRate": 0.6672131147540984,
+        "games": 1220,
+        "home50Coverage": 0.5278688524590164,
+        "home50Width": 16.253278688524592,
+        "home80Coverage": 0.8180327868852459,
+        "home80Width": 30.207377049180327,
+        "home90Coverage": 0.910655737704918,
+        "home90Width": 38.98606557377049,
+        "homeCrps": 6.521997580778688,
+        "homeMae": 9.234121393442623,
+        "jointEnergy": 10.269634269835764,
+        "margin50Coverage": 0.5270491803278688,
+        "margin50Width": 18.138524590163936,
+        "margin80Coverage": 0.8147540983606557,
+        "margin80Width": 35.062295081967214,
+        "margin90Coverage": 0.9032786885245901,
+        "margin90Width": 46.165573770491804,
+        "marginCrps": 7.830885433081968,
+        "marginMae": 10.954206229508197,
+        "teamScoreMae": 9.291250245901638,
+        "total50Coverage": 0.5221311475409836,
+        "total50Width": 25.65655737704918,
+        "total80Coverage": 0.8262295081967214,
+        "total80Width": 49.24016393442623,
+        "total90Coverage": 0.9098360655737705,
+        "total90Width": 62.1172131147541,
+        "totalCrps": 10.527843568540984,
+        "totalMae": 14.905000819672134,
+        "winnerLogLoss": 0.6071580338602179
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "away50Coverage": 0.5418032786885246,
+        "away50Width": 16.254918032786886,
+        "away80Coverage": 0.8221311475409836,
+        "away80Width": 31.03688524590164,
+        "away90Coverage": 0.9229508196721311,
+        "away90Width": 39.83032786885246,
+        "awayCrps": 6.691473275057377,
+        "awayMae": 9.421686147540983,
+        "binaryBrier": 0.21613239114754096,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.023279508196721303,
+          "intercept": -0.0894953040218131,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 1,
+              "meanProbability": 0.1765,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 2,
+              "games": 84,
+              "meanProbability": 0.2591773809523809,
+              "observedHomeWinRate": 0.2976190476190476
+            },
+            {
+              "bin": 3,
+              "games": 154,
+              "meanProbability": 0.3508448051948052,
+              "observedHomeWinRate": 0.2922077922077922
+            },
+            {
+              "bin": 4,
+              "games": 213,
+              "meanProbability": 0.45314600938967137,
+              "observedHomeWinRate": 0.4131455399061033
+            },
+            {
+              "bin": 5,
+              "games": 269,
+              "meanProbability": 0.5505743494423793,
+              "observedHomeWinRate": 0.5390334572490706
+            },
+            {
+              "bin": 6,
+              "games": 204,
+              "meanProbability": 0.6469441176470587,
+              "observedHomeWinRate": 0.6323529411764706
+            },
+            {
+              "bin": 7,
+              "games": 173,
+              "meanProbability": 0.7507595375722544,
+              "observedHomeWinRate": 0.7514450867052023
+            },
+            {
+              "bin": 8,
+              "games": 112,
+              "meanProbability": 0.8477205357142857,
+              "observedHomeWinRate": 0.8482142857142857
+            },
+            {
+              "bin": 9,
+              "games": 10,
+              "meanProbability": 0.91902,
+              "observedHomeWinRate": 0.8
+            }
+          ],
+          "slope": 1.0353225269536064
+        },
+        "correctPickRate": 0.6557377049180327,
+        "games": 1220,
+        "home50Coverage": 0.5344262295081967,
+        "home50Width": 16.609016393442623,
+        "home80Coverage": 0.8327868852459016,
+        "home80Width": 31.068852459016394,
+        "home90Coverage": 0.9139344262295082,
+        "home90Width": 39.8672131147541,
+        "homeCrps": 6.60838730195082,
+        "homeMae": 9.332397868852459,
+        "jointEnergy": 10.39267650466014,
+        "margin50Coverage": 0.5237704918032787,
+        "margin50Width": 18.69672131147541,
+        "margin80Coverage": 0.8155737704918032,
+        "margin80Width": 35.56803278688525,
+        "margin90Coverage": 0.9040983606557377,
+        "margin90Width": 46.488524590163934,
+        "marginCrps": 8.041153431729507,
+        "marginMae": 11.325107459016394,
+        "teamScoreMae": 9.377042008196721,
+        "total50Coverage": 0.5352459016393443,
+        "total50Width": 25.963934426229507,
+        "total80Coverage": 0.8229508196721311,
+        "total80Width": 49.77950819672131,
+        "total90Coverage": 0.9204918032786885,
+        "total90Width": 63.751639344262294,
+        "totalCrps": 10.56006884535246,
+        "totalMae": 14.891795163934429,
+        "winnerLogLoss": 0.6213263893031016
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "away50Coverage": 0.5483606557377049,
+        "away50Width": 16.53032786885246,
+        "away80Coverage": 0.8377049180327869,
+        "away80Width": 31.395081967213116,
+        "away90Coverage": 0.9262295081967213,
+        "away90Width": 40.38934426229508,
+        "awayCrps": 6.603741267844263,
+        "awayMae": 9.325068934426229,
+        "binaryBrier": 0.2087411723114754,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.027178852459016356,
+          "intercept": -0.14487615617609415,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 5,
+              "meanProbability": 0.09016,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 29,
+              "meanProbability": 0.1666172413793103,
+              "observedHomeWinRate": 0.10344827586206896
+            },
+            {
+              "bin": 2,
+              "games": 73,
+              "meanProbability": 0.25903013698630134,
+              "observedHomeWinRate": 0.1917808219178082
+            },
+            {
+              "bin": 3,
+              "games": 138,
+              "meanProbability": 0.3518920289855072,
+              "observedHomeWinRate": 0.3115942028985507
+            },
+            {
+              "bin": 4,
+              "games": 172,
+              "meanProbability": 0.45031279069767444,
+              "observedHomeWinRate": 0.4186046511627907
+            },
+            {
+              "bin": 5,
+              "games": 248,
+              "meanProbability": 0.5493403225806451,
+              "observedHomeWinRate": 0.5443548387096774
+            },
+            {
+              "bin": 6,
+              "games": 200,
+              "meanProbability": 0.6481394999999999,
+              "observedHomeWinRate": 0.605
+            },
+            {
+              "bin": 7,
+              "games": 226,
+              "meanProbability": 0.7467030973451327,
+              "observedHomeWinRate": 0.7389380530973452
+            },
+            {
+              "bin": 8,
+              "games": 109,
+              "meanProbability": 0.8412770642201834,
+              "observedHomeWinRate": 0.8256880733944955
+            },
+            {
+              "bin": 9,
+              "games": 20,
+              "meanProbability": 0.91835,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 1.106763618293062
+        },
+        "correctPickRate": 0.6704918032786885,
+        "games": 1220,
+        "home50Coverage": 0.5401639344262295,
+        "home50Width": 16.427868852459017,
+        "home80Coverage": 0.8254098360655737,
+        "home80Width": 30.529508196721313,
+        "home90Coverage": 0.9073770491803279,
+        "home90Width": 39.48360655737705,
+        "homeCrps": 6.510972823598361,
+        "homeMae": 9.166076475409836,
+        "jointEnergy": 10.24082509705267,
+        "margin50Coverage": 0.5442622950819672,
+        "margin50Width": 18.809016393442622,
+        "margin80Coverage": 0.8262295081967214,
+        "margin80Width": 36.06393442622951,
+        "margin90Coverage": 0.9122950819672131,
+        "margin90Width": 47.16639344262295,
+        "marginCrps": 7.83323052585246,
+        "marginMae": 10.962933114754097,
+        "teamScoreMae": 9.245572704918033,
+        "total50Coverage": 0.5319672131147541,
+        "total50Width": 25.911475409836065,
+        "total80Coverage": 0.8262295081967214,
+        "total80Width": 49.63770491803279,
+        "total90Coverage": 0.9229508196721311,
+        "total90Width": 64.0622950819672,
+        "totalCrps": 10.481622778721311,
+        "totalMae": 14.733493278688526,
+        "winnerLogLoss": 0.6033726376850498
+      }
+    },
+    "2026": {
+      "GEN1_EXACT_RETAINED": {
+        "away50Coverage": 0.5330612244897959,
+        "away50Width": 15.852244897959183,
+        "away80Coverage": 0.8204081632653061,
+        "away80Width": 30.572244897959184,
+        "away90Coverage": 0.9093877551020408,
+        "away90Width": 39.10612244897959,
+        "awayCrps": 6.674183633102041,
+        "awayMae": 9.406552571428572,
+        "binaryBrier": 0.20590038760816326,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.021371265306122433,
+          "intercept": -0.10504477013272734,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 1,
+              "meanProbability": 0.0811,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 30,
+              "meanProbability": 0.16172999999999996,
+              "observedHomeWinRate": 0.03333333333333333
+            },
+            {
+              "bin": 2,
+              "games": 87,
+              "meanProbability": 0.2554137931034483,
+              "observedHomeWinRate": 0.19540229885057472
+            },
+            {
+              "bin": 3,
+              "games": 128,
+              "meanProbability": 0.357925,
+              "observedHomeWinRate": 0.3203125
+            },
+            {
+              "bin": 4,
+              "games": 187,
+              "meanProbability": 0.4536925133689839,
+              "observedHomeWinRate": 0.44919786096256686
+            },
+            {
+              "bin": 5,
+              "games": 221,
+              "meanProbability": 0.5505909502262444,
+              "observedHomeWinRate": 0.5248868778280543
+            },
+            {
+              "bin": 6,
+              "games": 225,
+              "meanProbability": 0.6477964444444445,
+              "observedHomeWinRate": 0.6577777777777778
+            },
+            {
+              "bin": 7,
+              "games": 218,
+              "meanProbability": 0.7459096330275229,
+              "observedHomeWinRate": 0.7522935779816514
+            },
+            {
+              "bin": 8,
+              "games": 112,
+              "meanProbability": 0.845542857142857,
+              "observedHomeWinRate": 0.8303571428571429
+            },
+            {
+              "bin": 9,
+              "games": 16,
+              "meanProbability": 0.9155,
+              "observedHomeWinRate": 0.9375
+            }
+          ],
+          "slope": 1.133088543856969
+        },
+        "correctPickRate": 0.6742857142857143,
+        "games": 1225,
+        "home50Coverage": 0.506938775510204,
+        "home50Width": 16.26938775510204,
+        "home80Coverage": 0.7885714285714286,
+        "home80Width": 30.357551020408163,
+        "home90Coverage": 0.9004081632653061,
+        "home90Width": 38.96163265306122,
+        "homeCrps": 6.945073120555103,
+        "homeMae": 9.772516408163265,
+        "jointEnergy": 10.62239202441083,
+        "margin50Coverage": 0.5102040816326531,
+        "margin50Width": 18.162448979591836,
+        "margin80Coverage": 0.7853061224489796,
+        "margin80Width": 35.31428571428572,
+        "margin90Coverage": 0.8955102040816326,
+        "margin90Width": 46.369795918367345,
+        "marginCrps": 8.164264005689795,
+        "marginMae": 11.39169118367347,
+        "teamScoreMae": 9.589534489795918,
+        "total50Coverage": 0.5151020408163265,
+        "total50Width": 25.562448979591835,
+        "total80Coverage": 0.8155102040816327,
+        "total80Width": 49.12816326530612,
+        "total90Coverage": 0.893061224489796,
+        "total90Width": 62.17469387755102,
+        "totalCrps": 10.82066474777959,
+        "totalMae": 15.188672408163262,
+        "winnerLogLoss": 0.5985373972245525
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "away50Coverage": 0.5322448979591837,
+        "away50Width": 16.17469387755102,
+        "away80Coverage": 0.8244897959183674,
+        "away80Width": 31.095510204081634,
+        "away90Coverage": 0.916734693877551,
+        "away90Width": 39.67836734693878,
+        "awayCrps": 6.640855409983674,
+        "awayMae": 9.354336734693877,
+        "binaryBrier": 0.20780326832653062,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.026073469387755073,
+          "intercept": -0.04303321969706246,
+          "reliability": [
+            {
+              "bin": 1,
+              "games": 22,
+              "meanProbability": 0.18235454545454546,
+              "observedHomeWinRate": 0.2727272727272727
+            },
+            {
+              "bin": 2,
+              "games": 123,
+              "meanProbability": 0.2539821138211382,
+              "observedHomeWinRate": 0.15447154471544716
+            },
+            {
+              "bin": 3,
+              "games": 138,
+              "meanProbability": 0.35370144927536235,
+              "observedHomeWinRate": 0.35507246376811596
+            },
+            {
+              "bin": 4,
+              "games": 171,
+              "meanProbability": 0.4493812865497076,
+              "observedHomeWinRate": 0.47953216374269003
+            },
+            {
+              "bin": 5,
+              "games": 238,
+              "meanProbability": 0.5528537815126051,
+              "observedHomeWinRate": 0.5630252100840336
+            },
+            {
+              "bin": 6,
+              "games": 193,
+              "meanProbability": 0.6515341968911916,
+              "observedHomeWinRate": 0.6424870466321243
+            },
+            {
+              "bin": 7,
+              "games": 193,
+              "meanProbability": 0.750061139896373,
+              "observedHomeWinRate": 0.7202072538860104
+            },
+            {
+              "bin": 8,
+              "games": 144,
+              "meanProbability": 0.8391361111111111,
+              "observedHomeWinRate": 0.8541666666666666
+            },
+            {
+              "bin": 9,
+              "games": 3,
+              "meanProbability": 0.9087000000000001,
+              "observedHomeWinRate": 1.0
+            }
+          ],
+          "slope": 1.063761222153627
+        },
+        "correctPickRate": 0.6702040816326531,
+        "games": 1225,
+        "home50Coverage": 0.5102040816326531,
+        "home50Width": 16.587755102040816,
+        "home80Coverage": 0.7918367346938775,
+        "home80Width": 30.94448979591837,
+        "home90Coverage": 0.8987755102040816,
+        "home90Width": 39.82448979591837,
+        "homeCrps": 7.069993809306123,
+        "homeMae": 9.997200163265306,
+        "jointEnergy": 10.703486837916218,
+        "margin50Coverage": 0.5077551020408163,
+        "margin50Width": 18.733061224489795,
+        "margin80Coverage": 0.7836734693877551,
+        "margin80Width": 35.602448979591834,
+        "margin90Coverage": 0.8971428571428571,
+        "margin90Width": 46.62122448979592,
+        "marginCrps": 8.23058857427755,
+        "marginMae": 11.49282718367347,
+        "teamScoreMae": 9.675768448979593,
+        "total50Coverage": 0.5134693877551021,
+        "total50Width": 25.780408163265307,
+        "total80Coverage": 0.8106122448979591,
+        "total80Width": 49.693061224489796,
+        "total90Coverage": 0.8979591836734694,
+        "total90Width": 63.292244897959186,
+        "totalCrps": 10.916690737134694,
+        "totalMae": 15.444529224489795,
+        "winnerLogLoss": 0.6026399461097359
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "away50Coverage": 0.5420408163265306,
+        "away50Width": 16.431836734693878,
+        "away80Coverage": 0.8261224489795919,
+        "away80Width": 31.146122448979593,
+        "away90Coverage": 0.92,
+        "away90Width": 40.01632653061225,
+        "awayCrps": 6.617249724865306,
+        "awayMae": 9.344781224489797,
+        "binaryBrier": 0.20687418460408163,
+        "calibration": {
+          "expectedCalibrationError10Bins": 0.012869061224489836,
+          "intercept": -0.03191829121794961,
+          "reliability": [
+            {
+              "bin": 0,
+              "games": 5,
+              "meanProbability": 0.0787,
+              "observedHomeWinRate": 0.0
+            },
+            {
+              "bin": 1,
+              "games": 50,
+              "meanProbability": 0.17008399999999999,
+              "observedHomeWinRate": 0.14
+            },
+            {
+              "bin": 2,
+              "games": 89,
+              "meanProbability": 0.25713258426966296,
+              "observedHomeWinRate": 0.21348314606741572
+            },
+            {
+              "bin": 3,
+              "games": 129,
+              "meanProbability": 0.3518449612403101,
+              "observedHomeWinRate": 0.3488372093023256
+            },
+            {
+              "bin": 4,
+              "games": 193,
+              "meanProbability": 0.45146632124352337,
+              "observedHomeWinRate": 0.45077720207253885
+            },
+            {
+              "bin": 5,
+              "games": 204,
+              "meanProbability": 0.5507053921568626,
+              "observedHomeWinRate": 0.5637254901960784
+            },
+            {
+              "bin": 6,
+              "games": 212,
+              "meanProbability": 0.6500212264150943,
+              "observedHomeWinRate": 0.6509433962264151
+            },
+            {
+              "bin": 7,
+              "games": 208,
+              "meanProbability": 0.7461552884615383,
+              "observedHomeWinRate": 0.7548076923076923
+            },
+            {
+              "bin": 8,
+              "games": 111,
+              "meanProbability": 0.8439783783783783,
+              "observedHomeWinRate": 0.8108108108108109
+            },
+            {
+              "bin": 9,
+              "games": 24,
+              "meanProbability": 0.9220083333333333,
+              "observedHomeWinRate": 0.875
+            }
+          ],
+          "slope": 1.0306319613130879
+        },
+        "correctPickRate": 0.676734693877551,
+        "games": 1225,
+        "home50Coverage": 0.5044897959183674,
+        "home50Width": 16.39673469387755,
+        "home80Coverage": 0.7991836734693878,
+        "home80Width": 30.441632653061223,
+        "home90Coverage": 0.9061224489795918,
+        "home90Width": 39.57877551020408,
+        "homeCrps": 6.88471392649796,
+        "homeMae": 9.710160489795918,
+        "jointEnergy": 10.536198374523698,
+        "margin50Coverage": 0.5208163265306123,
+        "margin50Width": 18.740408163265307,
+        "margin80Coverage": 0.7926530612244898,
+        "margin80Width": 35.82775510204082,
+        "margin90Coverage": 0.8995918367346939,
+        "margin90Width": 46.922448979591834,
+        "marginCrps": 8.17999289924898,
+        "marginMae": 11.43287151020408,
+        "teamScoreMae": 9.527470857142857,
+        "total50Coverage": 0.52,
+        "total50Width": 25.816326530612244,
+        "total80Coverage": 0.8244897959183674,
+        "total80Width": 49.55510204081633,
+        "total90Coverage": 0.9069387755102041,
+        "total90Width": 63.59918367346939,
+        "totalCrps": 10.657308504065307,
+        "totalMae": 14.983486204081629,
+        "winnerLogLoss": 0.6005151286284887
+      }
+    }
+  },
+  "modelReceipts": [
+    {
+      "assessmentGames": 1080,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "e479f14a2535d27ec6b6ccdfb6a0bcc018a64c22c7eca387d2c181bc01da6d1e",
+      "physicalSha256": "13292fee0c5d54be7716dd7892d0b3436d0d1c9276cbc56e00ee55885a74d23c",
+      "targetSeason": 2021,
+      "trainingGames": 964
+    },
+    {
+      "assessmentGames": 1230,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "83bc58fd8c174dd024f4de474569756893f4587020b24ed2407ae694d2008ab9",
+      "physicalSha256": "817cf4122c16072ed37584639cbf6ef9731ee0bb2513d3c0c80aa2d83b3e047c",
+      "targetSeason": 2022,
+      "trainingGames": 2044
+    },
+    {
+      "assessmentGames": 1228,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "1f42def4e5f25a89a2d52795a697bc26ade724c151e22e5577ab0ce21f6a5e8e",
+      "physicalSha256": "4646a8beb89f580919fb2155bb4b9aee7fa874eacc176c7ec7b77f14957048ef",
+      "targetSeason": 2023,
+      "trainingGames": 3274
+    },
+    {
+      "assessmentGames": 1225,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "18aa75425fae27e87d02e46ac8ae0e232131ad350eb76df69ec0bdf0e7669816",
+      "physicalSha256": "4e538457ce09bb7f70425358783a48304dfde9576f4e8bc5893363cfb71bdf7e",
+      "targetSeason": 2024,
+      "trainingGames": 4502
+    },
+    {
+      "assessmentGames": 1220,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "e2831a5664dd03547d822d333b1220645918e45138ac6b7f0fc8f6ce955bbb49",
+      "physicalSha256": "c799bef5927f9611731398b4b10d0775c5c234e4670cd0ac5ad2a984552e56f5",
+      "targetSeason": 2025,
+      "trainingGames": 5727
+    },
+    {
+      "assessmentGames": 1225,
+      "bytes": 19360,
+      "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+      "modelIdentity": "40bf56300cf4e02c6c42d77e556ab3ecb231aa2674fee626bbd1e4af351de2fd",
+      "physicalSha256": "e27790206848bc70ed01b20bc802b2b96abf90a984a61ce154a954a4f13e3e33",
+      "targetSeason": 2026,
+      "trainingGames": 6947
+    },
+    {
+      "assessmentGames": 1080,
+      "bytes": 1351566,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "849850780589aa9dfb2422f592e5b387c122b8444f6aa1719df06d5e295e099c",
+      "physicalSha256": "ede6dce78053570a0b5a5deb872171094427ed5713aac9ae84080ac7938aa41e",
+      "targetSeason": 2021,
+      "trainingGames": 964
+    },
+    {
+      "assessmentGames": 1230,
+      "bytes": 1364398,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "715d385a0e2692a216f0aea2cf472e8d0e9225ef17a67d8a1529f1d7e0edf35e",
+      "physicalSha256": "6594d4846ebb8dab93194ede05b1d85671bf167982c299c0d686e165c59edb07",
+      "targetSeason": 2022,
+      "trainingGames": 2044
+    },
+    {
+      "assessmentGames": 1228,
+      "bytes": 1367022,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "4f185fb09c0982ee59ffb9c1fb91d9d22e5f7d5ccb917565bdf52b2291f61bac",
+      "physicalSha256": "3454955f9fa42c0aa10526cd9304036bef745cb5c47ce071804fa6a0b8505a2b",
+      "targetSeason": 2023,
+      "trainingGames": 3274
+    },
+    {
+      "assessmentGames": 1225,
+      "bytes": 1368878,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "9f9053cf56c665ea47bf8fecc7c6392a3f5cd5dfb34fce34b1d0839154eb3a54",
+      "physicalSha256": "b37727fdd523a0f9a5aa543245753676cb72748805cc73879fcedd54d601ef93",
+      "targetSeason": 2024,
+      "trainingGames": 4502
+    },
+    {
+      "assessmentGames": 1220,
+      "bytes": 1370798,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "a07f48521c8e4b330b27a3beac101d33fa5e17a69316da0d1050c859033ae790",
+      "physicalSha256": "b25a050524fab4a87895d2265b0f3cd789fdf189479e5c9a7bd40fa2957a69f4",
+      "targetSeason": 2025,
+      "trainingGames": 5727
+    },
+    {
+      "assessmentGames": 1225,
+      "bytes": 1371054,
+      "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+      "modelIdentity": "90d2cfdae95eaf4437fda40f583722cb8cb11151d28b37e2d096c2a5088cc374",
+      "physicalSha256": "18cd16c0b4cb97e0dd5bc716bf7e2c0455c51aedd1c8912fa8924b5c64fed2ac",
+      "targetSeason": 2026,
+      "trainingGames": 6947
+    }
+  ],
+  "overtimeSensitivity": {
+    "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "overtime": {
+        "games": 309,
+        "jointEnergy": 13.095347454225827,
+        "marginCrps": 4.768711423009709,
+        "totalCrps": 17.528080416278318
+      },
+      "regulation": {
+        "games": 5819,
+        "jointEnergy": 10.333703328484951,
+        "marginCrps": 8.155834696250215,
+        "totalCrps": 10.3618898270287
+      },
+      "tieResolution": {
+        "meanAwayScoreChange": 0.30264766644908625,
+        "meanHomeScoreChange": 0.3165909921671018,
+        "meanRawTieFraction": 0.02566504569190601
+      }
+    },
+    "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "overtime": {
+        "games": 309,
+        "jointEnergy": 13.151511589603539,
+        "marginCrps": 4.9881490786407765,
+        "totalCrps": 17.48048995158576
+      },
+      "regulation": {
+        "games": 5819,
+        "jointEnergy": 10.24852679237461,
+        "marginCrps": 8.131070551010483,
+        "totalCrps": 10.229110949429455
+      },
+      "tieResolution": {
+        "meanAwayScoreChange": 0.29312811684073115,
+        "meanHomeScoreChange": 0.30648231070496074,
+        "meanRawTieFraction": 0.024844223237597916
+      }
+    }
+  },
+  "pairedResults": {
+    "2022:GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.006995109861788616,
+        "marginCrps": 0.17190937800813005,
+        "marginMae": 0.2994473983739837,
+        "teamScoreMae": 0.1907727235772357,
+        "totalCrps": 0.20784830147154468,
+        "totalMae": 0.28374577235772336,
+        "winnerLogLoss": 0.01481745402506894
+      },
+      "games": 1230,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": 0.22141744075273664,
+        "interval95": [
+          0.0741406231737778,
+          0.3605899587775594
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2022:GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.009328864609756096,
+        "marginCrps": 0.2719564424715447,
+        "marginMae": 0.5009089430894309,
+        "teamScoreMae": 0.277750243902439,
+        "totalCrps": 0.23648922923577229,
+        "totalMae": 0.35990764227642325,
+        "winnerLogLoss": 0.02038539423025235
+      },
+      "games": 1230,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": 0.29632499991176714,
+        "interval95": [
+          0.18660541953166515,
+          0.40823460337823636
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2023:GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.0012907490390879487,
+        "marginCrps": 0.08273888724755697,
+        "marginMae": 0.09025456026058633,
+        "teamScoreMae": -0.0970319218241042,
+        "totalCrps": -0.16857191747557004,
+        "totalMae": -0.3049425081433227,
+        "winnerLogLoss": 0.0026134962828633194
+      },
+      "games": 1228,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": -0.05940763878371704,
+        "interval95": [
+          -0.16067093333652493,
+          0.0358339894190235
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2023:GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.0012023238599348529,
+        "marginCrps": 0.13057325350977197,
+        "marginMae": 0.07841376221498372,
+        "teamScoreMae": -0.0023492263843647282,
+        "totalCrps": -0.1594561151872964,
+        "totalMae": -0.1465238599348535,
+        "winnerLogLoss": 0.0018145293236287118
+      },
+      "games": 1228,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": -0.023011004950270766,
+        "interval95": [
+          -0.13136262472334018,
+          0.08575311567202601
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2024:GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": -9.119069387754018e-06,
+        "marginCrps": 0.04661311637551013,
+        "marginMae": 0.03311053061224486,
+        "teamScoreMae": 0.20526440816326527,
+        "totalCrps": 0.2555101951999999,
+        "totalMae": 0.4323245714285718,
+        "winnerLogLoss": 0.0006894101066882931
+      },
+      "games": 1225,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": 0.18262721563924839,
+        "interval95": [
+          0.0740801458906281,
+          0.29145101503801546
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2024:GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.0020069148571428583,
+        "marginCrps": 0.09359338613877545,
+        "marginMae": 0.1762362448979591,
+        "teamScoreMae": 0.010810857142857141,
+        "totalCrps": -0.0876088675755102,
+        "totalMae": -0.059264489795918036,
+        "winnerLogLoss": 0.004347001262781218
+      },
+      "games": 1225,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": -0.0009906006631977408,
+        "interval95": [
+          -0.0857977071316895,
+          0.08573593959549666
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2025:GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.006032071336065574,
+        "marginCrps": 0.21026799864754095,
+        "marginMae": 0.3709012295081967,
+        "teamScoreMae": 0.08579176229508191,
+        "totalCrps": 0.03222527681147541,
+        "totalMae": -0.01320565573770542,
+        "winnerLogLoss": 0.014168355442883631
+      },
+      "games": 1220,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": 0.12304223482437322,
+        "interval95": [
+          0.030544198713750786,
+          0.21500257565712627
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2025:GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": -0.001359147500000001,
+        "marginCrps": 0.002345092770491837,
+        "marginMae": 0.00872688524590165,
+        "teamScoreMae": -0.04567754098360642,
+        "totalCrps": -0.04622078981967216,
+        "totalMae": -0.17150754098360657,
+        "winnerLogLoss": -0.003785396175168104
+      },
+      "games": 1220,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": -0.028809172783094632,
+        "interval95": [
+          -0.11881849067209166,
+          0.06812624501842693
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2026:GEN2_HGB_L2_10_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.0019028807183673483,
+        "marginCrps": 0.06632456858775505,
+        "marginMae": 0.10113599999999999,
+        "teamScoreMae": 0.08623395918367334,
+        "totalCrps": 0.09602598935510195,
+        "totalMae": 0.25585681632653096,
+        "winnerLogLoss": 0.004102548885183459
+      },
+      "games": 1225,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": 0.08109481350538672,
+        "interval95": [
+          -0.029609459138037083,
+          0.1916312109610339
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    },
+    "2026:GEN2_RIDGE_A100_TEAM_BOX_V1": {
+      "candidateMinusBaseline": {
+        "binaryBrier": 0.0009737969959183679,
+        "marginCrps": 0.015728893559183683,
+        "marginMae": 0.04118032653061226,
+        "teamScoreMae": -0.062063632653061356,
+        "totalCrps": -0.16335624371428575,
+        "totalMae": -0.2051862040816329,
+        "winnerLogLoss": 0.0019777314039362893
+      },
+      "games": 1225,
+      "jointEnergy": {
+        "calendarWeeks": 25,
+        "difference": -0.08619364988713245,
+        "interval95": [
+          -0.1538318098247887,
+          -0.014182960686476434
+        ],
+        "replicates": 2000,
+        "seed": 731201
+      }
+    }
+  },
+  "pointResults": {
+    "2021": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 10.182686541439129,
+        "games": 1080,
+        "homeMae": 9.878549518452228,
+        "marginMae": 11.357706987372271,
+        "teamScoreMae": 10.030618029945678,
+        "teamScoreMse": 157.3477883162246,
+        "totalMae": 16.324851904249435
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.708583489402558,
+        "games": 1080,
+        "homeMae": 10.138580488184616,
+        "marginMae": 11.854932101302008,
+        "teamScoreMae": 9.923581988793588,
+        "teamScoreMse": 153.20718115795447,
+        "totalMae": 15.709470371710692
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 10.249336738183306,
+        "games": 1080,
+        "homeMae": 9.976521008056277,
+        "marginMae": 11.849014602415465,
+        "teamScoreMae": 10.112928873119792,
+        "teamScoreMse": 160.27793991315494,
+        "totalMae": 16.137614389439303
+      }
+    },
+    "2022": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 9.69620754807435,
+        "games": 1230,
+        "homeMae": 9.237205728000877,
+        "marginMae": 11.282138488423119,
+        "teamScoreMae": 9.466706638037614,
+        "teamScoreMse": 141.07276623033823,
+        "totalMae": 14.950777516486887
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.693032478872052,
+        "games": 1230,
+        "homeMae": 9.582490590574235,
+        "marginMae": 11.585050350709729,
+        "teamScoreMae": 9.637761534723142,
+        "teamScoreMse": 146.2989030203196,
+        "totalMae": 15.185447571135922
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 10.057095295688324,
+        "games": 1230,
+        "homeMae": 9.350900872887602,
+        "marginMae": 11.788262639659278,
+        "teamScoreMae": 9.703998084287964,
+        "teamScoreMse": 147.8973709296998,
+        "totalMae": 15.188013145139632
+      }
+    },
+    "2023": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 9.002341235186028,
+        "games": 1228,
+        "homeMae": 9.455687026795122,
+        "marginMae": 10.25541622651513,
+        "teamScoreMae": 9.229014130990574,
+        "teamScoreMse": 136.0440604424449,
+        "totalMae": 15.101941786949912
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.012792035154717,
+        "games": 1228,
+        "homeMae": 9.268461486226933,
+        "marginMae": 10.34689222035744,
+        "teamScoreMae": 9.140626760690825,
+        "teamScoreMse": 134.97330451034946,
+        "totalMae": 14.83303930889914
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 9.043065091340328,
+        "games": 1228,
+        "homeMae": 9.429760433070046,
+        "marginMae": 10.348197786139977,
+        "teamScoreMae": 9.236412762205187,
+        "teamScoreMse": 135.09219655159848,
+        "totalMae": 14.951791984287624
+      }
+    },
+    "2024": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 9.251474053746726,
+        "games": 1225,
+        "homeMae": 9.429792224414317,
+        "marginMae": 11.155613592310809,
+        "teamScoreMae": 9.34063313908052,
+        "teamScoreMse": 136.33884815607934,
+        "totalMae": 14.802251532966798
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.490541687695604,
+        "games": 1225,
+        "homeMae": 9.546762555646543,
+        "marginMae": 11.195217860122652,
+        "teamScoreMae": 9.518652121671074,
+        "teamScoreMse": 141.03274787836386,
+        "totalMae": 15.16333840009539
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 9.297163469260354,
+        "games": 1225,
+        "homeMae": 9.394812717935498,
+        "marginMae": 11.337986672107153,
+        "teamScoreMae": 9.345988093597926,
+        "teamScoreMse": 135.60676175411592,
+        "totalMae": 14.706495608204829
+      }
+    },
+    "2025": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 9.349014944075087,
+        "games": 1220,
+        "homeMae": 9.228888773975251,
+        "marginMae": 10.95650616236181,
+        "teamScoreMae": 9.28895185902517,
+        "teamScoreMse": 135.76470036785736,
+        "totalMae": 14.904293859488718
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.447458768706184,
+        "games": 1220,
+        "homeMae": 9.337112079843058,
+        "marginMae": 11.32298471914138,
+        "teamScoreMae": 9.39228542427462,
+        "teamScoreMse": 139.24852191361038,
+        "totalMae": 14.94080582448857
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 9.367384747414766,
+        "games": 1220,
+        "homeMae": 9.19057785369401,
+        "marginMae": 10.971306756974135,
+        "teamScoreMae": 9.278981300554388,
+        "teamScoreMse": 135.8555652255857,
+        "totalMae": 14.802906314737236
+      }
+    },
+    "2026": {
+      "GEN1_EXACT_RETAINED": {
+        "awayMae": 9.406382801058996,
+        "games": 1225,
+        "homeMae": 9.770696070385295,
+        "marginMae": 11.393162772216082,
+        "teamScoreMae": 9.588539435722145,
+        "teamScoreMse": 145.5257017225099,
+        "totalMae": 15.177922807191838
+      },
+      "GEN2_HGB_L2_10_TEAM_BOX_V1": {
+        "awayMae": 9.348208057334164,
+        "games": 1225,
+        "homeMae": 9.9716359128817,
+        "marginMae": 11.490783167866203,
+        "teamScoreMae": 9.659921985107934,
+        "teamScoreMse": 147.22983087094633,
+        "totalMae": 15.386041914444435
+      },
+      "GEN2_RIDGE_A100_TEAM_BOX_V1": {
+        "awayMae": 9.363832988121947,
+        "games": 1225,
+        "homeMae": 9.70480503981085,
+        "marginMae": 11.439227809310403,
+        "teamScoreMae": 9.5343190139664,
+        "teamScoreMse": 143.0053868958184,
+        "totalMae": 14.988456165582846
+      }
+    }
+  },
+  "populationAudit": {
+    "derivedMinutesRows": 20448,
+    "duplicateTeamGameKeys": 0,
+    "evidenceClass": "CATEGORY_A_RECONSTRUCTED_HISTORICAL_EVIDENCE",
+    "games": 10224,
+    "historicalVintageCertified": false,
+    "integrityQuarantineGameIds": [
+      "401704652"
+    ],
+    "integrityQuarantineRule": "Preserve raw bytes; exclude complete game before any feature-history update; never infer component stats from final score.",
+    "nonFranchiseExhibitionGameIds": [
+      "401098037",
+      "401098038",
+      "401197813",
+      "401197814",
+      "401306581",
+      "401410564",
+      "401524696",
+      "401623259",
+      "401752955",
+      "401752956",
+      "401752957",
+      "401838140",
+      "401838141",
+      "401838142",
+      "401838143"
+    ],
+    "nonFranchiseExhibitionRule": "Exclude non-NBA team codes before regular-season modeling even when source season_type is 2.",
+    "objects": [
+      {
+        "bytes": 152257,
+        "kind": "team_box",
+        "rows": 2628,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2019,
+        "sha256": "3f3f15ccfd1f676e0aaf5bfbdb8fd5cd69f9a21a4961cd4f6337d857593c788a"
+      },
+      {
+        "bytes": 136914,
+        "kind": "team_box",
+        "rows": 2290,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2020,
+        "sha256": "e96bec73056f08ce21bce63ca6d329fc1cf62d7229608d949bfce102df01b56a"
+      },
+      {
+        "bytes": 123317,
+        "kind": "team_box",
+        "rows": 2332,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2021,
+        "sha256": "56e59fe9062942933c708ae4ba2172ec4dda055de9c6a3409f0816ac363fdd58"
+      },
+      {
+        "bytes": 136075,
+        "kind": "team_box",
+        "rows": 2648,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2022,
+        "sha256": "f8185936836a81240d6f170ec7afeab47e3e736a718fe2c9f72999e681434b7f"
+      },
+      {
+        "bytes": 136082,
+        "kind": "team_box",
+        "rows": 2642,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2023,
+        "sha256": "b86bb087fe57eeeacead4e27965a20d1e67fdb39a3ee2ca36294a0b7d014e9b6"
+      },
+      {
+        "bytes": 135889,
+        "kind": "team_box",
+        "rows": 2640,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2024,
+        "sha256": "5e4d1b7a2ccc287f212f65888dcd674e370adec8a0e32d7ae0825eecacaaa8a9"
+      },
+      {
+        "bytes": 136502,
+        "kind": "team_box",
+        "rows": 2648,
+        "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+        "seasonEndYear": 2025,
+        "sha256": "f735bf3b743618e50987f3e3e296734e1dba43c450a21af848d7c34f23bf2aee"
+      },
+      {
+        "bytes": 140628,
+        "kind": "team_box",
+        "rows": 2652,
+        "schemaFingerprint": "a17878811f258382d41828d4379408d28aa54796912b03a436d1db746c361fa7",
+        "seasonEndYear": 2026,
+        "sha256": "db846dfb39b0f75eee50ad91b1b5b7a7a62dd31d3ec0bb066a0a3bb08e366f7e"
+      },
+      {
+        "bytes": 89329,
+        "kind": "schedule",
+        "rows": 1314,
+        "schemaFingerprint": "ab71c32e5ebe3403787cded7f3ab1a267f5aa433b31939d747587ca86e722742",
+        "seasonEndYear": 2019,
+        "sha256": "f00e6ac49c47ac34168f0b932fad74b0b17f03230b39e67eaf02424e3109eae3"
+      },
+      {
+        "bytes": 137301,
+        "kind": "schedule",
+        "rows": 1157,
+        "schemaFingerprint": "1b263f174c6d184bcc84bbd31260373df5d5cf480e3cc85f2815e5e6cb5be95e",
+        "seasonEndYear": 2020,
+        "sha256": "402485c4c3638838eade99aeba795bc0dda869c29089a5062baa28a34bd3b752"
+      },
+      {
+        "bytes": 130148,
+        "kind": "schedule",
+        "rows": 1204,
+        "schemaFingerprint": "522e1b733ad83a7abcd5c465b7dbd570672c9a48932ec98afc89a3d82e811ed0",
+        "seasonEndYear": 2021,
+        "sha256": "0c2eab5b22cc956646ac0351ddf6110d9527e46f4ee4d9200bf2945051688392"
+      },
+      {
+        "bytes": 140437,
+        "kind": "schedule",
+        "rows": 1335,
+        "schemaFingerprint": "ee2a569c8f9052cb63b369aae54a70795ecbbe07cfada58ba354a86c636745e5",
+        "seasonEndYear": 2022,
+        "sha256": "e3a764147f108c6fb3883eaa5617234ab41aa95e668dd7eb9506616c8a953d2f"
+      },
+      {
+        "bytes": 138092,
+        "kind": "schedule",
+        "rows": 1322,
+        "schemaFingerprint": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+        "seasonEndYear": 2023,
+        "sha256": "9532db81a254b2ea9982111fbea970bb61ea34b6aa3fc4607b2cad17ba55c60b"
+      },
+      {
+        "bytes": 143706,
+        "kind": "schedule",
+        "rows": 1322,
+        "schemaFingerprint": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+        "seasonEndYear": 2024,
+        "sha256": "2069783562b531b91ee9ad6a85358761ad6a611ce3291a60ed124bb978969b63"
+      },
+      {
+        "bytes": 151821,
+        "kind": "schedule",
+        "rows": 1329,
+        "schemaFingerprint": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+        "seasonEndYear": 2025,
+        "sha256": "239829fdcf99629ee682bca4d6d0a6709b3c095be39c39f425664754ae1a979e"
+      },
+      {
+        "bytes": 525802,
+        "kind": "schedule",
+        "rows": 1330,
+        "schemaFingerprint": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+        "seasonEndYear": 2026,
+        "sha256": "b3884aa4aa276d1fcafc71b69394675904a968902068bff634932e5d7afacae4"
+      }
+    ],
+    "opponentScoreFailures": 0,
+    "orphanOpponentJoins": 0,
+    "orphanScheduleRows": 0,
+    "otherExcludedGames": 31,
+    "overtimeGames": 537,
+    "overtimePeriodEvidenceRows": 520,
+    "playoffGames": 672,
+    "populationIdentitySha256": "dfb3216a9c7b520d8d6368d7d72eeb60c6566bfd1ea8811a27c9c419aaa74fa2",
+    "regularSeasonGames": 9521,
+    "schemaBySeason": {
+      "2019": {
+        "schedule": "ab71c32e5ebe3403787cded7f3ab1a267f5aa433b31939d747587ca86e722742",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2020": {
+        "schedule": "1b263f174c6d184bcc84bbd31260373df5d5cf480e3cc85f2815e5e6cb5be95e",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2021": {
+        "schedule": "522e1b733ad83a7abcd5c465b7dbd570672c9a48932ec98afc89a3d82e811ed0",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2022": {
+        "schedule": "ee2a569c8f9052cb63b369aae54a70795ecbbe07cfada58ba354a86c636745e5",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2023": {
+        "schedule": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2024": {
+        "schedule": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2025": {
+        "schedule": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+        "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+      },
+      "2026": {
+        "schedule": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+        "team_box": "a17878811f258382d41828d4379408d28aa54796912b03a436d1db746c361fa7"
+      }
+    },
+    "schemaVersion": "nba-gen2-team-box-population-audit-v1",
+    "scoreFormulaFailures": 2,
+    "sourceContentIdentitySha256": "d83dd021781f324788786b10cc720fb5b8f16d3c379fa3bdd2745f191b167912",
+    "sourceReceiptPhysicalSha256": "6b782c6eef517cfed50bc5f6044ab36a60f3cac502127005b751b90b6875a9b8",
+    "teamRows": 20448,
+    "totalReboundIdentity": {
+      "componentDefinition": "offensive_rebounds + defensive_rebounds",
+      "definition": "source-defined total_rebounds preserved separately; no equality requirement",
+      "differentRows": 5459,
+      "equalRows": 14989,
+      "featureUse": "OREB and DREB directly; total_rebounds excluded from four-factor features",
+      "maximumDifference": 24.0,
+      "medianDifference": 0.0,
+      "minimumDifference": 0.0,
+      "seasonsWithDifferences": [
+        2019,
+        2020,
+        2021
+      ]
+    }
+  },
+  "schemaVersion": "nba-gen2-production-readiness-assessment-v1",
+  "selectedProductionBaseline": "NBA_GEN1_PRODUCTION_BASELINE_V1",
+  "startedAtUtc": "2026-09-18T00:37:27.760069+00:00"
+}

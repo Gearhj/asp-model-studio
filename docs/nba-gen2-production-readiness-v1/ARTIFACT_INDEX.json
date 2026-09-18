@@ -1,0 +1,96 @@
+{
+  "acquisitionReceiptPhysicalSha256": "6b782c6eef517cfed50bc5f6044ab36a60f3cac502127005b751b90b6875a9b8",
+  "acquisitionSuccessor": {
+    "contentIdentitySha256": "99d2bc8518a81f6415d412267b4e53d0e5d00231f1e3c17f6b8086cb31128558",
+    "physicalSha256": "763cf7d0fb1321b81b8f3e8eb37f18fa6aba61ebac7aa12bc7c21867bff0590d"
+  },
+  "assessmentIdentitySha256": "4f95c4b039378659f3f7aa37645ebefb1ca765a375fac53495001bf33dbe75e0",
+  "disposition": "GEN1_REMAINS_BASELINE",
+  "documents": [
+    {
+      "bytes": 1012,
+      "path": "docs/nba-gen2-production-readiness-v1/ACQUISITION_ADDENDUM.json",
+      "physicalSha256": "3573e63a249803a05d07fdeba4f52acad28ecfe48f80bf7664f308193c2a19a2"
+    },
+    {
+      "bytes": 1321,
+      "path": "docs/nba-gen2-production-readiness-v1/ACQUISITION_AUTHORIZATION_SUCCESSOR.json",
+      "physicalSha256": "184b7af9bef0f05b559dd14130cd3b25eda303542697f92b947494fb26f3b804"
+    },
+    {
+      "bytes": 1299,
+      "path": "docs/nba-gen2-production-readiness-v1/ACQUISITION_PLAN.json",
+      "physicalSha256": "36d5ac0dbff6735d9eee4b7b8c931d4425cffba6ec7945f34e8ac11e9a3ceb75"
+    },
+    {
+      "bytes": 5929,
+      "path": "docs/nba-gen2-production-readiness-v1/ACQUISITION_SUCCESSOR_RECEIPT.json",
+      "physicalSha256": "9f66f202af07c3881fb6f0968316ca84ee0752444b95bcc29ed43952f2b58b97"
+    },
+    {
+      "bytes": 91808,
+      "path": "docs/nba-gen2-production-readiness-v1/ASSESSMENT.json",
+      "physicalSha256": "96907cd690878071c9c23f35f420771f52de5a18e613786e9a5bfac20d3187ad"
+    },
+    {
+      "bytes": 1597,
+      "path": "docs/nba-gen2-production-readiness-v1/CLAUDE_HANDOFF.md",
+      "physicalSha256": "5e91da7bba3872cefe24346caec995ce1ee107bb5c5910214920ad03dbf23802"
+    },
+    {
+      "bytes": 637,
+      "path": "docs/nba-gen2-production-readiness-v1/EXCHANGE_RECEIPT.json",
+      "physicalSha256": "26139379af8d2241baa90e5b84905af2af2cf3fd2ee0718694ee385fb36da166"
+    },
+    {
+      "bytes": 6159,
+      "path": "docs/nba-gen2-production-readiness-v1/FEATURE_AUDIT.json",
+      "physicalSha256": "1cb7f905ad8c3c3d2787dd8f57343e8b23c91149eea56a4a654b26b6d03572ca"
+    },
+    {
+      "bytes": 4826,
+      "path": "docs/nba-gen2-production-readiness-v1/GEN2_STUDY_FREEZE.json",
+      "physicalSha256": "f700a434a34589c8558c6bb167323527b17664d52c1251a7fde4c697632aab1c"
+    },
+    {
+      "bytes": 2034,
+      "path": "docs/nba-gen2-production-readiness-v1/MODEL_CARD.md",
+      "physicalSha256": "caa59417448b5dca79dafbbb96115cebd2d0dfe158b3586c7a792561159a31d2"
+    },
+    {
+      "bytes": 4209,
+      "path": "docs/nba-gen2-production-readiness-v1/MODEL_RECEIPTS.json",
+      "physicalSha256": "e88ee52120b4ab82bb94cd7a986ef3aa4b36765e869ac7a7e2a161db3972c58f"
+    },
+    {
+      "bytes": 8394,
+      "path": "docs/nba-gen2-production-readiness-v1/POPULATION_AUDIT.json",
+      "physicalSha256": "1ccb3c5fae3e7e65db6ca203a4ca3a540b44901d49299378e5eb62ff66cb1b96"
+    },
+    {
+      "bytes": 969,
+      "path": "docs/nba-gen2-production-readiness-v1/PROSPECTIVE_CAPTURE_DESIGN.md",
+      "physicalSha256": "9e6dbe0415e2020ca05002452f85a8252b47e6d7ad5ce279261f29cc8f06c6bb"
+    },
+    {
+      "bytes": 6288,
+      "path": "docs/nba-gen2-production-readiness-v1/REPORT.md",
+      "physicalSha256": "adac094e0e5a48ce034391ed286e4d0b3e4e4309e4ce2e7ae552b242cac0f197"
+    },
+    {
+      "bytes": 2249,
+      "path": "docs/nba-gen2-production-readiness-v1/SOURCE_RIGHTS_DECISION.md",
+      "physicalSha256": "624e742145b10dc1d56c95cfc3a0d53bc762d8ab42c6fbb047827baca504c5dc"
+    }
+  ],
+  "implementationHead": "f66f6a397242648a279ae9fe8e03af005ca2314d",
+  "populationIdentitySha256": "dfb3216a9c7b520d8d6368d7d72eeb60c6566bfd1ea8811a27c9c419aaa74fa2",
+  "privateRetentionReceiptPhysicalSha256": "1e44ae9b6c374c69916bb8aaaabb862a675cb5b7937540b8348226e2880e0d42",
+  "privateStudyPath": "C:\\Users\\james\\asp-data-staging\\nba\\gen2-team-box-v1\\studies\\sha256\\4f95c4b039378659f3f7aa37645ebefb1ca765a375fac53495001bf33dbe75e0",
+  "schemaVersion": "nba-gen2-production-readiness-artifact-index-v1",
+  "selectedBaselineHandoff": {
+    "path": "C:\\Users\\james\\asp-model-exchange\\nba-production-baseline-v1\\handoffs\\sha256\\4b870c1ff2a4ff537b6533f46019cfc0212bc0e08bd7f7cbe2c6fad9aedf1b5c\\index.json",
+    "physicalSha256": "4b870c1ff2a4ff537b6533f46019cfc0212bc0e08bd7f7cbe2c6fad9aedf1b5c",
+    "status": "STAGED_INACTIVE_UNCHANGED"
+  }
+}

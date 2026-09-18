@@ -1,0 +1,110 @@
+[
+  {
+    "assessmentGames": 1080,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "e479f14a2535d27ec6b6ccdfb6a0bcc018a64c22c7eca387d2c181bc01da6d1e",
+    "physicalSha256": "13292fee0c5d54be7716dd7892d0b3436d0d1c9276cbc56e00ee55885a74d23c",
+    "targetSeason": 2021,
+    "trainingGames": 964
+  },
+  {
+    "assessmentGames": 1230,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "83bc58fd8c174dd024f4de474569756893f4587020b24ed2407ae694d2008ab9",
+    "physicalSha256": "817cf4122c16072ed37584639cbf6ef9731ee0bb2513d3c0c80aa2d83b3e047c",
+    "targetSeason": 2022,
+    "trainingGames": 2044
+  },
+  {
+    "assessmentGames": 1228,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "1f42def4e5f25a89a2d52795a697bc26ade724c151e22e5577ab0ce21f6a5e8e",
+    "physicalSha256": "4646a8beb89f580919fb2155bb4b9aee7fa874eacc176c7ec7b77f14957048ef",
+    "targetSeason": 2023,
+    "trainingGames": 3274
+  },
+  {
+    "assessmentGames": 1225,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "18aa75425fae27e87d02e46ac8ae0e232131ad350eb76df69ec0bdf0e7669816",
+    "physicalSha256": "4e538457ce09bb7f70425358783a48304dfde9576f4e8bc5893363cfb71bdf7e",
+    "targetSeason": 2024,
+    "trainingGames": 4502
+  },
+  {
+    "assessmentGames": 1220,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "e2831a5664dd03547d822d333b1220645918e45138ac6b7f0fc8f6ce955bbb49",
+    "physicalSha256": "c799bef5927f9611731398b4b10d0775c5c234e4670cd0ac5ad2a984552e56f5",
+    "targetSeason": 2025,
+    "trainingGames": 5727
+  },
+  {
+    "assessmentGames": 1225,
+    "bytes": 19360,
+    "configuration": "GEN2_RIDGE_A100_TEAM_BOX_V1",
+    "modelIdentity": "40bf56300cf4e02c6c42d77e556ab3ecb231aa2674fee626bbd1e4af351de2fd",
+    "physicalSha256": "e27790206848bc70ed01b20bc802b2b96abf90a984a61ce154a954a4f13e3e33",
+    "targetSeason": 2026,
+    "trainingGames": 6947
+  },
+  {
+    "assessmentGames": 1080,
+    "bytes": 1351566,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "849850780589aa9dfb2422f592e5b387c122b8444f6aa1719df06d5e295e099c",
+    "physicalSha256": "ede6dce78053570a0b5a5deb872171094427ed5713aac9ae84080ac7938aa41e",
+    "targetSeason": 2021,
+    "trainingGames": 964
+  },
+  {
+    "assessmentGames": 1230,
+    "bytes": 1364398,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "715d385a0e2692a216f0aea2cf472e8d0e9225ef17a67d8a1529f1d7e0edf35e",
+    "physicalSha256": "6594d4846ebb8dab93194ede05b1d85671bf167982c299c0d686e165c59edb07",
+    "targetSeason": 2022,
+    "trainingGames": 2044
+  },
+  {
+    "assessmentGames": 1228,
+    "bytes": 1367022,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "4f185fb09c0982ee59ffb9c1fb91d9d22e5f7d5ccb917565bdf52b2291f61bac",
+    "physicalSha256": "3454955f9fa42c0aa10526cd9304036bef745cb5c47ce071804fa6a0b8505a2b",
+    "targetSeason": 2023,
+    "trainingGames": 3274
+  },
+  {
+    "assessmentGames": 1225,
+    "bytes": 1368878,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "9f9053cf56c665ea47bf8fecc7c6392a3f5cd5dfb34fce34b1d0839154eb3a54",
+    "physicalSha256": "b37727fdd523a0f9a5aa543245753676cb72748805cc73879fcedd54d601ef93",
+    "targetSeason": 2024,
+    "trainingGames": 4502
+  },
+  {
+    "assessmentGames": 1220,
+    "bytes": 1370798,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "a07f48521c8e4b330b27a3beac101d33fa5e17a69316da0d1050c859033ae790",
+    "physicalSha256": "b25a050524fab4a87895d2265b0f3cd789fdf189479e5c9a7bd40fa2957a69f4",
+    "targetSeason": 2025,
+    "trainingGames": 5727
+  },
+  {
+    "assessmentGames": 1225,
+    "bytes": 1371054,
+    "configuration": "GEN2_HGB_L2_10_TEAM_BOX_V1",
+    "modelIdentity": "90d2cfdae95eaf4437fda40f583722cb8cb11151d28b37e2d096c2a5088cc374",
+    "physicalSha256": "18cd16c0b4cb97e0dd5bc716bf7e2c0455c51aedd1c8912fa8924b5c64fed2ac",
+    "targetSeason": 2026,
+    "trainingGames": 6947
+  }
+]

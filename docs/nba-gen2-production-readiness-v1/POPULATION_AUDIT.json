@@ -1,0 +1,222 @@
+{
+  "derivedMinutesRows": 20448,
+  "duplicateTeamGameKeys": 0,
+  "evidenceClass": "CATEGORY_A_RECONSTRUCTED_HISTORICAL_EVIDENCE",
+  "games": 10224,
+  "historicalVintageCertified": false,
+  "integrityQuarantineGameIds": [
+    "401704652"
+  ],
+  "integrityQuarantineRule": "Preserve raw bytes; exclude complete game before any feature-history update; never infer component stats from final score.",
+  "nonFranchiseExhibitionGameIds": [
+    "401098037",
+    "401098038",
+    "401197813",
+    "401197814",
+    "401306581",
+    "401410564",
+    "401524696",
+    "401623259",
+    "401752955",
+    "401752956",
+    "401752957",
+    "401838140",
+    "401838141",
+    "401838142",
+    "401838143"
+  ],
+  "nonFranchiseExhibitionRule": "Exclude non-NBA team codes before regular-season modeling even when source season_type is 2.",
+  "objects": [
+    {
+      "bytes": 152257,
+      "kind": "team_box",
+      "rows": 2628,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2019,
+      "sha256": "3f3f15ccfd1f676e0aaf5bfbdb8fd5cd69f9a21a4961cd4f6337d857593c788a"
+    },
+    {
+      "bytes": 136914,
+      "kind": "team_box",
+      "rows": 2290,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2020,
+      "sha256": "e96bec73056f08ce21bce63ca6d329fc1cf62d7229608d949bfce102df01b56a"
+    },
+    {
+      "bytes": 123317,
+      "kind": "team_box",
+      "rows": 2332,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2021,
+      "sha256": "56e59fe9062942933c708ae4ba2172ec4dda055de9c6a3409f0816ac363fdd58"
+    },
+    {
+      "bytes": 136075,
+      "kind": "team_box",
+      "rows": 2648,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2022,
+      "sha256": "f8185936836a81240d6f170ec7afeab47e3e736a718fe2c9f72999e681434b7f"
+    },
+    {
+      "bytes": 136082,
+      "kind": "team_box",
+      "rows": 2642,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2023,
+      "sha256": "b86bb087fe57eeeacead4e27965a20d1e67fdb39a3ee2ca36294a0b7d014e9b6"
+    },
+    {
+      "bytes": 135889,
+      "kind": "team_box",
+      "rows": 2640,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2024,
+      "sha256": "5e4d1b7a2ccc287f212f65888dcd674e370adec8a0e32d7ae0825eecacaaa8a9"
+    },
+    {
+      "bytes": 136502,
+      "kind": "team_box",
+      "rows": 2648,
+      "schemaFingerprint": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0",
+      "seasonEndYear": 2025,
+      "sha256": "f735bf3b743618e50987f3e3e296734e1dba43c450a21af848d7c34f23bf2aee"
+    },
+    {
+      "bytes": 140628,
+      "kind": "team_box",
+      "rows": 2652,
+      "schemaFingerprint": "a17878811f258382d41828d4379408d28aa54796912b03a436d1db746c361fa7",
+      "seasonEndYear": 2026,
+      "sha256": "db846dfb39b0f75eee50ad91b1b5b7a7a62dd31d3ec0bb066a0a3bb08e366f7e"
+    },
+    {
+      "bytes": 89329,
+      "kind": "schedule",
+      "rows": 1314,
+      "schemaFingerprint": "ab71c32e5ebe3403787cded7f3ab1a267f5aa433b31939d747587ca86e722742",
+      "seasonEndYear": 2019,
+      "sha256": "f00e6ac49c47ac34168f0b932fad74b0b17f03230b39e67eaf02424e3109eae3"
+    },
+    {
+      "bytes": 137301,
+      "kind": "schedule",
+      "rows": 1157,
+      "schemaFingerprint": "1b263f174c6d184bcc84bbd31260373df5d5cf480e3cc85f2815e5e6cb5be95e",
+      "seasonEndYear": 2020,
+      "sha256": "402485c4c3638838eade99aeba795bc0dda869c29089a5062baa28a34bd3b752"
+    },
+    {
+      "bytes": 130148,
+      "kind": "schedule",
+      "rows": 1204,
+      "schemaFingerprint": "522e1b733ad83a7abcd5c465b7dbd570672c9a48932ec98afc89a3d82e811ed0",
+      "seasonEndYear": 2021,
+      "sha256": "0c2eab5b22cc956646ac0351ddf6110d9527e46f4ee4d9200bf2945051688392"
+    },
+    {
+      "bytes": 140437,
+      "kind": "schedule",
+      "rows": 1335,
+      "schemaFingerprint": "ee2a569c8f9052cb63b369aae54a70795ecbbe07cfada58ba354a86c636745e5",
+      "seasonEndYear": 2022,
+      "sha256": "e3a764147f108c6fb3883eaa5617234ab41aa95e668dd7eb9506616c8a953d2f"
+    },
+    {
+      "bytes": 138092,
+      "kind": "schedule",
+      "rows": 1322,
+      "schemaFingerprint": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+      "seasonEndYear": 2023,
+      "sha256": "9532db81a254b2ea9982111fbea970bb61ea34b6aa3fc4607b2cad17ba55c60b"
+    },
+    {
+      "bytes": 143706,
+      "kind": "schedule",
+      "rows": 1322,
+      "schemaFingerprint": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+      "seasonEndYear": 2024,
+      "sha256": "2069783562b531b91ee9ad6a85358761ad6a611ce3291a60ed124bb978969b63"
+    },
+    {
+      "bytes": 151821,
+      "kind": "schedule",
+      "rows": 1329,
+      "schemaFingerprint": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+      "seasonEndYear": 2025,
+      "sha256": "239829fdcf99629ee682bca4d6d0a6709b3c095be39c39f425664754ae1a979e"
+    },
+    {
+      "bytes": 525802,
+      "kind": "schedule",
+      "rows": 1330,
+      "schemaFingerprint": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+      "seasonEndYear": 2026,
+      "sha256": "b3884aa4aa276d1fcafc71b69394675904a968902068bff634932e5d7afacae4"
+    }
+  ],
+  "opponentScoreFailures": 0,
+  "orphanOpponentJoins": 0,
+  "orphanScheduleRows": 0,
+  "otherExcludedGames": 31,
+  "overtimeGames": 537,
+  "overtimePeriodEvidenceRows": 520,
+  "playoffGames": 672,
+  "populationIdentitySha256": "dfb3216a9c7b520d8d6368d7d72eeb60c6566bfd1ea8811a27c9c419aaa74fa2",
+  "regularSeasonGames": 9521,
+  "schemaBySeason": {
+    "2019": {
+      "schedule": "ab71c32e5ebe3403787cded7f3ab1a267f5aa433b31939d747587ca86e722742",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2020": {
+      "schedule": "1b263f174c6d184bcc84bbd31260373df5d5cf480e3cc85f2815e5e6cb5be95e",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2021": {
+      "schedule": "522e1b733ad83a7abcd5c465b7dbd570672c9a48932ec98afc89a3d82e811ed0",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2022": {
+      "schedule": "ee2a569c8f9052cb63b369aae54a70795ecbbe07cfada58ba354a86c636745e5",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2023": {
+      "schedule": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2024": {
+      "schedule": "20e687be47cb44d5b050661e2da43c09802c8d54e0e97a961ad618931cbedfed",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2025": {
+      "schedule": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+      "team_box": "dc3ee2accb150b7321fde94feeec7f90a9c8fc51905c8af3941e205fb9b53de0"
+    },
+    "2026": {
+      "schedule": "cc7dc087657ad93cd73c95e22c210e91ddabf3790d0d74bc00812c49eac24f29",
+      "team_box": "a17878811f258382d41828d4379408d28aa54796912b03a436d1db746c361fa7"
+    }
+  },
+  "schemaVersion": "nba-gen2-team-box-population-audit-v1",
+  "scoreFormulaFailures": 2,
+  "sourceContentIdentitySha256": "d83dd021781f324788786b10cc720fb5b8f16d3c379fa3bdd2745f191b167912",
+  "sourceReceiptPhysicalSha256": "6b782c6eef517cfed50bc5f6044ab36a60f3cac502127005b751b90b6875a9b8",
+  "teamRows": 20448,
+  "totalReboundIdentity": {
+    "componentDefinition": "offensive_rebounds + defensive_rebounds",
+    "definition": "source-defined total_rebounds preserved separately; no equality requirement",
+    "differentRows": 5459,
+    "equalRows": 14989,
+    "featureUse": "OREB and DREB directly; total_rebounds excluded from four-factor features",
+    "maximumDifference": 24.0,
+    "medianDifference": 0.0,
+    "minimumDifference": 0.0,
+    "seasonsWithDifferences": [
+      2019,
+      2020,
+      2021
+    ]
+  }
+}
