@@ -6,12 +6,13 @@ from .lifecycle import read_ref,now,object_json,owner_lock,tick,atomic_json
 from .inputs import admit,validate_bundle
 from .render import render,verify_package
 from .final_evidence import publish_final_evidence
+from .paper_eligibility import publish_eligible
 
 
 def invoke(*,release_ref,input_pointer,state_root,exchange_root,capture_pointer=None,
            clock=now,renderer=render,verifier=verify_package,bundle_validator=validate_bundle,
            admitter=admit,fault=None,enable_network=False,grant_ref=None,transport_factory=None,
-           capturer=None,final_exporter=publish_final_evidence):
+           capturer=None,final_exporter=publish_final_evidence,paper_publisher=publish_eligible):
     state=Path(state_root)
     ident=uuid.uuid4().hex
     result={'schema':'CFB_GEN1_OWNER_RECEIPT_V1','invocationId':ident,'startedAtUtc':clock(),
@@ -102,6 +103,19 @@ def invoke(*,release_ref,input_pointer,state_root,exchange_root,capture_pointer=
                     capture_pointer=capture_pointer,clock=clock)
                 phase('final-evidence',exported['disposition'],evidence=exported)
                 result['finalResultEvidence']=exported
+            if release.get('paperEligibilityAuthorization'):
+                if not runner.get('discovery'):
+                    phase('paper-eligibility','SKIPPED_NO_CURRENT_DISCOVERY')
+                else:
+                    paper=paper_publisher(discovery_ref=runner['discovery'],release_ref=release_ref,
+                        grant_ref=release['paperEligibilityAuthorization'],
+                        exchange_family_root=Path(exchange_root).resolve().parent/'cfb-gen1-research-v1',
+                        output_root=state/'paper-eligibility',clock=clock)
+                    phase('paper-eligibility','PARTIAL_FAILURE' if paper['exitCode'] else 'VERIFIED',
+                        evidence=paper['receipt'],publishedCount=paper['publishedCount'],reusedCount=paper['reusedCount'])
+                    result['paperEligibility']=paper['receipt']
+                    if paper['exitCode']:
+                        result.update(disposition='PARTIAL_FAILURE',exitCode=1)
     except Exception as exc:
         phase('failure','FAILED_CLOSED',reason=str(exc),errorType=type(exc).__name__)
         result.update(disposition='FAILED_CLOSED',exitCode=1,reason=str(exc))

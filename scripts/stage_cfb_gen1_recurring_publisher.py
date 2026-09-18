@@ -51,8 +51,9 @@ def main():
             or paper.get('realMoneyAuthorized') is not False):
             raise ValueError('Exact virtual-only paper extension grant required')
     # Every path here is reviewed executable source, not raw data or credentials.
-    names=['__init__.py','pipeline.py','current.py','publication_io.py','identities.py','inputs.py','lifecycle.py','render.py','owner.py','capture.py','refresh.py','final_evidence.py']
+    names=['__init__.py','pipeline.py','current.py','publication_io.py','identities.py','inputs.py','lifecycle.py','render.py','owner.py','capture.py','refresh.py','final_evidence.py','paper_eligibility.py']
     paths=[source/'server/__init__.py']+[source/'server/sports_cfb_gen1'/n for n in names]
+    paths += [source/'server/sports_shared'/n for n in ('__init__.py','contracts.py','paper_research_eligibility.py')]
     paths += [source/'scripts'/n for n in ('run_cfb_gen1_slate_publisher.py','invoke_cfb_gen1_slate_publisher.ps1','install_cfb_gen1_slate_publisher.ps1')]
     members=[dict(relativePath=x.relative_to(source).as_posix(),sha256=reference(x)['sha256'],bytes=x.stat().st_size) for x in paths]
     members.append(dict(relativePath='configuration/REFRESH_PLAN.json',sha256=plan_ref['sha256'],bytes=plan_ref['bytes']))
