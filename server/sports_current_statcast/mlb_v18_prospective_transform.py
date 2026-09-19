@@ -62,12 +62,47 @@ class ProspectiveFrameAuthority:
             raise ProspectiveAuthorityError("Only the real post-Final-OOT event date is authorized")
 
 
+@dataclass(frozen=True)
+class HistoricalReplayFrameAuthority:
+    """Permit exact archived pregame inputs only for a labeled replay after kickoff."""
+
+    event_id: str
+    game_date: str
+    evidence_cutoff_utc: str
+    captured_at_utc: str
+    original_forecast_created_at_utc: str
+    kickoff_utc: str
+    snapshot_sha256: str
+    replay_authorized_at_utc: str
+    venue_timezone: str
+    purpose: str = "HISTORICAL_REPLAY_ONLY"
+
+    def validate(self) -> None:
+        cutoff = _utc(self.evidence_cutoff_utc)
+        captured = _utc(self.captured_at_utc)
+        forecast = _utc(self.original_forecast_created_at_utc)
+        kickoff = _utc(self.kickoff_utc)
+        authorized = _utc(self.replay_authorized_at_utc)
+        now = datetime.now(timezone.utc)
+        if (self.purpose != "HISTORICAL_REPLAY_ONLY" or not self.event_id
+                or re.fullmatch(r"[0-9a-f]{64}", self.snapshot_sha256) is None):
+            raise ProspectiveAuthorityError("Exact archived replay identity and snapshot SHA-256 required")
+        if not cutoff <= captured <= forecast < kickoff <= authorized <= now:
+            raise ProspectiveAuthorityError("Historical replay requires an archived pregame forecast and post-start authorization")
+        try:
+            expected_date = kickoff.astimezone(ZoneInfo(self.venue_timezone)).date().isoformat()
+        except (ValueError, KeyError) as exc:
+            raise ProspectiveAuthorityError("Explicit valid venue timezone required") from exc
+        if self.game_date != expected_date or self.game_date <= "2026-08-27":
+            raise ProspectiveAuthorityError("Historical replay must retain its real post-Final-OOT event date")
+
+
 def has_prospective_authority(frame: pd.DataFrame) -> bool:
     """Validate metadata/date/identities before any numerical payload access."""
     authority = frame.attrs.get(ATTR)
     if authority is None:
         return False
-    if not isinstance(authority, ProspectiveFrameAuthority):
+    if not isinstance(authority, (ProspectiveFrameAuthority, HistoricalReplayFrameAuthority)):
         raise ProspectiveAuthorityError("An explicit typed prospective authority is required")
     authority.validate()
     forbidden = [str(name) for name in frame.columns if str(name).lower() in {
@@ -85,7 +120,7 @@ def has_prospective_authority(frame: pd.DataFrame) -> bool:
     return True
 
 
-def authorize_frame(frame: pd.DataFrame, authority: ProspectiveFrameAuthority) -> pd.DataFrame:
+def authorize_frame(frame: pd.DataFrame, authority: ProspectiveFrameAuthority | HistoricalReplayFrameAuthority) -> pd.DataFrame:
     """Attach authorization without rewriting any date, identity or feature."""
     result = frame.copy()
     existing = result.attrs.get(ATTR)
